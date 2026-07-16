@@ -468,6 +468,15 @@ function ShopifyDataView({
   const authorizedScopes = new Set(overview.authorized_scopes);
   const authorizedCatalog = overview.scope_catalog.filter((item) => authorizedScopes.has(item.scope));
   const pendingCatalog = overview.scope_catalog.filter((item) => !authorizedScopes.has(item.scope));
+  const activeDatasets = overview.datasets.filter((dataset) => dataset.status === "active");
+  const plannedDatasets = overview.datasets.filter((dataset) => dataset.status === "planned");
+  const authorizedPlannedDatasets = plannedDatasets.filter((dataset) =>
+    dataset.scopes.some((scope) => authorizedScopes.has(scope)),
+  );
+  const notAuthorizedPlannedDatasets = plannedDatasets.filter(
+    (dataset) => !dataset.scopes.some((scope) => authorizedScopes.has(scope)),
+  );
+  const activeRecordCount = activeDatasets.reduce((total, dataset) => total + dataset.count, 0);
 
   return (
     <div className="space-y-5">
@@ -532,6 +541,80 @@ function ShopifyDataView({
           </button>
         </div>
         {syncError ? <p className="mt-3 text-sm text-[#b5121b]">{syncError}</p> : null}
+      </section>
+
+      <section className="rounded-md border border-[#d8d8d8] bg-white">
+        <div className="border-b border-[#e2e2e2] px-4 py-3">
+          <h3 className="font-medium">Alcance de sincronizacion</h3>
+          <p className="mt-1 text-sm text-[#5f5f5f]">
+            Separacion exacta entre bloques que se vuelcan hoy, bloques autorizados pendientes de modelo y permisos que aun no ha concedido la tienda.
+          </p>
+        </div>
+        <div className="grid gap-0 md:grid-cols-4">
+          <article className="border-b border-[#e2e2e2] p-4 md:border-r">
+            <p className="text-sm text-[#5f5f5f]">Se vuelcan ahora</p>
+            <p className="mt-2 font-mono text-2xl">{activeDatasets.length}</p>
+            <p className="mt-1 text-xs text-[#5f5f5f]">{activeRecordCount} registros</p>
+          </article>
+          <article className="border-b border-[#e2e2e2] p-4 md:border-r">
+            <p className="text-sm text-[#5f5f5f]">Autorizados pendientes</p>
+            <p className="mt-2 font-mono text-2xl">{authorizedPlannedDatasets.length}</p>
+            <p className="mt-1 text-xs text-[#5f5f5f]">requieren tabla e ingesta</p>
+          </article>
+          <article className="border-b border-[#e2e2e2] p-4 md:border-r">
+            <p className="text-sm text-[#5f5f5f]">Sin permiso</p>
+            <p className="mt-2 font-mono text-2xl">{notAuthorizedPlannedDatasets.length}</p>
+            <p className="mt-1 text-xs text-[#5f5f5f]">requieren reautorizacion</p>
+          </article>
+          <article className="border-b border-[#e2e2e2] p-4">
+            <p className="text-sm text-[#5f5f5f]">Permisos concedidos</p>
+            <p className="mt-2 font-mono text-2xl">{overview.authorized_scopes.length}</p>
+            <p className="mt-1 text-xs text-[#5f5f5f]">scopes Shopify</p>
+          </article>
+        </div>
+        <div className="grid gap-0 lg:grid-cols-3">
+          <div className="border-b border-[#e2e2e2] p-4 lg:border-r">
+            <h4 className="font-medium">Volcado activo</h4>
+            <div className="mt-3 space-y-2">
+              {activeDatasets.map((dataset) => (
+                <div key={dataset.key} className="flex items-center justify-between gap-3 text-sm">
+                  <span>{dataset.label}</span>
+                  <span className="font-mono text-[#5f5f5f]">{dataset.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="border-b border-[#e2e2e2] p-4 lg:border-r">
+            <h4 className="font-medium">Autorizado, no modelado</h4>
+            <div className="mt-3 space-y-2">
+              {authorizedPlannedDatasets.length ? (
+                authorizedPlannedDatasets.map((dataset) => (
+                  <div key={dataset.key} className="text-sm">
+                    <p>{dataset.label}</p>
+                    <p className="font-mono text-xs text-[#dc1f26]">{dataset.scopes.join(", ")}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-[#5f5f5f]">No hay bloques autorizados pendientes para esta tienda.</p>
+              )}
+            </div>
+          </div>
+          <div className="border-b border-[#e2e2e2] p-4">
+            <h4 className="font-medium">Requiere permiso</h4>
+            <div className="mt-3 space-y-2">
+              {notAuthorizedPlannedDatasets.length ? (
+                notAuthorizedPlannedDatasets.map((dataset) => (
+                  <div key={dataset.key} className="text-sm">
+                    <p>{dataset.label}</p>
+                    <p className="font-mono text-xs text-[#5f5f5f]">{dataset.scopes.join(", ")}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-[#5f5f5f]">La tienda ha concedido todos los permisos del mapa actual.</p>
+              )}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-md border border-[#d8d8d8] bg-white">
@@ -739,7 +822,7 @@ function ShopifyDataView({
         <div className="border-b border-[#e2e2e2] px-4 py-3">
           <h3 className="font-medium">Estado por bloque de sincronizacion</h3>
           <p className="mt-1 text-sm text-[#5f5f5f]">
-            Cada bloque (catalogo, inventario, pedidos, reembolsos) se sincroniza y falla de forma independiente.
+            Cada bloque (catalogo, inventario, pedidos, reembolsos y clientes) se sincroniza y falla de forma independiente.
           </p>
         </div>
         <div className="grid gap-0 md:grid-cols-2 xl:grid-cols-4">

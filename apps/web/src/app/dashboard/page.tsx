@@ -15,6 +15,16 @@ type ShopifyConnection = {
 type ShopifyOverviewLite = {
   connections: ShopifyConnection[];
   selected_connection_id: string | null;
+  authorized_scopes: string[];
+  datasets: Array<{
+    key: string;
+    label: string;
+    table: string | null;
+    description: string;
+    status: "active" | "planned";
+    scopes: string[];
+    count: number;
+  }>;
 };
 
 const modules = [
@@ -28,6 +38,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     bootstrap.memberships[0]?.organization_id ?? "",
   );
   const [shopifyConnections, setShopifyConnections] = useState<ShopifyConnection[]>([]);
+  const [shopifyOverview, setShopifyOverview] = useState<ShopifyOverviewLite | null>(null);
   const [isLoadingStores, setIsLoadingStores] = useState(false);
 
   const organization =
@@ -46,8 +57,10 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       if (response.ok) {
         const payload = (await response.json()) as ShopifyOverviewLite;
         setShopifyConnections(payload.connections ?? []);
+        setShopifyOverview(payload);
       } else {
         setShopifyConnections([]);
+        setShopifyOverview(null);
       }
 
       setIsLoadingStores(false);
@@ -84,6 +97,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             onChange={(event) => {
               setSelectedOrganizationId(event.target.value);
               setShopifyConnections([]);
+              setShopifyOverview(null);
             }}
           >
             {bootstrap.memberships.map((membership) => (
@@ -93,6 +107,106 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ))}
           </select>
         </label>
+      </section>
+
+      <section className="rounded-md border border-[#d8d8d8] bg-white">
+        <div className="border-b border-[#e2e2e2] px-4 py-3">
+          <h3 className="font-medium">Cobertura Shopify</h3>
+          <p className="mt-1 text-sm text-[#5f5f5f]">
+            Estado real de lo que EcomScaling guarda hoy frente a lo que la tienda puede autorizar.
+          </p>
+        </div>
+        {shopifyOverview ? (
+          <>
+            <div className="grid gap-0 md:grid-cols-4">
+              <article className="border-b border-[#e2e2e2] p-4 md:border-r">
+                <p className="text-sm text-[#5f5f5f]">Bloques guardando datos</p>
+                <p className="mt-2 font-mono text-2xl">
+                  {shopifyOverview.datasets.filter((dataset) => dataset.status === "active").length}
+                </p>
+              </article>
+              <article className="border-b border-[#e2e2e2] p-4 md:border-r">
+                <p className="text-sm text-[#5f5f5f]">Registros visibles</p>
+                <p className="mt-2 font-mono text-2xl">
+                  {shopifyOverview.datasets
+                    .filter((dataset) => dataset.status === "active")
+                    .reduce((total, dataset) => total + dataset.count, 0)}
+                </p>
+              </article>
+              <article className="border-b border-[#e2e2e2] p-4 md:border-r">
+                <p className="text-sm text-[#5f5f5f]">Autorizado pendiente</p>
+                <p className="mt-2 font-mono text-2xl">
+                  {shopifyOverview.datasets.filter(
+                    (dataset) =>
+                      dataset.status === "planned" &&
+                      dataset.scopes.some((scope) => shopifyOverview.authorized_scopes.includes(scope)),
+                  ).length}
+                </p>
+              </article>
+              <article className="border-b border-[#e2e2e2] p-4">
+                <p className="text-sm text-[#5f5f5f]">Sin permiso concedido</p>
+                <p className="mt-2 font-mono text-2xl">
+                  {shopifyOverview.datasets.filter(
+                    (dataset) =>
+                      dataset.status === "planned" &&
+                      !dataset.scopes.some((scope) => shopifyOverview.authorized_scopes.includes(scope)),
+                  ).length}
+                </p>
+              </article>
+            </div>
+            <div className="grid gap-0 lg:grid-cols-3">
+              {shopifyOverview.datasets.map((dataset) => {
+                const hasAuthorizedScope = dataset.scopes.some((scope) =>
+                  shopifyOverview.authorized_scopes.includes(scope),
+                );
+                const label =
+                  dataset.status === "active"
+                    ? "se vuelca"
+                    : hasAuthorizedScope
+                      ? "autorizado pendiente"
+                      : "requiere permiso";
+
+                return (
+                  <article key={dataset.key} className="border-b border-[#e2e2e2] p-4 lg:border-r">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="font-medium">{dataset.label}</h4>
+                        <p className="mt-1 font-mono text-xs text-[#5f5f5f]">
+                          {dataset.table ?? "pendiente_modelo"}
+                        </p>
+                      </div>
+                      <span
+                        className={[
+                          "rounded-sm border px-2 py-1 text-xs",
+                          dataset.status === "active"
+                            ? "border-black bg-black text-white"
+                            : hasAuthorizedScope
+                              ? "border-[#dc1f26] text-[#dc1f26]"
+                              : "border-[#d8d8d8] text-[#5f5f5f]",
+                        ].join(" ")}
+                      >
+                        {label}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-[#5f5f5f]">{dataset.description}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {dataset.scopes.map((scope) => (
+                        <span key={scope} className="rounded-sm bg-[#f5f5f5] px-2 py-1 font-mono text-xs">
+                          {scope}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="mt-3 font-mono text-sm">{dataset.count} registros</p>
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="p-4 text-sm text-[#5f5f5f]">
+            Conecta una tienda Shopify para ver la cobertura de datos disponible.
+          </div>
+        )}
       </section>
 
       <section className="rounded-md border border-[#d8d8d8] bg-white">
