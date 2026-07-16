@@ -54,6 +54,16 @@ export type AuthContextError = {
   detail?: string;
 };
 
+export type AuthContextResult =
+  | { ok: true; context: AuthContext }
+  | { ok: false; error: AuthContextError };
+
+export function isAuthContextError(
+  result: AuthContextResult,
+): result is { ok: false; error: AuthContextError } {
+  return result.ok === false;
+}
+
 const realtimeTransport =
   WebSocket as unknown as NonNullable<
     NonNullable<SupabaseClientOptions<"public">["realtime"]>["transport"]
@@ -143,7 +153,7 @@ async function loadMemberships(supabase: SupabaseClient, userId: string) {
 export async function resolveAuthContext(
   env: ApiEnv,
   authorization: string | undefined,
-): Promise<{ ok: true; context: AuthContext } | { ok: false; error: AuthContextError }> {
+): Promise<AuthContextResult> {
   if (!authorization?.startsWith("Bearer ")) {
     return {
       ok: false,

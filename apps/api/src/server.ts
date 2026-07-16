@@ -5,7 +5,11 @@ import { healthResponseSchema } from "@ecomscaling/contracts";
 import { createLogger } from "@ecomscaling/observability";
 import { listAccountActions } from "./actions.js";
 import { listConsultantOrganizations } from "./consultant.js";
-import { resolveAuthContext } from "./auth-context.js";
+import {
+  isAuthContextError,
+  resolveAuthContext,
+  type AuthContextError,
+} from "./auth-context.js";
 import { listIntegrations } from "./integrations.js";
 import { createShopifyConnectionAuthUrl, handleShopifyOAuthCallback, triggerShopifySync } from "./shopify.js";
 import { getShopifyOverview } from "./shopify-overview.js";
@@ -15,6 +19,27 @@ import { reconcileAllShopifyConnections } from "./shopify-reconcile.js";
 import { listProductCosts, upsertProductCost } from "./shopify-product-costs.js";
 
 const logger = createLogger("api");
+
+function sendAuthFailure(reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }, error: AuthContextError) {
+  return reply.code(error.statusCode).send(error);
+}
+
+type ServiceFailure = {
+  ok: false;
+  statusCode: number;
+  [key: string]: unknown;
+};
+
+function isServiceFailure(result: { ok: boolean }): result is ServiceFailure {
+  return result.ok === false;
+}
+
+function sendServiceFailure(
+  reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } },
+  result: ServiceFailure,
+) {
+  return reply.code(result.statusCode).send(result);
+}
 
 export async function buildApp(): Promise<FastifyInstance> {
   const env = loadApiEnv(process.env);
@@ -40,8 +65,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/v1/bootstrap", async (request, reply) => {
   const result = await resolveAuthContext(env, request.headers.authorization);
 
-  if (result.ok === false) {
-    return reply.code(result.error.statusCode).send(result.error);
+  if (isAuthContextError(result)) {
+    return sendAuthFailure(reply, result.error);
   }
 
   return result.context;
@@ -50,8 +75,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/v1/actions", async (request, reply) => {
   const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (auth.ok === false) {
-    return reply.code(auth.error.statusCode).send(auth.error);
+  if (isAuthContextError(auth)) {
+    return sendAuthFailure(reply, auth.error);
   }
 
   const authorization = request.headers.authorization;
@@ -62,8 +87,8 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   const result = await listAccountActions(env, authorization, auth.context);
 
-  if (result.ok === false) {
-    return reply.code(result.statusCode).send(result);
+  if (isServiceFailure(result)) {
+    return sendServiceFailure(reply, result);
   }
 
   return result.data;
@@ -72,8 +97,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/v1/consultant/organizations", async (request, reply) => {
   const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (auth.ok === false) {
-    return reply.code(auth.error.statusCode).send(auth.error);
+  if (isAuthContextError(auth)) {
+    return sendAuthFailure(reply, auth.error);
   }
 
   const authorization = request.headers.authorization;
@@ -84,8 +109,8 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   const result = await listConsultantOrganizations(env, authorization, auth.context);
 
-  if (result.ok === false) {
-    return reply.code(result.statusCode).send(result);
+  if (isServiceFailure(result)) {
+    return sendServiceFailure(reply, result);
   }
 
   return result.data;
@@ -96,8 +121,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (auth.ok === false) {
-      return reply.code(auth.error.statusCode).send(auth.error);
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
     }
 
     const authorization = request.headers.authorization;
@@ -113,8 +138,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.params.organizationId,
     );
 
-    if (result.ok === false) {
-      return reply.code(result.statusCode).send(result);
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
     }
 
     return result.data;
@@ -126,8 +151,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (auth.ok === false) {
-      return reply.code(auth.error.statusCode).send(auth.error);
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
     }
 
     const authorization = request.headers.authorization;
@@ -143,8 +168,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.params.organizationId,
     );
 
-    if (result.ok === false) {
-      return reply.code(result.statusCode).send(result);
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
     }
 
     return result.data;
@@ -156,8 +181,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (auth.ok === false) {
-      return reply.code(auth.error.statusCode).send(auth.error);
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
     }
 
     const authorization = request.headers.authorization;
@@ -174,8 +199,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.query.days,
     );
 
-    if (result.ok === false) {
-      return reply.code(result.statusCode).send(result);
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
     }
 
     return result.data;
@@ -187,8 +212,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (auth.ok === false) {
-      return reply.code(auth.error.statusCode).send(auth.error);
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
     }
 
     const authorization = request.headers.authorization;
@@ -199,8 +224,8 @@ export async function buildApp(): Promise<FastifyInstance> {
 
     const result = await listProductCosts(env, authorization, auth.context, request.params.organizationId);
 
-    if (result.ok === false) {
-      return reply.code(result.statusCode).send(result);
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
     }
 
     return result.data;
@@ -213,14 +238,14 @@ export async function buildApp(): Promise<FastifyInstance> {
 }>("/v1/organizations/:organizationId/shopify/product-costs", async (request, reply) => {
   const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (auth.ok === false) {
-    return reply.code(auth.error.statusCode).send(auth.error);
+  if (isAuthContextError(auth)) {
+    return sendAuthFailure(reply, auth.error);
   }
 
   const result = await upsertProductCost(env, auth.context, request.params.organizationId, request.body);
 
-  if (result.ok === false) {
-    return reply.code(result.statusCode).send(result);
+  if (isServiceFailure(result)) {
+    return sendServiceFailure(reply, result);
   }
 
   return reply.code(201).send(result.data);
@@ -231,8 +256,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (auth.ok === false) {
-      return reply.code(auth.error.statusCode).send(auth.error);
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
     }
 
     if (!request.body?.shopDomain) {
@@ -246,8 +271,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.body.shopDomain,
     );
 
-    if (result.ok === false) {
-      return reply.code(result.statusCode).send(result);
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
     }
 
     return result.data;
@@ -259,14 +284,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (auth.ok === false) {
-      return reply.code(auth.error.statusCode).send(auth.error);
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
     }
 
     const result = await triggerShopifySync(env, auth.context, request.params.organizationId);
 
-    if (result.ok === false) {
-      return reply.code(result.statusCode).send(result);
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
     }
 
     return reply.code(202).send(result.data);
@@ -279,8 +304,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     request.query as Record<string, string | string[] | undefined>,
   );
 
-  if (result.ok === false) {
-    return reply.code(result.statusCode).send(result);
+  if (isServiceFailure(result)) {
+    return sendServiceFailure(reply, result);
   }
 
   return reply.redirect(result.data.redirectUrl);
