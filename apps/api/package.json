@@ -11,6 +11,9 @@
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"
   },
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "@ecomscaling/config": "0.1.0",
     "@ecomscaling/contracts": "0.1.0",

@@ -73,7 +73,7 @@ export async function upsertProductCost(
   input: UpsertCostInput,
 ) {
   const authz = assertCanManage(context, organizationId);
-  if (!authz.ok) {
+  if (authz.ok === false) {
     return authz;
   }
 

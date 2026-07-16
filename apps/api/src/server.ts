@@ -40,7 +40,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/v1/bootstrap", async (request, reply) => {
   const result = await resolveAuthContext(env, request.headers.authorization);
 
-  if (!result.ok) {
+  if (result.ok === false) {
     return reply.code(result.error.statusCode).send(result.error);
   }
 
@@ -50,7 +50,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/v1/actions", async (request, reply) => {
   const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return reply.code(auth.error.statusCode).send(auth.error);
   }
 
@@ -62,7 +62,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   const result = await listAccountActions(env, authorization, auth.context);
 
-  if (!result.ok) {
+  if (result.ok === false) {
     return reply.code(result.statusCode).send(result);
   }
 
@@ -72,7 +72,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/v1/consultant/organizations", async (request, reply) => {
   const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return reply.code(auth.error.statusCode).send(auth.error);
   }
 
@@ -84,7 +84,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   const result = await listConsultantOrganizations(env, authorization, auth.context);
 
-  if (!result.ok) {
+  if (result.ok === false) {
     return reply.code(result.statusCode).send(result);
   }
 
@@ -96,7 +96,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (!auth.ok) {
+    if (auth.ok === false) {
       return reply.code(auth.error.statusCode).send(auth.error);
     }
 
@@ -113,7 +113,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.params.organizationId,
     );
 
-    if (!result.ok) {
+    if (result.ok === false) {
       return reply.code(result.statusCode).send(result);
     }
 
@@ -126,7 +126,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (!auth.ok) {
+    if (auth.ok === false) {
       return reply.code(auth.error.statusCode).send(auth.error);
     }
 
@@ -143,7 +143,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.params.organizationId,
     );
 
-    if (!result.ok) {
+    if (result.ok === false) {
       return reply.code(result.statusCode).send(result);
     }
 
@@ -156,7 +156,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (!auth.ok) {
+    if (auth.ok === false) {
       return reply.code(auth.error.statusCode).send(auth.error);
     }
 
@@ -174,7 +174,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.query.days,
     );
 
-    if (!result.ok) {
+    if (result.ok === false) {
       return reply.code(result.statusCode).send(result);
     }
 
@@ -187,7 +187,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (!auth.ok) {
+    if (auth.ok === false) {
       return reply.code(auth.error.statusCode).send(auth.error);
     }
 
@@ -199,7 +199,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
     const result = await listProductCosts(env, authorization, auth.context, request.params.organizationId);
 
-    if (!result.ok) {
+    if (result.ok === false) {
       return reply.code(result.statusCode).send(result);
     }
 
@@ -213,13 +213,13 @@ export async function buildApp(): Promise<FastifyInstance> {
 }>("/v1/organizations/:organizationId/shopify/product-costs", async (request, reply) => {
   const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return reply.code(auth.error.statusCode).send(auth.error);
   }
 
   const result = await upsertProductCost(env, auth.context, request.params.organizationId, request.body);
 
-  if (!result.ok) {
+  if (result.ok === false) {
     return reply.code(result.statusCode).send(result);
   }
 
@@ -231,7 +231,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (!auth.ok) {
+    if (auth.ok === false) {
       return reply.code(auth.error.statusCode).send(auth.error);
     }
 
@@ -246,7 +246,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       request.body.shopDomain,
     );
 
-    if (!result.ok) {
+    if (result.ok === false) {
       return reply.code(result.statusCode).send(result);
     }
 
@@ -259,13 +259,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (!auth.ok) {
+    if (auth.ok === false) {
       return reply.code(auth.error.statusCode).send(auth.error);
     }
 
     const result = await triggerShopifySync(env, auth.context, request.params.organizationId);
 
-    if (!result.ok) {
+    if (result.ok === false) {
       return reply.code(result.statusCode).send(result);
     }
 
@@ -279,7 +279,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     request.query as Record<string, string | string[] | undefined>,
   );
 
-  if (!result.ok) {
+  if (result.ok === false) {
     return reply.code(result.statusCode).send(result);
   }
 
