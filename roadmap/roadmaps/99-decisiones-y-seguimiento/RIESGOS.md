@@ -8,3 +8,4 @@
 | Fallo multi-tenant/RLS. | Incidente critico de privacidad. | Tests A/B desde DB-02 y SQO-00. | Activo |
 | Automatizacion autonoma prematura. | Acciones incorrectas sobre negocio real. | Borradores y aprobacion humana hasta quality gates. | Activo |
 
+j
