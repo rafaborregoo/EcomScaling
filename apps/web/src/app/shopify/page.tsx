@@ -17,6 +17,13 @@ type ShopifyOverview = {
     last_sync_at: string | null;
     last_error_message: string | null;
   } | null;
+  connections: Array<{
+    id: string;
+    provider_account_name: string | null;
+    provider_account_id: string | null;
+    status: string;
+  }>;
+  selected_connection_id: string | null;
   authorized_scopes: string[];
   scope_catalog: Array<{
     scope: string;
@@ -104,6 +111,8 @@ type ShopifyOverview = {
 
 type ShopifyMetrics = {
   organization_id: string;
+  selected_connection_id: string | null;
+  store_id: string | null;
   period: { days: number | "all"; start: string | null; end: string };
   sales: {
     orders_count: number;
@@ -228,9 +237,11 @@ function ShopifyDataView({
   token: string;
 }) {
   const [selectedOrganizationId, setSelectedOrganizationId] = useState(
-    bootstrap.memberships[0]?.organization?.id ?? "",
+    bootstrap.memberships[0]?.organization_id ?? "",
   );
   const [overview, setOverview] = useState<ShopifyOverview | null>(null);
+  const [selectedConnectionId, setSelectedConnectionId] = useState("");
+  const [hasAppliedUrlSelection, setHasAppliedUrlSelection] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -263,7 +274,10 @@ function ShopifyDataView({
     }
     setError(null);
 
-    const response = await apiFetch(`/v1/organizations/${organization.id}/shopify/overview`);
+    const connectionParam = selectedConnectionId
+      ? `?connectionId=${encodeURIComponent(selectedConnectionId)}`
+      : "";
+    const response = await apiFetch(`/v1/organizations/${organization.id}/shopify/overview${connectionParam}`);
 
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as
@@ -291,7 +305,12 @@ function ShopifyDataView({
 
     setMetricsError(null);
 
-    const response = await apiFetch(`/v1/organizations/${organization.id}/shopify/metrics?days=${periodDays}`);
+    const params = new URLSearchParams({ days: String(periodDays) });
+    if (selectedConnectionId) {
+      params.set("connectionId", selectedConnectionId);
+    }
+
+    const response = await apiFetch(`/v1/organizations/${organization.id}/shopify/metrics?${params.toString()}`);
 
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as
@@ -348,7 +367,10 @@ function ShopifyDataView({
     setIsSyncing(true);
     setSyncError(null);
 
-    const response = await apiFetch(`/v1/organizations/${organization.id}/shopify/sync`, {
+    const connectionParam = selectedConnectionId
+      ? `?connectionId=${encodeURIComponent(selectedConnectionId)}`
+      : "";
+    const response = await apiFetch(`/v1/organizations/${organization.id}/shopify/sync${connectionParam}`, {
       method: "POST",
     });
 
@@ -371,11 +393,41 @@ function ShopifyDataView({
 
   useEffect(() => {
     void loadOverview({ initial: true });
-  }, [organization?.id, token]);
+  }, [organization?.id, selectedConnectionId, token]);
+
+  useEffect(() => {
+    if (hasAppliedUrlSelection || typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const organizationId = params.get("organizationId");
+    const connectionId = params.get("connectionId");
+
+    if (organizationId && bootstrap.memberships.some((membership) => membership.organization_id === organizationId)) {
+      setSelectedOrganizationId(organizationId);
+    }
+
+    if (connectionId) {
+      setSelectedConnectionId(connectionId);
+    }
+
+    setHasAppliedUrlSelection(true);
+  }, [bootstrap.memberships, hasAppliedUrlSelection]);
+
+  useEffect(() => {
+    if (!overview?.selected_connection_id) {
+      return;
+    }
+
+    if (!selectedConnectionId) {
+      setSelectedConnectionId(overview.selected_connection_id);
+    }
+  }, [overview?.selected_connection_id, selectedConnectionId]);
 
   useEffect(() => {
     void loadMetrics();
-  }, [organization?.id, token, periodDays]);
+  }, [organization?.id, selectedConnectionId, token, periodDays]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -420,7 +472,7 @@ function ShopifyDataView({
   return (
     <div className="space-y-5">
       <section className="rounded-md border border-[#d8d8d8] bg-white p-4">
-        <div className="grid gap-4 lg:grid-cols-[1fr_260px_150px_180px] lg:items-end">
+        <div className="grid gap-4 lg:grid-cols-[1fr_240px_260px_150px_180px] lg:items-end">
           <div>
             <h3 className="font-medium">Datos Shopify</h3>
             <p className="mt-2 text-sm leading-6 text-[#5f5f5f]">
@@ -432,13 +484,34 @@ function ShopifyDataView({
             <select
               className="mt-2 w-full rounded-md border border-[#cfcfcf] bg-white px-3 py-2 outline-none focus:border-[#dc1f26]"
               value={organization?.id ?? ""}
-              onChange={(event) => setSelectedOrganizationId(event.target.value)}
+              onChange={(event) => {
+                setSelectedOrganizationId(event.target.value);
+                setSelectedConnectionId("");
+              }}
             >
               {bootstrap.memberships.map((membership) => (
                 <option key={membership.organization_id} value={membership.organization_id}>
                   {membership.organization?.display_name ?? membership.organization_id}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium">Tienda</span>
+            <select
+              className="mt-2 w-full rounded-md border border-[#cfcfcf] bg-white px-3 py-2 outline-none focus:border-[#dc1f26]"
+              value={overview.selected_connection_id ?? selectedConnectionId}
+              onChange={(event) => setSelectedConnectionId(event.target.value)}
+            >
+              {overview.connections.length ? (
+                overview.connections.map((connection) => (
+                  <option key={connection.id} value={connection.id}>
+                    {connection.provider_account_id ?? connection.provider_account_name ?? connection.id}
+                  </option>
+                ))
+              ) : (
+                <option value="">Sin tienda conectada</option>
+              )}
             </select>
           </label>
           <button

@@ -5,13 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "dotenv -e ../../.env.local -- tsx watch src/worker.ts",
+    "dev:shopify-reconcile": "dotenv -e ../../.env.local -- tsx src/shopify-reconcile-once.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/worker.js",
+    "start:shopify-reconcile": "node dist/shopify-reconcile-once.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"
   },
   "dependencies": {
+    "@ecomscaling/api": "0.1.0",
     "@ecomscaling/config": "0.1.0",
     "@ecomscaling/contracts": "0.1.0",
     "@ecomscaling/observability": "0.1.0",

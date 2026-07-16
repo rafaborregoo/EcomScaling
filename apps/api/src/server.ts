@@ -36,9 +36,10 @@ function isServiceFailure(result: { ok: boolean }): result is ServiceFailure {
 
 function sendServiceFailure(
   reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } },
-  result: ServiceFailure,
+  result: unknown,
 ) {
-  return reply.code(result.statusCode).send(result);
+  const failure = result as ServiceFailure;
+  return reply.code(failure.statusCode).send(failure);
 }
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -146,7 +147,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   },
   );
 
-  app.get<{ Params: { organizationId: string } }>(
+  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
   "/v1/organizations/:organizationId/shopify/overview",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -166,6 +167,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       authorization,
       auth.context,
       request.params.organizationId,
+      request.query.connectionId,
     );
 
     if (isServiceFailure(result)) {
@@ -176,7 +178,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   },
   );
 
-  app.get<{ Params: { organizationId: string }; Querystring: { days?: string } }>(
+  app.get<{ Params: { organizationId: string }; Querystring: { days?: string; connectionId?: string } }>(
   "/v1/organizations/:organizationId/shopify/metrics",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -197,6 +199,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       auth.context,
       request.params.organizationId,
       request.query.days,
+      request.query.connectionId,
     );
 
     if (isServiceFailure(result)) {
@@ -279,7 +282,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   },
   );
 
-  app.post<{ Params: { organizationId: string } }>(
+  app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
   "/v1/organizations/:organizationId/shopify/sync",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -288,7 +291,12 @@ export async function buildApp(): Promise<FastifyInstance> {
       return sendAuthFailure(reply, auth.error);
     }
 
-    const result = await triggerShopifySync(env, auth.context, request.params.organizationId);
+    const result = await triggerShopifySync(
+      env,
+      auth.context,
+      request.params.organizationId,
+      request.query.connectionId,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);

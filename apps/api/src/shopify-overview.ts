@@ -426,15 +426,37 @@ const datasets: DatasetDefinition[] = [
   },
 ];
 
-async function countRows(supabase: SupabaseClient, table: string | null, organizationId: string) {
+const storeScopedTables = new Set([
+  "shopify_stores",
+  "shopify_locations",
+  "shopify_products",
+  "shopify_order_facts",
+  "shopify_order_items",
+  "shopify_refunds",
+  "shopify_refund_items",
+  "shopify_customers",
+]);
+
+async function countRows(
+  supabase: SupabaseClient,
+  table: string | null,
+  organizationId: string,
+  storeId?: string | null,
+) {
   if (!table) {
     return 0;
   }
 
-  const { count, error } = await supabase
+  let query = supabase
     .from(table)
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId);
+
+  if (storeId && storeScopedTables.has(table)) {
+    query = query.eq(table === "shopify_stores" ? "id" : "store_id", storeId);
+  }
+
+  const { count, error } = await query;
 
   if (error) {
     throw new Error(`${table}_count_failed: ${error.message}`);
@@ -500,28 +522,32 @@ async function loadSyncBlocks(supabase: SupabaseClient, organizationId: string) 
   ) as Record<SyncBlockKey, (typeof rows)[number] | null>;
 }
 
-async function loadConnection(supabase: SupabaseClient, organizationId: string) {
+async function loadConnections(supabase: SupabaseClient, organizationId: string) {
   const { data, error } = await supabase
     .from("integration_connections")
     .select("id, provider_account_name, provider_account_id, status, scopes, api_version, connected_at, last_sync_at, last_error_message")
     .eq("organization_id", organizationId)
     .eq("provider", "shopify")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("updated_at", { ascending: false });
 
   if (error) {
-    throw new Error(`shopify_connection_load_failed: ${error.message}`);
+    throw new Error(`shopify_connections_load_failed: ${error.message}`);
   }
 
-  return data;
+  return data ?? [];
 }
 
-async function loadStore(supabase: SupabaseClient, organizationId: string) {
-  const { data, error } = await supabase
+async function loadStore(supabase: SupabaseClient, organizationId: string, connectionId?: string | null) {
+  let query = supabase
     .from("shopify_stores")
-    .select("shop_name, myshopify_domain, primary_domain, currency_code, timezone, plan_display_name, taxes_included, updated_at")
-    .eq("organization_id", organizationId)
+    .select("id, connection_id, shop_name, myshopify_domain, primary_domain, currency_code, timezone, plan_display_name, taxes_included, updated_at")
+    .eq("organization_id", organizationId);
+
+  if (connectionId) {
+    query = query.eq("connection_id", connectionId);
+  }
+
+  const { data, error } = await query
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -533,13 +559,17 @@ async function loadStore(supabase: SupabaseClient, organizationId: string) {
   return data;
 }
 
-async function loadProducts(supabase: SupabaseClient, organizationId: string) {
-  const { data, error } = await supabase
+async function loadProducts(supabase: SupabaseClient, organizationId: string, storeId?: string | null) {
+  let query = supabase
     .from("shopify_products")
     .select("id, title, handle, vendor, product_type, status, external_updated_at")
-    .eq("organization_id", organizationId)
-    .order("external_updated_at", { ascending: false })
-    .limit(10);
+    .eq("organization_id", organizationId);
+
+  if (storeId) {
+    query = query.eq("store_id", storeId);
+  }
+
+  const { data, error } = await query.order("external_updated_at", { ascending: false }).limit(10);
 
   if (error) {
     throw new Error(`shopify_products_sample_failed: ${error.message}`);
@@ -548,13 +578,17 @@ async function loadProducts(supabase: SupabaseClient, organizationId: string) {
   return data ?? [];
 }
 
-async function loadOrders(supabase: SupabaseClient, organizationId: string) {
-  const { data, error } = await supabase
+async function loadOrders(supabase: SupabaseClient, organizationId: string, storeId?: string | null) {
+  let query = supabase
     .from("shopify_order_facts")
     .select("id, order_name, financial_status, fulfillment_status, current_total_price, net_sales, refunds, processed_at")
-    .eq("organization_id", organizationId)
-    .order("processed_at", { ascending: false, nullsFirst: false })
-    .limit(10);
+    .eq("organization_id", organizationId);
+
+  if (storeId) {
+    query = query.eq("store_id", storeId);
+  }
+
+  const { data, error } = await query.order("processed_at", { ascending: false, nullsFirst: false }).limit(10);
 
   if (error) {
     throw new Error(`shopify_orders_sample_failed: ${error.message}`);
@@ -583,6 +617,7 @@ export async function getShopifyOverview(
   authorization: string,
   context: AuthContext,
   organizationId: string,
+  connectionId?: string,
 ) {
   if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
     return {
@@ -597,14 +632,21 @@ export async function getShopifyOverview(
   const supabase = createUserScopedClient(env, token);
 
   try {
-    const [connection, store, syncRuns, syncBlocks, products, orders, inventory, datasetCounts] =
+    const connections = await loadConnections(supabase, organizationId);
+    const connection =
+      connections.find((item) => item.id === connectionId) ??
+      connections.find((item) => item.status !== "pending") ??
+      connections[0] ??
+      null;
+    const store = await loadStore(supabase, organizationId, connection?.id ?? null);
+    const storeId = store?.id ?? null;
+
+    const [syncRuns, syncBlocks, products, orders, inventory, datasetCounts] =
       await Promise.all([
-        loadConnection(supabase, organizationId),
-        loadStore(supabase, organizationId),
         loadLatestSync(supabase, organizationId),
         loadSyncBlocks(supabase, organizationId),
-        loadProducts(supabase, organizationId),
-        loadOrders(supabase, organizationId),
+        loadProducts(supabase, organizationId, storeId),
+        loadOrders(supabase, organizationId, storeId),
         loadInventory(supabase, organizationId),
         Promise.all(
           datasets.map(async (dataset) => ({
@@ -615,7 +657,7 @@ export async function getShopifyOverview(
             status: dataset.status,
             scopes: dataset.scopes,
             sync_scope: dataset.syncScope,
-            count: await countRows(supabase, dataset.table, organizationId),
+            count: await countRows(supabase, dataset.table, organizationId, storeId),
           })),
         ),
       ]);
@@ -624,6 +666,8 @@ export async function getShopifyOverview(
       ok: true as const,
       data: {
         organization_id: organizationId,
+        connections,
+        selected_connection_id: connection?.id ?? null,
         connection,
         authorized_scopes: Array.isArray(connection?.scopes) ? connection.scopes : [],
         scope_catalog: shopifyScopeCatalog,

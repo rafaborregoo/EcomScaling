@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./shopify-reconcile": {
+      "types": "./dist/src/shopify-reconcile.d.ts",
+      "default": "./dist/src/shopify-reconcile.js"
+    }
+  },
   "scripts": {
     "dev": "dotenv -e ../../.env.local -- tsx watch src/server.ts",
     "build": "npm run build -w @ecomscaling/config -w @ecomscaling/contracts -w @ecomscaling/observability && tsc -p tsconfig.json",

@@ -147,6 +147,7 @@ export async function triggerShopifySync(
   env: ApiEnv,
   authContext: AuthContext,
   organizationId: string,
+  connectionId?: string,
 ): Promise<SyncTriggerResult> {
   if (!authContext.profile.is_active) {
     return {
@@ -180,11 +181,17 @@ export async function triggerShopifySync(
 
   const supabase = createServiceClient(env);
 
-  const { data: connection, error: connectionError } = await supabase
+  let connectionQuery = supabase
     .from("integration_connections")
     .select("id, organization_id, status, updated_at")
     .eq("organization_id", organizationId)
-    .eq("provider", "shopify")
+    .eq("provider", "shopify");
+
+  if (connectionId) {
+    connectionQuery = connectionQuery.eq("id", connectionId);
+  }
+
+  const { data: connection, error: connectionError } = await connectionQuery
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
