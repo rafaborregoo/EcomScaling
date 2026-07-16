@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "dotenv -e ../../.env.local -- tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "build": "npm run build -w @ecomscaling/config -w @ecomscaling/contracts -w @ecomscaling/observability && tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"
@@ -17,6 +17,7 @@
     "@ecomscaling/observability": "0.1.0",
     "@fastify/cors": "^11.1.0",
     "@supabase/supabase-js": "^2.109.0",
+    "@vercel/node": "^5.8.25",
     "fastify": "^5.6.2",
     "ioredis": "^5.11.1",
     "ws": "^8.21.1",

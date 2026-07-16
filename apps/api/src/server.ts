@@ -1,5 +1,5 @@
 import cors from "@fastify/cors";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { loadApiEnv } from "@ecomscaling/config";
 import { healthResponseSchema } from "@ecomscaling/contracts";
 import { createLogger } from "@ecomscaling/observability";
@@ -14,29 +14,30 @@ import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
 import { reconcileAllShopifyConnections } from "./shopify-reconcile.js";
 import { listProductCosts, upsertProductCost } from "./shopify-product-costs.js";
 
-const env = loadApiEnv(process.env);
 const logger = createLogger("api");
 
-const app = Fastify({
-  logger: true,
-  genReqId: (request) =>
-    request.headers["x-request-id"]?.toString() ?? crypto.randomUUID(),
-});
+export async function buildApp(): Promise<FastifyInstance> {
+  const env = loadApiEnv(process.env);
+  const app = Fastify({
+    logger: true,
+    genReqId: (request) =>
+      request.headers["x-request-id"]?.toString() ?? crypto.randomUUID(),
+  });
 
-await app.register(cors, {
-  origin: env.WEB_ORIGIN,
-  credentials: true,
-});
+  await app.register(cors, {
+    origin: env.WEB_ORIGIN,
+    credentials: true,
+  });
 
-app.get("/health", async () =>
-  healthResponseSchema.parse({
-    status: "ok",
-    service: "api",
-    timestamp: new Date().toISOString(),
-  }),
-);
+  app.get("/health", async () =>
+    healthResponseSchema.parse({
+      status: "ok",
+      service: "api",
+      timestamp: new Date().toISOString(),
+    }),
+  );
 
-app.get("/v1/bootstrap", async (request, reply) => {
+  app.get("/v1/bootstrap", async (request, reply) => {
   const result = await resolveAuthContext(env, request.headers.authorization);
 
   if (!result.ok) {
@@ -44,9 +45,9 @@ app.get("/v1/bootstrap", async (request, reply) => {
   }
 
   return result.context;
-});
+  });
 
-app.get("/v1/actions", async (request, reply) => {
+  app.get("/v1/actions", async (request, reply) => {
   const auth = await resolveAuthContext(env, request.headers.authorization);
 
   if (!auth.ok) {
@@ -66,9 +67,9 @@ app.get("/v1/actions", async (request, reply) => {
   }
 
   return result.data;
-});
+  });
 
-app.get("/v1/consultant/organizations", async (request, reply) => {
+  app.get("/v1/consultant/organizations", async (request, reply) => {
   const auth = await resolveAuthContext(env, request.headers.authorization);
 
   if (!auth.ok) {
@@ -88,9 +89,9 @@ app.get("/v1/consultant/organizations", async (request, reply) => {
   }
 
   return result.data;
-});
+  });
 
-app.get<{ Params: { organizationId: string } }>(
+  app.get<{ Params: { organizationId: string } }>(
   "/v1/organizations/:organizationId/integrations",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -118,9 +119,9 @@ app.get<{ Params: { organizationId: string } }>(
 
     return result.data;
   },
-);
+  );
 
-app.get<{ Params: { organizationId: string } }>(
+  app.get<{ Params: { organizationId: string } }>(
   "/v1/organizations/:organizationId/shopify/overview",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -148,9 +149,9 @@ app.get<{ Params: { organizationId: string } }>(
 
     return result.data;
   },
-);
+  );
 
-app.get<{ Params: { organizationId: string }; Querystring: { days?: string } }>(
+  app.get<{ Params: { organizationId: string }; Querystring: { days?: string } }>(
   "/v1/organizations/:organizationId/shopify/metrics",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -179,9 +180,9 @@ app.get<{ Params: { organizationId: string }; Querystring: { days?: string } }>(
 
     return result.data;
   },
-);
+  );
 
-app.get<{ Params: { organizationId: string } }>(
+  app.get<{ Params: { organizationId: string } }>(
   "/v1/organizations/:organizationId/shopify/product-costs",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -204,9 +205,9 @@ app.get<{ Params: { organizationId: string } }>(
 
     return result.data;
   },
-);
+  );
 
-app.post<{
+  app.post<{
   Params: { organizationId: string };
   Body: { sku?: string; inventoryItemId?: string; unitCost: number; currencyCode?: string; validFrom?: string };
 }>("/v1/organizations/:organizationId/shopify/product-costs", async (request, reply) => {
@@ -223,9 +224,9 @@ app.post<{
   }
 
   return reply.code(201).send(result.data);
-});
+  });
 
-app.post<{ Params: { organizationId: string }; Body: { shopDomain: string } }>(
+  app.post<{ Params: { organizationId: string }; Body: { shopDomain: string } }>(
   "/v1/organizations/:organizationId/integrations/shopify/connect",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -251,9 +252,9 @@ app.post<{ Params: { organizationId: string }; Body: { shopDomain: string } }>(
 
     return result.data;
   },
-);
+  );
 
-app.post<{ Params: { organizationId: string } }>(
+  app.post<{ Params: { organizationId: string } }>(
   "/v1/organizations/:organizationId/shopify/sync",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -270,9 +271,9 @@ app.post<{ Params: { organizationId: string } }>(
 
     return reply.code(202).send(result.data);
   },
-);
+  );
 
-app.get("/v1/shopify/oauth/callback", async (request, reply) => {
+  app.get("/v1/shopify/oauth/callback", async (request, reply) => {
   const result = await handleShopifyOAuthCallback(
     env,
     request.query as Record<string, string | string[] | undefined>,
@@ -283,9 +284,9 @@ app.get("/v1/shopify/oauth/callback", async (request, reply) => {
   }
 
   return reply.redirect(result.data.redirectUrl);
-});
+  });
 
-await app.register(async (webhookScope) => {
+  await app.register(async (webhookScope) => {
   webhookScope.addContentTypeParser("application/json", { parseAs: "buffer" }, (_request, body, done) => {
     done(null, body);
   });
@@ -299,9 +300,9 @@ await app.register(async (webhookScope) => {
 
     return reply.code(result.statusCode).send(result.body);
   });
-});
+  });
 
-app.post("/v1/internal/shopify/reconcile", async (request, reply) => {
+  app.post("/v1/internal/shopify/reconcile", async (request, reply) => {
   if (!env.INTERNAL_API_SECRET) {
     return reply.code(503).send({ error: "internal_api_secret_not_configured" });
   }
@@ -315,12 +316,22 @@ app.post("/v1/internal/shopify/reconcile", async (request, reply) => {
   });
 
   return reply.code(202).send({ status: "reconciliation_started" });
-});
+  });
 
-try {
-  await app.listen({ host: env.API_HOST, port: env.API_PORT });
-  logger.info(`API listening on ${env.API_HOST}:${env.API_PORT}`);
-} catch (error) {
-  logger.error("API failed to start", error);
-  process.exit(1);
+  return app;
+}
+
+const isDirectRun = process.argv[1] ? import.meta.url === new URL(process.argv[1], "file:").href : false;
+
+if (isDirectRun) {
+  const env = loadApiEnv(process.env);
+  const app = await buildApp();
+
+  try {
+    await app.listen({ host: env.API_HOST, port: env.API_PORT });
+    logger.info(`API listening on ${env.API_HOST}:${env.API_PORT}`);
+  } catch (error) {
+    logger.error("API failed to start", error);
+    process.exit(1);
+  }
 }
