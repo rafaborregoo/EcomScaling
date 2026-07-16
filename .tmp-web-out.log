@@ -1,0 +1,69 @@
+
+> web@0.1.0 dev
+> dotenv -e ../../.env.local -- next dev --port 3001
+
+▲ Next.js 16.2.10 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.1.130:3001
+✓ Ready in 798ms
+Creating turbopack project {
+  dir: 'C:\\Users\\borre\\Desktop\\EcomScaling\\apps\\web',
+  testMode: true
+}
+
+ GET /shopify 200 in 694ms (next.js: 276ms, application-code: 418ms)
+ GET /integraciones 200 in 185ms (next.js: 51ms, application-code: 134ms)
+ GET /integraciones 200 in 68ms (next.js: 8ms, application-code: 60ms)
+✓ Compiled in 784ms
+ GET /shopify 200 in 324ms (next.js: 187ms, application-code: 138ms)
+ GET /integraciones 200 in 385ms (next.js: 274ms, application-code: 111ms)
+✓ Compiled in 151ms
+ GET /shopify 200 in 411ms (next.js: 275ms, application-code: 136ms)
+ GET /integraciones 200 in 472ms (next.js: 355ms, application-code: 117ms)
+✓ Compiled in 137ms
+ GET /shopify 200 in 386ms (next.js: 145ms, application-code: 242ms)
+ GET /integraciones 200 in 448ms (next.js: 226ms, application-code: 221ms)
+ GET /shopify 200 in 168ms (next.js: 10ms, application-code: 158ms)
+ GET /integraciones 200 in 169ms (next.js: 46ms, application-code: 123ms)
+ GET /integraciones 200 in 439ms (next.js: 12ms, application-code: 426ms)
+ GET /shopify 200 in 60ms (next.js: 9ms, application-code: 51ms)
+ GET /dashboard 200 in 148ms (next.js: 82ms, application-code: 66ms)
+✓ Compiled in 186ms
+ GET /shopify 200 in 1030ms (next.js: 182ms, application-code: 848ms)
+ GET /dashboard 200 in 1088ms (next.js: 513ms, application-code: 575ms)
+ GET /shopify 200 in 490ms (next.js: 12ms, application-code: 478ms)
+ GET /dashboard 200 in 447ms (next.js: 11ms, application-code: 436ms)
+ GET /shopify 200 in 387ms (next.js: 50ms, application-code: 338ms)
+ GET /shopify 200 in 393ms (next.js: 89ms, application-code: 304ms)
+ GET /shopify 200 in 399ms (next.js: 15ms, application-code: 384ms)
+ GET /dashboard 200 in 399ms (next.js: 147ms, application-code: 252ms)
+ GET /dashboard 200 in 399ms (next.js: 256ms, application-code: 143ms)
+ GET /dashboard 200 in 407ms (next.js: 202ms, application-code: 205ms)
+✓ Compiled in 115ms
+ GET /shopify 200 in 307ms (next.js: 124ms, application-code: 182ms)
+ GET /dashboard 200 in 372ms (next.js: 228ms, application-code: 144ms)
+✓ Compiled in 77ms
+ GET /shopify 200 in 345ms (next.js: 163ms, application-code: 182ms)
+ GET /dashboard 200 in 409ms (next.js: 271ms, application-code: 138ms)
+ GET /shopify 200 in 331ms (next.js: 150ms, application-code: 181ms)
+ GET /dashboard 200 in 170ms (next.js: 27ms, application-code: 143ms)
+ GET /shopify 200 in 588ms (next.js: 17ms, application-code: 571ms)
+ GET /shopify 200 in 671ms (next.js: 13ms, application-code: 659ms)
+✓ Compiled in 173ms
+ GET /dashboard 200 in 408ms (next.js: 354ms, application-code: 54ms)
+ GET /shopify 200 in 478ms (next.js: 257ms, application-code: 222ms)
+✓ Compiled in 126ms
+ GET /shopify 200 in 329ms (next.js: 165ms, application-code: 163ms)
+ GET /dashboard 200 in 392ms (next.js: 268ms, application-code: 124ms)
+✓ Compiled in 126ms
+ GET /dashboard 200 in 306ms (next.js: 251ms, application-code: 55ms)
+ GET /shopify 200 in 386ms (next.js: 151ms, application-code: 235ms)
+✓ Compiled in 108ms
+ GET /dashboard 200 in 330ms (next.js: 266ms, application-code: 64ms)
+ GET /shopify 200 in 370ms (next.js: 168ms, application-code: 202ms)
+✓ Compiled in 302ms
+ GET /shopify 200 in 435ms (next.js: 233ms, application-code: 202ms)
+ GET /dashboard 200 in 497ms (next.js: 381ms, application-code: 116ms)
+✓ Compiled in 205ms
+ GET /shopify 200 in 379ms (next.js: 189ms, application-code: 190ms)
+ GET /dashboard 200 in 426ms (next.js: 297ms, application-code: 129ms)
