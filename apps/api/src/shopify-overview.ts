@@ -426,14 +426,13 @@ const datasets: DatasetDefinition[] = [
   },
 ];
 
+// shopify_order_items, shopify_refunds y shopify_refund_items no tienen columna store_id propia
+// (se relacionan a la tienda via order_id -> shopify_order_facts.store_id), asi que no se filtran aqui.
 const storeScopedTables = new Set([
   "shopify_stores",
   "shopify_locations",
   "shopify_products",
   "shopify_order_facts",
-  "shopify_order_items",
-  "shopify_refunds",
-  "shopify_refund_items",
   "shopify_customers",
 ]);
 
@@ -649,16 +648,28 @@ export async function getShopifyOverview(
         loadOrders(supabase, organizationId, storeId),
         loadInventory(supabase, organizationId),
         Promise.all(
-          datasets.map(async (dataset) => ({
-            key: dataset.key,
-            label: dataset.label,
-            table: dataset.table,
-            description: dataset.description,
-            status: dataset.status,
-            scopes: dataset.scopes,
-            sync_scope: dataset.syncScope,
-            count: await countRows(supabase, dataset.table, organizationId, storeId),
-          })),
+          datasets.map(async (dataset) => {
+            let count = 0;
+            try {
+              count = await countRows(supabase, dataset.table, organizationId, storeId);
+            } catch (error) {
+              console.error(
+                `shopify_overview_dataset_count_failed[${dataset.key}]`,
+                error instanceof Error ? error.message : error,
+              );
+            }
+
+            return {
+              key: dataset.key,
+              label: dataset.label,
+              table: dataset.table,
+              description: dataset.description,
+              status: dataset.status,
+              scopes: dataset.scopes,
+              sync_scope: dataset.syncScope,
+              count,
+            };
+          }),
         ),
       ]);
 

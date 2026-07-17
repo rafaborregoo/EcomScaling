@@ -40,6 +40,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [shopifyConnections, setShopifyConnections] = useState<ShopifyConnection[]>([]);
   const [shopifyOverview, setShopifyOverview] = useState<ShopifyOverviewLite | null>(null);
   const [isLoadingStores, setIsLoadingStores] = useState(false);
+  const [storesLoadError, setStoresLoadError] = useState<string | null>(null);
 
   const organization =
     bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
@@ -58,9 +59,13 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         const payload = (await response.json()) as ShopifyOverviewLite;
         setShopifyConnections(payload.connections ?? []);
         setShopifyOverview(payload);
+        setStoresLoadError(null);
       } else {
         setShopifyConnections([]);
         setShopifyOverview(null);
+        setStoresLoadError(
+          `No se pudo cargar el estado de Shopify (HTTP ${response.status}). Reintenta o revisa los logs de la API.`,
+        );
       }
 
       setIsLoadingStores(false);
@@ -237,6 +242,8 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </Link>
               </div>
             ))
+          ) : storesLoadError ? (
+            <div className="px-4 py-3 text-sm text-[#dc1f26]">{storesLoadError}</div>
           ) : (
             <div className="px-4 py-3 text-sm text-[#5f5f5f]">
               No hay tiendas Shopify conectadas para esta organizacion.
