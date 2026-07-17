@@ -895,16 +895,6 @@ export async function runShopifyInitialSync(
                   id
                   createdAt
                   totalRefundedSet { shopMoney { amount } }
-                  refundLineItems {
-                    edges {
-                      node {
-                        quantity
-                        subtotalSet { shopMoney { amount } }
-                        totalTaxSet { shopMoney { amount } }
-                        lineItem { id }
-                      }
-                    }
-                  }
                 }
               }
             }
