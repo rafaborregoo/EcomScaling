@@ -23,7 +23,7 @@ type SyncTriggerResult =
   | { ok: true; data: { status: string; connectionId: string } }
   | { ok: false; statusCode: number; error: string; message?: string; detail?: string };
 
-const STALE_SYNCING_MS = 10 * 60 * 1000;
+export const STALE_SYNCING_MS = 10 * 60 * 1000;
 
 function createServiceClient(env: ApiEnv) {
   if (!env.SUPABASE_SERVICE_ROLE_KEY) {

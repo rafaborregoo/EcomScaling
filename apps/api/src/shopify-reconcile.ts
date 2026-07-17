@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
+import { STALE_SYNCING_MS } from "./shopify.js";
 import { runShopifyInitialSync } from "./shopify-sync.js";
 
 type ApiEnv = LoadedApiEnv;
@@ -23,11 +24,17 @@ function createServiceClient(env: ApiEnv) {
 export async function reconcileAllShopifyConnections(env: ApiEnv) {
   const supabase = createServiceClient(env);
 
+  // Ademas de "connected"/"error", recoge conexiones que quedaron atascadas en "syncing":
+  // el sync inicial dispara desde el callback OAuth (funcion serverless de Vercel con
+  // maxDuration corto) y puede morir a mitad de una bulk operation de Shopify, dejando
+  // la fila en "syncing" para siempre. Sin esto, esas conexiones nunca se reintentan.
+  const staleCutoff = new Date(Date.now() - STALE_SYNCING_MS).toISOString();
+
   const { data: connections, error } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, status")
+    .select("id, organization_id, status, updated_at")
     .eq("provider", "shopify")
-    .in("status", ["connected", "error"]);
+    .or(`status.in.(connected,error),and(status.eq.syncing,updated_at.lt.${staleCutoff})`);
 
   if (error) {
     logger.error("Shopify reconciliation connection lookup failed", { error: error.message });
@@ -39,6 +46,24 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
 
   for (const connection of connections ?? []) {
     attempted += 1;
+
+    if (connection.status === "syncing") {
+      logger.info("Recovering Shopify connection stuck in syncing", {
+        connection_id: connection.id,
+        organization_id: connection.organization_id,
+        stuck_since: connection.updated_at,
+      });
+
+      await supabase
+        .from("integration_connections")
+        .update({
+          status: "error",
+          last_error_at: new Date().toISOString(),
+          last_error_message:
+            "La sincronizacion anterior quedo abierta (probablemente cortada por timeout) y fue recuperada por la reconciliacion periodica.",
+        })
+        .eq("id", connection.id);
+    }
 
     try {
       await runShopifyInitialSync(env, connection.id, "incremental");
