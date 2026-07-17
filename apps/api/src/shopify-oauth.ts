@@ -123,6 +123,31 @@ function parseExpiringTokenPayload(payload: ShopifyTokenExchangeResponse, now: n
   };
 }
 
+async function postShopifyTokenEndpoint(
+  shop: string,
+  params: Record<string, string>,
+  errorPrefix: string,
+): Promise<ShopifyTokenExchangeResponse> {
+  // Shopify documenta este endpoint con application/x-www-form-urlencoded; con JSON el
+  // parametro expiring=1 no se reconoce y la peticion falla con 400.
+  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: new URLSearchParams(params).toString(),
+  });
+
+  if (!response.ok) {
+    // El body de error de Shopify trae error/error_description, nunca tokens.
+    const bodyText = await response.text().catch(() => "");
+    throw new Error(`${errorPrefix}_${response.status}${bodyText ? `: ${bodyText.slice(0, 300)}` : ""}`);
+  }
+
+  return (await response.json()) as ShopifyTokenExchangeResponse;
+}
+
 // App publica creada despues del 1 abr 2026: Shopify exige expiring=1 (access_token +
 // refresh_token de corta vida) en vez del offline token clasico sin expiracion.
 export async function exchangeShopifyCodeForToken(
@@ -130,24 +155,17 @@ export async function exchangeShopifyCodeForToken(
   shop: string,
   code: string,
 ): Promise<ShopifyExpiringToken> {
-  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const payload = await postShopifyTokenEndpoint(
+    shop,
+    {
       client_id: env.SHOPIFY_API_KEY,
       client_secret: env.SHOPIFY_API_SECRET,
       code,
-      expiring: 1,
-    }),
-  });
+      expiring: "1",
+    },
+    "shopify_token_exchange_failed",
+  );
 
-  if (!response.ok) {
-    throw new Error(`shopify_token_exchange_failed_${response.status}`);
-  }
-
-  const payload = (await response.json()) as ShopifyTokenExchangeResponse;
   return parseExpiringTokenPayload(payload, Date.now());
 }
 
@@ -156,26 +174,17 @@ export async function refreshShopifyOfflineToken(
   shop: string,
   refreshToken: string,
 ): Promise<ShopifyExpiringToken> {
-  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const payload = await postShopifyTokenEndpoint(
+    shop,
+    {
       client_id: env.SHOPIFY_API_KEY,
       client_secret: env.SHOPIFY_API_SECRET,
       grant_type: "refresh_token",
       refresh_token: refreshToken,
-    }),
-  });
+    },
+    "shopify_token_refresh_failed",
+  );
 
-  if (!response.ok) {
-    // Shopify no devuelve el refresh_token en el cuerpo de error, pero por si acaso
-    // no se registra el body de la respuesta aqui.
-    throw new Error(`shopify_token_refresh_failed_${response.status}`);
-  }
-
-  const payload = (await response.json()) as ShopifyTokenExchangeResponse;
   return parseExpiringTokenPayload(payload, Date.now());
 }
 
