@@ -14,6 +14,13 @@ const apiEnvSchema = z.object({
   SHOPIFY_API_SECRET: z.string().min(1).optional(),
   SHOPIFY_SCOPES: z.string().min(1).optional(),
   SHOPIFY_REDIRECT_URI: z.string().url().optional(),
+  // App Shopify de distribucion personalizada (custom distribution): permite conectar
+  // tiendas reales de clientes antes de que la app publica pase la revision de Shopify.
+  // Opcional: si no esta seteada, la opcion "app personalizada" no aparece en la UI.
+  SHOPIFY_CUSTOM_API_KEY: z.string().min(1).optional(),
+  SHOPIFY_CUSTOM_API_SECRET: z.string().min(1).optional(),
+  SHOPIFY_CUSTOM_SCOPES: z.string().min(1).optional(),
+  SHOPIFY_CUSTOM_REDIRECT_URI: z.string().url().optional(),
   INTERNAL_API_SECRET: z.string().min(1).optional(),
   REDIS_URL: z.string().url().optional(),
 });
@@ -36,6 +43,10 @@ export type LoadedApiEnv = {
   SHOPIFY_API_SECRET: string;
   SHOPIFY_SCOPES: string;
   SHOPIFY_REDIRECT_URI: string;
+  SHOPIFY_CUSTOM_API_KEY?: string;
+  SHOPIFY_CUSTOM_API_SECRET?: string;
+  SHOPIFY_CUSTOM_SCOPES?: string;
+  SHOPIFY_CUSTOM_REDIRECT_URI?: string;
   INTERNAL_API_SECRET?: string;
   REDIS_URL?: string;
 };
@@ -72,6 +83,20 @@ export function loadApiEnv(source: Record<string, string | undefined>): LoadedAp
     throw new Error("SHOPIFY_REDIRECT_URI is required");
   }
 
+  const customFields = [
+    env.SHOPIFY_CUSTOM_API_KEY,
+    env.SHOPIFY_CUSTOM_API_SECRET,
+    env.SHOPIFY_CUSTOM_SCOPES,
+    env.SHOPIFY_CUSTOM_REDIRECT_URI,
+  ];
+  const customFieldsSetCount = customFields.filter(Boolean).length;
+
+  if (customFieldsSetCount > 0 && customFieldsSetCount < customFields.length) {
+    throw new Error(
+      "SHOPIFY_CUSTOM_API_KEY, SHOPIFY_CUSTOM_API_SECRET, SHOPIFY_CUSTOM_SCOPES y SHOPIFY_CUSTOM_REDIRECT_URI deben estar todas seteadas o ninguna",
+    );
+  }
+
   return {
     API_HOST: env.API_HOST,
     API_PORT: env.API_PORT,
@@ -84,6 +109,14 @@ export function loadApiEnv(source: Record<string, string | undefined>): LoadedAp
     SHOPIFY_API_SECRET: env.SHOPIFY_API_SECRET,
     SHOPIFY_SCOPES: env.SHOPIFY_SCOPES,
     SHOPIFY_REDIRECT_URI: env.SHOPIFY_REDIRECT_URI,
+    ...(customFieldsSetCount === customFields.length
+      ? {
+          SHOPIFY_CUSTOM_API_KEY: env.SHOPIFY_CUSTOM_API_KEY!,
+          SHOPIFY_CUSTOM_API_SECRET: env.SHOPIFY_CUSTOM_API_SECRET!,
+          SHOPIFY_CUSTOM_SCOPES: env.SHOPIFY_CUSTOM_SCOPES!,
+          SHOPIFY_CUSTOM_REDIRECT_URI: env.SHOPIFY_CUSTOM_REDIRECT_URI!,
+        }
+      : {}),
     ...(env.INTERNAL_API_SECRET ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET } : {}),
     ...(env.REDIS_URL ? { REDIS_URL: env.REDIS_URL } : {}),
   };

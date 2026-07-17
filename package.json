@@ -21,6 +21,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "seed:demo-user": "dotenv -e .env.local -- tsx scripts/seed-demo-user.ts",
+    "seed:shopify-store": "dotenv -e .env.local -- tsx scripts/seed-shopify-store.ts",
     "supabase": "supabase",
     "supabase:init": "supabase init",
     "supabase:link": "supabase link --project-ref cthjwpeygpzwdmjkxeqa",

@@ -4,7 +4,20 @@ import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
+  SHOPIFY_CUSTOM_API_KEY?: string;
+  SHOPIFY_CUSTOM_API_SECRET?: string;
+  SHOPIFY_CUSTOM_SCOPES?: string;
+  SHOPIFY_CUSTOM_REDIRECT_URI?: string;
 };
+
+function isCustomShopifyAppAvailable(env: ApiEnv) {
+  return Boolean(
+    env.SHOPIFY_CUSTOM_API_KEY &&
+      env.SHOPIFY_CUSTOM_API_SECRET &&
+      env.SHOPIFY_CUSTOM_SCOPES &&
+      env.SHOPIFY_CUSTOM_REDIRECT_URI,
+  );
+}
 
 type Provider = {
   id: "shopify" | "meta_ads" | "klaviyo";
@@ -195,6 +208,7 @@ export async function listIntegrations(
         data: {
           organization_id: organizationId,
           schema_ready: false,
+          shopify_custom_app_available: isCustomShopifyAppAvailable(env),
           providers: providers.map((provider) => ({
             ...provider,
             connection: null,
@@ -231,6 +245,7 @@ export async function listIntegrations(
     data: {
       organization_id: organizationId,
       schema_ready: true,
+      shopify_custom_app_available: isCustomShopifyAppAvailable(env),
       providers: providers.map((provider) => {
         const connection = pickBestConnection(connectionsResult.data, provider.id);
         const latestSync = connection

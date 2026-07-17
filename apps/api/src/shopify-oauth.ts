@@ -7,6 +7,50 @@ export type ShopifyOAuthEnv = {
   SHOPIFY_REDIRECT_URI: string;
 };
 
+export type ShopifyAppMode = "public" | "custom";
+
+export type ShopifyMultiAppEnv = ShopifyOAuthEnv & {
+  SHOPIFY_CUSTOM_API_KEY?: string;
+  SHOPIFY_CUSTOM_API_SECRET?: string;
+  SHOPIFY_CUSTOM_SCOPES?: string;
+  SHOPIFY_CUSTOM_REDIRECT_URI?: string;
+};
+
+export function isCustomShopifyAppConfigured(env: ShopifyMultiAppEnv) {
+  return Boolean(
+    env.SHOPIFY_CUSTOM_API_KEY &&
+      env.SHOPIFY_CUSTOM_API_SECRET &&
+      env.SHOPIFY_CUSTOM_SCOPES &&
+      env.SHOPIFY_CUSTOM_REDIRECT_URI,
+  );
+}
+
+// La app publica y la app de distribucion personalizada son dos registros distintos en
+// Shopify (el modo de distribucion no se puede cambiar en la misma app una vez elegido),
+// cada una con su propio client_id/secret/scopes/redirect_uri. Esta funcion resuelve cual
+// usar segun el modo guardado en la conexion, sin tocar la config de la app publica.
+export function resolveShopifyAppEnv(env: ShopifyMultiAppEnv, mode: ShopifyAppMode): ShopifyOAuthEnv {
+  if (mode === "public") {
+    return {
+      SHOPIFY_API_KEY: env.SHOPIFY_API_KEY,
+      SHOPIFY_API_SECRET: env.SHOPIFY_API_SECRET,
+      SHOPIFY_SCOPES: env.SHOPIFY_SCOPES,
+      SHOPIFY_REDIRECT_URI: env.SHOPIFY_REDIRECT_URI,
+    };
+  }
+
+  if (!isCustomShopifyAppConfigured(env)) {
+    throw new Error("shopify_custom_app_not_configured");
+  }
+
+  return {
+    SHOPIFY_API_KEY: env.SHOPIFY_CUSTOM_API_KEY!,
+    SHOPIFY_API_SECRET: env.SHOPIFY_CUSTOM_API_SECRET!,
+    SHOPIFY_SCOPES: env.SHOPIFY_CUSTOM_SCOPES!,
+    SHOPIFY_REDIRECT_URI: env.SHOPIFY_CUSTOM_REDIRECT_URI!,
+  };
+}
+
 export type ShopifyPendingConnection = {
   state: string;
   organizationId: string;

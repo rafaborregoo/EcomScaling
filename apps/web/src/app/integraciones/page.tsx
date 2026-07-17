@@ -34,6 +34,7 @@ type IntegrationProvider = {
 type IntegrationsResponse = {
   organization_id: string;
   schema_ready: boolean;
+  shopify_custom_app_available: boolean;
   providers: IntegrationProvider[];
 };
 
@@ -66,6 +67,7 @@ function IntegrationsList({
     "";
   const [selectedOrganizationId, setSelectedOrganizationId] = useState(initialOrganizationId);
   const [shopDomain, setShopDomain] = useState("marta-reyes-swimwear.myshopify.com");
+  const [appMode, setAppMode] = useState<"public" | "custom">("public");
   const [payload, setPayload] = useState<IntegrationsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -110,7 +112,13 @@ function IntegrationsList({
         return;
       }
 
-      setPayload((await response.json()) as IntegrationsResponse);
+      const data = (await response.json()) as IntegrationsResponse;
+      setPayload(data);
+      if (data.shopify_custom_app_available) {
+        // La app publica todavia esta pendiente de revision de Shopify: mientras tanto,
+        // la unica que puede instalarse en tiendas reales de clientes es la personalizada.
+        setAppMode("custom");
+      }
       setIsLoading(false);
     }
 
@@ -134,7 +142,7 @@ function IntegrationsList({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ shopDomain }),
+        body: JSON.stringify({ shopDomain, appMode }),
       },
     );
 
@@ -237,6 +245,45 @@ function IntegrationsList({
             ))}
           </select>
         </label>
+        {payload?.shopify_custom_app_available ? (
+          <div className="mt-4 flex flex-col gap-2 text-sm">
+            <span className="font-medium">App de Shopify a usar</span>
+            <div className="flex flex-wrap gap-2">
+              <label
+                className={[
+                  "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2",
+                  appMode === "custom" ? "border-black bg-[#f5f5f5]" : "border-[#cfcfcf]",
+                ].join(" ")}
+              >
+                <input
+                  type="radio"
+                  name="app-mode"
+                  checked={appMode === "custom"}
+                  onChange={() => setAppMode("custom")}
+                />
+                App personalizada (para clientes reales, ya activa)
+              </label>
+              <label
+                className={[
+                  "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2",
+                  appMode === "public" ? "border-black bg-[#f5f5f5]" : "border-[#cfcfcf]",
+                ].join(" ")}
+              >
+                <input
+                  type="radio"
+                  name="app-mode"
+                  checked={appMode === "public"}
+                  onChange={() => setAppMode("public")}
+                />
+                App publica (pendiente de revision de Shopify)
+              </label>
+            </div>
+            <p className="text-xs text-[#5f5f5f]">
+              Usa &quot;App personalizada&quot; para conectar tiendas reales de clientes ahora mismo. Cuando la
+              app publica pase la revision de Shopify, cambia a esa opcion para los clientes nuevos.
+            </p>
+          </div>
+        ) : null}
         <form className="mt-4 flex flex-col gap-3 md:flex-row" onSubmit={connectShopify}>
           <input
             className="min-w-0 flex-1 rounded-md border border-[#cfcfcf] px-3 py-2 outline-none focus:border-[#dc1f26]"

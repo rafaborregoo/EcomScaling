@@ -5,6 +5,9 @@ import {
   createShopifyState,
   exchangeShopifyCodeForToken,
   parseProviderAccountName,
+  resolveShopifyAppEnv,
+  type ShopifyAppMode,
+  type ShopifyMultiAppEnv,
   type ShopifyOAuthEnv,
   verifyShopifyHmac,
 } from "./shopify-oauth.js";
@@ -13,7 +16,7 @@ import { resolveCredentialSecret, saveShopifyTokens } from "./shopify-token-stor
 import { registerShopifyWebhooks, shopifyWebhookCallbackUrl } from "./shopify-webhooks.js";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 
-type ApiEnv = LoadedApiEnv & ShopifyOAuthEnv;
+type ApiEnv = LoadedApiEnv & ShopifyMultiAppEnv;
 
 type Result =
   | { ok: true; data: { redirectUrl: string } }
@@ -54,13 +57,37 @@ function parseState(metadata: unknown) {
   return null;
 }
 
+function parseAppMode(metadata: unknown): ShopifyAppMode {
+  if (typeof metadata === "object" && metadata !== null && "app_mode" in metadata) {
+    const value = (metadata as Record<string, unknown>).app_mode;
+    if (value === "custom") {
+      return "custom";
+    }
+  }
+
+  return "public";
+}
+
 export async function createShopifyConnectionAuthUrl(
   env: ApiEnv,
   authContext: AuthContext,
   organizationId: string,
   shopDomainInput: string,
+  appMode: ShopifyAppMode = "public",
 ): Promise<Result> {
   const shopDomain = normalizeShopDomain(shopDomainInput);
+
+  let appEnv: ShopifyOAuthEnv;
+  try {
+    appEnv = resolveShopifyAppEnv(env, appMode);
+  } catch {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "shopify_custom_app_not_configured",
+      message: "La app Shopify de distribucion personalizada no esta configurada todavia.",
+    };
+  }
 
   if (!authContext.profile.is_active) {
     return {
@@ -115,6 +142,7 @@ export async function createShopifyConnectionAuthUrl(
         state,
         shop_domain: shopDomain,
         source: "oauth_start",
+        app_mode: appMode,
       },
     },
     { onConflict: "organization_id,provider,provider_account_id" },
@@ -130,9 +158,9 @@ export async function createShopifyConnectionAuthUrl(
   }
 
   const url = new URL(`https://${shopDomain}/admin/oauth/authorize`);
-  url.searchParams.set("client_id", env.SHOPIFY_API_KEY);
-  url.searchParams.set("scope", env.SHOPIFY_SCOPES);
-  url.searchParams.set("redirect_uri", env.SHOPIFY_REDIRECT_URI);
+  url.searchParams.set("client_id", appEnv.SHOPIFY_API_KEY);
+  url.searchParams.set("scope", appEnv.SHOPIFY_SCOPES);
+  url.searchParams.set("redirect_uri", appEnv.SHOPIFY_REDIRECT_URI);
   url.searchParams.set("state", state);
 
   return {
@@ -303,14 +331,6 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
-  if (!verifyShopifyHmac(query, env.SHOPIFY_API_SECRET)) {
-    return {
-      ok: false,
-      statusCode: 400,
-      error: "invalid_shopify_hmac",
-    };
-  }
-
   const supabase = createServiceClient(env);
   const { data: connections, error: lookupError } = await supabase
     .from("integration_connections")
@@ -348,6 +368,30 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
+  // El HMAC lo firma la app que inicio el flujo (publica o custom distribution, cada una
+  // con su propio secret), asi que hace falta saber que app_mode se guardo al arrancar el
+  // OAuth antes de poder validar la firma.
+  const appMode = parseAppMode(pendingConnection.metadata);
+  let appEnv: ShopifyOAuthEnv;
+  try {
+    appEnv = resolveShopifyAppEnv(env, appMode);
+  } catch {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "shopify_custom_app_not_configured",
+      message: "La app Shopify de distribucion personalizada no esta configurada en el servidor.",
+    };
+  }
+
+  if (!verifyShopifyHmac(query, appEnv.SHOPIFY_API_SECRET)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "invalid_shopify_hmac",
+    };
+  }
+
   if (parseState(pendingConnection.metadata) !== state) {
     return {
       ok: false,
@@ -358,7 +402,7 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
-  const tokenResult = await exchangeShopifyCodeForToken(env, shop, code);
+  const tokenResult = await exchangeShopifyCodeForToken(appEnv, shop, code);
   const now = new Date().toISOString();
 
   const { error: connectionUpdateError } = await supabase

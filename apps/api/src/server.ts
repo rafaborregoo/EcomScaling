@@ -254,7 +254,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   return reply.code(201).send(result.data);
   });
 
-  app.post<{ Params: { organizationId: string }; Body: { shopDomain: string } }>(
+  app.post<{ Params: { organizationId: string }; Body: { shopDomain: string; appMode?: "public" | "custom" } }>(
   "/v1/organizations/:organizationId/integrations/shopify/connect",
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -272,6 +272,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       auth.context,
       request.params.organizationId,
       request.body.shopDomain,
+      request.body.appMode === "custom" ? "custom" : "public",
     );
 
     if (isServiceFailure(result)) {

@@ -6,10 +6,23 @@ import {
   decryptShopifyCredential,
   encryptShopifyCredential,
   refreshShopifyOfflineToken,
+  resolveShopifyAppEnv,
+  type ShopifyAppMode,
   type ShopifyExpiringToken,
 } from "./shopify-oauth.js";
 
 type ApiEnv = LoadedApiEnv;
+
+function parseAppMode(metadata: unknown): ShopifyAppMode {
+  if (typeof metadata === "object" && metadata !== null && "app_mode" in metadata) {
+    const value = (metadata as Record<string, unknown>).app_mode;
+    if (value === "custom") {
+      return "custom";
+    }
+  }
+
+  return "public";
+}
 
 const logger = createLogger("shopify-token-store");
 const CREDENTIAL_KIND = "shopify_offline_access_token";
@@ -138,7 +151,7 @@ export async function getValidShopifyAccessToken(env: ApiEnv, connectionId: stri
 
   const { data: connection, error: connectionError } = await supabase
     .from("integration_connections")
-    .select("id, provider_account_id, status")
+    .select("id, provider_account_id, status, metadata")
     .eq("id", connectionId)
     .maybeSingle();
 
@@ -155,6 +168,7 @@ export async function getValidShopifyAccessToken(env: ApiEnv, connectionId: stri
   }
 
   const shop = connection.provider_account_id;
+  const appEnv = resolveShopifyAppEnv(env, parseAppMode(connection.metadata));
 
   for (let attempt = 0; attempt < CLAIM_POLL_ATTEMPTS + 1; attempt += 1) {
     const row = await loadCredentialRow(supabase, connectionId);
@@ -222,7 +236,7 @@ export async function getValidShopifyAccessToken(env: ApiEnv, connectionId: stri
     }
 
     try {
-      const refreshed = await refreshShopifyOfflineToken(env, shop, currentPayload.refresh_token);
+      const refreshed = await refreshShopifyOfflineToken(appEnv, shop, currentPayload.refresh_token);
       await saveShopifyTokens(supabase, connectionId, shop, secret, refreshed);
       return refreshed.accessToken;
     } catch (error) {
