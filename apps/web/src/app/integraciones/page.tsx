@@ -182,6 +182,44 @@ function IntegrationsList({
           Introduce el dominio <span className="font-mono">*.myshopify.com</span> de la tienda.
           La URL de admin de Shopify no sirve como callback OAuth.
         </p>
+        <div className="mt-3 rounded-md border border-[#d8d8d8] bg-[#fafafa] p-3 text-sm leading-6 text-[#5f5f5f]">
+          <p className="font-medium text-[#111]">Como encontrar tu dominio .myshopify.com</p>
+          <p className="mt-1">
+            No es el dominio publico de tu web (p. ej. <span className="font-mono">mitienda.com</span>), sino el
+            dominio interno que Shopify asigno al crear la tienda y que nunca cambia.
+          </p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            <li>
+              Entra al admin de tu tienda en Shopify y mira la URL del navegador:{" "}
+              <span className="font-mono">admin.shopify.com/store/TU-HANDLE</span>. Tu dominio es{" "}
+              <span className="font-mono">TU-HANDLE.myshopify.com</span>.
+            </li>
+            <li>
+              O ve a <span className="font-medium">Configuracion &rarr; Dominios</span> en el admin: ahi aparece
+              el dominio <span className="font-mono">xxxx.myshopify.com</span> exacto.
+            </li>
+          </ol>
+          <p className="mt-2">
+            Si al conectar ves una pagina de Shopify tipo &quot;This store will be right back&quot;, el dominio
+            introducido no corresponde a tu tienda activa: revisa el handle con los pasos de arriba.
+          </p>
+          <p className="mt-3 font-medium text-[#111]">Como conectar la tienda</p>
+          <ol className="mt-1 list-decimal space-y-1 pl-5">
+            <li>
+              Escribe el dominio <span className="font-mono">TU-HANDLE.myshopify.com</span> en el campo de abajo
+              y pulsa <span className="font-medium">Conectar Shopify</span>.
+            </li>
+            <li>
+              Se abrira la pantalla de autorizacion de Shopify: revisa los permisos y pulsa{" "}
+              <span className="font-medium">Instalar</span> (necesitas ser owner o staff con permisos de apps en
+              esa tienda, con la sesion iniciada en Shopify).
+            </li>
+            <li>
+              Volveras automaticamente a esta pagina y la sincronizacion inicial empezara sola. Los datos
+              (catalogo, inventario, pedidos, clientes) apareceran en la seccion Shopify en unos minutos.
+            </li>
+          </ol>
+        </div>
         <label className="mt-4 block text-sm">
           <span className="font-medium">Organizacion</span>
           <select
