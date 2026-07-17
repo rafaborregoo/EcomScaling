@@ -3,13 +3,13 @@ import WebSocket from "ws";
 import type { AuthContext } from "./auth-context.js";
 import {
   createShopifyState,
-  encryptShopifyCredential,
   exchangeShopifyCodeForToken,
   parseProviderAccountName,
   type ShopifyOAuthEnv,
   verifyShopifyHmac,
 } from "./shopify-oauth.js";
 import { runShopifyInitialSync } from "./shopify-sync.js";
+import { resolveCredentialSecret, saveShopifyTokens } from "./shopify-token-store.js";
 import { registerShopifyWebhooks, shopifyWebhookCallbackUrl } from "./shopify-webhooks.js";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 
@@ -359,16 +359,6 @@ export async function handleShopifyOAuthCallback(
   }
 
   const tokenResult = await exchangeShopifyCodeForToken(env, shop, code);
-  const encryptedToken = encryptShopifyCredential(
-    JSON.stringify({
-      access_token: tokenResult.accessToken,
-      scope: tokenResult.scope,
-      shop,
-      connected_at: new Date().toISOString(),
-    }),
-    env.SUPABASE_JWT_SECRET ?? env.SUPABASE_SERVICE_ROLE_KEY ?? env.SHOPIFY_API_SECRET,
-  );
-
   const now = new Date().toISOString();
 
   const { error: connectionUpdateError } = await supabase
@@ -403,46 +393,18 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
-  const { error: credentialInsertError } = await supabase
-    .schema("private")
-    .from("integration_credentials")
-    .upsert(
-      {
-        connection_id: pendingConnection.id,
-        credential_kind: "shopify_offline_access_token",
-        encrypted_payload: encryptedToken,
-        encryption_key_version: "v1",
-        rotated_at: now,
-      },
-      { onConflict: "connection_id,credential_kind" },
-    );
-
-  if (credentialInsertError) {
-    const { error: fallbackUpdateError } = await supabase
-      .from("integration_connections")
-      .update({
-        metadata: {
-          ...(typeof pendingConnection.metadata === "object" && pendingConnection.metadata !== null
-            ? (pendingConnection.metadata as Record<string, unknown>)
-            : {}),
-          state,
-          shop_domain: shop,
-          auth_mode: "offline",
-          credential_storage: "metadata_fallback",
-          encrypted_credential_fallback: encryptedToken,
-          credential_storage_error: credentialInsertError.message,
-        },
-      })
-      .eq("id", pendingConnection.id);
-
-    if (fallbackUpdateError) {
-      return {
-        ok: false,
-        statusCode: 500,
-        error: "shopify_credential_store_failed",
-        detail: fallbackUpdateError.message,
-      };
-    }
+  try {
+    await saveShopifyTokens(supabase, pendingConnection.id, shop, resolveCredentialSecret(env), tokenResult);
+  } catch (error) {
+    // Sin fallback a metadata: el token expiring necesita access+refresh+ambas fechas
+    // de forma consistente para poder renovarse despues, asi que una escritura parcial
+    // es peor que fallar claro y dejar reintentar la conexion.
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "shopify_credential_store_failed",
+      detail: error instanceof Error ? error.message : "unknown_error",
+    };
   }
 
   const syncRunIdempotencyKey = `oauth:${pendingConnection.id}`;

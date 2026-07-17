@@ -3,20 +3,13 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
-import { decryptShopifyCredential } from "./shopify-oauth.js";
 import { shopifyGraphql } from "./shopify-client.js";
 import { fetchBulkResult, groupBulkLinesByParent, runBulkOperation, type BulkLine } from "./shopify-bulk.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
+import { getValidShopifyAccessToken } from "./shopify-token-store.js";
 
 type ApiEnv = LoadedApiEnv;
 const logger = createLogger("shopify-sync");
-
-type ShopifyCredentialPayload = {
-  access_token: string;
-  scope: string;
-  shop: string;
-  connected_at: string;
-};
 
 type ShopData = {
   shop: {
@@ -165,54 +158,6 @@ function createServiceClient(env: ApiEnv) {
       transport: realtimeTransport,
     },
   });
-}
-
-function decryptCredentialPayload(encryptedPayload: string, secret: string) {
-  try {
-    const parsed = JSON.parse(decryptShopifyCredential(encryptedPayload, secret)) as ShopifyCredentialPayload;
-    return parsed.access_token ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function parseEncryptedCredential(metadata: unknown, secret: string) {
-  if (typeof metadata !== "object" || metadata === null) {
-    return null;
-  }
-
-  const record = metadata as Record<string, unknown>;
-  const fallback = record.encrypted_credential_fallback;
-
-  if (typeof fallback !== "string" || !fallback) {
-    return null;
-  }
-
-  return decryptCredentialPayload(fallback, secret);
-}
-
-async function resolveShopifyAccessToken(
-  supabase: SupabaseClient,
-  connectionId: string,
-  metadata: unknown,
-  secret: string,
-) {
-  const { data: credentialRow, error: credentialError } = await supabase
-    .schema("private")
-    .from("integration_credentials")
-    .select("encrypted_payload")
-    .eq("connection_id", connectionId)
-    .eq("credential_kind", "shopify_offline_access_token")
-    .maybeSingle();
-
-  if (!credentialError && credentialRow?.encrypted_payload) {
-    const token = decryptCredentialPayload(credentialRow.encrypted_payload, secret);
-    if (token) {
-      return token;
-    }
-  }
-
-  return parseEncryptedCredential(metadata, secret);
 }
 
 function normalizeMoney(value: string | number | null | undefined) {
@@ -395,7 +340,7 @@ export async function runShopifyInitialSync(
   const supabase = createServiceClient(env);
   const { data: connection, error: connectionError } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, provider_account_id, provider_account_name, status, metadata, last_sync_at")
+    .select("id, organization_id, provider_account_id, provider_account_name, status, last_sync_at")
     .eq("id", connectionId)
     .maybeSingle();
 
@@ -407,17 +352,7 @@ export async function runShopifyInitialSync(
     throw new Error("shopify_connection_not_found");
   }
 
-  const token = await resolveShopifyAccessToken(
-    supabase,
-    connectionId,
-    connection.metadata,
-    env.SUPABASE_JWT_SECRET ?? env.SUPABASE_SERVICE_ROLE_KEY ?? env.SHOPIFY_API_SECRET,
-  );
-
-  if (!token) {
-    throw new Error("shopify_access_token_unavailable");
-  }
-
+  let accessToken = await getValidShopifyAccessToken(env, connectionId);
   const shopDomain = connection.provider_account_id;
 
   if (!shopDomain) {
@@ -459,7 +394,7 @@ export async function runShopifyInitialSync(
   try {
     const shopData = await shopifyGraphql<ShopData>(
       shopDomain,
-      token,
+      accessToken,
       `
         query ShopIdentity {
           shop {
@@ -528,10 +463,12 @@ export async function runShopifyInitialSync(
     const productsQueryFilter = updatedAtCutoff ? `(query: "updated_at:>='${updatedAtCutoff}'")` : "";
     const ordersQueryFilter = updatedAtCutoff ? `(query: "updated_at:>='${updatedAtCutoff}'")` : "";
 
+    accessToken = await getValidShopifyAccessToken(env, connectionId);
+
     try {
       const locationsData = await shopifyGraphql<LocationsData>(
         shopDomain,
-        token,
+        accessToken,
         `
           query Locations($after: String) {
             locations(first: 50, after: $after) {
@@ -594,7 +531,7 @@ export async function runShopifyInitialSync(
     try {
       const bulkResult = await runBulkOperation(
         shopDomain,
-        token,
+        accessToken,
         `{
           products${productsQueryFilter} {
             edges {
@@ -849,10 +786,12 @@ export async function runShopifyInitialSync(
       blocks.inventory.error = blocks.inventory.error ?? message;
     }
 
+    accessToken = await getValidShopifyAccessToken(env, connectionId);
+
     try {
       const bulkResult = await runBulkOperation(
         shopDomain,
-        token,
+        accessToken,
         `{
           orders${ordersQueryFilter} {
             edges {
@@ -1118,10 +1057,11 @@ export async function runShopifyInitialSync(
     }
 
     try {
+      accessToken = await getValidShopifyAccessToken(env, connectionId);
       const customersQueryFilter = updatedAtCutoff ? `(query: "updated_at:>='${updatedAtCutoff}'")` : "";
       const bulkResult = await runBulkOperation(
         shopDomain,
-        token,
+        accessToken,
         `{
           customers${customersQueryFilter} {
             edges {

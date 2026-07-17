@@ -85,7 +85,51 @@ export function decryptShopifyCredential(payload: string, masterSecret: string) 
   return decrypted.toString("utf8");
 }
 
-export async function exchangeShopifyCodeForToken(env: ShopifyOAuthEnv, shop: string, code: string) {
+type ShopifyTokenExchangeResponse = {
+  access_token?: string;
+  scope?: string;
+  expires_in?: number;
+  refresh_token?: string;
+  refresh_token_expires_in?: number;
+  associated_user?: { id?: number; email?: string };
+};
+
+export type ShopifyExpiringToken = {
+  accessToken: string;
+  scope: string;
+  associatedUserEmail: string | null;
+  refreshToken: string;
+  accessTokenExpiresAt: string;
+  refreshTokenExpiresAt: string;
+};
+
+function parseExpiringTokenPayload(payload: ShopifyTokenExchangeResponse, now: number): ShopifyExpiringToken {
+  if (!payload.access_token) {
+    throw new Error("shopify_access_token_missing");
+  }
+
+  if (!payload.refresh_token || !payload.expires_in || !payload.refresh_token_expires_in) {
+    // No incluyas el payload aqui: puede contener el access_token en claro.
+    throw new Error("shopify_expiring_token_fields_missing");
+  }
+
+  return {
+    accessToken: payload.access_token,
+    scope: payload.scope ?? "",
+    associatedUserEmail: payload.associated_user?.email ?? null,
+    refreshToken: payload.refresh_token,
+    accessTokenExpiresAt: new Date(now + payload.expires_in * 1000).toISOString(),
+    refreshTokenExpiresAt: new Date(now + payload.refresh_token_expires_in * 1000).toISOString(),
+  };
+}
+
+// App publica creada despues del 1 abr 2026: Shopify exige expiring=1 (access_token +
+// refresh_token de corta vida) en vez del offline token clasico sin expiracion.
+export async function exchangeShopifyCodeForToken(
+  env: ShopifyOAuthEnv,
+  shop: string,
+  code: string,
+): Promise<ShopifyExpiringToken> {
   const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
     method: "POST",
     headers: {
@@ -95,6 +139,7 @@ export async function exchangeShopifyCodeForToken(env: ShopifyOAuthEnv, shop: st
       client_id: env.SHOPIFY_API_KEY,
       client_secret: env.SHOPIFY_API_SECRET,
       code,
+      expiring: 1,
     }),
   });
 
@@ -102,21 +147,36 @@ export async function exchangeShopifyCodeForToken(env: ShopifyOAuthEnv, shop: st
     throw new Error(`shopify_token_exchange_failed_${response.status}`);
   }
 
-  const payload = (await response.json()) as {
-    access_token?: string;
-    scope?: string;
-    associated_user?: { id?: number; email?: string };
-  };
+  const payload = (await response.json()) as ShopifyTokenExchangeResponse;
+  return parseExpiringTokenPayload(payload, Date.now());
+}
 
-  if (!payload.access_token) {
-    throw new Error("shopify_access_token_missing");
+export async function refreshShopifyOfflineToken(
+  env: ShopifyOAuthEnv,
+  shop: string,
+  refreshToken: string,
+): Promise<ShopifyExpiringToken> {
+  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      client_id: env.SHOPIFY_API_KEY,
+      client_secret: env.SHOPIFY_API_SECRET,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!response.ok) {
+    // Shopify no devuelve el refresh_token en el cuerpo de error, pero por si acaso
+    // no se registra el body de la respuesta aqui.
+    throw new Error(`shopify_token_refresh_failed_${response.status}`);
   }
 
-  return {
-    accessToken: payload.access_token,
-    scope: payload.scope ?? "",
-    associatedUserEmail: payload.associated_user?.email ?? null,
-  };
+  const payload = (await response.json()) as ShopifyTokenExchangeResponse;
+  return parseExpiringTokenPayload(payload, Date.now());
 }
 
 export function parseProviderAccountName(shop: string) {
