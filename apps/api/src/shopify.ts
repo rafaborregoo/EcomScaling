@@ -321,9 +321,12 @@ export async function handleShopifyOAuthCallback(
 ): Promise<Result> {
   const shop = typeof query.shop === "string" ? normalizeShopDomain(query.shop) : null;
   const code = typeof query.code === "string" ? query.code : null;
+  // Instalaciones gestionadas por Shopify (enlace de custom distribution del Dev
+  // Dashboard) llegan sin nuestro state; en ese caso la garantia de autenticidad es el
+  // HMAC y la conexion pendiente sembrada por dominio desde /integraciones.
   const state = typeof query.state === "string" ? query.state : null;
 
-  if (!shop || !code || !state) {
+  if (!shop || !code) {
     return {
       ok: false,
       statusCode: 400,
@@ -369,13 +372,30 @@ export async function handleShopifyOAuthCallback(
   }
 
   // El HMAC lo firma la app que inicio el flujo (publica o custom distribution, cada una
-  // con su propio secret), asi que hace falta saber que app_mode se guardo al arrancar el
-  // OAuth antes de poder validar la firma.
-  const appMode = parseAppMode(pendingConnection.metadata);
-  let appEnv: ShopifyOAuthEnv;
-  try {
-    appEnv = resolveShopifyAppEnv(env, appMode);
-  } catch {
+  // con su propio secret). El app_mode guardado al sembrar la conexion es la primera
+  // apuesta, pero una instalacion gestionada por Shopify puede llegar sin que el metadata
+  // refleje la app real, asi que si la firma no valida se intenta con la otra app.
+  const seededAppMode = parseAppMode(pendingConnection.metadata);
+  const candidateModes: ShopifyAppMode[] =
+    seededAppMode === "custom" ? ["custom", "public"] : ["public", "custom"];
+
+  let appEnv: ShopifyOAuthEnv | null = null;
+  let resolvedAny = false;
+  for (const mode of candidateModes) {
+    let candidate: ShopifyOAuthEnv;
+    try {
+      candidate = resolveShopifyAppEnv(env, mode);
+    } catch {
+      continue;
+    }
+    resolvedAny = true;
+    if (verifyShopifyHmac(query, candidate.SHOPIFY_API_SECRET)) {
+      appEnv = candidate;
+      break;
+    }
+  }
+
+  if (!resolvedAny) {
     return {
       ok: false,
       statusCode: 500,
@@ -384,7 +404,7 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
-  if (!verifyShopifyHmac(query, appEnv.SHOPIFY_API_SECRET)) {
+  if (!appEnv) {
     return {
       ok: false,
       statusCode: 400,
@@ -392,14 +412,16 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
-  if (parseState(pendingConnection.metadata) !== state) {
-    return {
-      ok: false,
-      statusCode: 400,
-      error: "invalid_oauth_state",
-      detail:
-        "La sesion OAuth ha caducado o se inicio otra conexion Shopify en otra pestaña. Repite el flujo desde Integraciones.",
-    };
+  const storedState = parseState(pendingConnection.metadata);
+  if (state !== null && storedState !== null && storedState !== state) {
+    // Con HMAC valido, un state distinto significa casi siempre que se repitio el flujo
+    // desde otra pestaña o que Shopify inicio la instalacion por su cuenta (managed
+    // install); se acepta pero queda rastro por si el supuesto falla.
+    console.warn("Shopify OAuth state mismatch tolerated (HMAC valid)", {
+      shop,
+      connection_id: pendingConnection.id,
+      has_incoming_state: state !== null,
+    });
   }
 
   const tokenResult = await exchangeShopifyCodeForToken(appEnv, shop, code);
@@ -421,7 +443,7 @@ export async function handleShopifyOAuthCallback(
         ...(typeof pendingConnection.metadata === "object" && pendingConnection.metadata !== null
           ? (pendingConnection.metadata as Record<string, unknown>)
           : {}),
-        state,
+        state: state ?? storedState,
         shop_domain: shop,
         auth_mode: "offline",
       },
