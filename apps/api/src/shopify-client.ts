@@ -43,7 +43,8 @@ export async function shopifyGraphql<T>(
     }
 
     if (!response.ok) {
-      throw new Error(`shopify_graphql_http_${response.status}`);
+      const bodyText = await response.text().catch(() => "");
+      throw new Error(`shopify_graphql_http_${response.status}${bodyText ? `: ${bodyText.slice(0, 500)}` : ""}`);
     }
 
     const payload = (await response.json()) as ShopifyGraphQLResponse<T>;
