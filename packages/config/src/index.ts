@@ -21,6 +21,18 @@ const apiEnvSchema = z.object({
   SHOPIFY_CUSTOM_API_SECRET: z.string().min(1).optional(),
   SHOPIFY_CUSTOM_SCOPES: z.string().min(1).optional(),
   SHOPIFY_CUSTOM_REDIRECT_URI: z.string().url().optional(),
+  // App Meta (Marketing API). Opcional: si no esta seteada, el boton "Conectar
+  // Meta Ads" no aparece en la UI. Deben estar las 3 seteadas juntas o ninguna.
+  META_APP_ID: z.string().min(1).optional(),
+  META_APP_SECRET: z.string().min(1).optional(),
+  META_REDIRECT_URI: z.string().url().optional(),
+  META_SCOPES: z.string().min(1).optional(),
+  // Runtime de agentes IA (AI-00). Opcional: sin key, los endpoints de IA
+  // devuelven 503 y el resto de la plataforma funciona igual.
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  // Embeddings para RAG (AI-04). Opcional: sin key, la ingestion/busqueda de
+  // conocimiento devuelve 503 y la tool search_knowledge no se habilita.
+  VOYAGE_API_KEY: z.string().min(1).optional(),
   INTERNAL_API_SECRET: z.string().min(1).optional(),
   REDIS_URL: z.string().url().optional(),
 });
@@ -47,12 +59,23 @@ export type LoadedApiEnv = {
   SHOPIFY_CUSTOM_API_SECRET?: string;
   SHOPIFY_CUSTOM_SCOPES?: string;
   SHOPIFY_CUSTOM_REDIRECT_URI?: string;
+  META_APP_ID?: string;
+  META_APP_SECRET?: string;
+  META_REDIRECT_URI?: string;
+  META_SCOPES?: string;
+  ANTHROPIC_API_KEY?: string;
+  VOYAGE_API_KEY?: string;
   INTERNAL_API_SECRET?: string;
   REDIS_URL?: string;
 };
 
 export function loadApiEnv(source: Record<string, string | undefined>): LoadedApiEnv {
-  const env = apiEnvSchema.parse(source);
+  // Una variable presente pero vacia (META_APP_ID=) cuenta como no configurada:
+  // los .env suelen copiarse de .env.example con claves opcionales en blanco.
+  const cleanedSource = Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value !== ""),
+  );
+  const env = apiEnvSchema.parse(cleanedSource);
   const supabaseUrl = env.SUPABASE_URL ?? env.NEXT_PUBLIC_SUPABASE_URL;
   const supabasePublishableKey =
     env.SUPABASE_PUBLISHABLE_KEY ?? env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -97,6 +120,15 @@ export function loadApiEnv(source: Record<string, string | undefined>): LoadedAp
     );
   }
 
+  const metaFields = [env.META_APP_ID, env.META_APP_SECRET, env.META_REDIRECT_URI];
+  const metaFieldsSetCount = metaFields.filter(Boolean).length;
+
+  if (metaFieldsSetCount > 0 && metaFieldsSetCount < metaFields.length) {
+    throw new Error(
+      "META_APP_ID, META_APP_SECRET y META_REDIRECT_URI deben estar todas seteadas o ninguna",
+    );
+  }
+
   return {
     API_HOST: env.API_HOST,
     API_PORT: env.API_PORT,
@@ -117,6 +149,16 @@ export function loadApiEnv(source: Record<string, string | undefined>): LoadedAp
           SHOPIFY_CUSTOM_REDIRECT_URI: env.SHOPIFY_CUSTOM_REDIRECT_URI!,
         }
       : {}),
+    ...(metaFieldsSetCount === metaFields.length
+      ? {
+          META_APP_ID: env.META_APP_ID!,
+          META_APP_SECRET: env.META_APP_SECRET!,
+          META_REDIRECT_URI: env.META_REDIRECT_URI!,
+          META_SCOPES: env.META_SCOPES ?? "ads_read,business_management,pages_show_list",
+        }
+      : {}),
+    ...(env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } : {}),
+    ...(env.VOYAGE_API_KEY ? { VOYAGE_API_KEY: env.VOYAGE_API_KEY } : {}),
     ...(env.INTERNAL_API_SECRET ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET } : {}),
     ...(env.REDIS_URL ? { REDIS_URL: env.REDIS_URL } : {}),
   };

@@ -1,5 +1,37 @@
 # BE-01 - Identidad, tenancy y bootstrap
 
+## Estado
+
+- **Estado real:** `verification_pending` (el propio documento reconocia que faltan verificaciones en
+  endpoints de negocio — no cumple su propio criterio de cierre).
+- **Responsable:** sin asignar
+- **Ultima validacion:** 2026-07-20
+- **Dependencias:** DB-02
+- **Bloqueador:** ninguno
+- **Evidencia:**
+  - `AuthContext` implementado en `apps/api/src/auth-context.ts`; endpoint `GET /v1/bootstrap`.
+  - Ampliacion 2026-07-20: `resolveAuthContext` materializa **memberships virtuales** para acceso
+    multi-cliente sin membership real — `platform_admin` recibe todas las organizaciones y `consultant`
+    sus `consultant_assignments` activas, ambas con `role: "consultant"`. RLS ya cubria este acceso via
+    `private.can_access_org`.
+  - Seed operativo con usuario admin/cliente reales para pruebas manuales.
+- **Riesgo de diseno abierto (sin resolver, ver `PREGUNTAS_ABIERTAS.md`):** un consultor asignado no es
+  realmente un miembro de la organizacion. Materializarlo como membership virtual simplifica el checkeo
+  uniforme pero puede confundir permisos, hacer que la UI lo trate como miembro interno, mezclar rol de
+  plataforma con rol de organizacion, y complicarse cuando aparezcan mas tipos de acceso (p. ej. un
+  auditor de solo lectura). Alternativa mas limpia: que `AuthContext` devuelva
+  `{ organizationId, accessSource: "membership" | "consultant_assignment" | "platform_admin",
+  organizationRole?, platformRole, permissions[] }` — uniformar el **contrato de acceso**, no la
+  **identidad de la relacion**. No implementado todavia; es un cambio de contrato, no un parche.
+- **Gaps identificados:**
+  - Validacion de organizacion activa no extendida a todos los endpoints de negocio (solo
+    bootstrap/listado consultor la tenian completa en origen).
+  - Sin test de invalidacion inmediata al suspender una `consultant_assignment` en caliente.
+  - Sin test de "organizacion activa manipulada" (un cliente que fuerza `organizationId` de otra org).
+  - UUIDs concretos de seed en la documentacion sin etiquetar claramente como datos sinteticos.
+- **Siguiente accion:** decidir si se migra a `OrganizationAccess` tipado (ver riesgo de diseno) antes de
+  seguir anadiendo superficie que dependa de memberships virtuales.
+
 ## Objetivo
 
 Resolver usuario, rol, organizacion activa y permisos en backend.

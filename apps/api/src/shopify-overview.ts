@@ -568,7 +568,7 @@ async function loadProducts(supabase: SupabaseClient, organizationId: string, st
     query = query.eq("store_id", storeId);
   }
 
-  const { data, error } = await query.order("external_updated_at", { ascending: false }).limit(10);
+  const { data, error } = await query.order("external_updated_at", { ascending: false }).limit(50);
 
   if (error) {
     throw new Error(`shopify_products_sample_failed: ${error.message}`);
@@ -587,7 +587,7 @@ async function loadOrders(supabase: SupabaseClient, organizationId: string, stor
     query = query.eq("store_id", storeId);
   }
 
-  const { data, error } = await query.order("processed_at", { ascending: false, nullsFirst: false }).limit(10);
+  const { data, error } = await query.order("processed_at", { ascending: false, nullsFirst: false }).limit(50);
 
   if (error) {
     throw new Error(`shopify_orders_sample_failed: ${error.message}`);
@@ -602,13 +602,56 @@ async function loadInventory(supabase: SupabaseClient, organizationId: string) {
     .select("id, sku, tracked, requires_shipping, current_unit_cost, cost_currency_code, external_updated_at")
     .eq("organization_id", organizationId)
     .order("external_updated_at", { ascending: false })
-    .limit(10);
+    .limit(50);
 
   if (error) {
     throw new Error(`shopify_inventory_sample_failed: ${error.message}`);
   }
 
   return data ?? [];
+}
+
+/**
+ * Solo la lista de conexiones Shopify de una organizacion, sin el resto del
+ * overview (productos/pedidos/inventario/conteos de datasets). El selector
+ * de tienda del header global necesita esto en cada cambio de cliente y
+ * pedir el overview completo era el cuello de botella real de "cambiar de
+ * cliente va lento" (el overview hace ~20 queries de conteo por dataset).
+ */
+export async function getShopifyConnections(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+) {
+  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+      message: "El usuario no pertenece a la organizacion solicitada.",
+    };
+  }
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  try {
+    const connections = await loadConnections(supabase, organizationId);
+    const selected = connections.find((item) => item.status !== "pending") ?? connections[0] ?? null;
+
+    return {
+      ok: true as const,
+      data: { organization_id: organizationId, connections, selected_connection_id: selected?.id ?? null },
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "shopify_connections_load_failed",
+      detail: error instanceof Error ? error.message : "unknown_error",
+    };
+  }
 }
 
 export async function getShopifyOverview(

@@ -1,0 +1,376 @@
+"use client";
+
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { PortalShell } from "@/components/portal-shell";
+import { useActiveOrganization } from "@/components/active-organization";
+import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { LoadingBlock } from "@ecomscaling/ui";
+
+type Milestone = {
+  id: string;
+  name: string;
+  description: string | null;
+  position: number;
+  status: string;
+  target_date: string | null;
+  completed_at: string | null;
+  milestone_task_links: Array<{ task_id: string }>;
+};
+
+type Phase = {
+  id: string;
+  name: string;
+  description: string | null;
+  position: number;
+  status: string;
+  activated_at: string | null;
+  completed_at: string | null;
+  strategic_plan_milestones: Milestone[];
+};
+
+type Plan = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  version: number;
+  starts_on: string | null;
+  completed_on: string | null;
+  strategic_plan_phases: Phase[];
+};
+
+type PlanResponse = {
+  organization_id: string;
+  plan: Plan | null;
+};
+
+const PHASE_STATUS_LABELS: Record<string, string> = {
+  locked: "Bloqueada",
+  pending: "Pendiente",
+  active: "Activa",
+  completed: "Completada",
+};
+
+const MILESTONE_STATUS_LABELS: Record<string, string> = {
+  locked: "Bloqueado",
+  pending: "Pendiente",
+  in_progress: "En curso",
+  completed: "Completado",
+  skipped: "Omitido",
+};
+
+async function readApiError(response: Response) {
+  const body = (await response.json().catch(() => null)) as
+    | { error?: string; message?: string; detail?: string }
+    | null;
+  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
+}
+
+function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organizationId: selectedOrganizationId } = useActiveOrganization();
+  const organization =
+    bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
+      ?.organization ?? bootstrap.memberships[0]?.organization ?? null;
+  const membership = bootstrap.memberships.find(
+    (item) => item.organization_id === (organization?.id ?? ""),
+  );
+  const canManage =
+    ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role) ||
+    ["owner", "manager"].includes(membership?.role ?? "");
+
+  const [payload, setPayload] = useState<PlanResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [planName, setPlanName] = useState("");
+  const [planOutline, setPlanOutline] = useState("");
+
+  const loadPlan = useCallback(async () => {
+    if (!organization) {
+      return;
+    }
+
+    setIsLoading(true);
+    const response = await apiFetch(`/v1/organizations/${organization.id}/strategic-plan`);
+
+    if (!response.ok) {
+      setError(await readApiError(response));
+      setIsLoading(false);
+      return;
+    }
+
+    setPayload((await response.json()) as PlanResponse);
+    setError(null);
+    setIsLoading(false);
+  }, [organization?.id]);
+
+  useEffect(() => {
+    void loadPlan();
+  }, [loadPlan]);
+
+  async function createPlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!organization) {
+      return;
+    }
+
+    // Formato del esquema: una linea "Fase: nombre" abre fase; el resto son hitos.
+    const phases: Array<{ name: string; milestones: Array<{ name: string }> }> = [];
+
+    for (const rawLine of planOutline.split("\n")) {
+      const line = rawLine.trim();
+
+      if (!line) {
+        continue;
+      }
+
+      if (/^fase\s*:/i.test(line)) {
+        phases.push({ name: line.replace(/^fase\s*:/i, "").trim(), milestones: [] });
+      } else if (phases.length > 0) {
+        phases[phases.length - 1].milestones.push({ name: line.replace(/^[-*]\s*/, "") });
+      }
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    const response = await apiFetch(`/v1/organizations/${organization.id}/strategic-plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: planName, phases }),
+    });
+
+    if (!response.ok) {
+      setError(await readApiError(response));
+      setIsSubmitting(false);
+      return;
+    }
+
+    setPlanName("");
+    setPlanOutline("");
+    setIsSubmitting(false);
+    void loadPlan();
+  }
+
+  async function activatePlan(planId: string) {
+    if (!organization) {
+      return;
+    }
+
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/strategic-plan/${planId}/activate`,
+      { method: "POST" },
+    );
+
+    if (!response.ok) {
+      setError(await readApiError(response));
+      return;
+    }
+
+    void loadPlan();
+  }
+
+  async function changeMilestone(milestoneId: string, status: string) {
+    if (!organization) {
+      return;
+    }
+
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/milestones/${milestoneId}/status`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      },
+    );
+
+    if (!response.ok) {
+      setError(await readApiError(response));
+      return;
+    }
+
+    void loadPlan();
+  }
+
+  const plan = payload?.plan ?? null;
+  const phases = (plan?.strategic_plan_phases ?? []).slice().sort((a, b) => a.position - b.position);
+  const totalMilestones = phases.reduce((sum, phase) => sum + phase.strategic_plan_milestones.length, 0);
+  const doneMilestones = phases.reduce(
+    (sum, phase) =>
+      sum +
+      phase.strategic_plan_milestones.filter((m) => ["completed", "skipped"].includes(m.status)).length,
+    0,
+  );
+
+  return (
+    <div className="space-y-4">
+      {error ? (
+        <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">{error}</div>
+      ) : null}
+
+      {isLoading ? (
+        <LoadingBlock label="Cargando plan..." />
+      ) : plan ? (
+        <>
+          <section className="border-t border-ink/20 pt-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-mono text-xs text-brand">
+                  v{plan.version} · {plan.status}
+                </p>
+                <h3 className="mt-1 text-lg font-semibold">{plan.name}</h3>
+                {plan.description ? (
+                  <p className="mt-1 text-sm leading-6 text-muted">{plan.description}</p>
+                ) : null}
+              </div>
+              {plan.status === "draft" && canManage ? (
+                <button
+                  className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand"
+                  type="button"
+                  onClick={() => void activatePlan(plan.id)}
+                >
+                  Activar plan
+                </button>
+              ) : null}
+            </div>
+            {totalMilestones > 0 ? (
+              <div className="mt-4">
+                <div className="flex justify-between text-xs text-muted">
+                  <span>Progreso</span>
+                  <span className="font-mono">
+                    {doneMilestones}/{totalMilestones} hitos
+                  </span>
+                </div>
+                <div className="mt-1 h-2 w-full rounded-full bg-line">
+                  <div
+                    className="h-2 rounded-full bg-black"
+                    style={{ width: `${totalMilestones ? (doneMilestones / totalMilestones) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </section>
+
+          {phases.map((phase) => (
+            <section key={phase.id} className="border-t border-ink/20">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+                <h4 className="font-display text-xl">
+                  Fase {phase.position}: {phase.name}
+                </h4>
+                <span
+                  className={[
+                    "rounded-sm border px-2 py-0.5 text-xs",
+                    phase.status === "active"
+                      ? "border-black bg-black text-white"
+                      : phase.status === "completed"
+                        ? "border-success text-success"
+                        : "border-edge text-muted",
+                  ].join(" ")}
+                >
+                  {PHASE_STATUS_LABELS[phase.status] ?? phase.status}
+                </span>
+              </div>
+              <div className="divide-y divide-line">
+                {phase.strategic_plan_milestones
+                  .slice()
+                  .sort((a, b) => a.position - b.position)
+                  .map((milestone) => (
+                    <div
+                      key={milestone.id}
+                      className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p
+                          className={[
+                            "text-sm",
+                            ["completed", "skipped"].includes(milestone.status)
+                              ? "text-muted line-through"
+                              : "",
+                          ].join(" ")}
+                        >
+                          {milestone.name}
+                        </p>
+                        <p className="font-mono text-xs text-muted">
+                          {MILESTONE_STATUS_LABELS[milestone.status] ?? milestone.status}
+                          {milestone.target_date ? ` · objetivo ${milestone.target_date}` : ""}
+                          {milestone.milestone_task_links.length
+                            ? ` · ${milestone.milestone_task_links.length} tareas`
+                            : ""}
+                        </p>
+                      </div>
+                      {canManage && ["pending", "in_progress"].includes(milestone.status) ? (
+                        <div className="flex gap-2">
+                          {milestone.status === "pending" ? (
+                            <button
+                              className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                              type="button"
+                              onClick={() => void changeMilestone(milestone.id, "in_progress")}
+                            >
+                              Empezar
+                            </button>
+                          ) : null}
+                          <button
+                            className="rounded-md bg-black px-3 py-1 text-xs font-medium text-white hover:bg-brand"
+                            type="button"
+                            onClick={() => void changeMilestone(milestone.id, "completed")}
+                          >
+                            Completar
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+              </div>
+            </section>
+          ))}
+        </>
+      ) : (
+        <section className="border-t border-ink/20 pt-5">
+          <h3 className="font-display text-2xl">Sin plan estratégico</h3>
+          <p className="mt-1 text-sm leading-6 text-muted">
+            {canManage
+              ? "Crea el primer plan: escribe el nombre y el esquema de fases e hitos."
+              : "Tu consultor todavia no ha publicado un plan para esta organización."}
+          </p>
+          {canManage ? (
+            <form className="mt-4 space-y-3" onSubmit={createPlan}>
+              <input
+                className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+                value={planName}
+                onChange={(event) => setPlanName(event.target.value)}
+                placeholder="Nombre del plan (p. ej. Escalar a 50k/mes)"
+                required
+              />
+              <textarea
+                className="h-48 w-full rounded-none border border-edge-strong bg-transparent px-3 py-2 font-mono text-sm outline-none transition-colors focus:border-ink"
+                value={planOutline}
+                onChange={(event) => setPlanOutline(event.target.value)}
+                placeholder={"Fase: Fundamentos\n- Configurar costes y gastos fijos\n- Cargar costes de producto\nFase: Adquisicion\n- Conectar Meta Ads\n- Definir presupuesto inicial"}
+                required
+              />
+              <p className="text-xs text-muted">
+                Formato: cada linea &quot;Fase: nombre&quot; abre una fase; las lineas siguientes son sus hitos.
+              </p>
+              <button
+                className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
+                type="submit"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Creando..." : "Crear plan en borrador"}
+              </button>
+            </form>
+          ) : null}
+        </section>
+      )}
+    </div>
+  );
+}
+
+export default function StrategicPlanPage() {
+  return (
+    <PortalShell title="Mi Camino">
+      {(bootstrap) => <PlanContent bootstrap={bootstrap} />}
+    </PortalShell>
+  );
+}

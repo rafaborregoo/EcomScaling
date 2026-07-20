@@ -14,7 +14,8 @@ const connection = {
   ...(redisUrl.password ? { password: decodeURIComponent(redisUrl.password) } : {}),
 };
 
-const SHOPIFY_RECONCILE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const SHOPIFY_RECONCILE_CRON = "0 2 * * *";
+const SHOPIFY_RECONCILE_TZ = "Europe/Madrid";
 
 async function runShopifyReconcile() {
   if (!env.INTERNAL_API_SECRET) {
@@ -36,16 +37,27 @@ async function runShopifyReconcile() {
 
 const queue = new Queue("ecomscaling-default", { connection });
 
+// BullMQ indexa los jobs repetibles por su configuracion de repeat, no solo por
+// jobId: cambiar de `every` (6h) a `pattern` (cron diario) deja el job viejo
+// huerfano en Redis si no se borra explicitamente, duplicando el reconcile.
+const staleRepeatables = await queue.getRepeatableJobs();
+for (const repeatable of staleRepeatables) {
+  if (repeatable.name === "shopify-reconcile" && repeatable.pattern !== SHOPIFY_RECONCILE_CRON) {
+    await queue.removeRepeatableByKey(repeatable.key);
+    logger.info(`Removed stale shopify-reconcile repeatable job (${repeatable.key})`);
+  }
+}
+
 if (env.INTERNAL_API_SECRET) {
   await queue.add(
     "shopify-reconcile",
     {},
     {
-      repeat: { every: SHOPIFY_RECONCILE_INTERVAL_MS },
+      repeat: { pattern: SHOPIFY_RECONCILE_CRON, tz: SHOPIFY_RECONCILE_TZ },
       jobId: "shopify-reconcile-repeat",
     },
   );
-  logger.info(`Scheduled shopify-reconcile every ${SHOPIFY_RECONCILE_INTERVAL_MS / 1000 / 60} minutes`);
+  logger.info(`Scheduled shopify-reconcile daily at 2am (${SHOPIFY_RECONCILE_TZ})`);
 } else {
   logger.info("Not scheduling shopify-reconcile - INTERNAL_API_SECRET not configured");
 }

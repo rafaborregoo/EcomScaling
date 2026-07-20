@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { LoadingBlock } from "@ecomscaling/ui";
 
 type IntegrationProvider = {
   id: string;
@@ -35,6 +36,7 @@ type IntegrationsResponse = {
   organization_id: string;
   schema_ready: boolean;
   shopify_custom_app_available: boolean;
+  meta_app_available: boolean;
   providers: IntegrationProvider[];
 };
 
@@ -72,6 +74,7 @@ function IntegrationsList({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isConnectingMeta, setIsConnectingMeta] = useState(false);
   const organization =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
@@ -92,7 +95,7 @@ function IntegrationsList({
     async function load() {
       setIsLoading(true);
       if (!organization) {
-        setError("No hay organizacion activa.");
+        setError("No hay organización activa.");
         setIsLoading(false);
         return;
       }
@@ -115,7 +118,7 @@ function IntegrationsList({
       const data = (await response.json()) as IntegrationsResponse;
       setPayload(data);
       if (data.shopify_custom_app_available) {
-        // La app publica todavia esta pendiente de revision de Shopify: mientras tanto,
+        // La app publica todavia esta pendiente de revisión de Shopify: mientras tanto,
         // la unica que puede instalarse en tiendas reales de clientes es la personalizada.
         setAppMode("custom");
       }
@@ -163,12 +166,42 @@ function IntegrationsList({
     window.location.assign(body.redirectUrl);
   }
 
+  async function connectMeta() {
+    if (!organization) {
+      return;
+    }
+
+    setIsConnectingMeta(true);
+    setError(null);
+
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/integrations/meta/connect`,
+      { method: "POST" },
+    );
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as
+        | { error?: string; message?: string; detail?: string }
+        | null;
+      setError(
+        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+          .filter(Boolean)
+          .join(" - "),
+      );
+      setIsConnectingMeta(false);
+      return;
+    }
+
+    const body = (await response.json()) as { redirectUrl: string };
+    window.location.assign(body.redirectUrl);
+  }
+
   if (isLoading) {
-    return <div className="rounded-md border border-[#d8d8d8] p-4">Cargando integraciones...</div>;
+    return <LoadingBlock label="Cargando integraciones..." />;
   }
 
   if (error) {
-    return <div className="rounded-md border border-[#dc1f26] p-4 text-[#b5121b]">{error}</div>;
+    return <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">{error}</div>;
   }
 
   if (!payload) {
@@ -178,20 +211,20 @@ function IntegrationsList({
   return (
     <div className="space-y-4">
       {!payload.schema_ready ? (
-        <div className="rounded-md border border-[#dc1f26] bg-white p-4 text-sm text-[#b5121b]">
+        <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">
           DB-04 todavia no esta aplicada en Supabase remoto. La UI ya esta preparada y
           mostrara conexiones reales cuando exista la migracion.
         </div>
       ) : null}
 
-      <section className="rounded-md border border-[#d8d8d8] bg-white p-4">
-        <h3 className="font-medium">Conectar Shopify</h3>
-        <p className="mt-2 text-sm leading-6 text-[#5f5f5f]">
+      <section className="border-t border-ink/20 pt-5">
+        <h3 className="font-display text-2xl">Conectar Shopify</h3>
+        <p className="mt-2 text-sm leading-6 text-muted">
           Introduce el dominio <span className="font-mono">*.myshopify.com</span> de la tienda.
           La URL de admin de Shopify no sirve como callback OAuth.
         </p>
-        <div className="mt-3 rounded-md border border-[#d8d8d8] bg-[#fafafa] p-3 text-sm leading-6 text-[#5f5f5f]">
-          <p className="font-medium text-[#111]">Como encontrar tu dominio .myshopify.com</p>
+        <div className="mt-3 rounded-md border border-edge bg-surface p-3 text-sm leading-6 text-muted">
+          <p className="font-medium text-ink">Como encontrar tu dominio .myshopify.com</p>
           <p className="mt-1">
             No es el dominio publico de tu web (p. ej. <span className="font-mono">mitienda.com</span>), sino el
             dominio interno que Shopify asigno al crear la tienda y que nunca cambia.
@@ -203,7 +236,7 @@ function IntegrationsList({
               <span className="font-mono">TU-HANDLE.myshopify.com</span>.
             </li>
             <li>
-              O ve a <span className="font-medium">Configuracion &rarr; Dominios</span> en el admin: ahi aparece
+              O ve a <span className="font-medium">Configuración &rarr; Dominios</span> en el admin: ahi aparece
               el dominio <span className="font-mono">xxxx.myshopify.com</span> exacto.
             </li>
           </ol>
@@ -211,7 +244,7 @@ function IntegrationsList({
             Si al conectar ves una pagina de Shopify tipo &quot;This store will be right back&quot;, el dominio
             introducido no corresponde a tu tienda activa: revisa el handle con los pasos de arriba.
           </p>
-          <p className="mt-3 font-medium text-[#111]">Como conectar la tienda</p>
+          <p className="mt-3 font-medium text-ink">Como conectar la tienda</p>
           <ol className="mt-1 list-decimal space-y-1 pl-5">
             <li>
               Escribe el dominio <span className="font-mono">TU-HANDLE.myshopify.com</span> en el campo de abajo
@@ -220,18 +253,18 @@ function IntegrationsList({
             <li>
               Se abrira la pantalla de autorizacion de Shopify: revisa los permisos y pulsa{" "}
               <span className="font-medium">Instalar</span> (necesitas ser owner o staff con permisos de apps en
-              esa tienda, con la sesion iniciada en Shopify).
+              esa tienda, con la sesión iniciada en Shopify).
             </li>
             <li>
-              Volveras automaticamente a esta pagina y la sincronizacion inicial empezara sola. Los datos
-              (catalogo, inventario, pedidos, clientes) apareceran en la seccion Shopify en unos minutos.
+              Volveras automáticamente a esta pagina y la sincronización inicial empezara sola. Los datos
+              (catalogo, inventario, pedidos, clientes) aparecerán en la sección Shopify en unos minutos.
             </li>
           </ol>
         </div>
         <label className="mt-4 block text-sm">
-          <span className="font-medium">Organizacion</span>
+          <span className="font-medium">Organización</span>
           <select
-            className="mt-2 w-full rounded-md border border-[#cfcfcf] bg-white px-3 py-2 outline-none focus:border-[#dc1f26]"
+            className="mt-2 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
             value={organization?.id ?? ""}
               onChange={(event) => {
                 setSelectedOrganizationId(event.target.value);
@@ -252,7 +285,7 @@ function IntegrationsList({
               <label
                 className={[
                   "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2",
-                  appMode === "custom" ? "border-black bg-[#f5f5f5]" : "border-[#cfcfcf]",
+                  appMode === "custom" ? "border-black bg-surface" : "border-edge-strong",
                 ].join(" ")}
               >
                 <input
@@ -266,7 +299,7 @@ function IntegrationsList({
               <label
                 className={[
                   "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2",
-                  appMode === "public" ? "border-black bg-[#f5f5f5]" : "border-[#cfcfcf]",
+                  appMode === "public" ? "border-black bg-surface" : "border-edge-strong",
                 ].join(" ")}
               >
                 <input
@@ -275,18 +308,18 @@ function IntegrationsList({
                   checked={appMode === "public"}
                   onChange={() => setAppMode("public")}
                 />
-                App publica (pendiente de revision de Shopify)
+                App publica (pendiente de revisión de Shopify)
               </label>
             </div>
-            <p className="text-xs text-[#5f5f5f]">
+            <p className="text-xs text-muted">
               Usa &quot;App personalizada&quot; para conectar tiendas reales de clientes ahora mismo. Cuando la
-              app publica pase la revision de Shopify, cambia a esa opcion para los clientes nuevos.
+              app publica pase la revisión de Shopify, cambia a esa opcion para los clientes nuevos.
             </p>
           </div>
         ) : null}
         <form className="mt-4 flex flex-col gap-3 md:flex-row" onSubmit={connectShopify}>
           <input
-            className="min-w-0 flex-1 rounded-md border border-[#cfcfcf] px-3 py-2 outline-none focus:border-[#dc1f26]"
+            className="min-w-0 flex-1 rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
             value={shopDomain}
             onChange={(event) => setShopDomain(event.target.value)}
             placeholder="marta-reyes-swimwear.myshopify.com"
@@ -294,7 +327,7 @@ function IntegrationsList({
             required
           />
           <button
-            className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-[#dc1f26] disabled:cursor-not-allowed disabled:bg-[#808080]"
+            className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
             type="submit"
             disabled={isConnecting}
           >
@@ -305,40 +338,60 @@ function IntegrationsList({
 
       <div className="grid gap-3 lg:grid-cols-3">
         {payload.providers.map((provider) => (
-          <article key={provider.id} className="rounded-md border border-[#d8d8d8] p-4">
+          <article key={provider.id} className="border-t border-ink/20 pt-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="font-medium">{provider.name}</h3>
-                <p className="mt-1 font-mono text-xs text-[#dc1f26]">{provider.phase}</p>
+                <h3 className="font-display text-2xl">{provider.name}</h3>
+                <p className="mt-1 font-mono text-xs text-brand">{provider.phase}</p>
               </div>
-              <span className="rounded-sm border border-[#dc1f26] px-2 py-1 text-xs text-[#dc1f26]">
+              <span className="rounded-sm border border-brand px-2 py-1 text-xs text-brand">
                 {statusLabel(provider)}
               </span>
             </div>
 
-            <p className="mt-4 text-sm leading-6 text-[#5f5f5f]">{provider.description}</p>
+            <p className="mt-4 text-sm leading-6 text-muted">{provider.description}</p>
+            {provider.id === "meta_ads" ? (
+              payload.meta_app_available ? (
+                <button
+                  className="mt-4 bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
+                  type="button"
+                  onClick={() => void connectMeta()}
+                  disabled={isConnectingMeta}
+                >
+                  {isConnectingMeta
+                    ? "Conectando..."
+                    : provider.connection
+                      ? "Reautorizar Meta Ads"
+                      : "Conectar Meta Ads"}
+                </button>
+              ) : (
+                <p className="mt-4 rounded-md border border-edge bg-surface p-2 text-xs text-muted">
+                  La app de Meta no esta configurada en el servidor todavia (META_APP_ID/SECRET).
+                </p>
+              )
+            ) : null}
             {integrationErrorMessage(provider) ? (
-              <div className="mt-4 rounded-md border border-[#dc1f26] bg-[#fff7f7] p-3 text-xs leading-5 text-[#9f1119]">
+              <div className="mt-4 rounded-md border border-brand bg-brand-tint p-3 text-xs leading-5 text-brand-deep">
                 <p className="font-medium">Ultimo error</p>
                 <p className="mt-1 font-mono break-words">{integrationErrorMessage(provider)}</p>
               </div>
             ) : null}
 
-            <dl className="mt-4 space-y-2 border-t border-[#e2e2e2] pt-4 text-sm">
+            <dl className="mt-4 space-y-2 border-t border-line pt-4 text-sm">
               <div className="flex justify-between gap-4">
-                <dt className="text-[#5f5f5f]">Cuenta</dt>
+                <dt className="text-muted">Cuenta</dt>
                 <dd className="text-right">
                   {provider.connection?.provider_account_name ?? "Pendiente"}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt className="text-[#5f5f5f]">Ultimo sync</dt>
+                <dt className="text-muted">Ultimo sync</dt>
                 <dd className="font-mono text-right">
                   {provider.latest_sync?.status ?? provider.connection?.last_sync_at ?? "sin_sync"}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt className="text-[#5f5f5f]">Version API</dt>
+                <dt className="text-muted">Version API</dt>
                 <dd className="font-mono">{provider.connection?.api_version ?? "n/a"}</dd>
               </div>
             </dl>

@@ -11,6 +11,17 @@ Construir Supabase/PostgreSQL por fases, sin desplegar las 90 tablas del modelo 
 - Las migraciones SQL son la fuente ejecutable de verdad.
 - DBML y contexto se actualizan solo cuando una decision aprobada cambia el contrato.
 - Cada bloque multi-tenant necesita tests de aislamiento cliente A/B y consultor asignado/no asignado.
+- Los estados de fase siguen la taxonomia y el formato de evidencia de
+  [`ESTADOS_Y_EVIDENCIA.md`](../99-decisiones-y-seguimiento/ESTADOS_Y_EVIDENCIA.md).
+
+## Fuente de verdad vs. modelo conceptual
+
+`schema_conceptual_snapshot.sql` (ex "BDD EcomScaling.sql") es un export de la herramienta de diseno
+ER — **no ejecutable, no fuente de verdad**, con problemas conocidos documentados en su propia cabecera
+(FKs invertidas, sin RLS/CHECK/grants, desalineado con el esquema real en varios puntos). Para ver el
+esquema real: `supabase/migrations/*.sql`, o su version concatenada y regenerable en
+`schema_generado_desde_migraciones.sql` (regenerado a mano por ahora; automatizarlo + un check de drift
+en CI sigue pendiente).
 
 ## Fases
 
@@ -29,13 +40,19 @@ Construir Supabase/PostgreSQL por fases, sin desplegar las 90 tablas del modelo 
 | DB-10 | `fases/DB-10-instagram.md` | F14 | Instagram, media, insights y ganadores manuales. |
 | DB-11 | `fases/DB-11-rag-consultor-ia.md` | F13 | Knowledge, chunks, conversaciones, mensajes, pgvector y auditoria IA avanzada. |
 
-## Checklist permanente
+## Checklist permanente — estado real (2026-07-20)
 
-- [ ] Migracion aplicable desde cero.
-- [ ] Constraints de integridad multi-tenant.
-- [ ] RLS activada en tablas expuestas.
-- [ ] Grants revisados para `anon`, `authenticated` y `service_role`.
-- [ ] Tests SQL/RLS.
-- [ ] Indices para filtros reales.
-- [ ] Documento de contexto/DBML actualizado si cambia contrato.
+Un checklist con casillas vacias no dice nada por si mismo; esto es lo que hay evidencia real de hoy,
+agregado sobre las fases con migracion aplicada (DB-00 a DB-08, DB-11). Detalle completo por fase en
+la seccion "Estado" de cada `fases/DB-XX-*.md`.
+
+| Item | Estado real | Evidencia / gap |
+| --- | --- | --- |
+| Migracion aplicable desde cero | Cumplido | 34/34 migraciones locales = remotas (`supabase migration list`, 2026-07-20). |
+| Constraints de integridad multi-tenant | Parcial | Triggers reales existen (`enforce_task_alert_same_org` en DB-07), pero no estan cubiertos por tests automatizados en todos los dominios. |
+| RLS activada en tablas expuestas | Cumplido | Confirmado por `rls-tenant-isolation.test.ts` (11/11) para las tablas cubiertas; sin verificar en RPC/vistas/Storage. |
+| Grants revisados para `anon`/`authenticated`/`service_role` | Sin evidencia | No hay un test que verifique privilegios de schema (ver DB-00). |
+| Tests SQL/RLS | Parcial | 11 tests de lectura cross-tenant; faltan insert/update cross-tenant y acceso REST directo. |
+| Indices para filtros reales | Cumplido (no auditado exhaustivamente) | Indices presentes en las migraciones revisadas (p. ej. `agent_runs_lookback_days_idx`, `tasks_organization_category_idx`). |
+| Documento de contexto/DBML actualizado si cambia contrato | Parcial | Esta auditoria (2026-07-20) corrigio varias desalineaciones; el `schema_conceptual_snapshot.sql` sigue teniendo problemas conocidos documentados en su cabecera, a proposito no reparados (ver "Fuente de verdad" arriba). |
 

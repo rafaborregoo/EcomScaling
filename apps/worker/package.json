@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "dotenv -e ../../.env.local -- tsx watch src/worker.ts",
     "dev:shopify-reconcile": "dotenv -e ../../.env.local -- tsx src/shopify-reconcile-once.ts",
+    "dev:alert-rules": "dotenv -e ../../.env.local -- tsx src/alert-rules-once.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/worker.js",
     "start:shopify-reconcile": "node dist/shopify-reconcile-once.js",
+    "start:alert-rules": "node dist/alert-rules-once.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"

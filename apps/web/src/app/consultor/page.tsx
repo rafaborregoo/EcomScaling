@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Fragment, type FormEvent, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
+import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
+import { Button, EmptyState, ErrorBlock, Field, Input, LoadingBlock, Select } from "@ecomscaling/ui";
+import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
+
+const ORGANIZATION_STATUSES = ["onboarding", "active", "suspended", "cancelled"] as const;
 
 type ConsultantOrganization = {
   id: string;
@@ -12,99 +18,477 @@ type ConsultantOrganization = {
   timezone: string;
   currency_code: string;
   consultant_count: number;
+  store_count: number;
   subscription: {
     organization_id: string;
     plan_code: string;
     status: string;
   } | null;
+  attention: {
+    open_alerts: number;
+    critical_alerts: number;
+    high_alerts: number;
+    oldest_alert_days: number;
+    overdue_tasks: number;
+    open_tasks: number;
+    score: number;
+  };
 };
 
-function ConsultantPanel({ token }: { token: string }) {
-  const [organizations, setOrganizations] = useState<ConsultantOrganization[]>([]);
+type OrganizationStore = {
+  id: string;
+  provider_account_name: string | null;
+  provider_account_id: string | null;
+  status: string;
+  connected_at: string | null;
+  last_sync_at: string | null;
+};
+
+function attentionBadge(score: number) {
+  if (score >= 15) {
+    return { label: "Urgente", className: "border-brand bg-brand text-white" };
+  }
+  if (score >= 5) {
+    return { label: "Revisar", className: "border-warn text-warn-deep" };
+  }
+  if (score > 0) {
+    return { label: "Vigilar", className: "border-edge text-muted" };
+  }
+  return { label: "Al día", className: "border-success text-success" };
+}
+
+async function readApiError(response: Response) {
+  const body = (await response.json().catch(() => null)) as
+    | { error?: string; message?: string; detail?: string }
+    | null;
+  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
+}
+
+function EditOrganizationForm({
+  organization,
+  onCancel,
+  onSaved,
+}: {
+  organization: ConsultantOrganization;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [displayName, setDisplayName] = useState(organization.display_name);
+  const [status, setStatus] = useState(organization.status);
+  const [timezone, setTimezone] = useState(organization.timezone);
+  const [currencyCode, setCurrencyCode] = useState(organization.currency_code);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setIsSaving(true);
+    setError(null);
+
+    const response = await apiFetch(`/v1/consultant/organizations/${organization.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        display_name: displayName,
+        status,
+        timezone,
+        currency_code: currencyCode,
+      }),
+    });
+
+    if (response.ok) {
+      onSaved();
+    } else {
+      setError(await readApiError(response));
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="grid gap-3 border-b border-line pb-4 md:grid-cols-4 md:items-end">
+      <Field label="Nombre">
+        <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
+      </Field>
+      <Field label="Estado">
+        <Select value={status} onChange={(event) => setStatus(event.target.value)}>
+          {ORGANIZATION_STATUSES.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Zona horaria">
+        <Input value={timezone} onChange={(event) => setTimezone(event.target.value)} required />
+      </Field>
+      <Field label="Moneda">
+        <Input
+          value={currencyCode}
+          maxLength={3}
+          onChange={(event) => setCurrencyCode(event.target.value.toUpperCase())}
+          required
+        />
+      </Field>
+      {error ? <p className="md:col-span-4 text-sm text-brand-deep">{error}</p> : null}
+      <div className="flex gap-4 md:col-span-4">
+        <Button type="submit" disabled={isSaving}>
+          {isSaving ? "Guardando..." : "Guardar cambios"}
+        </Button>
+        <button
+          type="button"
+          className="text-sm text-muted underline decoration-transparent underline-offset-4 transition hover:text-black"
+          onClick={onCancel}
+          disabled={isSaving}
+        >
+          Cancelar
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function StoresPanel({
+  organization,
+  isPlatformAdmin,
+  onOrganizationDeleted,
+  onOrganizationUpdated,
+}: {
+  organization: ConsultantOrganization;
+  isPlatformAdmin: boolean;
+  onOrganizationDeleted: () => void;
+  onOrganizationUpdated: () => void;
+}) {
+  const [stores, setStores] = useState<OrganizationStore[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
+  const [confirmDeleteStore, setConfirmDeleteStore] = useState<OrganizationStore | null>(null);
+  const [confirmDeleteOrg, setConfirmDeleteOrg] = useState(false);
+  const [isDeletingOrg, setIsDeletingOrg] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     async function load() {
-      const response = await apiFetch("/v1/consultant/organizations");
-
+      const response = await apiFetch(`/v1/consultant/organizations/${organization.id}/stores`);
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { error?: string; message?: string; detail?: string }
-          | null;
-        setError(
-          [payload?.error ?? `HTTP ${response.status}`, payload?.message, payload?.detail]
-            .filter(Boolean)
-            .join(" - "),
-        );
-        setIsLoading(false);
+        setError(await readApiError(response));
         return;
       }
+      const payload = (await response.json()) as { stores: OrganizationStore[] };
+      setStores(payload.stores);
+    }
+    void load();
+  }, [organization.id]);
 
-      const payload = (await response.json()) as { organizations: ConsultantOrganization[] };
-      setOrganizations(payload.organizations);
+  async function confirmStoreDeletion() {
+    if (!confirmDeleteStore) {
+      return;
+    }
+    setDeletingStoreId(confirmDeleteStore.id);
+    const response = await apiFetch(
+      `/v1/consultant/organizations/${organization.id}/stores/${confirmDeleteStore.id}`,
+      { method: "DELETE" },
+    );
+    if (response.ok) {
+      setStores((current) => (current ?? []).filter((store) => store.id !== confirmDeleteStore.id));
+      setConfirmDeleteStore(null);
+    } else {
+      setError(await readApiError(response));
+    }
+    setDeletingStoreId(null);
+  }
+
+  async function confirmOrgDeletion() {
+    setIsDeletingOrg(true);
+    const response = await apiFetch(`/v1/consultant/organizations/${organization.id}`, { method: "DELETE" });
+    if (response.ok) {
+      onOrganizationDeleted();
+    } else {
+      setError(await readApiError(response));
+      setIsDeletingOrg(false);
+      setConfirmDeleteOrg(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-line bg-surface px-4 py-4">
+      {error ? <p className="mb-3 text-sm text-brand-deep">{error}</p> : null}
+
+      {isEditing ? (
+        <EditOrganizationForm
+          organization={organization}
+          onCancel={() => setIsEditing(false)}
+          onSaved={() => {
+            setIsEditing(false);
+            onOrganizationUpdated();
+          }}
+        />
+      ) : null}
+
+      {stores === null ? (
+        <p className="text-sm text-muted">Cargando tiendas...</p>
+      ) : stores.length === 0 ? (
+        <p className="text-sm text-muted">Sin tiendas conectadas.</p>
+      ) : (
+        <div className="divide-y divide-line">
+          {stores.map((store) => (
+            <div key={store.id} className="grid gap-2 py-2.5 text-sm md:grid-cols-[1fr_120px_140px_auto] md:items-center">
+              <span className="font-medium">{store.provider_account_id ?? store.provider_account_name ?? store.id}</span>
+              <span className="font-mono text-xs uppercase text-muted">{store.status}</span>
+              <span className="text-xs text-muted">
+                {store.last_sync_at ? new Date(store.last_sync_at).toLocaleDateString("es-ES") : "sin sync"}
+              </span>
+              {isPlatformAdmin ? (
+                <button
+                  type="button"
+                  className="w-fit text-xs font-medium text-brand underline decoration-transparent underline-offset-4 transition hover:decoration-brand disabled:opacity-40"
+                  disabled={deletingStoreId === store.id}
+                  onClick={() => setConfirmDeleteStore(store)}
+                >
+                  Borrar tienda
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-4 border-t border-line pt-3">
+        <Link
+          href={`/integraciones?organizationId=${organization.id}`}
+          className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+        >
+          Añadir tienda
+        </Link>
+        {isPlatformAdmin ? (
+          <>
+            <button
+              type="button"
+              className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+              onClick={() => setIsEditing((current) => !current)}
+            >
+              {isEditing ? "Cerrar edicion" : "Editar cliente"}
+            </button>
+            <button
+              type="button"
+              className="text-xs font-medium text-brand underline decoration-transparent underline-offset-4 transition hover:decoration-brand"
+              onClick={() => setConfirmDeleteOrg(true)}
+            >
+              Borrar cliente entero (irreversible)
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      {confirmDeleteStore ? (
+        <ConfirmDangerDialog
+          title={`Borrar tienda "${confirmDeleteStore.provider_account_id ?? confirmDeleteStore.provider_account_name}"`}
+          confirmPhrase={confirmDeleteStore.provider_account_id ?? confirmDeleteStore.provider_account_name ?? confirmDeleteStore.id}
+          actionLabel="Borrar tienda"
+          isBusy={deletingStoreId === confirmDeleteStore.id}
+          onConfirm={confirmStoreDeletion}
+          onCancel={() => setConfirmDeleteStore(null)}
+        />
+      ) : null}
+
+      {confirmDeleteOrg ? (
+        <ConfirmDangerDialog
+          title={`Borrar cliente "${organization.display_name}"`}
+          confirmPhrase={organization.display_name}
+          actionLabel="Borrar cliente"
+          isBusy={isDeletingOrg}
+          onConfirm={confirmOrgDeletion}
+          onCancel={() => setConfirmDeleteOrg(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatformAdmin: boolean }) {
+  const { setOrganizationId } = useActiveOrganization();
+  const [organizations, setOrganizations] = useState<ConsultantOrganization[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  async function load() {
+    const response = await apiFetch("/v1/consultant/organizations");
+
+    if (!response.ok) {
+      setError(await readApiError(response));
       setIsLoading(false);
+      return;
     }
 
+    const payload = (await response.json()) as { organizations: ConsultantOrganization[] };
+    setOrganizations(payload.organizations);
+    setIsLoading(false);
+  }
+
+  useEffect(() => {
     void load();
   }, [token]);
 
   if (isLoading) {
-    return <div className="rounded-md border border-[#d8d8d8] p-4">Cargando clientes...</div>;
+    return <LoadingBlock label="Cargando clientes..." />;
   }
 
   if (error) {
-    return (
-      <div className="rounded-md border border-[#dc1f26] p-4 text-[#b5121b]">
-        {error}
-      </div>
-    );
+    return <ErrorBlock>{error}</ErrorBlock>;
   }
 
   if (organizations.length === 0) {
     return (
-      <div className="rounded-md border border-[#d8d8d8] p-4">
-        No hay organizaciones asignadas todavia.
-      </div>
+      <EmptyState
+        title="Aún no tienes clientes asignados"
+        hint="Cuando se te asigne una organización como consultor, aparecerán aquí ordenadas por la que más atención necesita."
+      />
     );
   }
 
+  const needsAttention = organizations.filter((organization) => organization.attention.score > 0);
+
   return (
-    <section className="rounded-md border border-[#d8d8d8] bg-white">
-      <div className="grid border-b border-[#e2e2e2] px-4 py-3 text-xs font-medium uppercase text-[#5f5f5f] md:grid-cols-[1fr_140px_140px_120px]">
-        <span>Cliente</span>
-        <span>Estado</span>
-        <span>Plan</span>
-        <span>Consultores</span>
-      </div>
-      <div className="divide-y divide-[#e2e2e2]">
-        {organizations.map((organization) => (
-          <div
-            key={organization.id}
-            className="grid gap-3 px-4 py-3 md:grid-cols-[1fr_140px_140px_120px]"
-          >
-            <div>
-              <p className="font-medium">{organization.display_name}</p>
-              <p className="text-sm text-[#5f5f5f]">{organization.slug}</p>
-            </div>
-            <p className="font-mono text-sm text-[#dc1f26]">{organization.status}</p>
-            <p className="font-mono text-sm">
-              {organization.subscription
-                ? `${organization.subscription.plan_code}/${organization.subscription.status}`
-                : "sin_plan"}
-            </p>
-            <p className="font-mono text-sm">{organization.consultant_count}</p>
-          </div>
-        ))}
-      </div>
-    </section>
+    <div className="space-y-4">
+      <section className="border-t border-ink/20 pt-5">
+        <h3 className="font-display text-2xl">Qué cliente necesita atención hoy</h3>
+        {needsAttention.length === 0 ? (
+          <p className="mt-1 font-mono text-xs uppercase tracking-wide text-success">Todos al día</p>
+        ) : null}
+      </section>
+
+      <section className="border-t border-ink/20">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-xs font-medium uppercase text-muted">
+                <th className="px-4 py-3 font-medium">Cliente</th>
+                <th className="px-4 py-3 font-medium">Tiendas</th>
+                <th className="px-4 py-3 font-medium">Atención</th>
+                <th className="px-4 py-3 font-medium">Alertas vivas</th>
+                <th className="px-4 py-3 font-medium">Tareas</th>
+                <th className="px-4 py-3 font-medium">Plan</th>
+                <th className="px-4 py-3 font-medium">Ir a</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {organizations.map((organization) => {
+                const badge = attentionBadge(organization.attention.score);
+                const isExpanded = expandedId === organization.id;
+
+                return (
+                  <Fragment key={organization.id}>
+                    <tr className="align-top">
+                      <td className="px-4 py-3">
+                        <Link
+                          className="font-medium transition hover:text-brand"
+                          href="/dashboard"
+                          onClick={() => setOrganizationId(organization.id)}
+                        >
+                          {organization.display_name}
+                        </Link>
+                        <p className="text-sm text-muted">
+                          {organization.slug} - {organization.status}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          className="w-fit font-mono text-sm underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                          onClick={() => setExpandedId(isExpanded ? null : organization.id)}
+                        >
+                          {organization.store_count} {isExpanded ? "▲" : "▼"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex w-fit rounded-sm border px-2 py-1 font-mono text-xs ${badge.className}`}
+                          title={`Puntuacion: ${organization.attention.score}`}
+                        >
+                          {badge.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {organization.attention.open_alerts === 0 ? (
+                          <span className="text-muted">Sin alertas</span>
+                        ) : (
+                          <>
+                            <span className="font-mono">{organization.attention.open_alerts}</span>
+                            {organization.attention.critical_alerts > 0 ? (
+                              <span className="ml-2 font-mono text-xs text-brand">
+                                {organization.attention.critical_alerts} criticas
+                              </span>
+                            ) : null}
+                            {organization.attention.oldest_alert_days > 0 ? (
+                              <p className="mt-1 text-xs text-muted">
+                                la más antigua lleva {organization.attention.oldest_alert_days} días
+                              </p>
+                            ) : null}
+                          </>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-mono">{organization.attention.open_tasks}</span> abiertas
+                        {organization.attention.overdue_tasks > 0 ? (
+                          <p className="mt-1 text-xs text-brand">{organization.attention.overdue_tasks} vencidas</p>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 font-mono">
+                        {organization.subscription
+                          ? `${organization.subscription.plan_code}/${organization.subscription.status}`
+                          : "sin_plan"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                            href="/dashboard"
+                            onClick={() => setOrganizationId(organization.id)}
+                          >
+                            Dashboard
+                          </Link>
+                          <Link
+                            className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                            href="/tareas"
+                            onClick={() => setOrganizationId(organization.id)}
+                          >
+                            Tareas
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded ? (
+                      <tr>
+                        <td colSpan={7} className="p-0">
+                          <StoresPanel
+                            organization={organization}
+                            isPlatformAdmin={isPlatformAdmin}
+                            onOrganizationDeleted={() => {
+                              setExpandedId(null);
+                              void load();
+                            }}
+                            onOrganizationUpdated={() => void load()}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   );
 }
 
 export default function ConsultantPage() {
   return (
-    <PortalShell title="Panel consultor">
-      {(_, token) => <ConsultantPanel token={token} />}
+    <PortalShell title="Clientes">
+      {(bootstrap, token) => (
+        <ConsultantPanel token={token} isPlatformAdmin={bootstrap.profile.platform_role === "platform_admin"} />
+      )}
     </PortalShell>
   );
 }

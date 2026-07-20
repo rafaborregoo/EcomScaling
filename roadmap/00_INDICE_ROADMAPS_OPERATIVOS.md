@@ -2,6 +2,19 @@
 
 > Capa operativa creada a partir del roadmap tecnico maestro, el contexto de base de datos, el briefing de producto y las guias de Shopify, Meta/Instagram, Klaviyo y agentes IA.
 
+## Donde estamos hoy
+
+Panel operativo en vivo: **[`ESTADO_GLOBAL.md`](roadmaps/99-decisiones-y-seguimiento/ESTADO_GLOBAL.md)**
+— tabla con estado real, responsable, bloqueador y siguiente accion por fase, mas el release activo.
+Este indice es el mapa conceptual; ese archivo es el panel operativo. Si ambos no coinciden, gana
+`ESTADO_GLOBAL.md` (y si eso tampoco coincide con las migraciones o el codigo, ver la regla de
+resolucion de contradicciones abajo).
+
+- **Estados y evidencia** (taxonomia obligatoria para cerrar una fase): [`ESTADOS_Y_EVIDENCIA.md`](roadmaps/99-decisiones-y-seguimiento/ESTADOS_Y_EVIDENCIA.md)
+- **Riesgos abiertos**: [`RIESGOS.md`](roadmaps/99-decisiones-y-seguimiento/RIESGOS.md)
+- **Decisiones pendientes**: [`PREGUNTAS_ABIERTAS.md`](roadmaps/99-decisiones-y-seguimiento/PREGUNTAS_ABIERTAS.md)
+- **Decisiones tomadas (ADRs)**: [`ADR_LOG.md`](roadmaps/99-decisiones-y-seguimiento/ADR_LOG.md) y `docs/decisions/`
+
 ## Regla de uso
 
 El roadmap maestro sigue siendo la referencia estrategica. Esta carpeta divide el trabajo en roadmaps ejecutables por dominio y fases pequenas para poder avanzar, documentar decisiones y cerrar entregables sin perder dependencias.

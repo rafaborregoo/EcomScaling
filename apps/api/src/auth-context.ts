@@ -136,18 +136,42 @@ async function loadMemberships(supabase: SupabaseClient, userId: string) {
     };
   }
 
-  if (!data?.length) {
-    return {
-      ok: false as const,
-      error: {
-        statusCode: 409,
-        error: "membership_missing",
-        message: "The authenticated user has no active organization membership.",
-      },
-    };
+  return { ok: true as const, data: (data ?? []) as Membership[] };
+}
+
+/**
+ * Organizaciones a las que un consultor/admin accede sin membership propia:
+ * platform_admin -> todas; consultant -> sus consultant_assignments activas.
+ * Se materializan como memberships virtuales con role "consultant" para que
+ * todos los servicios (y el selector del portal) funcionen sin casos aparte.
+ * RLS ya lo respalda: private.can_access_org cubre ambos roles.
+ */
+async function loadConsultantOrganizationIds(
+  supabase: SupabaseClient,
+  userId: string,
+  platformRole: string,
+) {
+  if (platformRole === "platform_admin") {
+    const { data, error } = await supabase.from("organizations").select("id");
+    if (error) {
+      return { ok: false as const, detail: error.message };
+    }
+    return { ok: true as const, ids: (data ?? []).map((row) => row.id as string) };
   }
 
-  return { ok: true as const, data: data as Membership[] };
+  if (platformRole === "consultant") {
+    const { data, error } = await supabase
+      .from("consultant_assignments")
+      .select("organization_id")
+      .eq("consultant_user_id", userId)
+      .eq("is_active", true);
+    if (error) {
+      return { ok: false as const, detail: error.message };
+    }
+    return { ok: true as const, ids: (data ?? []).map((row) => row.organization_id as string) };
+  }
+
+  return { ok: true as const, ids: [] as string[] };
 }
 
 export async function resolveAuthContext(
@@ -192,7 +216,44 @@ export async function resolveAuthContext(
     return { ok: false, error: membershipsResult.error };
   }
 
-  const organizationIds = membershipsResult.data.map((membership) => membership.organization_id);
+  const consultantOrgsResult = await loadConsultantOrganizationIds(
+    supabase,
+    user.id,
+    profileResult.data.platform_role,
+  );
+
+  if (!consultantOrgsResult.ok) {
+    return {
+      ok: false,
+      error: {
+        statusCode: 500,
+        error: "consultant_organizations_load_failed",
+        detail: consultantOrgsResult.detail,
+      },
+    };
+  }
+
+  const realMembershipIds = new Set(
+    membershipsResult.data.map((membership) => membership.organization_id),
+  );
+  const virtualMemberships: Membership[] = consultantOrgsResult.ids
+    .filter((organizationId) => !realMembershipIds.has(organizationId))
+    .map((organizationId) => ({ organization_id: organizationId, role: "consultant" }));
+
+  const allMemberships = [...membershipsResult.data, ...virtualMemberships];
+
+  if (allMemberships.length === 0) {
+    return {
+      ok: false,
+      error: {
+        statusCode: 409,
+        error: "membership_missing",
+        message: "The authenticated user has no active organization membership.",
+      },
+    };
+  }
+
+  const organizationIds = allMemberships.map((membership) => membership.organization_id);
 
   const { data: organizations, error: organizationsError } = await supabase
     .from("organizations")
@@ -226,13 +287,17 @@ export async function resolveAuthContext(
     };
   }
 
-  const memberships = membershipsResult.data.map((membership) => ({
-    ...membership,
-    organization:
-      ((organizations ?? []) as Organization[]).find(
-        (organization) => organization.id === membership.organization_id,
-      ) ?? null,
-  }));
+  const memberships = allMemberships
+    .map((membership) => ({
+      ...membership,
+      organization:
+        ((organizations ?? []) as Organization[]).find(
+          (organization) => organization.id === membership.organization_id,
+        ) ?? null,
+    }))
+    .sort((a, b) =>
+      (a.organization?.display_name ?? "").localeCompare(b.organization?.display_name ?? "", "es"),
+    );
 
   return {
     ok: true,

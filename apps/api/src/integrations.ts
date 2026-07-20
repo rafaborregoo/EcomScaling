@@ -8,6 +8,9 @@ type ApiEnv = {
   SHOPIFY_CUSTOM_API_SECRET?: string;
   SHOPIFY_CUSTOM_SCOPES?: string;
   SHOPIFY_CUSTOM_REDIRECT_URI?: string;
+  META_APP_ID?: string;
+  META_APP_SECRET?: string;
+  META_REDIRECT_URI?: string;
 };
 
 function isCustomShopifyAppAvailable(env: ApiEnv) {
@@ -209,6 +212,7 @@ export async function listIntegrations(
           organization_id: organizationId,
           schema_ready: false,
           shopify_custom_app_available: isCustomShopifyAppAvailable(env),
+          meta_app_available: Boolean(env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI),
           providers: providers.map((provider) => ({
             ...provider,
             connection: null,
@@ -246,6 +250,7 @@ export async function listIntegrations(
       organization_id: organizationId,
       schema_ready: true,
       shopify_custom_app_available: isCustomShopifyAppAvailable(env),
+          meta_app_available: Boolean(env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI),
       providers: providers.map((provider) => {
         const connection = pickBestConnection(connectionsResult.data, provider.id);
         const latestSync = connection

@@ -15,4 +15,8 @@ Construir agentes auditables, no prompts sueltos. Los calculos son deterministas
 | AI-04 | `fases/AI-04-rag-conocimiento.md` | F13 | Base de conocimiento, retrieval y citas. |
 | AI-05 | `fases/AI-05-agentes-especialistas.md` | F11-F14 | Meta, stock, campanas, Instagram y copiloto consultor. |
 | AI-06 | `fases/AI-06-evaluaciones-calidad.md` | F8-F14 | Evals, datasets, seguridad y regression tests. |
+| AI-07 | `fases/AI-07-memoria-acumulativa-consultor-experto.md` | F13-F14 | Informes periodicos auto-ingeridos como RAG; el agente acumula historial real por cliente. |
+| AI-08 | *(no creado todavia)* | F14+ | Propuesto, `planned`: vincular recomendaciones con acciones, aceptacion/rechazo, KPI antes/despues — la pieza que falta para que el sistema aprenda de resultados, no solo de resumenes. Ver riesgo de diseño en AI-07. |
+| AI-09 | *(no creado todavia)* | F14+ | Propuesto, `planned`: modelo/fallback por agente, presupuesto por organizacion, circuit breakers — hoy el coste se registra pero no se aplica (ver AI-00, AI-06). |
+| AI-10 | *(no creado todavia)* | F14+ | Propuesto, `planned`: formato universal de evidencia (fuente, periodo, freshness, version, confianza) reutilizable entre agentes. |
 

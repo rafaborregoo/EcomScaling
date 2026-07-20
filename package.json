@@ -9,6 +9,7 @@
     "apps/*"
   ],
   "scripts": {
+    "predev": "node scripts/ensure-redis.mjs",
     "dev": "concurrently -n api,web,worker -c blue,green,yellow \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:worker\"",
     "dev:web": "npm run dev --workspace=web",
     "dev:api": "npm run dev --workspace=@ecomscaling/api",

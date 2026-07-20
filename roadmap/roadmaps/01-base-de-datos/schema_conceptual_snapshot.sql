@@ -1,3 +1,33 @@
+-- =============================================================================
+-- SNAPSHOT CONCEPTUAL — NO EJECUTABLE. NO ES UNA MIGRACION DE SUPABASE.
+-- =============================================================================
+-- Origen: export de una herramienta de diseno ER (ex "BDD EcomScaling.sql").
+-- Renombrado y marcado como no-ejecutable el 2026-07-20 (auditoria de
+-- documentacion, ver roadmap/roadmaps/99-decisiones-y-seguimiento/ESTADOS_Y_EVIDENCIA.md).
+--
+-- La UNICA fuente ejecutable de verdad para el esquema real son las migraciones
+-- en supabase/migrations/*.sql (ver README.md raiz). Este archivo NUNCA debe
+-- aplicarse contra una base de datos ni usarse para verificar si algo "existe".
+--
+-- Problemas conocidos de este archivo (documentados, no corregidos aqui a
+-- proposito -- parchear un dump conceptual como si fuera produccion es mas
+-- peligroso que dejarlo claramente marcado como referencia):
+--   - Declara `auth.users` propio: Supabase ya administra el schema auth, esa
+--     tabla aqui es solo ilustrativa.
+--   - Sin CREATE EXTENSION (usa gen_random_uuid() y vector sin declararlas).
+--   - Sin RLS, sin policies, sin GRANT/REVOKE, sin triggers, sin CHECK.
+--   - Varias foreign keys con la direccion invertida (ej. organizations ->
+--     organization_financial_settings en vez de al reves).
+--   - Desalineado con el esquema real en varios puntos: faltan las tablas del
+--     runtime de agentes (DB-08), knowledge_search (DB-11), shopify_customers
+--     (DB-05); la dimension del vector aqui difiere de la real.
+--
+-- Para ver el esquema REAL aplicado hoy: `supabase migration list` (o el
+-- archivo `schema_generado_desde_migraciones.sql` en esta misma carpeta,
+-- regenerado manualmente -- automatizar su regeneracion + chequeo de drift en
+-- CI sigue pendiente, ver ESTADO_GLOBAL.md).
+-- =============================================================================
+
 CREATE SCHEMA "auth";
 
 CREATE SCHEMA "private";

@@ -43,7 +43,6 @@ export async function listAccountActions(
     .from("integration_connections")
     .select("organization_id, provider, provider_account_id, provider_account_name, status, scopes")
     .in("organization_id", organizationIds)
-    .eq("provider", "shopify")
     .order("updated_at", { ascending: false });
 
   if (error) {
@@ -57,44 +56,60 @@ export async function listAccountActions(
 
   const connections = (data ?? []) as IntegrationConnection[];
   const actions = context.memberships.flatMap((membership) => {
-    const connection = connections.find(
-      (item) => item.organization_id === membership.organization_id && item.provider === "shopify",
+    const orgConnections = connections.filter(
+      (item) => item.organization_id === membership.organization_id,
     );
+    const organizationName = membership.organization?.display_name ?? null;
+    const membershipActions = [];
 
-    if (!connection) {
-      return [];
+    for (const connection of orgConnections) {
+      // Cualquier integracion en error requiere accion de empresa (FE-02):
+      // reconectar/reautorizar desde Integraciones.
+      if (connection.status === "error") {
+        membershipActions.push({
+          id: `integration_error:${membership.organization_id}:${connection.provider}:${connection.provider_account_id ?? "primary"}`,
+          type: "integration_error",
+          severity: "error",
+          organization_id: membership.organization_id,
+          organization_name: organizationName ?? connection.provider_account_name,
+          provider: connection.provider,
+          title: `${connection.provider === "shopify" ? "Shopify" : connection.provider === "meta_ads" ? "Meta Ads" : connection.provider} ha dejado de sincronizar`,
+          message:
+            "La conexion esta en error y los datos pueden estar desactualizados. Reconectala desde Integraciones.",
+          cta_label: "Reconectar",
+          cta_href: `/integraciones?organizationId=${membership.organization_id}`,
+        });
+        continue;
+      }
+
+      if (
+        connection.provider === "shopify" &&
+        connection.provider_account_id &&
+        reauthorizableConnectionStatuses.has(connection.status)
+      ) {
+        const grantedScopes = new Set(connection.scopes ?? []);
+        const missingScopes = requiredShopifyScopes.filter((scope) => !grantedScopes.has(scope));
+
+        if (missingScopes.length) {
+          membershipActions.push({
+            id: `shopify_reauthorization_required:${membership.organization_id}`,
+            type: "shopify_reauthorization_required",
+            severity: "warning",
+            organization_id: membership.organization_id,
+            organization_name: organizationName ?? connection.provider_account_name,
+            provider: "shopify",
+            title: "Shopify necesita reautorizacion",
+            message:
+              "Hay permisos nuevos pendientes de aprobar para activar todos los bloques de datos Shopify.",
+            cta_label: "Reautorizar",
+            cta_href: `/integraciones?organizationId=${membership.organization_id}`,
+            missing_scopes: missingScopes,
+          });
+        }
+      }
     }
 
-    if (
-      !connection.provider_account_id ||
-      !reauthorizableConnectionStatuses.has(connection.status)
-    ) {
-      return [];
-    }
-
-    const grantedScopes = new Set(connection.scopes ?? []);
-    const missingScopes = requiredShopifyScopes.filter((scope) => !grantedScopes.has(scope));
-
-    if (!missingScopes.length) {
-      return [];
-    }
-
-    return [
-      {
-        id: `shopify_reauthorization_required:${membership.organization_id}`,
-        type: "shopify_reauthorization_required",
-        severity: "warning",
-        organization_id: membership.organization_id,
-        organization_name: membership.organization?.display_name ?? connection.provider_account_name,
-        provider: "shopify",
-        title: "Shopify necesita reautorizacion",
-        message:
-          "Hay permisos nuevos pendientes de aprobar para activar todos los bloques de datos Shopify.",
-        cta_label: "Reautorizar",
-        cta_href: `/integraciones?organizationId=${membership.organization_id}`,
-        missing_scopes: missingScopes,
-      },
-    ];
+    return membershipActions;
   });
 
   return {

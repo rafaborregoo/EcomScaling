@@ -16,4 +16,4 @@ Construir una app usable para cliente y consultor sin presentar datos falsos com
 | FE-05 | `fases/FE-05-planificacion-retencion.md` | F11-F12 | Klaviyo, stock, campanas y planificacion. |
 | FE-06 | `fases/FE-06-consultor-ia-contenido.md` | F13-F14 | Chat IA, fuentes, RAG, Instagram y creatividades. |
 | FE-07 | `fases/FE-07-panel-consultor.md` | F2-F14 | Panel consultor evolutivo por modulo. |
-
+| FE-08 | `fases/FE-08-ui-ux-interfaz-dinamica.md` | F10 (pre-piloto) | Design system final, rediseño completo e interfaz dinamica asistida por IA. |

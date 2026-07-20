@@ -41,6 +41,22 @@ type ShopifyMetricsData = {
     items_with_cost: number;
     items_without_cost: number;
   };
+  financial: {
+    net_sales: number;
+    orders_count: number;
+    cogs: number;
+    gross_margin: number;
+    payment_fees: number;
+    shipping_costs: number;
+    fixed_costs: number;
+    net_profit: number;
+    net_margin_pct: number;
+    monthly_fixed_costs: number;
+    break_even_monthly_revenue: number | null;
+    has_settings: boolean;
+    fixed_expenses_count: number;
+    items_without_cost: number;
+  };
 };
 
 function parsePeriodDays(daysInput: string | undefined): number | "all" {
@@ -121,6 +137,26 @@ function emptyMetricsData(
       items_with_cost: 0,
       items_without_cost: 0,
     },
+    financial: emptyFinancialData(),
+  };
+}
+
+function emptyFinancialData(): ShopifyMetricsData["financial"] {
+  return {
+    net_sales: 0,
+    orders_count: 0,
+    cogs: 0,
+    gross_margin: 0,
+    payment_fees: 0,
+    shipping_costs: 0,
+    fixed_costs: 0,
+    net_profit: 0,
+    net_margin_pct: 0,
+    monthly_fixed_costs: 0,
+    break_even_monthly_revenue: null,
+    has_settings: false,
+    fixed_expenses_count: 0,
+    items_without_cost: 0,
   };
 }
 
@@ -165,7 +201,7 @@ export async function getShopifyMetrics(
       return { ok: true as const, data: cached };
     }
 
-    const [salesResult, topProductsResult, stockResult, marginResult] = await Promise.all([
+    const [salesResult, topProductsResult, stockResult, marginResult, financialResult] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
         period_start: periodStart?.toISOString() ?? null,
@@ -190,6 +226,12 @@ export async function getShopifyMetrics(
         period_end: periodEnd.toISOString(),
         target_store_id: storeId,
       }),
+      supabase.rpc("shopify_financial_summary", {
+        target_organization_id: organizationId,
+        period_start: periodStart?.toISOString() ?? null,
+        period_end: periodEnd.toISOString(),
+        target_store_id: storeId,
+      }),
     ]);
 
     if (salesResult.error) {
@@ -206,6 +248,10 @@ export async function getShopifyMetrics(
 
     if (marginResult.error) {
       throw new Error(`shopify_margin_summary_failed: ${marginResult.error.message}`);
+    }
+
+    if (financialResult.error) {
+      throw new Error(`shopify_financial_summary_failed: ${financialResult.error.message}`);
     }
 
     const sales = salesResult.data?.[0] ?? {
@@ -234,6 +280,8 @@ export async function getShopifyMetrics(
       items_without_cost: 0,
     };
 
+    const financial = financialResult.data?.[0] ?? emptyFinancialData();
+
     const data = {
       organization_id: organizationId,
       selected_connection_id: connectionId ?? null,
@@ -247,6 +295,7 @@ export async function getShopifyMetrics(
       top_products: topProductsResult.data ?? [],
       stock,
       margin,
+      financial,
     };
 
     await setCached(env.REDIS_URL, cacheKey, data, METRICS_CACHE_TTL_SECONDS);

@@ -424,7 +424,16 @@ export async function handleShopifyWebhookRequest(
   const topic = typeof headers["x-shopify-topic"] === "string" ? headers["x-shopify-topic"] : undefined;
   const webhookId = typeof headers["x-shopify-webhook-id"] === "string" ? headers["x-shopify-webhook-id"] : undefined;
 
-  if (!verifyShopifyWebhookHmac(rawBody, hmacHeader, env.SHOPIFY_API_SECRET)) {
+  // La app publica y la de distribucion personalizada firman con secrets distintos
+  // (mismo problema que el callback OAuth, ver shopify.ts). Mientras la tienda este
+  // instalada via la app custom (caso actual, ver ADR), verificar solo contra
+  // SHOPIFY_API_SECRET (el de la app publica) rechaza el 100% de los webhooks reales
+  // con HMAC valido -- se prueban ambos secrets configurados, igual que en el OAuth.
+  const candidateSecrets = [env.SHOPIFY_API_SECRET, env.SHOPIFY_CUSTOM_API_SECRET].filter(
+    (secret): secret is string => Boolean(secret),
+  );
+
+  if (!candidateSecrets.some((secret) => verifyShopifyWebhookHmac(rawBody, hmacHeader, secret))) {
     return { statusCode: 401, body: { error: "invalid_hmac" } };
   }
 

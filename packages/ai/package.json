@@ -8,9 +8,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test"
+    "test": "tsx --test src/index.test.ts"
   },
   "devDependencies": {
+    "tsx": "^4.21.0",
     "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.3",
+    "zod": "^4.4.3"
   }
 }

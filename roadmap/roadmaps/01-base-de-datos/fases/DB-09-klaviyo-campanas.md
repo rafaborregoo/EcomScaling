@@ -1,5 +1,23 @@
 # DB-09 - Klaviyo y campanas
 
+## Estado
+
+- **Estado real:** `planned` (no iniciado — sin migracion, sin codigo).
+- **Responsable:** sin asignar
+- **Ultima validacion:** 2026-07-20
+- **Dependencias:** DB-00, DB-04
+- **Bloqueador:** ninguno tecnico; simplemente no se ha empezado (Meta/Shopify tuvieron prioridad).
+- **Evidencia:** ninguna todavia — no existe migracion `db_09_*` en `supabase/migrations/`.
+- **Gaps identificados (a resolver antes de escribir la primera migracion, no despues):**
+  - Sin `API revision` de Klaviyo declarada.
+  - Sin metrica de conversion primaria por cuenta definida (ni su unicidad).
+  - Sin timezone/moneda/periodo/grain de reporting decidido.
+  - Sin politica de datos personales que NO se van a importar.
+  - Sin diferencia definida entre listas/segmentos actuales y snapshots historicos.
+  - Sin politica de rate limits/backfill.
+- **Siguiente accion:** este documento debe convertirse en un contrato concreto (igual que
+  `ESTADOS_Y_EVIDENCIA.md` exige) antes de escribir la primera migracion, no en paralelo.
+
 ## Objetivo
 
 Incorporar retencion: listas, segmentos, flows, campanas, formularios, reporting y planificacion de campanas.
