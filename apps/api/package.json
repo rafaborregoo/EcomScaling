@@ -15,7 +15,7 @@
   },
   "scripts": {
     "dev": "dotenv -e ../../.env.local -- tsx watch src/server.ts",
-    "build": "npm run build -w @ecomscaling/config -w @ecomscaling/contracts -w @ecomscaling/observability && tsc -p tsconfig.json",
+    "build": "npm run build -w @ecomscaling/ai -w @ecomscaling/config -w @ecomscaling/contracts -w @ecomscaling/observability && tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
