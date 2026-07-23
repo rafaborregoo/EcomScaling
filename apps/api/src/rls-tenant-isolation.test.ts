@@ -66,6 +66,14 @@ let taskB = "";
 let alertB = "";
 let pendingOutputA = "";
 let a02VersionId = "";
+let financialSettingsB = "";
+let fixedExpenseB = "";
+let connectionB = "";
+let syncRunB = "";
+let internalTaskA = "";
+let internalTaskHistoryA = "";
+let draftPlanA = "";
+let activePlanA = "";
 
 before(async () => {
   const { data: orgs, error: orgsError } = await admin
@@ -217,6 +225,106 @@ before(async () => {
     throw new Error(`No se pudo crear la salida IA de prueba: ${outputError?.message}`);
   }
   pendingOutputA = outputRow.id;
+
+  // SQO-00 (gap identificado 2026-07-20: "solo 3 dominios probados
+  // organizations/tasks/alerts, falta configuracion financiera y
+  // conexiones"). Datos privados de orgB para probar que orgA no los ve.
+  const { data: financialRow, error: financialError } = await admin
+    .from("organization_financial_settings")
+    .insert({ organization_id: orgB, currency_code: "EUR", payment_fee_pct: 2.5, vat_pct: 21 })
+    .select("id")
+    .single();
+  if (financialError || !financialRow) {
+    throw new Error(`No se pudo crear la configuracion financiera de prueba: ${financialError?.message}`);
+  }
+  financialSettingsB = financialRow.id;
+
+  const { data: expenseRow, error: expenseError } = await admin
+    .from("fixed_expenses")
+    .insert({ organization_id: orgB, name: "Alquiler almacen", amount: 500 })
+    .select("id")
+    .single();
+  if (expenseError || !expenseRow) {
+    throw new Error(`No se pudo crear el gasto fijo de prueba: ${expenseError?.message}`);
+  }
+  fixedExpenseB = expenseRow.id;
+
+  const { data: connectionRow, error: connectionError } = await admin
+    .from("integration_connections")
+    .insert({ organization_id: orgB, provider: "shopify", status: "connected" })
+    .select("id")
+    .single();
+  if (connectionError || !connectionRow) {
+    throw new Error(`No se pudo crear la conexion de prueba: ${connectionError?.message}`);
+  }
+  connectionB = connectionRow.id;
+
+  const { data: syncRunRow, error: syncRunError } = await admin
+    .from("integration_sync_runs")
+    .insert({
+      connection_id: connectionB,
+      organization_id: orgB,
+      provider: "shopify",
+      sync_type: "manual",
+      idempotency_key: `rls-test-${RUN_TAG}`,
+    })
+    .select("id")
+    .single();
+  if (syncRunError || !syncRunRow) {
+    throw new Error(`No se pudo crear el sync run de prueba: ${syncRunError?.message}`);
+  }
+  syncRunB = syncRunRow.id;
+
+  // FE-03 (gap encontrado 2026-07-22): tarea interna del consultor en orgA
+  // (is_visible_to_client = false) con una entrada en task_status_history,
+  // para probar que el cliente no ve ni la tarea ni su historial.
+  const { data: internalTaskRow, error: internalTaskError } = await admin
+    .from("tasks")
+    .insert({
+      organization_id: orgA,
+      title: "Tarea interna del consultor",
+      source: "manual",
+      priority: "low",
+      is_visible_to_client: false,
+      created_by: consultantA.id,
+    })
+    .select("id")
+    .single();
+  if (internalTaskError || !internalTaskRow) {
+    throw new Error(`No se pudo crear la tarea interna de prueba: ${internalTaskError?.message}`);
+  }
+  internalTaskA = internalTaskRow.id;
+
+  const { data: internalTaskHistoryRow, error: internalTaskHistoryError } = await admin
+    .from("task_status_history")
+    .insert({
+      organization_id: orgA,
+      task_id: internalTaskA,
+      new_status: "in_progress",
+      changed_by: consultantA.id,
+      reason: "Nota interna del consultor no apta para el cliente",
+    })
+    .select("id")
+    .single();
+  if (internalTaskHistoryError || !internalTaskHistoryRow) {
+    throw new Error(`No se pudo crear el historial de la tarea interna: ${internalTaskHistoryError?.message}`);
+  }
+  internalTaskHistoryA = internalTaskHistoryRow.id;
+
+  // FE-03 (gap encontrado 2026-07-22): un plan estrategico en draft no
+  // deberia ser visible al cliente todavia, a diferencia de uno activo.
+  const { data: plansRows, error: plansError } = await admin
+    .from("strategic_plans")
+    .insert([
+      { organization_id: orgA, name: "Plan en borrador", status: "draft", created_by: consultantA.id },
+      { organization_id: orgA, name: "Plan activo", status: "active", created_by: consultantA.id },
+    ])
+    .select("id, status");
+  if (plansError || !plansRows || plansRows.length !== 2) {
+    throw new Error(`No se pudieron crear los planes estrategicos de prueba: ${plansError?.message}`);
+  }
+  draftPlanA = plansRows.find((plan) => plan.status === "draft")!.id;
+  activePlanA = plansRows.find((plan) => plan.status === "active")!.id;
 });
 
 after(async () => {
@@ -332,4 +440,329 @@ test("un miembro NO puede ver las asignaciones de consultor de otra organizacion
     .eq("organization_id", orgA);
   assert.equal(error, null);
   assert.deepEqual(data, []);
+});
+
+// DB-02 (gap identificado 2026-07-20: "sin tests de escritura cross-tenant").
+// Las 3 tablas de abajo son las unicas donde `authenticated` tiene grant de
+// escritura directa (insert/update/all) fuera del propio usuario -- el resto
+// de escrituras del producto pasan por el backend con service_role, que ya
+// valida organization_id en Node antes de escribir. Aqui se prueba el ultimo
+// nivel de defensa (RLS) directamente, sin pasar por el backend.
+test("un owner no puede conectar una integracion (Shopify) en otra organizacion", async () => {
+  const { data, error } = await ownerA.client
+    .from("integration_connections")
+    .insert({ organization_id: orgB, provider: "shopify", status: "pending" })
+    .select("id");
+
+  // RLS deniega por el WITH CHECK (can_manage_org(orgB) es false para
+  // ownerA); segun el driver esto llega como error o como 0 filas insertadas.
+  assert.ok(error || (data?.length ?? 0) === 0, "se pudo insertar una conexion en la organizacion de otro cliente");
+});
+
+test("un owner no puede renombrar la organizacion de otro cliente", async () => {
+  const { data, error } = await ownerA.client
+    .from("organizations")
+    .update({ display_name: "Hackeado por owner A" })
+    .eq("id", orgB)
+    .select("id");
+
+  assert.equal(error, null);
+  assert.deepEqual(data, [], "el UPDATE no debe afectar ninguna fila de la organizacion de otro cliente");
+
+  const { data: unchanged } = await admin.from("organizations").select("display_name").eq("id", orgB).single();
+  assert.notEqual(unchanged?.display_name, "Hackeado por owner A");
+});
+
+test("un owner no puede anadirse a si mismo como miembro de otra organizacion", async () => {
+  const { data, error } = await ownerA.client
+    .from("organization_members")
+    .insert({ organization_id: orgB, user_id: ownerA.id, role: "owner", is_active: true })
+    .select("id");
+
+  assert.ok(
+    error || (data?.length ?? 0) === 0,
+    "un cliente pudo auto-otorgarse membresia en la organizacion de otro cliente",
+  );
+});
+
+// DB-02 (gap: "sin constraint que impida un enlace cross-tenant"). El
+// constraint SI existe (trigger `enforce_task_alert_same_org`,
+// db_07_alertas_tareas_plan.sql) pero no tenia ningun test que lo confirmara
+// -- se prueba con service_role porque `tasks` no tiene policy de INSERT
+// para `authenticated` (las tareas las escribe el backend, nunca el cliente).
+test("el trigger de integridad rechaza una tarea que enlaza una alerta de otra organizacion", async () => {
+  const { error } = await admin.from("tasks").insert({
+    organization_id: orgA,
+    alert_id: alertB,
+    title: "Tarea maliciosa enlazada a alerta de otra org",
+    source: "manual",
+    priority: "medium",
+    is_visible_to_client: true,
+    created_by: ownerA.id,
+  });
+
+  assert.ok(error, "se esperaba que el trigger enforce_task_alert_same_org rechazara el enlace cross-tenant");
+  assert.match(error!.message, /same organization/);
+});
+
+// DB-02 (gap: "sin test de organizacion suspendida perdiendo acceso en
+// caliente"). `is_active_org_member` exige `status in ('onboarding',
+// 'active')`, asi que suspender la organizacion debe cortar el acceso del
+// dueño en la siguiente query, sin re-login ni cache de sesion de por medio.
+test("un owner pierde acceso a su organizacion en cuanto se suspende (en caliente, sin re-login)", async () => {
+  const { error: suspendError } = await admin
+    .from("organizations")
+    .update({ status: "suspended" })
+    .eq("id", orgA);
+  assert.equal(suspendError, null);
+
+  try {
+    const { data, error } = await ownerA.client.from("organizations").select("id").eq("id", orgA);
+    assert.equal(error, null);
+    assert.deepEqual(data, [], "el owner sigue viendo su organizacion suspendida");
+  } finally {
+    await admin.from("organizations").update({ status: "active" }).eq("id", orgA);
+  }
+});
+
+// DB-02 (gap: "sin test de membresia suspendida perdiendo acceso en
+// caliente"). Distinto del caso anterior: aqui la organizacion sigue activa,
+// solo se desactiva la membresia de ownerA2 (no afecta a ownerA, que sigue
+// activo en la misma organizacion).
+// DB-08 (gap: "sin verificacion explicita de acceso cliente antes y despues
+// de publicar, mas alla de la policy RLS -- no cubierto por
+// rls-tenant-isolation.test.ts todavia").
+test("el cliente no ve un resumen de llamada en borrador, pero si en cuanto se publica", async () => {
+  const { data: call, error: callError } = await admin
+    .from("consulting_calls")
+    .insert({
+      organization_id: orgA,
+      title: "Llamada de prueba DB-08",
+      is_visible_to_client: true,
+      created_by: platformAdmin.id,
+    })
+    .select("id")
+    .single();
+  assert.equal(callError, null);
+
+  const { data: summary, error: summaryError } = await admin
+    .from("call_ai_summaries")
+    .insert({ call_id: call!.id, organization_id: orgA, summary: "Resumen de prueba", status: "draft" })
+    .select("id")
+    .single();
+  assert.equal(summaryError, null);
+
+  const { data: draftVisible, error: draftError } = await ownerA.client
+    .from("call_ai_summaries")
+    .select("id")
+    .eq("id", summary!.id);
+  assert.equal(draftError, null);
+  assert.deepEqual(draftVisible, [], "el cliente no debe ver un resumen en borrador");
+
+  const { data: draftVisibleToConsultant } = await consultantA.client
+    .from("call_ai_summaries")
+    .select("id")
+    .eq("id", summary!.id);
+  assert.equal(draftVisibleToConsultant?.length, 1, "el consultor asignado si debe ver el borrador");
+
+  await admin.from("call_ai_summaries").update({ status: "published" }).eq("id", summary!.id);
+
+  const { data: publishedVisible, error: publishedError } = await ownerA.client
+    .from("call_ai_summaries")
+    .select("id")
+    .eq("id", summary!.id);
+  assert.equal(publishedError, null);
+  assert.equal(publishedVisible?.length, 1, "el cliente debe ver el resumen una vez publicado");
+});
+
+// BE-01 (gap: "sin test de invalidacion inmediata al suspender una
+// consultant_assignment en caliente").
+test("un consultor pierde acceso en cuanto se desactiva su asignacion (en caliente, sin re-login)", async () => {
+  const { error: deactivateError } = await admin
+    .from("consultant_assignments")
+    .update({ is_active: false })
+    .eq("organization_id", orgA)
+    .eq("consultant_user_id", consultantA.id);
+  assert.equal(deactivateError, null);
+
+  try {
+    const { data, error } = await consultantA.client.from("organizations").select("id").eq("id", orgA);
+    assert.equal(error, null);
+    assert.deepEqual(data, [], "el consultor sigue viendo la organizacion tras desactivar su asignacion");
+  } finally {
+    await admin
+      .from("consultant_assignments")
+      .update({ is_active: true })
+      .eq("organization_id", orgA)
+      .eq("consultant_user_id", consultantA.id);
+  }
+});
+
+test("un miembro pierde acceso en cuanto su membresia se desactiva (en caliente, sin re-login)", async () => {
+  const { error: deactivateError } = await admin
+    .from("organization_members")
+    .update({ is_active: false })
+    .eq("organization_id", orgA)
+    .eq("user_id", ownerA2.id);
+  assert.equal(deactivateError, null);
+
+  try {
+    const { data, error } = await ownerA2.client.from("organizations").select("id").eq("id", orgA);
+    assert.equal(error, null);
+    assert.deepEqual(data, [], "el miembro desactivado sigue viendo la organizacion");
+
+    const { data: stillActive } = await ownerA.client.from("organizations").select("id").eq("id", orgA);
+    assert.equal(stillActive?.length, 1, "desactivar a ownerA2 no debe afectar el acceso de ownerA");
+  } finally {
+    await admin
+      .from("organization_members")
+      .update({ is_active: true })
+      .eq("organization_id", orgA)
+      .eq("user_id", ownerA2.id);
+  }
+});
+
+// SQO-00 (gap cerrado 2026-07-22: "solo 3 dominios probados, falta
+// configuracion financiera y conexiones"). Las 4 tablas de DB-03 solo tienen
+// policy de SELECT para authenticated (using can_access_org) -- ninguna tiene
+// grant de insert/update/delete, toda escritura pasa por el backend con
+// service_role + chequeo manual de rol (ver ADR-0006, DB-03).
+test("un cliente no ve la configuracion financiera de otra organizacion", async () => {
+  const { data, error } = await ownerA.client
+    .from("organization_financial_settings")
+    .select("id")
+    .eq("id", financialSettingsB);
+  assert.equal(error, null);
+  assert.deepEqual(data, []);
+});
+
+test("un cliente no ve los gastos fijos de otra organizacion", async () => {
+  const { data, error } = await ownerA.client.from("fixed_expenses").select("id").eq("id", fixedExpenseB);
+  assert.equal(error, null);
+  assert.deepEqual(data, []);
+});
+
+test("un cliente no puede insertar configuracion financiera directamente (sin grant, solo backend con service role)", async () => {
+  const { data, error } = await ownerA.client
+    .from("organization_financial_settings")
+    .insert({ organization_id: orgA, currency_code: "EUR" })
+    .select("id");
+  assert.ok(
+    error || (data?.length ?? 0) === 0,
+    "un cliente pudo insertar configuracion financiera sin pasar por el backend",
+  );
+});
+
+// DB-04 (gap: "insert cross-tenant probado, pero no select/update cross-tenant
+// de conexiones ni sync runs").
+test("un cliente no ve las conexiones de integracion de otra organizacion", async () => {
+  const { data, error } = await ownerA.client
+    .from("integration_connections")
+    .select("id")
+    .eq("id", connectionB);
+  assert.equal(error, null);
+  assert.deepEqual(data, []);
+});
+
+test("un owner no puede actualizar la conexion de otra organizacion", async () => {
+  const { data, error } = await ownerA.client
+    .from("integration_connections")
+    .update({ status: "revoked" })
+    .eq("id", connectionB)
+    .select("id");
+  assert.equal(error, null);
+  assert.deepEqual(data, [], "el UPDATE no debe afectar la conexion de otro cliente");
+
+  const { data: unchanged } = await admin
+    .from("integration_connections")
+    .select("status")
+    .eq("id", connectionB)
+    .single();
+  assert.notEqual(unchanged?.status, "revoked");
+});
+
+test("un cliente no ve los sync runs de otra organizacion", async () => {
+  const { data, error } = await ownerA.client.from("integration_sync_runs").select("id").eq("id", syncRunB);
+  assert.equal(error, null);
+  assert.deepEqual(data, []);
+});
+
+// SQO-00: confirmar que el schema `private` (credenciales cifradas, payloads
+// de webhooks) no esta expuesto por PostgREST en absoluto -- proteccion
+// independiente de RLS (`supabase/config.toml`: schemas = ["public",
+// "graphql_public"]). Si esto alguna vez se expone por error, RLS deja de ser
+// la unica linea de defensa para secretos.
+// FE-03 (gap encontrado 2026-07-22 documentando la matriz de visibilidad):
+// tasks_select_authorized ya ocultaba tareas internas al cliente, pero
+// task_status_history_select_authorized solo miraba can_access_org, sin
+// mirar is_visible_to_client de la tarea referenciada -- un cliente podia
+// consultar el historial de una tarea interna directamente aunque no
+// pudiera ver la tarea. Corregido en la migracion
+// db_07_task_status_history_visibility_fix.
+test("un cliente no ve una tarea interna del consultor", async () => {
+  const { data, error } = await ownerA.client.from("tasks").select("id").eq("id", internalTaskA);
+  assert.equal(error, null);
+  assert.deepEqual(data, []);
+});
+
+test("un cliente no ve el historial de estado de una tarea interna del consultor", async () => {
+  const { data, error } = await ownerA.client
+    .from("task_status_history")
+    .select("id")
+    .eq("id", internalTaskHistoryA);
+  assert.equal(error, null);
+  assert.deepEqual(data, [], "el cliente no debe ver el historial de una tarea que no puede ver");
+});
+
+test("el consultor asignado SI ve el historial de estado de una tarea interna", async () => {
+  const { data, error } = await consultantA.client
+    .from("task_status_history")
+    .select("id")
+    .eq("id", internalTaskHistoryA);
+  assert.equal(error, null);
+  assert.equal(data?.length, 1);
+});
+
+// FE-03 (gap encontrado 2026-07-22): strategic_plans no distinguia por
+// status -- un plan en draft era visible al cliente igual que uno activo.
+// Corregido en la migracion fe_03_strategic_plans_draft_visibility_fix.
+test("un cliente no ve un plan estrategico en borrador, pero si uno activo", async () => {
+  const { data: draftVisible, error: draftError } = await ownerA.client
+    .from("strategic_plans")
+    .select("id")
+    .eq("id", draftPlanA);
+  assert.equal(draftError, null);
+  assert.deepEqual(draftVisible, [], "el cliente no debe ver un plan en borrador");
+
+  const { data: activeVisible, error: activeError } = await ownerA.client
+    .from("strategic_plans")
+    .select("id")
+    .eq("id", activePlanA);
+  assert.equal(activeError, null);
+  assert.equal(activeVisible?.length, 1, "el cliente si debe ver un plan activo");
+});
+
+test("el consultor asignado y el platform_admin SI ven un plan estrategico en borrador", async () => {
+  const { data: forConsultant, error: consultantError } = await consultantA.client
+    .from("strategic_plans")
+    .select("id")
+    .eq("id", draftPlanA);
+  assert.equal(consultantError, null);
+  assert.equal(forConsultant?.length, 1);
+
+  const { data: forAdmin, error: adminError } = await platformAdmin.client
+    .from("strategic_plans")
+    .select("id")
+    .eq("id", draftPlanA);
+  assert.equal(adminError, null);
+  assert.equal(forAdmin?.length, 1);
+});
+
+test("el schema private no esta expuesto via API (integration_credentials)", async () => {
+  const { error } = await ownerA.client
+    .schema("private")
+    .from("integration_credentials")
+    .select("id")
+    .limit(1);
+  assert.ok(error, "el schema private no deberia responder consultas via el cliente publico");
 });

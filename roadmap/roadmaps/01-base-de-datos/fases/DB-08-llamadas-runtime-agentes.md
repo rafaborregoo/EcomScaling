@@ -23,12 +23,16 @@
 - **Gaps identificados:**
   - Este documento mezcla runtime de agentes, llamadas/transcripciones y aprobaciones en un solo bloque de
     estado (dividir en DB-08A/B/C facilitaria auditarlos por separado).
-  - Sin evidencia formal de tests de alucinacion, duplicacion de tareas, rechazo o edicion para A01.
   - Sin politica de retencion/redaccion de PII documentada para transcripciones.
-  - Sin verificacion explicita de "acceso cliente antes y despues de publicar" mas alla de la policy RLS
-    (no cubierto por `rls-tenant-isolation.test.ts`).
-- **Siguiente accion:** anadir tests de A01 sobre casos de alucinacion/rechazo/publicacion, y documentar
-  retencion de PII de transcripciones.
+- **Correcciones 2026-07-21 (la auditoria anterior subestimaba lo ya construido):**
+  - **"Sin evidencia formal de tests de alucinacion/rechazo para A01"** era incorrecto: `checkOutputSanity`
+    (AI-06, `packages/ai/src/index.test.ts`) ya es generico por duck-typing sobre `summary`/`proposed_tasks`
+    y tiene tests explicitos con forma de A01 ("acepta una salida de resumen de llamada con proposed_tasks
+    (A01)", "rechaza proposed_tasks con titulo vacio (A01)").
+  - **"Sin verificacion de acceso cliente antes/despues de publicar"** ya tiene test: `rls-tenant-isolation.test.ts`
+    incluye "el cliente no ve un resumen de llamada en borrador, pero si en cuanto se publica" (`call_ai_summaries`,
+    status `draft` -> `published`), confirmado contra el Supabase remoto real.
+- **Siguiente accion:** documentar retencion/redaccion de PII de transcripciones; evaluar dividir el documento en DB-08A/B/C.
 
 ## Objetivo
 
@@ -59,4 +63,3 @@ Guardar llamadas, transcripciones, resumenes, tareas propuestas y trazabilidad d
 - Solo una transcripcion actual por llamada.
 - Resumen y tareas requieren aprobacion antes de publicar al cliente.
 - Cada ejecucion IA registra fuentes, coste, latencia y resultado.
-

@@ -16,7 +16,7 @@
     "dev:worker": "npm run dev --workspace=@ecomscaling/worker",
     "build": "npm run build:packages && npm run build -w @ecomscaling/api -w web -w @ecomscaling/worker",
     "build:packages": "npm run build -w @ecomscaling/ai -w @ecomscaling/config -w @ecomscaling/contracts -w @ecomscaling/db -w @ecomscaling/domain -w @ecomscaling/integrations -w @ecomscaling/observability -w @ecomscaling/ui",
-    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run build:packages && npm run build -w @ecomscaling/api && npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "format": "prettier --write .",

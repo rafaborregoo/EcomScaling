@@ -5,12 +5,11 @@ import { createLogger } from "@ecomscaling/observability";
 import type { AuthContext } from "./auth-context.js";
 import { metaGraphGetAll, metaGraphGet } from "./meta-client.js";
 import {
-  buildMetaAuthUrl,
   createMetaState,
   exchangeMetaCodeForLongLivedToken,
   resolveMetaAppEnv,
 } from "./meta-oauth.js";
-import { runMetaInitialSync } from "./meta-sync.js";
+import { createIntegrationAdapters, toIntegrationConnection } from "./integration-adapters.js";
 import { decryptShopifyCredential, encryptShopifyCredential } from "./shopify-oauth.js";
 import { resolveCredentialSecret } from "./shopify-token-store.js";
 
@@ -99,7 +98,13 @@ export async function createMetaConnectionAuthUrl(
     return { ok: false, statusCode: 500, error: "meta_connection_seed_failed", detail: error.message };
   }
 
-  return { ok: true, data: { redirectUrl: buildMetaAuthUrl(appEnv, state) } };
+  const authorization = await createIntegrationAdapters(env).meta_ads.buildAuthorizationUrl({
+    organizationId,
+    redirectUri: appEnv.META_REDIRECT_URI,
+    state,
+  });
+
+  return { ok: true, data: { redirectUrl: authorization.url } };
 }
 
 async function saveMetaToken(
@@ -305,7 +310,20 @@ export async function discoverMetaAssets(
     }
   }
 
-  return { businesses: businesses.length, adAccounts: adAccounts.length, pages: pages.length };
+  return {
+    businesses: businesses.length,
+    adAccounts: adAccounts.length,
+    pages: pages.length,
+    assets: [
+      ...businesses.map((business) => ({ id: business.id, name: business.name ?? business.id, type: "business" })),
+      ...adAccounts.map((account) => ({
+        id: account.id,
+        name: account.name ?? account.account_id ?? account.id,
+        type: "ad_account",
+      })),
+      ...pages.map((page) => ({ id: page.id, name: page.name ?? page.id, type: "page" })),
+    ],
+  };
 }
 
 export async function handleMetaOAuthCallback(
@@ -419,11 +437,22 @@ export async function handleMetaOAuthCallback(
     return { ok: false, statusCode: 500, error: "meta_connection_update_failed", detail: updateError.message };
   }
 
-  void runMetaInitialSync(env, pending.id).catch((error: unknown) => {
+  const metaSyncAdapter = createIntegrationAdapters(env).meta_ads;
+  void metaSyncAdapter
+    .runInitialSync({
+      mode: "initial",
+      connection: toIntegrationConnection({
+        id: pending.id,
+        organization_id: pending.organization_id,
+        provider: "meta_ads",
+        status: "connected",
+      }),
+    })
+    .catch((error: unknown) => {
     logger.error(
       `meta_initial_sync_failed connection=${pending.id}: ${error instanceof Error ? error.message : String(error)}`,
     );
-  });
+    });
 
   return { ok: true, data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?meta=connected` } };
 }
@@ -455,7 +484,7 @@ export async function triggerMetaSync(
 
   const { data: connection, error } = await supabase
     .from("integration_connections")
-    .select("id, status")
+    .select("id, organization_id, status")
     .eq("organization_id", organizationId)
     .eq("provider", PROVIDER)
     .maybeSingle();
@@ -468,11 +497,22 @@ export async function triggerMetaSync(
     return { ok: false, statusCode: 404, error: "meta_connection_not_found" };
   }
 
-  void runMetaInitialSync(env, connection.id).catch((syncError: unknown) => {
+  const metaSyncAdapter = createIntegrationAdapters(env).meta_ads;
+  void metaSyncAdapter
+    .runInitialSync({
+      mode: "initial",
+      connection: toIntegrationConnection({
+        id: connection.id,
+        organization_id: connection.organization_id,
+        provider: "meta_ads",
+        status: connection.status,
+      }),
+    })
+    .catch((syncError: unknown) => {
     logger.error(
       `meta_manual_sync_failed connection=${connection.id}: ${syncError instanceof Error ? syncError.message : String(syncError)}`,
     );
-  });
+    });
 
   return { ok: true, data: { status: "queued", connectionId: connection.id } };
 }

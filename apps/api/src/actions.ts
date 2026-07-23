@@ -1,3 +1,4 @@
+import type { AccountAction } from "@ecomscaling/contracts";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 
 type ApiEnv = {
@@ -60,7 +61,7 @@ export async function listAccountActions(
       (item) => item.organization_id === membership.organization_id,
     );
     const organizationName = membership.organization?.display_name ?? null;
-    const membershipActions = [];
+    const membershipActions: AccountAction[] = [];
 
     for (const connection of orgConnections) {
       // Cualquier integracion en error requiere accion de empresa (FE-02):

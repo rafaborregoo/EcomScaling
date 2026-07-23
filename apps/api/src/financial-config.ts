@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -176,6 +177,15 @@ export async function upsertFinancialSettings(
     };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "financial_config.upsert_settings",
+    entityType: "organization_financial_settings",
+    entityId: data.id,
+    newData: input,
+  });
+
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -239,6 +249,15 @@ export async function createFixedExpense(
     };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "financial_config.create_fixed_expense",
+    entityType: "fixed_expense",
+    entityId: data.id,
+    newData: input,
+  });
+
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -275,6 +294,14 @@ export async function deactivateFixedExpense(
   if (!data) {
     return { ok: false as const, statusCode: 404, error: "fixed_expense_not_found" };
   }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "financial_config.deactivate_fixed_expense",
+    entityType: "fixed_expense",
+    entityId: data.id,
+  });
 
   return { ok: true as const, data: { id: data.id } };
 }
@@ -337,6 +364,15 @@ export async function createShippingRule(
     };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "financial_config.create_shipping_rule",
+    entityType: "shipping_cost_rule",
+    entityId: data.id,
+    newData: input,
+  });
+
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -373,6 +409,14 @@ export async function deactivateShippingRule(
   if (!data) {
     return { ok: false as const, statusCode: 404, error: "shipping_rule_not_found" };
   }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "financial_config.deactivate_shipping_rule",
+    entityType: "shipping_cost_rule",
+    entityId: data.id,
+  });
 
   return { ok: true as const, data: { id: data.id } };
 }

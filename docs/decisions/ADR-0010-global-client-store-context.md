@@ -1,7 +1,7 @@
 # ADR-0010: Contexto global de cliente/tienda activos
 
-- **Fecha:** 2026-07-20
-- **Estado:** Aprobada, con riesgo abierto (ver abajo)
+- **Fecha:** 2026-07-20 (riesgo resuelto 2026-07-21, ver abajo)
+- **Estado:** Aprobada
 - **Relacionada:** [`ADR-0012-memberships-virtuales.md`](ADR-0012-memberships-virtuales.md) — separada de
   esta decision el 2026-07-20 porque son dos decisiones independientes que pueden cambiar por separado
   (una es de frontend/estado de UI, la otra es de autorizacion backend); antes vivian mezcladas aqui.
@@ -15,23 +15,25 @@ navegar entre paginas.
 ## Decision
 
 **Contexto global compartido**: `ActiveOrganizationContext` y `ActiveConnectionContext` (React Context)
-alimentados por `PortalShell`, con seleccion persistida en `localStorage`
-(`ecomscaling.activeOrganization`, `ecomscaling.activeConnectionByOrg`). Un unico selector de cliente y uno
-de tienda en la mini barra de contexto del shell, no por pagina.
+alimentados por `PortalShell`. **Fuente primaria: la URL** (`?organizationId=&connectionId=`, decidido
+2026-07-21); `localStorage` (`ecomscaling.activeOrganization`, `ecomscaling.activeConnectionByOrg`) es el
+fallback cuando se navega sin esos params. Un unico selector de cliente y uno de tienda en la mini barra de
+contexto del shell, no por pagina.
 
 ## Implementacion
 
 `apps/web/src/components/active-organization.tsx`, `active-connection.tsx`, `portal-shell.tsx`.
 
-## Consecuencias y riesgo abierto (sin resolver)
+## Consecuencias y riesgo (resuelto 2026-07-21)
 
-**localStorage como (casi) unica fuente de verdad**: un enlace compartido no reproduce el contexto de
-quien lo abre; varias pestañas pueden quedar con contexto inconsistente; existe riesgo real de operar una
-accion sobre el cliente equivocado si el contexto quedo obsoleto. Mitigacion parcial ya presente: varias
-paginas soportan deep-link `?organizationId=...&connectionId=...` que no se pisa con el estado en vuelo
-del shell — pero no es la via principal. **Pendiente**: evaluar mover el contexto a la URL como fuente
-primaria (`/clientes/:organizationId/tiendas/:connectionId/...`), dejando `localStorage` como fallback de
-conveniencia, no como unica fuente. Ver pregunta abierta correspondiente en `PREGUNTAS_ABIERTAS.md`.
+Riesgo original: **localStorage como (casi) unica fuente de verdad** — un enlace compartido no reproducia
+el contexto de quien lo abria; existia riesgo real de operar una accion sobre el cliente equivocado si el
+contexto quedaba obsoleto. Resuelto (Q-010, decision de Rafa): `PortalShell` ahora prioriza
+`?organizationId=&connectionId=` sobre `localStorage` en cada resolucion de contexto, y escribe la URL al
+seleccionar cliente/tienda (`router.replace`) para que la URL actual siempre refleje lo que se esta viendo.
+De paso se encontro y corrigio un bug real: `integraciones/page.tsx` mantenia su propio estado de
+organizacion activa leido solo de la URL al montar, independiente de este contexto compartido — podia
+desincronizarse del selector del header. Ver `RIESGOS.md` R-009.
 
 ## Historial relacionado
 

@@ -17,6 +17,12 @@ Crear una API y worker que concentren permisos, integraciones, calculos determin
 | BE-06 | `fases/BE-06-klaviyo-stock-campanas.md` | F11-F12 | Klaviyo, stock, campanas y Fathom. |
 | BE-07 | `fases/BE-07-ai-runtime-rag.md` | F8/F13 | Runtime IA, SQL Gateway, tools, RAG y aprobaciones. |
 
+## Contrato global
+
+Antes de tocar cualquier `fases/BE-XX-*.md` o codigo en `apps/api`/`apps/worker`, aplica
+[`BE-README.md`](BE-README.md): auth/tenancy, validacion, formato de error unico, idempotencia,
+observabilidad, envelope de jobs y Definition of Done por endpoint.
+
 ## Convenciones
 
 - Controllers validan entrada y auth.

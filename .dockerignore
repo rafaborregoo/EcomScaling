@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.github
+.env
+.env.local
+.env.*.local
+apps/web/src
+apps/web/public
+apps/web/.next
+roadmap
+docs
+*.md
+.claude
+.vscode

@@ -1,4 +1,7 @@
 import { supabase } from "@/lib/supabase";
+import type { AccountAction } from "@ecomscaling/contracts";
+
+export type { AccountAction };
 
 export type BootstrapResponse = {
   user: {
@@ -29,20 +32,6 @@ export type BootstrapResponse = {
     plan_code: string;
     status: string;
   }>;
-};
-
-export type AccountAction = {
-  id: string;
-  type: string;
-  severity: "warning" | "error" | "info";
-  organization_id: string;
-  organization_name: string | null;
-  provider: string;
-  title: string;
-  message: string;
-  cta_label: string;
-  cta_href: string;
-  missing_scopes?: string[];
 };
 
 export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";

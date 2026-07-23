@@ -17,17 +17,50 @@
   calcula `score = severityScore(alertas por peso: critical=10/high=5/medium=2/low=1) +
   min(dias_alerta_mas_antigua, 14) + tareas_vencidas*3` en Node, ordenado server-side — ningun LLM decide
   el orden de clientes.
-- **Gaps identificados:**
+- **Resuelto 2026-07-22**: el CRUD de borrado tenia texto engañoso ("irreversible") y las rutas de
+  restauracion del backend (`POST .../restore`, anadidas 2026-07-21 junto al soft-delete de R-008) no
+  tenian ningun consumidor en el frontend -- borrar una tienda o cliente los dejaba en `pending_deletion`
+  sin ninguna forma de deshacerlo desde la UI, contradiciendo lo que el propio dialogo de confirmacion
+  ahora promete ("30 dias para restaurar"). `apps/web/src/app/consultor/page.tsx` ya muestra el estado
+  `pending_deletion` (tabla y panel expandible) con un boton "Restaurar" real, y `ConfirmDangerDialog`
+  gano un campo `note` para declarar el periodo de gracia en vez de decir "irreversible".
+
+### Matriz de acciones: `platform_admin` vs `consultant` (2026-07-22, verificada contra backend real)
+
+| Accion | Consultor | `platform_admin` | Enforcement |
+| --- | --- | --- | --- |
+| Ver lista de clientes con health score (`/v1/consultant/organizations`) | Si | Si | `listConsultantOrganizations` — ambos roles pasan el chequeo. |
+| Ver tiendas de un cliente | Si | Si | `listOrganizationStores` — ambos roles. |
+| Editar organizacion (nombre/estado/timezone/moneda) | **No** | Si | `updateOrganization` — `requirePlatformAdmin`. |
+| Borrar cliente entero (soft-delete) | **No** | Si | `deleteOrganization` — `requirePlatformAdmin`. |
+| Restaurar cliente dentro del periodo de gracia | **No** | Si | `restoreOrganization` — `requirePlatformAdmin`. |
+| Borrar tienda (soft-delete) | **No** | Si | `deleteOrganizationStore` — `requirePlatformAdmin`. |
+| Restaurar tienda | **No** | Si | `restoreOrganizationStore` — `requirePlatformAdmin`. |
+| Aprobar/rechazar salida IA pendiente (`decideAgentOutput`) | Si (si asignado) | Si | Rol en `["platform_admin","consultant"]`. **Alineado 2026-07-22** (ver nota abajo). |
+| Publicar/rechazar resumen de llamada (`decideSummary`) | Si (si asignado) | Si | `requireConsultant` — mismo criterio que `decideAgentOutput` desde 2026-07-22. |
+
+**Resumen**: dentro del panel `/consultor`, el consultor solo tiene permisos de **lectura** — toda mutacion
+(editar/borrar/restaurar cliente o tienda) es exclusiva de `platform_admin`, verificado en los 5 puntos de
+`requirePlatformAdmin` de `apps/api/src/consultant.ts`. Fuera del panel, en aprobacion de salidas IA y
+resumenes de llamadas, el consultor asignado si puede actuar (ademas del `platform_admin`).
+
+**Hallazgo corregido 2026-07-22**: `decideAgentOutput` admitia tambien al owner/manager del propio cliente
+como aprobador, distinto de `decideSummary` (solo consultor/`platform_admin`) — y
+`ai-diagnostic-section.tsx` no ocultaba el boton de aprobar por rol, solo dependia de que RLS ocultara las
+salidas `pending_approval` a los clientes. Era inofensivo en la practica (el cliente nunca veia el boton
+sin ver antes la fila), pero era una capacidad de backend sin decision de producto explicita detras.
+Alineado al mismo criterio que `decideSummary`: ahora ambos flujos de aprobacion exigen
+consultor/`platform_admin`, sin excepcion para owner/manager.
+
+- **Gaps identificados que siguen abiertos:**
   - Sin busqueda, saved views, ni acciones masivas.
   - Sin registro explicito de "impersonation"/cambio de contexto (cambiar de cliente activo no queda
     auditado, solo el borrado si).
   - Organizacion/tienda activas se muestran en la mini barra de contexto del shell, pero no hay
     confirmacion contextual adicional en acciones sensibles mas alla del dialogo de borrado (p. ej. crear
     una tarea o aprobar un resumen no re-confirma "estas operando sobre X").
-  - Sin distincion documentada de que acciones son exclusivas de `platform_admin` vs `consultant` mas
-    alla del borrado (implementado en codigo, no tabulado aqui).
-- **Siguiente accion:** documentar la matriz de acciones exclusivas admin vs consultant, y anadir
-  confirmacion contextual (nombre de organizacion visible) en acciones sensibles fuera del borrado.
+- **Siguiente accion:** anadir busqueda/saved views/acciones masivas y registro de cambio de contexto si
+  se vuelve necesario para auditoria mas alla del borrado.
 
 ## Objetivo
 

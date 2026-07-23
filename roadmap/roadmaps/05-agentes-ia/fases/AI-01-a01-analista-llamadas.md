@@ -4,7 +4,7 @@
 
 - **Estado real:** `pilot_ready` (no `done`)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-07-23
 - **Dependencias:** AI-00
 - **Bloqueador:** ninguno
 - **Evidencia:** migracion `20260720120000_ai_01_analista_llamadas`, contrato
@@ -19,9 +19,11 @@
   - **Dedup de tareas por titulo exacto normalizado** (`calls.ts:474-516`: `trim().toLowerCase()` contra
     los titulos ya enlazados) — dos tareas semanticamente iguales con redaccion distinta ("Revisar costes
     de envio" vs "Validar los costes logisticos") no se detectan como duplicadas.
-  - **La reaprobacion devuelve 404** (`calls.ts:454`, `pending_summary_not_found`) en vez de un 200/409 que
-    distinga "ya estaba aprobada" de "recurso inexistente" — funciona para no duplicar, pero el codigo de
-    estado es enganoso.
+  - ~~**La reaprobacion devuelve 404**~~ **Corregido 2026-07-23**: `decideSummary` (`calls.ts`) distingue
+    ahora los dos casos con una consulta de seguimiento sin el filtro de `status` -- 404
+    `pending_summary_not_found` solo si el `summaryId` no existe de verdad, 409
+    `summary_already_decided` (con `current_status` real: `published`/`rejected`) si ya fue decidido antes.
+    3 tests nuevos en `ai-01-call-summary-decision-status.test.ts`, contra Supabase remoto real.
   - Las citas (`key_quotes`) guardan texto citado, no una referencia estructurada a segmento/timestamp de
     la transcripcion.
   - Sin dataset de evaluacion mas alla de la transcripcion sintetica de la validacion inicial (llamada sin

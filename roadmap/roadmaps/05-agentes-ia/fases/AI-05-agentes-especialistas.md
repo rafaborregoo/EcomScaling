@@ -12,7 +12,7 @@
 | Agente | Estado real | Nota |
 | --- | --- | --- |
 | A04 (tareas) | `shadow_pilot` | Cruza backlog con alertas/ventas; se solapa conceptualmente con A02 (ver gap abajo). |
-| A06 (stock) | `shadow_pilot` | Rediseñado tras incidente real (ver abajo); ya usa evidence pack, no `sql_select` libre. |
+| A06 (stock) | `shadow_pilot` | Rediseñado tras incidente real (ver abajo); el cruce critico ya llega precalculado, aunque `sql_select` sigue disponible como complemento (no retirado del `allowed_tools`). |
 | A08 (conocimiento) | `shadow_pilot` | Validado en vivo con catalogo vacio; razono sin alucinar. |
 | A09 (copiloto) | `in_progress` | Sin cambios en esta revision. |
 | A03 (Meta Ads) | `blocked` | Bloqueado por credenciales de Meta (mismo bloqueador que INT-02/BE-04). |
@@ -37,13 +37,12 @@ plan priorizado.
 
 **A00 (orquestador) — decision: diferir.** Con 5 agentes automaticos (A02/A04/A06/A08/A09) el valor de un
 orquestador que decida cual ejecutar es marginal: cada uno ya se autoactiva por pagina (dashboard/
-conocimiento) con su propia cache de 24h, sin solaparse ni competir por prioridad. Un A00 real aporta valor
-cuando exista (a) disparo por cron/webhook para varios agentes a la vez sin que un humano abra cada
-pagina, o (b) suficientes agentes como para que leer 4-5 tarjetas por separado sea mas lento que un resumen
-consolidado. Ninguno de los dos se cumple hoy (todo trigger es manual via pagina visitada). Revisar cuando
-se desbloqueen A03/A05/A07 (Meta) o se introduzca un cron real en `apps/worker` para agentes IA.
-
-**A00 (orquestador) — decision: diferir.** Con 5 agentes automaticos (A02/A04/A06/A08/A09) el valor de un orquestador que decida cual ejecutar es marginal: cada uno ya se autoactiva por pagina (dashboard/conocimiento) con su propia cache de 24h, sin solaparse ni competir por prioridad. Un A00 real (que decida que agente correr, en que orden, o consolide sus salidas) aporta valor cuando exista (a) disparo por cron/webhook para varios agentes a la vez sin que un humano abra cada pagina, o (b) suficientes agentes como para que leer 4-5 tarjetas por separado sea mas lento que un resumen consolidado. Ninguno de los dos se cumple hoy (todo trigger es manual via pagina visitada). Revisar cuando se desbloqueen A03/A05/A07 (Meta) o se introduzca un cron real en `apps/worker` para agentes IA.
+conocimiento) con su propia cache de 24h, sin solaparse ni competir por prioridad. Un A00 real (que decida
+que agente correr, en que orden, o consolide sus salidas) aporta valor cuando exista (a) disparo por
+cron/webhook para varios agentes a la vez sin que un humano abra cada pagina, o (b) suficientes agentes
+como para que leer 4-5 tarjetas por separado sea mas lento que un resumen consolidado. Ninguno de los dos
+se cumple hoy (todo trigger es manual via pagina visitada). Revisar cuando se desbloqueen A03/A05/A07
+(Meta) o se introduzca un cron real en `apps/worker` para agentes IA.
 
 ## Objetivo
 

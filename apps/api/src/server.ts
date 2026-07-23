@@ -1,16 +1,23 @@
 import { pathToFileURL } from "node:url";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
+import { Redis } from "ioredis";
 import { loadApiEnv } from "@ecomscaling/config";
-import { healthResponseSchema } from "@ecomscaling/contracts";
+import { healthResponseSchema, readinessResponseSchema } from "@ecomscaling/contracts";
 import { createLogger } from "@ecomscaling/observability";
 import { listAccountActions } from "./actions.js";
 import {
   deleteOrganization,
   deleteOrganizationStore,
+  getOrganizationAccess,
   listConsultantOrganizations,
   listOrganizationStores,
+  restoreOrganization,
+  restoreOrganizationStore,
+  upsertConsultantAssignment,
+  upsertOrganizationMember,
   updateOrganization,
 } from "./consultant.js";
 import {
@@ -91,6 +98,83 @@ type ServiceFailure = {
   [key: string]: unknown;
 };
 
+const READINESS_CHECK_TIMEOUT_MS = 3_000;
+
+// BE-00: check real de dependencias (no un ping simulado). GoTrue expone
+// /auth/v1/health sin tocar ninguna tabla de negocio ni RLS -- confirma que
+// Supabase responde, no si un query de negocio funcionaria. Redis solo se
+// comprueba si REDIS_URL esta configurado (en dev local el rate limit usa un
+// store en memoria, ver registro de @fastify/rate-limit arriba).
+async function checkReadiness(env: ReturnType<typeof loadApiEnv>) {
+  const checks = {
+    supabase: "error" as "ok" | "error" | "not_configured",
+    redis: "not_configured" as "ok" | "error" | "not_configured",
+  };
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), READINESS_CHECK_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${env.SUPABASE_URL}/auth/v1/health`, {
+        headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY },
+        signal: controller.signal,
+      });
+      checks.supabase = response.ok ? "ok" : "error";
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch {
+    checks.supabase = "error";
+  }
+
+  if (env.REDIS_URL) {
+    const client = new Redis(env.REDIS_URL, {
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      connectTimeout: READINESS_CHECK_TIMEOUT_MS,
+      lazyConnect: true,
+    });
+
+    try {
+      await client.connect();
+      await client.ping();
+      checks.redis = "ok";
+    } catch {
+      checks.redis = "error";
+    } finally {
+      client.disconnect();
+    }
+  }
+
+  return checks;
+}
+
+// SQO-02: extrae el `sub` (user id) del JWT sin verificar su firma -- solo
+// para enriquecer logs, nunca para decisiones de autorizacion (eso lo sigue
+// haciendo `resolveAuthContext` en cada handler, que si verifica contra
+// Supabase). Un token invalido o forjado en este punto solo puede ensuciar
+// una linea de log con un user_id que no se usa para nada mas; la request en
+// si sigue siendo rechazada normalmente donde corresponda.
+function decodeJwtSubject(authorizationHeader: string | undefined): string | undefined {
+  if (!authorizationHeader?.startsWith("Bearer ")) {
+    return undefined;
+  }
+
+  const token = authorizationHeader.slice("Bearer ".length);
+  const parts = token.split(".");
+
+  if (parts.length !== 3 || !parts[1]) {
+    return undefined;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { sub?: unknown };
+    return typeof payload.sub === "string" ? payload.sub : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isServiceFailure(result: { ok: boolean }): result is ServiceFailure {
   return result.ok === false;
 }
@@ -106,7 +190,28 @@ function sendServiceFailure(
 export async function buildApp(): Promise<FastifyInstance> {
   const env = loadApiEnv(process.env);
   const app = Fastify({
-    logger: true,
+    // SQO-00/SQO-02 (R-014): Fastify ya trae pino y ya no logea headers por
+    // defecto (verificado), pero cualquier log futuro que incluya
+    // request.headers/body a mano no deberia poder filtrar secretos -- estas
+    // rutas se redactan pase lo que pase, en logs de request y en cualquier
+    // objeto logueado con esta forma.
+    logger: {
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          "req.headers['x-internal-secret']",
+          "headers.authorization",
+          "headers.cookie",
+          "*.access_token",
+          "*.refresh_token",
+          "*.client_secret",
+          "*.api_key",
+          "*.service_role_key",
+        ],
+        censor: "[REDACTED]",
+      },
+    },
     genReqId: (request) =>
       request.headers["x-request-id"]?.toString() ?? crypto.randomUUID(),
   });
@@ -125,6 +230,100 @@ export async function buildApp(): Promise<FastifyInstance> {
     contentSecurityPolicy: false,
   });
 
+  // SQO-00 (gap real: "sin rate limiting a nivel de endpoint"). Limite
+  // global generoso como red de seguridad basica, mas limites estrictos por
+  // organizacion en los endpoints de IA (los caros de verdad, ver AI-00
+  // budget por run -- esto limita frecuencia, no coste por run). `skipOnError`
+  // evita que un fallo del store de rate limit tumbe la API entera.
+  // Store en Redis si `REDIS_URL` esta configurado (necesario en serverless,
+  // donde el estado en memoria no persiste entre invocaciones); en memoria
+  // como fallback para desarrollo local.
+  // @fastify/rate-limit no cierra un cliente de Redis que le pasamos nosotros
+  // (asume que lo administramos externamente) -- sin este hook, `app.close()`
+  // deja la conexion abierta y el proceso nunca termina limpio ante SIGTERM
+  // (encontrado escribiendo be-01-cross-tenant-route-manipulation.test.ts:
+  // el test colgaba indefinidamente en el cleanup, no en las aserciones).
+  const rateLimitRedis = env.REDIS_URL
+    ? new Redis(env.REDIS_URL, { maxRetriesPerRequest: null, enableOfflineQueue: false })
+    : undefined;
+
+  if (rateLimitRedis) {
+    app.addHook("onClose", async () => {
+      rateLimitRedis.disconnect();
+    });
+  }
+
+  await app.register(rateLimit, {
+    global: true,
+    max: 120,
+    timeWindow: "1 minute",
+    skipOnError: true,
+    redis: rateLimitRedis,
+  });
+
+  const aiEndpointRateLimit = {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: "1 minute",
+        keyGenerator: (request: { params: unknown; ip: string }) =>
+          (request.params as { organizationId?: string } | undefined)?.organizationId ?? request.ip,
+      },
+    },
+  };
+
+  // SQO-02 (R-014): la mayoria de rutas (62 de las de abajo) llevan
+  // `:organizationId` en el path. Sin esto, diagnosticar "los pedidos de esta
+  // organizacion no aparecen" exigia leer codigo y consultar la DB a mano --
+  // los logs JSON de pino no tenian forma de filtrar por organizacion. Un
+  // child logger con `organization_id` fijado aqui (route params ya estan
+  // parseados en `onRequest`) hace que todo log posterior de la misma
+  // request (incluido el log automatico de fin de request de Fastify) lo
+  // incluya, sin tocar cada handler uno a uno. `user_id` (2026-07-23) se
+  // extrae del JWT sin verificar -- solo para poder filtrar logs por usuario,
+  // no como decision de autorizacion.
+  app.addHook("onRequest", async (request) => {
+    const organizationId = (request.params as { organizationId?: string } | undefined)?.organizationId;
+    const userId = decodeJwtSubject(request.headers.authorization);
+    const bindings: Record<string, string> = {};
+
+    if (organizationId) {
+      bindings.organization_id = organizationId;
+    }
+    if (userId) {
+      bindings.user_id = userId;
+    }
+
+    if (Object.keys(bindings).length > 0) {
+      request.log = request.log.child(bindings);
+    }
+  });
+
+  // El "request completed" automatico de Fastify usa el logger capturado al
+  // crear la request, antes de que corra el onRequest de arriba -- nunca
+  // lleva organization_id/user_id aunque el resto de logs de la misma
+  // request si (confirmado en vivo con app.inject). Este resumen explicito
+  // en onResponse si usa el logger ya enriquecido, para que exista al menos
+  // una linea por request filtrable por organizacion o usuario sin tener que
+  // buscar en logs internos.
+  app.addHook("onResponse", async (request, reply) => {
+    const organizationId = (request.params as { organizationId?: string } | undefined)?.organizationId;
+    const userId = decodeJwtSubject(request.headers.authorization);
+
+    if (organizationId || userId) {
+      request.log.info(
+        { statusCode: reply.statusCode, responseTimeMs: reply.elapsedTime },
+        "request_completed_with_org",
+      );
+    }
+  });
+
+  // BE-00: /health (y su alias /health/live) es liveness -- responde "ok" en
+  // cuanto el proceso esta arriba, sin tocar dependencias. Es lo que decide
+  // si un orquestador debe reiniciar el contenedor: si el proceso puede
+  // responder HTTP, reiniciarlo no arreglaria nada. Se mantiene sin cambios
+  // de comportamiento porque el HEALTHCHECK de apps/api/Dockerfile ya
+  // apunta aqui.
   app.get("/health", async () =>
     healthResponseSchema.parse({
       status: "ok",
@@ -132,6 +331,35 @@ export async function buildApp(): Promise<FastifyInstance> {
       timestamp: new Date().toISOString(),
     }),
   );
+
+  app.get("/health/live", async () =>
+    healthResponseSchema.parse({
+      status: "ok",
+      service: "api",
+      timestamp: new Date().toISOString(),
+    }),
+  );
+
+  // Readiness: puede el proceso servir trafico de verdad ahora mismo. A
+  // diferencia de liveness, esto si toca dependencias externas y puede
+  // fallar sin que el proceso este roto (Supabase caido, Redis caido) --
+  // es la senal que decide si un balanceador debe sacar esta instancia del
+  // pool, no si debe reiniciarla.
+  app.get("/health/ready", async (_request, reply) => {
+    const checks = await checkReadiness(env);
+    const degraded = checks.supabase !== "ok" || checks.redis === "error";
+
+    if (degraded) {
+      reply.code(503);
+    }
+
+    return readinessResponseSchema.parse({
+      status: degraded ? "degraded" : "ok",
+      service: "api",
+      timestamp: new Date().toISOString(),
+      checks,
+    });
+  });
 
   app.get("/v1/bootstrap", async (request, reply) => {
   const result = await resolveAuthContext(env, request.headers.authorization);
@@ -187,6 +415,79 @@ export async function buildApp(): Promise<FastifyInstance> {
   return result.data;
   });
 
+  app.get<{ Params: { organizationId: string } }>(
+  "/v1/consultant/organizations/:organizationId/access",
+  async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await getOrganizationAccess(env, auth.context, request.params.organizationId);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  },
+  );
+
+  app.put<{
+    Params: { organizationId: string };
+    Body: { user_id?: string; role?: string; is_active?: boolean };
+  }>(
+  "/v1/consultant/organizations/:organizationId/members",
+  async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await upsertOrganizationMember(
+      env,
+      auth.context,
+      request.params.organizationId,
+      request.body ?? {},
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  },
+  );
+
+  app.put<{
+    Params: { organizationId: string };
+    Body: { consultant_user_id?: string; is_primary?: boolean; is_active?: boolean };
+  }>(
+  "/v1/consultant/organizations/:organizationId/assignments",
+  async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await upsertConsultantAssignment(
+      env,
+      auth.context,
+      request.params.organizationId,
+      request.body ?? {},
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  },
+  );
+
   // CRUD de consultoria: tiendas de un cliente, borrar tienda, borrar cliente
   // entero. Las escrituras (borrados) son solo platform_admin (irreversibles).
   app.get<{ Params: { organizationId: string } }>(
@@ -238,6 +539,30 @@ export async function buildApp(): Promise<FastifyInstance> {
   },
   );
 
+  app.post<{ Params: { organizationId: string; connectionId: string } }>(
+  "/v1/consultant/organizations/:organizationId/stores/:connectionId/restore",
+  async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await restoreOrganizationStore(
+      env,
+      auth.context,
+      request.params.organizationId,
+      request.params.connectionId,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  },
+  );
+
   app.delete<{ Params: { organizationId: string } }>(
   "/v1/consultant/organizations/:organizationId",
   async (request, reply) => {
@@ -248,6 +573,25 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     const result = await deleteOrganization(env, auth.context, request.params.organizationId);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  },
+  );
+
+  app.post<{ Params: { organizationId: string } }>(
+  "/v1/consultant/organizations/:organizationId/restore",
+  async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await restoreOrganization(env, auth.context, request.params.organizationId);
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
@@ -1039,6 +1383,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Regenerar ahora (ignora la cache de 24h): boton secundario "Actualizar".
   app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
   "/v1/organizations/:organizationId/ai/monitor-run",
+  aiEndpointRateLimit,
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -1090,6 +1435,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
   "/v1/organizations/:organizationId/ai/task-planner-run",
+  aiEndpointRateLimit,
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -1141,6 +1487,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
   "/v1/organizations/:organizationId/ai/stock-planner-run",
+  aiEndpointRateLimit,
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -1186,6 +1533,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{ Params: { organizationId: string } }>(
   "/v1/organizations/:organizationId/ai/knowledge-manager-run",
+  aiEndpointRateLimit,
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -1258,6 +1606,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // y search_knowledge; sin aprobacion (nunca escribe en el dominio).
   app.post<{ Params: { organizationId: string }; Body: { message?: string; conversation_id?: string } }>(
   "/v1/organizations/:organizationId/consultant-chat",
+  aiEndpointRateLimit,
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -1529,6 +1878,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // partir de su transcripcion actual. Queda pending_approval como el manual.
   app.post<{ Params: { organizationId: string; callId: string } }>(
   "/v1/organizations/:organizationId/calls/:callId/analyze",
+  aiEndpointRateLimit,
   async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 

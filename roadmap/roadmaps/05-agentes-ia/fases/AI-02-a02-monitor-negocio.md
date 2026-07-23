@@ -16,13 +16,30 @@
   automatico, la aprobacion humana solo materializa `proposed_writes` como tareas (principio FE-08 "la IA
   compone, el usuario decide"). `agent_runs.store_id` ya evita mezclar tiendas de una organizacion
   (AI-05).
-- **Gap real que sigue sin resolverse, confirmado en codigo**: `a02_monitor_negocio` sigue con
-  `allowed_tools = ["sql_select", "search_knowledge"]` (migracion `20260718100000_db_08b_ai_sql_gateway`)
-  — el modelo sigue explorando el negocio el solo con SQL libre (el run real uso 7 consultas, ~73s, ~0,17
-  USD), no recibe un evidence pack precalculado. Esto es exactamente lo que causo el incidente de A06 (se
-  colgo en el limite de tool calls con salida vacia) antes de que A06 se rediseñara para recibir el cruce
-  ya calculado — A02 todavia no tiene ese rediseño aunque el patron ya existe en el propio codebase para
-  copiarlo.
+- **Presupuesto real aplicado 2026-07-20 (R-011)**: `runMonitorAgent` ahora corta con `budget_exceeded` si
+  el run supera `maxCostUsd: 1`/`maxToolCalls: 10` (ver AI-00) — red de seguridad para cualquier agente,
+  aunque como se explica abajo A02 ya no puede hacer tool calls en absoluto.
+- **Correccion importante sobre una afirmacion repetida en auditorias anteriores de esta misma sesion**:
+  se dijo varias veces que "A02 sigue con `sql_select` libre, ~7 consultas/~73s/~0,17 USD por run". Eso era
+  cierto solo para la version `v1` del prompt (la que corrio el "primer run real" del 2026-07-19, antes de
+  que `db_08b` le anadiera `sql_select`/`search_knowledge` via un `UPDATE` puntual). **Verificado ahora
+  contra las migraciones reales**: `v2`, `v3` y `v4` (las tres posteriores, `v4` es la activa hoy) se
+  insertaron con `allowed_tools = '[]'::jsonb` explicito — a diferencia de A04/A06, que sí llevan
+  `sql_select`/`search_knowledge` en cada version. `buildAgentTools` (`apps/api/src/ai-runtime.ts`)
+  confirma que con `allowed_tools=[]` no se anade ninguna tool ni el esquema SQL al prompt. **A02 ya
+  corre en modo evidence-pack puro desde `v2` — sin tool calls posibles, solo el contexto precalculado.**
+  No quedo documentado en ningun sitio que esto cambiara (no hay comentario en la migracion `v2` que lo
+  explique), asi que probablemente fue un efecto secundario de copiar la plantilla de insert sin llevar el
+  array de tools, no una decision consciente — pero el resultado practico es el correcto.
+- **Enriquecido el evidence pack 2026-07-20** (dado que ya no hay tool calls, el contexto precalculado es
+  la unica fuente): `runMonitorAgent` ahora tambien incluye `discount_pct_sobre_ventas_brutas` (derivado de
+  `discounts`/`gross_sales`, ya presentes en `shopify_sales_summary`) y el top 5 de productos con mayor
+  riesgo de quiebre via `shopify_stock_risk_products` (la misma funcion SQL que ya usa A06, reutilizada en
+  vez de duplicar logica) en lugar de solo el conteo agregado de `shopify_stock_summary`.
+- **Lo que probablemente sigue faltando del contexto** (no verificado con un run real todavia): un
+  indicador de posible fallo de tracking (el "`first_orders=0`" que el run de v1 detecto via SQL libre no
+  tiene hoy un campo determinista equivalente) — no se ha creado una funcion SQL nueva para esto en esta
+  ronda; queda pendiente si un run real futuro muestra que hace falta.
 - **"Generar al entrar a la pagina" no es lo mismo que monitor proactivo**: hoy no hay trigger tras sync
   completado, cambio de coste, alerta critica o cron diario — solo cache de 24h + regeneracion al entrar.
   La clave de cache tampoco incluye `data_snapshot_version`/`financial_config_version`, solo tiempo — un
@@ -31,9 +48,10 @@
   outcome_measured`) ni motivo de descarte — no hay forma de medir si un hallazgo fue util.
 - **Severidad decidida por el modelo**, no por una formula determinista (magnitud economica, calidad del
   dato, urgencia) que la IA solo explique.
-- **Siguiente accion**: migrar A02 al mismo patron que ya se aplico a A06 (evidence pack precalculado en
-  vez de `sql_select` libre) antes de anadir triggers por evento — es el cambio de mayor impacto y ya hay
-  precedente de codigo para copiarlo.
+- **Siguiente accion**: ya no es "migrar a evidence pack" (hecho, ver arriba) — ahora es (1) validar con un
+  run real que el contexto enriquecido sigue detectando lo que antes detectaba via SQL libre (sobre todo el
+  indicio de fallo de tracking), y (2) anadir triggers por evento (tras sync, alerta critica, cron) en vez
+  de solo "al entrar a la pagina".
 
 ## Objetivo
 

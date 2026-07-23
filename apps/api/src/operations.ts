@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -561,7 +562,7 @@ export async function addTaskComment(
 
   const { data: task, error: taskError } = await supabase
     .from("tasks")
-    .select("id")
+    .select("id, title")
     .eq("id", taskId)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -588,6 +589,25 @@ export async function addTaskComment(
 
   if (error || !data) {
     return { ok: false as const, statusCode: 500, error: "task_comment_failed", detail: error?.message };
+  }
+
+  // AI-07: solo las notas internas del consultor entran a la memoria (nunca
+  // vistas por un cliente ni por ningun agente automatico en V1, ver
+  // AI-07-memoria-acumulativa-consultor-experto.md).
+  if (isInternal) {
+    await enqueueMemoryIngestion(env, {
+      organizationId,
+      storeId: null,
+      sourceType: "internal_note",
+      sourceEntityType: "task_comment",
+      sourceEntityId: data.id,
+      sourceActorId: context.user.id,
+      audience: "consultant_only",
+      origin: "human_authored",
+      authority: "operational",
+      title: `Nota interna en tarea: ${task.title ?? taskId}`,
+      content: body.trim(),
+    });
   }
 
   return { ok: true as const, data: { id: data.id } };

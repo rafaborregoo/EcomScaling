@@ -24,6 +24,7 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
   const [error, setError] = useState<string | null>(null);
   const [lastSources, setLastSources] = useState<ChatSource[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Nueva conversacion al cambiar de cliente activo.
   useEffect(() => {
@@ -36,6 +37,40 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const input = panel.querySelector<HTMLInputElement>("input");
+    input?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), textarea:not([disabled])',
+        ),
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    panel.addEventListener("keydown", handleKeyDown);
+    return () => panel.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -74,11 +109,18 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-line bg-white shadow-2xl">
+    <div
+      id="copilot-panel"
+      ref={panelRef}
+      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-line bg-white shadow-2xl"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="copilot-panel-title"
+    >
       <div className="flex items-center justify-between border-b border-line px-5 py-4">
         <div>
           <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-brand">Copiloto</p>
-          <p className="font-display text-xl">Pregunta sobre este negocio</p>
+          <p id="copilot-panel-title" className="font-display text-xl">Pregunta sobre este negocio</p>
         </div>
         <button
           className="text-sm text-muted transition hover:text-black"
@@ -90,7 +132,7 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
         </button>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-4" aria-live="polite" aria-busy={isSending}>
         {messages.length === 0 ? (
           <p className="text-sm text-muted">
             Pregunta lo que quieras sobre las métricas o la metodología de este cliente. Responde solo con datos
@@ -107,7 +149,7 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
           ))
         )}
         {isSending ? <p className="text-sm text-muted">Pensando...</p> : null}
-        {error ? <p className="text-sm text-brand">{error}</p> : null}
+        {error ? <p className="text-sm text-brand" role="alert">{error}</p> : null}
         {!isSending && lastSources.length > 0 ? (
           <div className="border-t border-line pt-2">
             <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">Fuentes</p>
@@ -124,6 +166,7 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
 
       <form className="flex items-center gap-2 border-t border-line px-5 py-3" onSubmit={submit}>
         <input
+          aria-label="Pregunta para el copiloto"
           className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
           value={input}
           onChange={(event) => setInput(event.target.value)}

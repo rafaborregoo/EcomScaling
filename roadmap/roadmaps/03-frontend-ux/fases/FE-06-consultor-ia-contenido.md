@@ -17,14 +17,22 @@
 - **Evidencia:** `AiDiagnosticSection` (usado en dashboard) ya muestra fuentes/periodo/warnings por
   bloque IA — el patron de "declarar fuente, periodo, confianza" que pide la auditoria ya existe para los
   diagnosticos automaticos (A02/A04/A06), falta extenderlo al copiloto conversacional.
-- **Gaps identificados:**
-  - El copiloto no distingue visualmente "informacion" vs "recomendacion" vs "propuesta" vs "accion ya
-    ejecutada" con estilos distintos — hoy todo el texto de respuesta se ve igual.
+- **Correccion 2026-07-22**: "el copiloto no distingue informacion/recomendacion/propuesta/accion" no era
+  un gap de UI sin hacer -- es estructuralmente imposible para el copiloto (A09) tal como esta disenado.
+  `chatOutputSchema` (`packages/ai/src/index.ts`) es `{ answer, sources, confidence, warnings }`: texto
+  libre, sin `findings`/`recommendations`/`proposed_writes`. El copiloto es de solo lectura por diseno
+  ("ver vs escribir", nunca propone escrituras), asi que esa diferenciacion no aplica ahi. **Si aplica, y
+  ya existia parcialmente, en `AiDiagnosticSection`** (A02/A04/A06/A08 -- dashboard, tareas, conocimiento):
+  ahi se reforzo la diferenciacion visual 2026-07-22 (kicker de color distinto para "Recomendación", y la
+  seccion de propuesta ahora dice explicitamente "Propuesta, sin aplicar" vs "Propuesta ya revisada" en
+  vez de solo mostrar el boton).
+- **Gaps identificados que siguen abiertos:**
   - Sin estados de error especificos documentados (IA no disponible, timeout, presupuesto agotado,
     fuentes insuficientes, cita eliminada, documento procesandose, respuesta parcial, aprobacion caducada).
   - Ranking Instagram y analisis de creatividades Meta: sin empezar, bloqueados por credenciales.
 - **Siguiente accion:** actualizar este documento para describir el copiloto lateral real (no un chat de
-  pagina completa), y anadir la diferenciacion visual informacion/recomendacion/propuesta/accion.
+  pagina completa) y aclarar que la diferenciacion visual de tipos de respuesta es un criterio de
+  `AiDiagnosticSection`, no del copiloto conversacional.
 
 Activar chat contextual, fuentes, aprobaciones e insights de contenido.
 

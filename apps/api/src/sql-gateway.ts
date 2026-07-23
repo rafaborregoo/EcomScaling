@@ -29,6 +29,10 @@ export const GATEWAY_ALLOWED_TABLES = new Set([
 ]);
 
 // Tipos de sentencia que jamas pueden aparecer, ni siquiera dentro de un CTE.
+// `with recursive` esta prohibido (no solo a nivel top-level, tambien anidado
+// en una subquery): un CTE recursivo mal formado agota el statement_timeout
+// de 8s en vez de fallar rapido, y los agentes no necesitan recursion para
+// las consultas analiticas que hacen sobre las vistas de `ai`.
 const FORBIDDEN_NODE_TYPES = new Set([
   "insert",
   "update",
@@ -55,6 +59,7 @@ const FORBIDDEN_NODE_TYPES = new Set([
   "refresh materialized view",
   "prepare",
   "deallocate",
+  "with recursive",
 ]);
 
 const FORBIDDEN_FUNCTIONS = new Set([
@@ -71,7 +76,7 @@ const FORBIDDEN_FUNCTIONS = new Set([
   "xpath_table",
 ]);
 
-const TOP_LEVEL_ALLOWED_TYPES = new Set(["select", "union", "union all", "with", "with recursive", "values"]);
+const TOP_LEVEL_ALLOWED_TYPES = new Set(["select", "union", "union all", "with", "values"]);
 
 export type GatewayValidation =
   | { ok: true; tables: string[] }

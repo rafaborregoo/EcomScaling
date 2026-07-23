@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { deriveIntegrationHealth, INTEGRATION_CATALOG, type IntegrationHealth } from "@ecomscaling/integrations";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -23,10 +24,14 @@ function isCustomShopifyAppAvailable(env: ApiEnv) {
 }
 
 type Provider = {
-  id: "shopify" | "meta_ads" | "klaviyo";
+  id: "shopify" | "meta_ads" | "klaviyo" | "instagram";
   name: string;
   phase: string;
   description: string;
+  available: boolean;
+  feature_flag: string;
+  capabilities: (typeof INTEGRATION_CATALOG)[number]["capabilities"];
+  health: IntegrationHealth;
 };
 
 type ConnectionRow = {
@@ -58,26 +63,11 @@ type SyncRunRow = {
   created_at: string;
 };
 
-const providers: Provider[] = [
-  {
-    id: "shopify",
-    name: "Shopify",
-    phase: "INT-01",
-    description: "Tienda, productos, inventario, pedidos y reembolsos.",
-  },
-  {
-    id: "meta_ads",
-    name: "Meta Ads",
-    phase: "INT-02",
-    description: "Campanas, conjuntos, anuncios, gasto y ROAS.",
-  },
-  {
-    id: "klaviyo",
-    name: "Klaviyo",
-    phase: "INT-03",
-    description: "Listas, segmentos, flows, campanas y revenue email.",
-  },
-];
+const providers: Provider[] = INTEGRATION_CATALOG.map((provider) => ({
+  ...provider,
+  feature_flag: provider.featureFlag,
+  health: deriveIntegrationHealth({ available: provider.available }),
+}));
 
 function isMissingSchemaError(message: string) {
   return (
@@ -217,6 +207,7 @@ export async function listIntegrations(
             ...provider,
             connection: null,
             latest_sync: null,
+            health: deriveIntegrationHealth({ available: provider.available }),
           })),
         },
       };
@@ -261,6 +252,13 @@ export async function listIntegrations(
           ...provider,
           connection,
           latest_sync: latestSync,
+          health: deriveIntegrationHealth({
+            available: provider.available,
+            connectionStatus: connection?.status ?? null,
+            lastSyncAt: connection?.last_sync_at ?? null,
+            lastErrorAt: connection?.last_error_at ?? null,
+            latestSyncStatus: latestSync?.status ?? null,
+          }),
         };
       }),
     },

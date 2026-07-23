@@ -1,3 +1,5 @@
+import { IntegrationError } from "@ecomscaling/integrations";
+
 const META_GRAPH_VERSION = "v23.0";
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
@@ -9,14 +11,24 @@ const BASE_BACKOFF_MS = 2000;
 // 613 = custom rate limit de Marketing API, 80004 = ads insights throttling.
 const RATE_LIMIT_CODES = new Set([4, 17, 32, 613, 80000, 80004]);
 
-export class MetaGraphError extends Error {
+export class MetaGraphError extends IntegrationError {
   constructor(
     message: string,
     public readonly code: number | null,
     public readonly httpStatus: number,
     public readonly fbtraceId: string | null,
   ) {
-    super(message);
+    super(
+      httpStatus === 429 || code === 4 || code === 17 || code === 32 || code === 613 || code === 80000 || code === 80004
+        ? "RATE_LIMITED"
+        : "EXTERNAL_API_UNAVAILABLE",
+      "meta_ads",
+      message,
+      httpStatus === 429 || code === 4 || code === 17 || code === 32 || code === 613 || code === 80000 || code === 80004,
+      false,
+      httpStatus,
+      code == null ? undefined : String(code),
+    );
     this.name = "MetaGraphError";
   }
 }
@@ -34,17 +46,12 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function metaGraphGet<T>(
-  path: string,
-  accessToken: string,
-  params: Record<string, string> = {},
-): Promise<T> {
-  const url = new URL(`${META_GRAPH_BASE}/${path.replace(/^\//, "")}`);
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
-  }
-  url.searchParams.set("access_token", accessToken);
-
+// Backoff compartido por URL absoluta: lo usan tanto la primera peticion
+// (metaGraphGet, URL propia con access_token en query) como el seguimiento de
+// paginacion (metaGraphGetAll, URL opaca que Meta devuelve en paging.next) --
+// antes solo la primera reintentaba, y una pagina intermedia con rate limit
+// tumbaba el import completo en vez de reintentarse igual que el resto.
+async function fetchGraphJsonWithRetry<T>(url: string): Promise<T & GraphErrorBody> {
   let lastError: MetaGraphError | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
@@ -52,7 +59,7 @@ export async function metaGraphGet<T>(
       await sleep(BASE_BACKOFF_MS * 2 ** (attempt - 1));
     }
 
-    const response = await fetch(url.toString());
+    const response = await fetch(url);
     const body = (await response.json().catch(() => null)) as (T & GraphErrorBody) | null;
 
     if (response.ok && body) {
@@ -78,6 +85,20 @@ export async function metaGraphGet<T>(
   throw lastError ?? new MetaGraphError("meta_graph_retries_exhausted", null, 0, null);
 }
 
+export async function metaGraphGet<T>(
+  path: string,
+  accessToken: string,
+  params: Record<string, string> = {},
+): Promise<T> {
+  const url = new URL(`${META_GRAPH_BASE}/${path.replace(/^\//, "")}`);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  url.searchParams.set("access_token", accessToken);
+
+  return fetchGraphJsonWithRetry<T>(url.toString());
+}
+
 /**
  * Recorre todas las paginas de un edge con paging.next. Sin limite de paginas:
  * el import completo trae todo lo que la cuenta tenga (ADR-0006 punto 3).
@@ -97,22 +118,9 @@ export async function metaGraphGetAll<TNode>(
   nodes.push(...(response.data ?? []));
 
   while (response.paging?.next) {
-    const nextUrl = response.paging.next;
-    const fetched = await fetch(nextUrl);
-    const body = (await fetched.json().catch(() => null)) as
-      | { data?: TNode[]; paging?: { next?: string }; error?: { message?: string; code?: number; fbtrace_id?: string } }
-      | null;
-
-    if (!fetched.ok || !body || body.error) {
-      // El retry con backoff de metaGraphGet no aplica a la URL opaca de paging;
-      // se relanza el edge desde el ultimo cursor via after= si esta disponible.
-      throw new MetaGraphError(
-        body?.error?.message ?? `meta_graph_paging_http_${fetched.status}`,
-        body?.error?.code ?? null,
-        fetched.status,
-        body?.error?.fbtrace_id ?? null,
-      );
-    }
+    const body = await fetchGraphJsonWithRetry<{ data?: TNode[]; paging?: { next?: string } }>(
+      response.paging.next,
+    );
 
     nodes.push(...(body.data ?? []));
     response = body;

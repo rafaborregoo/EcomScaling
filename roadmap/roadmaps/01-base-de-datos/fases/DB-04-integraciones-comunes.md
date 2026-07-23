@@ -2,22 +2,47 @@
 
 ## Estado
 
-- **Estado real:** `blocked` (bloqueador propio del dominio, ver abajo — no de infraestructura: la migracion si esta aplicada).
+- **Estado real:** `verification_pending` (idempotencia de webhooks probada 2026-07-21; cifrado y locking
+  de refresh documentados y el locking probado con test real 2026-07-23 — quedan gaps menores no
+  bloqueantes).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-07-23
 - **Dependencias:** DB-00, DB-02
-- **Bloqueador:** falta una maquina de estados de webhook explicita y una prueba real de idempotencia bajo concurrencia; sin eso no se puede demostrar el criterio de cierre "webhooks repetidos no ejecutan dos veces el mismo efecto".
+- **Bloqueador:** ninguno
 - **Evidencia:**
   - Migracion `supabase/migrations/20260715151041_db_04_integraciones_comunes.sql` **si esta aplicada en remoto** (confirmado via `supabase migration list` el 2026-07-20) — la nota "push bloqueado por permisos" de la seccion "Avance 2026-07-15" de este documento esta obsoleta.
   - Bug real corregido 2026-07-20: `handleShopifyWebhookRequest` (`apps/api/src/shopify-webhook-handler.ts`) verificaba el HMAC solo contra el secret de la app publica, rechazando el 100% de los webhooks reales de una tienda instalada via app custom (dos secrets distintos). Ya prueba ambos.
   - `private.webhook_events` tiene indice unico por fingerprint (deduplicacion de la fila), y estados `received` -> `processed`/`failed`.
-- **Gaps identificados:**
+  - **Test de concurrencia anadido y confirmado 2026-07-21**: `apps/api/src/db-04-webhook-idempotency.test.ts` dispara dos peticiones `handleShopifyWebhookRequest` identicas en paralelo (`Promise.all`, no secuencial) contra el Supabase remoto real y confirma exactamente un `processed` y un `duplicate`, con una sola fila en `webhook_events` para el fingerprint -- la garantia real es la constraint unica de Postgres serializando las dos inserciones, no un lock de aplicacion.
+- **Resuelto 2026-07-23 (cifrado de credenciales)**: verificado contra `apps/api/src/shopify-oauth.ts`
+  (`encryptShopifyCredential`/`decryptShopifyCredential`, reutilizadas tambien para credenciales de Meta
+  pese al nombre). Diseno real: AES-256-GCM, clave = SHA-256 del secreto maestro (cadena de fallback
+  `SUPABASE_JWT_SECRET ?? SUPABASE_SERVICE_ROLE_KEY ?? SHOPIFY_API_SECRET`, no una clave dedicada de KMS),
+  IV aleatorio de 12 bytes por cada cifrado (nunca reutilizado), auth tag de GCM para integridad, payload
+  final `iv || authTag || ciphertext` en base64. **No es envelope encryption real** (no hay DEK por fila
+  cifrada con una KEK separada rotable) — `encryption_key_version` existe en el schema pero hoy solo toma
+  el valor `'v1'`, no hay ningun codigo que lea ese campo para elegir entre claves distintas: es un campo
+  preparado para rotacion futura, no una rotacion implementada. Fallo de descifrado (`decryptPayload`)
+  se captura y devuelve `null`, no lanza — el llamador lo trata como `shopify_access_token_unavailable`,
+  no como un crash.
+- **Resuelto 2026-07-23 (locking de refresh concurrente)**: ya estaba implementado en
+  `getValidShopifyAccessToken` (`shopify-token-store.ts`) — claim optimista con un `UPDATE` condicionado a
+  `expires_at = <valor leido>` y (`refresh_locked_at` nulo o mas viejo que `CLAIM_STALE_MS` = 20s); si no
+  se gana el claim, se espera `CLAIM_POLL_MS` (1.5s) y se reintenta hasta `CLAIM_POLL_ATTEMPTS` (4) veces
+  antes de fallar con `shopify_token_refresh_contended`. La garantia real es que Postgres serializa dos
+  `UPDATE` concurrentes sobre la misma fila, igual que en la idempotencia de webhooks. **Test nuevo**:
+  `apps/api/src/db-04-token-refresh-claim.test.ts` dispara dos claims concurrentes reales contra Supabase
+  remoto sobre la misma fila y confirma que exactamente uno gana (no se prueba `getValidShopifyAccessToken`
+  completo porque el paso posterior llama a la API real de Shopify y no hay libreria de mocking HTTP en
+  este paquete ni credenciales de sandbox en este entorno — se prueba la primitiva de claim en si, mismo
+  patron de query).
+- **Gaps identificados que siguen abiertos (de diseno, no de verificacion):**
   - No hay una maquina de estados formal (`received -> verified -> processing -> processed -> retryable_failed -> dead_lettered -> ignored`), solo `received/processed/failed`.
-  - Sin test que reciba dos webhooks identicos **concurrentes** y verifique que el efecto de negocio (no solo la fila) se aplica una sola vez.
-  - Sin diseno de cifrado documentado para `private.integration_credentials` (algoritmo, envelope encryption, rotacion, `key_version`, comportamiento ante fallo de descifrado).
-  - Sin locking documentado para refresh de tokens concurrente (dos workers refrescando el mismo token a la vez).
   - Sin politica de retencion/eliminacion de payloads crudos.
-- **Siguiente accion:** disenar la maquina de estados de webhook y escribir el test de concurrencia antes de dar por cerrado el bloque.
+  - `encryption_key_version` esta preparado en el schema pero sin implementar: si algun dia se rota la
+    clave maestra, hoy no hay forma de descifrar filas viejas cifradas con la clave anterior.
+- **Siguiente accion:** decidir si vale la pena implementar rotacion real de `encryption_key_version` antes
+  de piloto, o diferirlo (hoy no hay ningun incidente que lo exija).
 
 ## Objetivo
 
@@ -45,5 +70,5 @@ Crear el nucleo comun para OAuth, credenciales cifradas, sincronizaciones, webho
 ## Criterios de cierre
 
 - El frontend nunca puede leer credenciales. Estado: cubierto por schema privado y grants.
-- Un sync puede reintentarse sin duplicar datos. Estado: cubierto por `idempotency_key`; falta probar.
-- Webhooks repetidos quedan registrados sin ejecutar dos veces el mismo efecto. Estado: cubierto por indices unicos; falta probar.
+- Un sync puede reintentarse sin duplicar datos. Estado: cubierto por `idempotency_key`; sin test de concurrencia propio (distinto del caso de webhooks, ya probado abajo).
+- Webhooks repetidos quedan registrados sin ejecutar dos veces el mismo efecto. Estado: probado — `apps/api/src/db-04-webhook-idempotency.test.ts` (2026-07-21), ver seccion Estado.

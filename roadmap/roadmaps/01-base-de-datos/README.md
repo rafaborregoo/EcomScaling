@@ -13,6 +13,9 @@ Construir Supabase/PostgreSQL por fases, sin desplegar las 90 tablas del modelo 
 - Cada bloque multi-tenant necesita tests de aislamiento cliente A/B y consultor asignado/no asignado.
 - Los estados de fase siguen la taxonomia y el formato de evidencia de
   [`ESTADOS_Y_EVIDENCIA.md`](../99-decisiones-y-seguimiento/ESTADOS_Y_EVIDENCIA.md).
+- Antes de tocar cualquier `fases/DB-XX-*.md` o su migracion, aplica las reglas de
+  [`DB-README.md`](DB-README.md) (fuentes de verdad, que no tocar sin decision del usuario, disciplina de
+  idempotencia/cifrado/RLS).
 
 ## Fuente de verdad vs. modelo conceptual
 

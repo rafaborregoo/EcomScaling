@@ -1,16 +1,31 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
+import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { LoadingBlock } from "@ecomscaling/ui";
+import { Button, Field, Input, LoadingBlock, Select } from "@ecomscaling/ui";
 
 type IntegrationProvider = {
   id: string;
   name: string;
   phase: string;
   description: string;
+  available: boolean;
+  feature_flag: string;
+  capabilities: {
+    oauth: boolean;
+    tokenRefresh: boolean;
+    webhooks: boolean;
+    initialSync: boolean;
+    incrementalSync: boolean;
+    assetSelection: boolean;
+  };
+  health: {
+    status: string;
+    reason?: string;
+    lastSyncAt: string | null;
+  };
   connection: {
     id: string;
     provider_account_name: string | null;
@@ -52,6 +67,19 @@ function integrationErrorMessage(provider: IntegrationProvider) {
   return provider.latest_sync?.error_message ?? provider.connection?.last_error_message ?? null;
 }
 
+function healthLabel(status: string) {
+  const labels: Record<string, string> = {
+    healthy: "Saludable",
+    syncing: "Sincronizando",
+    degraded: "Degradado",
+    reauthorization_required: "Reautorizar",
+    stale: "Desactualizado",
+    unknown: "Pendiente",
+  };
+
+  return labels[status] ?? status;
+}
+
 function IntegrationsList({
   bootstrap,
   token,
@@ -59,15 +87,12 @@ function IntegrationsList({
   bootstrap: BootstrapResponse;
   token: string;
 }) {
-  const searchParams = useSearchParams();
-  const requestedOrganizationId = searchParams.get("organizationId");
-  const initialOrganizationId =
-    bootstrap.memberships.find(
-      (membership) => membership.organization_id === requestedOrganizationId,
-    )?.organization_id ??
-    bootstrap.memberships[0]?.organization?.id ??
-    "";
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState(initialOrganizationId);
+  // Organizacion activa compartida con el resto del portal (header, otras
+  // paginas) -- antes esta pagina mantenia su propio estado leido solo de la
+  // URL, lo que podia desincronizarla del selector "Cliente activo" del
+  // header. Ver R-009.
+  const { organizationId: selectedOrganizationId, setOrganizationId: setSelectedOrganizationId } =
+    useActiveOrganization();
   const [shopDomain, setShopDomain] = useState("marta-reyes-swimwear.myshopify.com");
   const [appMode, setAppMode] = useState<"public" | "custom">("public");
   const [payload, setPayload] = useState<IntegrationsResponse | null>(null);
@@ -79,17 +104,6 @@ function IntegrationsList({
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
     )?.organization ?? bootstrap.memberships[0]?.organization ?? null;
-
-  useEffect(() => {
-    const validOrganizationId = bootstrap.memberships.find(
-      (membership) => membership.organization_id === requestedOrganizationId,
-    )?.organization_id;
-
-    if (validOrganizationId && validOrganizationId !== selectedOrganizationId) {
-      setSelectedOrganizationId(validOrganizationId);
-      setError(null);
-    }
-  }, [bootstrap.memberships, requestedOrganizationId, selectedOrganizationId]);
 
   useEffect(() => {
     async function load() {
@@ -212,8 +226,8 @@ function IntegrationsList({
     <div className="space-y-4">
       {!payload.schema_ready ? (
         <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">
-          DB-04 todavia no esta aplicada en Supabase remoto. La UI ya esta preparada y
-          mostrara conexiones reales cuando exista la migracion.
+          No se pudo cargar el estado de las integraciones ahora mismo. Reintenta en unos minutos o
+          contacta con soporte si sigue igual.
         </div>
       ) : null}
 
@@ -223,7 +237,7 @@ function IntegrationsList({
           Introduce el dominio <span className="font-mono">*.myshopify.com</span> de la tienda.
           La URL de admin de Shopify no sirve como callback OAuth.
         </p>
-        <div className="mt-3 rounded-md border border-edge bg-surface p-3 text-sm leading-6 text-muted">
+        <div className="mt-3 border border-edge bg-surface p-3 text-sm leading-6 text-muted">
           <p className="font-medium text-ink">Como encontrar tu dominio .myshopify.com</p>
           <p className="mt-1">
             No es el dominio publico de tu web (p. ej. <span className="font-mono">mitienda.com</span>), sino el
@@ -261,30 +275,30 @@ function IntegrationsList({
             </li>
           </ol>
         </div>
-        <label className="mt-4 block text-sm">
-          <span className="font-medium">Organización</span>
-          <select
-            className="mt-2 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
-            value={organization?.id ?? ""}
+        <div className="mt-4">
+          <Field label="Organización">
+            <Select
+              value={organization?.id ?? ""}
               onChange={(event) => {
                 setSelectedOrganizationId(event.target.value);
                 setError(null);
               }}
-          >
-            {bootstrap.memberships.map((membership) => (
-              <option key={membership.organization_id} value={membership.organization_id}>
-                {membership.organization?.display_name ?? membership.organization_id}
-              </option>
-            ))}
-          </select>
-        </label>
+            >
+              {bootstrap.memberships.map((membership) => (
+                <option key={membership.organization_id} value={membership.organization_id}>
+                  {membership.organization?.display_name ?? membership.organization_id}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
         {payload?.shopify_custom_app_available ? (
           <div className="mt-4 flex flex-col gap-2 text-sm">
             <span className="font-medium">App de Shopify a usar</span>
             <div className="flex flex-wrap gap-2">
               <label
                 className={[
-                  "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2",
+                  "flex cursor-pointer items-center gap-2 border px-3 py-2",
                   appMode === "custom" ? "border-black bg-surface" : "border-edge-strong",
                 ].join(" ")}
               >
@@ -298,7 +312,7 @@ function IntegrationsList({
               </label>
               <label
                 className={[
-                  "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2",
+                  "flex cursor-pointer items-center gap-2 border px-3 py-2",
                   appMode === "public" ? "border-black bg-surface" : "border-edge-strong",
                 ].join(" ")}
               >
@@ -318,21 +332,18 @@ function IntegrationsList({
           </div>
         ) : null}
         <form className="mt-4 flex flex-col gap-3 md:flex-row" onSubmit={connectShopify}>
-          <input
-            className="min-w-0 flex-1 rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
+          <Input
+            className="min-w-0 flex-1"
+            aria-label="Dominio .myshopify.com de la tienda"
             value={shopDomain}
             onChange={(event) => setShopDomain(event.target.value)}
             placeholder="marta-reyes-swimwear.myshopify.com"
             autoComplete="off"
             required
           />
-          <button
-            className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
-            type="submit"
-            disabled={isConnecting}
-          >
+          <Button type="submit" disabled={isConnecting}>
             {isConnecting ? "Conectando..." : "Conectar Shopify"}
-          </button>
+          </Button>
         </form>
       </section>
 
@@ -344,16 +355,19 @@ function IntegrationsList({
                 <h3 className="font-display text-2xl">{provider.name}</h3>
                 <p className="mt-1 font-mono text-xs text-brand">{provider.phase}</p>
               </div>
-              <span className="rounded-sm border border-brand px-2 py-1 text-xs text-brand">
+              <span className="border border-brand px-2 py-1 text-xs text-brand">
                 {statusLabel(provider)}
               </span>
             </div>
 
             <p className="mt-4 text-sm leading-6 text-muted">{provider.description}</p>
-            {provider.id === "meta_ads" ? (
+            <p className="mt-2 text-xs text-muted">
+              Salud: <span className="font-medium text-ink">{healthLabel(provider.health.status)}</span>
+            </p>
+            {provider.id === "meta_ads" && provider.available ? (
               payload.meta_app_available ? (
-                <button
-                  className="mt-4 bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
+                <Button
+                  className="mt-4"
                   type="button"
                   onClick={() => void connectMeta()}
                   disabled={isConnectingMeta}
@@ -363,15 +377,24 @@ function IntegrationsList({
                     : provider.connection
                       ? "Reautorizar Meta Ads"
                       : "Conectar Meta Ads"}
-                </button>
+                </Button>
               ) : (
-                <p className="mt-4 rounded-md border border-edge bg-surface p-2 text-xs text-muted">
+                <p className="mt-4 border border-edge bg-surface p-2 text-xs text-muted">
                   La app de Meta no esta configurada en el servidor todavia (META_APP_ID/SECRET).
                 </p>
               )
             ) : null}
+            {!provider.available ? (
+              <div className="mt-4 border border-edge bg-surface p-3 text-xs leading-5 text-muted">
+                <p className="font-medium text-ink">Disponible más adelante</p>
+                <p className="mt-1">
+                  La interfaz ya está preparada para este conector, pero todavía no se activa porque no hay
+                  credenciales ni sincronización real configuradas. No se muestran datos simulados.
+                </p>
+              </div>
+            ) : null}
             {integrationErrorMessage(provider) ? (
-              <div className="mt-4 rounded-md border border-brand bg-brand-tint p-3 text-xs leading-5 text-brand-deep">
+              <div className="mt-4 border border-brand bg-brand-tint p-3 text-xs leading-5 text-brand-deep">
                 <p className="font-medium">Ultimo error</p>
                 <p className="mt-1 font-mono break-words">{integrationErrorMessage(provider)}</p>
               </div>

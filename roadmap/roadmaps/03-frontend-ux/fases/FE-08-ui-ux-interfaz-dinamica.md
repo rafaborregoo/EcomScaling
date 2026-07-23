@@ -4,7 +4,7 @@
 
 - **Estado real:** `in_progress`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-07-22
 - **Dependencias:** AI-00, AI-02 (Bloque B); FE-02..FE-04 (superficies a rediseñar, ya completadas)
 - **Bloqueador:** ninguno
 - **Historial completo:** [`../CHANGELOG-UX.md`](../CHANGELOG-UX.md). Decisiones estructurales con
@@ -45,32 +45,31 @@ negocio y a los objetivos de cada organizacion, con la IA integrada en la superf
 | Bloque | Estado | Evidencia | Pendiente |
 | --- | --- | --- | --- |
 | Tokens de diseño | `done` | `globals.css`, 12+ pantallas migradas | — |
-| Componentes base (`packages/ui`) | `done` | Button/Card/Badge/Banner/Field/Tabs/Pagination/Combobox | Modal, Toast |
+| Componentes base (`packages/ui`) | `done` | Button/Card/Badge/Banner/Field/Tabs/Pagination/Combobox; 28 usos ad-hoc de esquinas redondeadas en 11 paginas migrados a los componentes reales 2026-07-22 | Modal, Toast |
 | Navegacion por rol | `done` (ADR-0009) | `portal-shell.tsx` | — |
-| Contexto global cliente/tienda | `done`, con riesgo abierto (ADR-0010) | `ActiveOrganizationContext`/`ActiveConnectionContext` | Mover contexto a URL como fuente primaria |
-| CRUD de clientes/tiendas (Consultoria) | `in_progress`, con riesgo de producto abierto (ver Riesgos) | `consultor/page.tsx` | Revisar si el borrado debe ser soft-delete (ver abajo) |
-| Responsive 375px | `pending` | — | Auditoria real en movil |
-| Accesibilidad AA | `pending` | — | Auditoria con axe + navegacion por teclado |
+| Contexto global cliente/tienda | `done` (ADR-0010) | `ActiveOrganizationContext`/`ActiveConnectionContext`, URL como fuente primaria desde 2026-07-21 | — |
+| CRUD de clientes/tiendas (Consultoria) | `done` | `consultor/page.tsx`, soft-delete con periodo de gracia desde 2026-07-21, UI de restauracion conectada 2026-07-22 (ver FE-07) | — |
+| Responsive 375px | `done` | Auditado 2026-07-22: toda tabla ancha ya tenia `overflow-x-auto`+`min-w`, grids con prefijos `md:`/`lg:`/`xl:` (1 columna por defecto en movil) | Re-auditar si se anaden layouts nuevos |
+| Accesibilidad AA | `in_progress` | `Combobox` (selector cliente/tienda, el mas usado) gano navegacion por teclado tipo listbox 2026-07-22 (antes solo abria/cerraba) | Auditoria formal con axe + lector de pantalla, contraste en el resto de componentes |
 | Home adaptativo por prioridad | `pending` | — | Depende de AI-02 |
 | Resumen ejecutivo narrado | `pending` | — | Depende de AI-02 |
-| Copiloto embebido | `in_progress` | `copilot-panel.tsx` (panel lateral, ver FE-06) | Diferenciar visualmente informacion/recomendacion/propuesta/accion |
+| Copiloto embebido | `in_progress` | `copilot-panel.tsx` (panel lateral, ver FE-06) | La diferenciacion info/recomendacion/propuesta no aplica al copiloto (chat de solo lectura sin ese contrato) -- ya reforzada donde si aplica, `AiDiagnosticSection`, ver FE-06 |
 
-## Riesgo de producto abierto (no resuelto — decision pendiente, no una nota tecnica)
+## Riesgo de producto resuelto 2026-07-21
 
-El CRUD de Consultoria permite a `platform_admin` borrar una tienda o una organizacion completa (con
-confirmacion de nombre exacto). La cascada de FK esta verificada — eso garantiza integridad referencial,
-**no** que borrar de inmediato todo el historial de un cliente (pedidos, metricas, costes, campañas,
-conversaciones, conocimiento, llamadas, auditoria) sea la decision de producto correcta para una accion
-irreversible ejecutada desde una UI normal. Alternativa mas segura, sin implementar todavia:
+Rafa decidio soft-delete con estados. El CRUD de Consultoria (`platform_admin`) ya no borra nada de forma
+inmediata: `deleteOrganization`/`deleteOrganizationStore` (`apps/api/src/consultant.ts`) marcan
+`status='pending_deletion'` con `scheduled_purge_at` = ahora + `RETENTION_PERIOD_DAYS` (30 dias):
 
 ```text
-active -> suspended -> pending_deletion -> retention_period -> permanently_deleted
+active/onboarding/suspended/cancelled -> pending_deletion -> (30 dias) -> purgado fisicamente
 ```
 
-con reautenticacion, motivo, exportacion previa, periodo de retencion y posibilidad de restauracion. Para
-tiendas, desconectar y archivar suele bastar frente a borrar todo el historico de inmediato. Ver
-`RIESGOS.md` — este es un riesgo de producto activo, no solo documental, y requiere que Rafa decida el
-diseño antes de tocar el codigo de borrado.
+`POST .../restore` revierte dentro del periodo de gracia. El borrado fisico real (la cascada de FK que
+limpia pedidos, metricas, costes, campañas, conversaciones, conocimiento, llamadas, auditoria) sigue
+existiendo pero solo la ejecuta `purgeExpiredDeletions`, corrida por un cron diario
+(`.github/workflows/purge-expired-deletions.yml`), nunca un clic directo desde la UI. No habia frontend
+consumiendo estas rutas todavia, asi que no hizo falta cambiar UI existente. Ver `RIESGOS.md` R-008.
 
 ## Entregables pendientes
 
@@ -113,5 +112,13 @@ diseño antes de tocar el codigo de borrado.
 - Flujos de cliente completos usables en movil (375px) sin scroll horizontal.
 - Auditoria de accesibilidad AA sin errores bloqueantes en los flujos de cliente.
 - El selector global de organizacion sustituye a los selectores por pagina (cumplido, ADR-0010).
-- El riesgo de borrado irreversible tiene una decision de producto explicita, tomada por Rafa, antes de
-  seguir ampliando el CRUD de Consultoria.
+- El riesgo de borrado irreversible tiene una decision de producto explicita, tomada por Rafa (cumplido
+  2026-07-21, soft-delete con periodo de gracia).
+
+### Validacion adicional 2026-07-22
+
+Se incorporaron mejoras transversales de accesibilidad en `apps/web`: skip link al contenido principal,
+foco visible global, soporte `prefers-reduced-motion`, dialogs con `role="dialog"`/`aria-modal`, nombres
+accesibles, estados live del copiloto y ciclo de foco por teclado con Escape. La auditoria automatizada
+formal con axe y la prueba manual con lector de pantalla siguen pendientes porque requieren ejecutar la
+aplicacion en un navegador asistido.

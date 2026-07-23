@@ -31,6 +31,14 @@ jobs:
       - name: Typecheck (packages, api, web, worker)
         run: npm run typecheck
 
+      # SQO-01: anadido 2026-07-22. Antes bloqueaba porque apps/web tenia 12
+      # errores reales de react-hooks/set-state-in-effect (regla nueva del
+      # plugin, ver apps/web/eslint.config.mjs para el porque se bajo a
+      # warning en vez de reescribir 9 archivos con un patron de
+      # fetch-on-mount sin alternativa estable todavia).
+      - name: Lint (packages, api, web, worker)
+        run: npm run lint
+
       - name: Build web
         run: npm run build -w web
         env:

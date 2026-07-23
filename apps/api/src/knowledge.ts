@@ -228,6 +228,7 @@ export async function searchKnowledge(
   context: AuthContext,
   organizationId: string,
   query: unknown,
+  storeId?: string | null,
 ) {
   const membership = context.memberships.find((item) => item.organization_id === organizationId);
   const isPrivileged = ["platform_admin", "consultant"].includes(context.profile.platform_role);
@@ -250,9 +251,16 @@ export async function searchKnowledge(
   const [embedding] = await embeddings.provider.embed([queryText], "query");
   const supabase = createServiceClient(env);
 
+  // AI-07: busqueda humana desde /conocimiento (no un agente automatico), asi
+  // que un consultor/platform_admin si puede ver memoria consultant_only;
+  // un cliente con membership normal solo ve lo client_visible.
+  const audienceAllowed = isPrivileged ? ["client_visible", "consultant_only"] : ["client_visible"];
+
   const { data, error } = await supabase.rpc("knowledge_search", {
     target_organization_id: organizationId,
     query_embedding: JSON.stringify(embedding),
+    audience_allowed: audienceAllowed,
+    target_store_id: storeId ?? null,
     match_count: 8,
   });
 

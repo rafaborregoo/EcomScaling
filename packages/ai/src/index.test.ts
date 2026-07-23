@@ -6,7 +6,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkOutputSanity } from "./index.js";
+import { checkOutputSanity, estimateCostUsd, evaluateAgentBudget } from "./index.js";
 
 function assertOk(output: unknown) {
   const result = checkOutputSanity(output);
@@ -104,6 +104,82 @@ test("rechaza un output que no es un objeto", () => {
   assertRejected("texto suelto", "output_no_es_objeto");
 });
 
+// AI-06 (hallazgo real 2026-07-23, eval de A08 -- ver eval-a08-knowledge-manager.ts
+// y AI-06-evaluaciones-calidad.md): dos glitches nuevos observados contra el
+// LLM real que pasaban checkOutputSanity porque no eran ni vacios ni
+// repeticion.
+test("rechaza un answer casi sin letras reales (glitch real observado en A08)", () => {
+  assertRejected({ answer: ", ecd" }, "answer_con_apertura_incoherente");
+});
+
+test("rechaza un answer con salto de linea partiendo una palabra al inicio (glitch real observado en A08)", () => {
+  assertRejected(
+    { answer: "El catlogo del catos c\ntene tres documentos y ninguno cubre las areas centrales." },
+    "answer_con_apertura_incoherente",
+  );
+});
+
+test("acepta un answer corto pero real", () => {
+  assertOk({ answer: "Sin hallazgos nuevos." });
+});
+
+test("no confunde un salto de linea legitimo (tras puntuacion, en un parrafo) con apertura incoherente", () => {
+  assertOk({
+    answer: "El catalogo esta vacio.\nNo hay documentos que revisar todavia, hace falta sincronizar la fuente.",
+  });
+});
+
 test("ignora campos que no son string/array (no revienta con tipos inesperados)", () => {
   assertOk({ answer: "ok", confidence: "high", warnings: ["x"], findings: [] });
+});
+
+/**
+ * AI-00/AI-06 (R-011): el presupuesto se registraba pero no se aplicaba.
+ * `evaluateAgentBudget` es la decision pura que ahora corta un turno; se
+ * prueba aislada de la API de Anthropic (runAgentTurn solo la invoca).
+ */
+
+test("sin budget declarado, nunca corta el turno", () => {
+  const verdict = evaluateAgentBudget(undefined, 999, 999);
+  assert.equal(verdict.exceeded, false);
+});
+
+test("corta el turno cuando el coste estimado supera maxCostUsd", () => {
+  const verdict = evaluateAgentBudget({ maxCostUsd: 1 }, 1.01, 0);
+  assert.equal(verdict.exceeded, true);
+  if (verdict.exceeded) {
+    assert.match(verdict.message, /cost \$1\.0100 > max \$1/);
+  }
+});
+
+test("no corta el turno cuando el coste esta justo en el limite (estricto: solo > corta)", () => {
+  const verdict = evaluateAgentBudget({ maxCostUsd: 1 }, 1, 0);
+  assert.equal(verdict.exceeded, false);
+});
+
+test("corta el turno cuando las tool calls superan maxToolCalls", () => {
+  const verdict = evaluateAgentBudget({ maxToolCalls: 10 }, 0, 11);
+  assert.equal(verdict.exceeded, true);
+  if (verdict.exceeded) {
+    assert.match(verdict.message, /11 tool calls > max 10/);
+  }
+});
+
+test("el limite de coste corta incluso con pocas tool calls (glitch de exploracion cara, ver A02)", () => {
+  const verdict = evaluateAgentBudget({ maxCostUsd: 0.5, maxToolCalls: 20 }, 0.6, 2);
+  assert.equal(verdict.exceeded, true);
+  if (verdict.exceeded) {
+    assert.match(verdict.message, /cost/);
+  }
+});
+
+test("estimateCostUsd calcula coste real por modelo conocido", () => {
+  // claude-opus-4-8: $5/1M input, $25/1M output (packages/ai/src/index.ts MODEL_PRICING)
+  const cost = estimateCostUsd("claude-opus-4-8", 1_000_000, 1_000_000);
+  assert.equal(cost, 30);
+});
+
+test("estimateCostUsd devuelve 0 para un modelo desconocido en vez de reventar", () => {
+  const cost = estimateCostUsd("modelo-inexistente", 1_000_000, 1_000_000);
+  assert.equal(cost, 0);
 });

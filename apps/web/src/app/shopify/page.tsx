@@ -7,6 +7,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
+import { Button, Input } from "@ecomscaling/ui";
 
 type ShopifyMetrics = {
   organization_id: string;
@@ -198,22 +199,17 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
             </p>
           </div>
           <div className="flex gap-3">
-            <button
-              className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
-              type="button"
-              disabled={isRefreshing}
-              onClick={() => void reload()}
-            >
+            <Button type="button" disabled={isRefreshing} onClick={() => void reload()}>
               {isRefreshing ? "Actualizando..." : "Actualizar"}
-            </button>
-            <button
-              className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-muted"
+            </Button>
+            <Button
+              variant="danger"
               type="button"
               disabled={isSyncing || !overview.connection || overview.connection.status === "syncing"}
               onClick={() => void triggerSync()}
             >
               {isSyncing || overview.connection?.status === "syncing" ? "Sincronizando..." : "Sincronizar ahora"}
-            </button>
+            </Button>
           </div>
         </div>
         {syncError ? <p className="mt-3 text-sm text-brand-deep">{syncError}</p> : null}
@@ -234,7 +230,7 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
                 type="button"
                 onClick={() => setPeriodDays(option.days)}
                 className={[
-                  "rounded-sm border px-3 py-1 text-sm",
+                  "border px-3 py-1 text-sm",
                   periodDays === option.days ? "border-black bg-black text-white" : "border-edge text-muted",
                 ].join(" ")}
               >
@@ -333,30 +329,25 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
                 </div>
                 <form onSubmit={(event) => void saveCost(event)} className="mt-4 space-y-2">
                   <p className="text-xs font-medium uppercase text-muted">Cargar coste por SKU</p>
-                  <input
+                  <Input
                     type="text"
                     placeholder="SKU"
                     value={costSku}
                     onChange={(event) => setCostSku(event.target.value)}
-                    className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
                   />
                   <div className="flex gap-2">
-                    <input
+                    <Input
+                      className="w-full"
                       type="number"
                       step="0.01"
                       min="0"
                       placeholder="Coste unitario"
                       value={costUnitCost}
                       onChange={(event) => setCostUnitCost(event.target.value)}
-                      className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
                     />
-                    <button
-                      type="submit"
-                      disabled={isSavingCost || !costSku.trim() || !costUnitCost}
-                      className="whitespace-nowrap rounded-md bg-black px-3 py-2 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
-                    >
+                    <Button type="submit" className="whitespace-nowrap" disabled={isSavingCost || !costSku.trim() || !costUnitCost}>
                       {isSavingCost ? "Guardando..." : "Guardar"}
-                    </button>
+                    </Button>
                   </div>
                   {costFeedback ? <p className="text-xs text-muted">{costFeedback}</p> : null}
                 </form>

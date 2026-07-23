@@ -3,8 +3,11 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { LoadingBlock } from "@ecomscaling/ui";
+import { Badge, Button, Input, LoadingBlock, Pagination, Select } from "@ecomscaling/ui";
+
+const TASKS_PAGE_SIZE = 20;
 
 type TaskComment = {
   id: string;
@@ -77,6 +80,20 @@ const SEVERITY_STYLES: Record<string, string> = {
   high: "border-brand text-brand",
   critical: "border-brand bg-brand text-white",
 };
+
+// DB-07: SLA de overdue formalizado -- una tarea esta vencida si su
+// due_at ya paso y sigue abierta (pending/in_progress); el mismo criterio
+// que calcula "overdue_tasks" para el health score del panel de consultor
+// (consultant.ts), aplicado aqui por primera vez a la vista del cliente que
+// gestiona la tarea (antes due_at se guardaba y viajaba en la respuesta de
+// la API pero nunca se mostraba).
+function isTaskOverdue(task: Task) {
+  return Boolean(task.due_at) && ["pending", "in_progress"].includes(task.status) && Date.parse(task.due_at as string) < Date.now();
+}
+
+function formatDueDate(dueAt: string) {
+  return new Date(dueAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 async function readApiError(response: Response) {
   const body = (await response.json().catch(() => null)) as
@@ -229,6 +246,8 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     return task.status === statusFilter;
   });
 
+  const tasksPage = usePaginatedUrl(filteredTasks, TASKS_PAGE_SIZE);
+
   return (
     <div className="space-y-4">
       {error ? (
@@ -237,8 +256,8 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <section className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/20 pt-5">
         <div className="flex flex-wrap items-center gap-3">
-          <select
-            className="rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+          <Select
+            aria-label="Filtrar por estado"
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
           >
@@ -248,9 +267,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <option value="completed">Completadas</option>
             <option value="ignored">Ignoradas</option>
             <option value="all">Todas</option>
-          </select>
-          <select
-            className="rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+          </Select>
+          <Select
+            aria-label="Filtrar por modulo"
             value={categoryFilter}
             onChange={(event) => setCategoryFilter(event.target.value)}
           >
@@ -259,16 +278,11 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <option value="meta">Meta Ads</option>
             <option value="klaviyo">Klaviyo</option>
             <option value="general">General</option>
-          </select>
+          </Select>
         </div>
-        <button
-          className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
-          type="button"
-          onClick={() => void evaluateRules()}
-          disabled={isEvaluating}
-        >
+        <Button type="button" onClick={() => void evaluateRules()} disabled={isEvaluating}>
           {isEvaluating ? "Evaluando..." : "Evaluar reglas ahora"}
-        </button>
+        </Button>
       </section>
 
       {isLoading ? (
@@ -291,7 +305,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span
                           className={[
-                            "rounded-sm border px-2 py-0.5 text-xs",
+                            "border px-2 py-0.5 text-xs",
                             SEVERITY_STYLES[alert.severity] ?? SEVERITY_STYLES.info,
                           ].join(" ")}
                         >
@@ -307,21 +321,23 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     </div>
                     <div className="flex gap-2">
                       {alert.status === "open" ? (
-                        <button
-                          className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           type="button"
                           onClick={() => void changeAlertStatus(alert.id, "acknowledged")}
                         >
                           Vista
-                        </button>
+                        </Button>
                       ) : null}
-                      <button
-                        className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         type="button"
                         onClick={() => void changeAlertStatus(alert.id, "dismissed")}
                       >
                         Descartar
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))
@@ -337,57 +353,65 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               {filteredTasks.length === 0 ? (
                 <p className="px-4 py-3 text-sm text-muted">Sin tareas para este filtro.</p>
               ) : (
-                filteredTasks.map((task) => (
+                tasksPage.pageItems.map((task) => (
                   <div key={task.id} className="px-4 py-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-sm border border-ink px-2 py-0.5 font-mono text-xs uppercase">
+                          <span className="border border-ink px-2 py-0.5 font-mono text-xs uppercase">
                             {CATEGORY_LABELS[task.category] ?? task.category}
                           </span>
-                          <span className="rounded-sm bg-surface px-2 py-0.5 font-mono text-xs">
+                          <span className="bg-surface px-2 py-0.5 font-mono text-xs">
                             {PRIORITY_LABELS[task.priority] ?? task.priority}
                           </span>
-                          <span className="rounded-sm border border-edge px-2 py-0.5 text-xs text-muted">
+                          <span className="border border-edge px-2 py-0.5 text-xs text-muted">
                             {STATUS_LABELS[task.status] ?? task.status}
                           </span>
                           {task.source === "alert" ? (
-                            <span className="rounded-sm border border-brand px-2 py-0.5 text-xs text-brand">
+                            <span className="border border-brand px-2 py-0.5 text-xs text-brand">
                               desde alerta
                             </span>
                           ) : null}
+                          {isTaskOverdue(task) ? <Badge tone="danger">Vencida</Badge> : null}
                           <p className="font-medium">{task.title}</p>
                         </div>
                         {task.description ? (
                           <p className="mt-1 text-sm leading-6 text-muted">{task.description}</p>
                         ) : null}
+                        {task.due_at ? (
+                          <p className="mt-1 font-mono text-xs text-muted">
+                            vence {formatDueDate(task.due_at)}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {task.status === "pending" ? (
-                          <button
-                            className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             type="button"
                             onClick={() => void changeTaskStatus(task.id, "in_progress")}
                           >
                             Empezar
-                          </button>
+                          </Button>
                         ) : null}
                         {["pending", "in_progress"].includes(task.status) ? (
                           <>
-                            <button
-                              className="rounded-md bg-black px-3 py-1 text-xs font-medium text-white hover:bg-brand"
+                            <Button
+                              size="sm"
                               type="button"
                               onClick={() => void changeTaskStatus(task.id, "completed")}
                             >
                               Completar
-                            </button>
-                            <button
-                              className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               type="button"
                               onClick={() => void changeTaskStatus(task.id, "ignored")}
                             >
                               Ignorar
-                            </button>
+                            </Button>
                           </>
                         ) : null}
                       </div>
@@ -408,25 +432,29 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     ) : null}
 
                     <form className="mt-3 flex gap-2" onSubmit={(event) => submitComment(event, task.id)}>
-                      <input
-                        className="min-w-0 flex-1 rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-1.5 text-sm outline-none transition-colors focus:border-ink"
+                      <Input
+                        className="min-w-0 flex-1"
+                        aria-label={`Comentario para la tarea ${task.title}`}
                         value={commentDrafts[task.id] ?? ""}
                         onChange={(event) =>
                           setCommentDrafts((drafts) => ({ ...drafts, [task.id]: event.target.value }))
                         }
                         placeholder="Añadir comentario..."
                       />
-                      <button
-                        className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-                        type="submit"
-                      >
+                      <Button variant="secondary" type="submit">
                         Comentar
-                      </button>
+                      </Button>
                     </form>
                   </div>
                 ))
               )}
             </div>
+            <Pagination
+              className="mx-4 mb-3"
+              page={tasksPage.page}
+              pageCount={tasksPage.pageCount}
+              onChange={tasksPage.setPage}
+            />
           </section>
 
           {resolvedAlerts.length > 0 ? (

@@ -119,6 +119,23 @@ test("rechaza apilar sentencias con punto y coma (SELECT ; DROP)", () => {
   assertRejected("select 1; drop table tasks;", "solo_se_permite_una_sentencia");
 });
 
+// AI-03: WITH RECURSIVE estaba explicitamente permitido -- un CTE recursivo
+// mal formado agota el statement_timeout de 8s en vez de fallar rapido. Los
+// agentes no necesitan recursion para consultas analiticas sobre `ai.*`.
+test("rechaza WITH RECURSIVE top-level", () => {
+  assertRejected(
+    "with recursive t(n) as (select 1 union all select n+1 from t where n<5) select * from t",
+    "sentencia_no_permitida: with recursive",
+  );
+});
+
+test("rechaza WITH RECURSIVE anidado dentro de una subquery", () => {
+  assertRejected(
+    "select * from (with recursive t(n) as (select 1 union all select n+1 from t where n<5) select * from t) sub",
+    "operacion_prohibida: with recursive",
+  );
+});
+
 // --- Tablas fuera de la allowlist (aislamiento de tenant / superficie) ----
 
 test("rechaza una tabla que no esta en la allowlist del esquema ai", () => {

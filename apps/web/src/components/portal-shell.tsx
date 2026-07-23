@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, type ReactNode, useEffect, useState } from "react";
 import {
   apiFetch,
   fetchAccountActions,
@@ -85,6 +85,16 @@ function formatRole(role: string) {
   return role.replaceAll("_", " ");
 }
 
+// FE-02: la banda de avisos trataba "error" y "warning" igual visualmente
+// (siempre rojo de marca) aunque `severity` ya distinguia los dos casos desde
+// el backend -- un error real (integracion caida) y un aviso (permisos
+// pendientes) no deberian competir por la misma urgencia visual.
+const actionSeverityStyles: Record<AccountAction["severity"], { border: string; title: string }> = {
+  error: { border: "border-brand", title: "text-brand-deep" },
+  warning: { border: "border-warn", title: "text-warn-deep" },
+  info: { border: "border-edge-strong", title: "text-black" },
+};
+
 type ShopifyConnectionSummary = {
   id: string;
   provider_account_name: string | null;
@@ -107,6 +117,28 @@ function writeConnectionMap(organizationId: string, connectionId: string) {
   window.localStorage.setItem(ACTIVE_CONNECTION_STORAGE_KEY, JSON.stringify(map));
 }
 
+// R-009: la URL es la fuente primaria del contexto activo (organizationId/
+// connectionId como query params) -- localStorage es solo el fallback para
+// cuando se navega sin esos params (ej. desde el menu lateral). Esto hace que
+// un link compartido siempre abra la organizacion/tienda correcta, y que la
+// URL actual refleje siempre lo que se esta viendo.
+function buildUrlWithParams(
+  pathname: string,
+  current: URLSearchParams,
+  updates: Record<string, string | undefined>,
+) {
+  const params = new URLSearchParams(current.toString());
+  for (const [key, value] of Object.entries(updates)) {
+    if (value) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 // Cada pagina monta su propio PortalShell (no vive en un layout compartido),
 // asi que cada navegacion lo desmonta y remonta desde cero. Sin esta cache en
 // memoria del modulo, eso significaba pedir el bootstrap otra vez y tapar
@@ -117,9 +149,17 @@ function writeConnectionMap(organizationId: string, connectionId: string) {
 // ultimos datos conocidos mientras se refrescan en segundo plano.
 let bootstrapCache: { bootstrap: BootstrapResponse; actions: AccountAction[]; token: string } | null = null;
 
-export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: PortalShellProps) {
+function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: PortalShellProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const organizationIdFromUrl = searchParams.get("organizationId");
+  const connectionIdFromUrl = searchParams.get("connectionId");
+
+  function updateUrlParams(updates: Record<string, string | undefined>) {
+    router.replace(buildUrlWithParams(pathname, searchParams, updates), { scroll: false });
+  }
+
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(bootstrapCache?.bootstrap ?? null);
   const [actions, setActions] = useState<AccountAction[]>(bootstrapCache?.actions ?? []);
   const [token, setToken] = useState<string | null>(bootstrapCache?.token ?? null);
@@ -127,10 +167,13 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
   const [isLoading, setIsLoading] = useState(!bootstrapCache);
   const [activeOrganizationId, setActiveOrganizationId] = useState(() => {
     if (!bootstrapCache) {
-      return "";
+      return organizationIdFromUrl ?? "";
+    }
+    const validIds = bootstrapCache.bootstrap.memberships.map((membership) => membership.organization_id);
+    if (organizationIdFromUrl && validIds.includes(organizationIdFromUrl)) {
+      return organizationIdFromUrl;
     }
     const stored = window.localStorage.getItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
-    const validIds = bootstrapCache.bootstrap.memberships.map((membership) => membership.organization_id);
     return stored && validIds.includes(stored) ? stored : (validIds[0] ?? "");
   });
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -179,10 +222,15 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
       const validIds = (payload.connections ?? []).map((connection) => connection.id);
 
       // Si una pagina ya fijo una tienda valida mientras esta carga estaba en
-      // vuelo (p. ej. un deep-link ?connectionId=...), no la pisamos.
+      // vuelo, no la pisamos. Si no, la URL (?connectionId=...) gana sobre
+      // localStorage -- ver R-009.
       setActiveConnectionId((current) => {
         if (current && validIds.includes(current)) {
           return current;
+        }
+
+        if (connectionIdFromUrl && validIds.includes(connectionIdFromUrl)) {
+          return connectionIdFromUrl;
         }
 
         const stored = readConnectionMap()[activeOrganizationId];
@@ -196,6 +244,7 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- connectionIdFromUrl solo debe aplicarse una vez por carga, no en cada re-render por cambio de URL propio (lo escribe selectConnection).
   }, [activeOrganizationId, token]);
 
   function selectConnection(connectionId: string) {
@@ -203,6 +252,7 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
     if (activeOrganizationId) {
       writeConnectionMap(activeOrganizationId, connectionId);
     }
+    updateUrlParams({ connectionId });
   }
 
   useEffect(() => {
@@ -222,12 +272,16 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
         setActions(accountActions);
         bootstrapCache = { bootstrap: payload, actions: accountActions, token: accessToken };
 
-        // Organización activa global: la que ya estaba activa (remontaje via
-        // cache) si sigue siendo valida, si no la ultima elegida en
+        // Organización activa global: la URL (?organizationId=...) gana sobre
+        // todo -- es la fuente primaria (R-009). Si no hay URL valida, la que
+        // ya estaba activa (remontaje via cache), si no la ultima elegida en
         // localStorage, si no la primera membership.
         const stored = window.localStorage.getItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
         const validIds = payload.memberships.map((membership) => membership.organization_id);
         setActiveOrganizationId((current) => {
+          if (organizationIdFromUrl && validIds.includes(organizationIdFromUrl)) {
+            return organizationIdFromUrl;
+          }
           if (current && validIds.includes(current)) {
             return current;
           }
@@ -249,6 +303,7 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
     // La tienda activa es especifica de cada organizacion; se recalcula en
     // cuanto llega la lista de tiendas de la nueva organizacion.
     setActiveConnectionId("");
+    updateUrlParams({ organizationId, connectionId: undefined });
   }
 
   async function signOut() {
@@ -272,11 +327,6 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
     );
   }
 
-  const activeMembership =
-    bootstrap.memberships.find(
-      (membership) => membership.organization_id === activeOrganizationId,
-    ) ?? bootstrap.memberships[0];
-  const primaryOrganization = activeMembership?.organization;
   const visibleActions = actions.slice(0, 3);
   const isConsultant = ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role);
   const visibleGroups = isConsultant ? consultantNavGroups : clientNavGroups;
@@ -297,7 +347,7 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
                   key={item.href}
                   aria-current={active ? "page" : undefined}
                   className={[
-                    "rounded-md border-l-2 px-3 py-2 text-sm transition",
+                    "border-l-2 px-3 py-2 text-sm transition",
                     active
                       ? "border-brand bg-brand-tint font-medium text-black"
                       : "border-transparent text-muted hover:bg-surface hover:text-black",
@@ -321,7 +371,7 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
         {formatRole(bootstrap.profile.platform_role)}
       </p>
       <button
-        className="mt-4 w-full rounded-md border border-edge px-3 py-2 text-left text-sm text-black transition hover:border-brand hover:text-brand"
+        className="mt-4 w-full border border-edge px-3 py-2 text-left text-sm text-black transition hover:border-brand hover:text-brand"
         type="button"
         onClick={signOut}
       >
@@ -331,7 +381,8 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
   );
 
   return (
-    <main className="min-h-screen bg-white text-black">
+    <>
+      <main className="min-h-screen bg-white pt-2 text-black">
       {/* Barra superior solo móvil: marca + hamburguesa */}
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-white px-4 py-3 text-black lg:hidden">
         <div>
@@ -339,7 +390,7 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
           <p className="text-sm font-semibold">{title}</p>
         </div>
         <button
-          className="inline-flex items-center gap-2 rounded-md border border-edge px-3 py-2 text-sm transition hover:border-brand hover:text-brand"
+          className="inline-flex items-center gap-2 border border-edge px-3 py-2 text-sm transition hover:border-brand hover:text-brand"
           type="button"
           aria-expanded={isMobileNavOpen}
           aria-controls="mobile-nav"
@@ -369,83 +420,71 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
         </aside>
 
         <section className="min-w-0">
-          {/* Mini barra de contexto: a quien se esta viendo y desde que rol,
-              separado del contenido de la pagina en si. */}
-          <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-line bg-surface px-6 py-3 lg:px-10">
-            {isConsultant && bootstrap.memberships.length > 1 ? (
-              <Combobox
-                className="w-44"
-                label="Cliente activo"
-                value={activeOrganizationId}
-                onChange={selectOrganization}
-                options={bootstrap.memberships.map((membership) => ({
-                  value: membership.organization_id,
-                  label: membership.organization?.display_name ?? membership.organization_id,
-                }))}
-              />
-            ) : null}
-            {shopifyConnections.length > 1 ? (
-              <Combobox
-                className="w-40"
-                label="Tienda"
-                value={activeConnectionId}
-                onChange={selectConnection}
-                options={shopifyConnections.map((connection) => ({
-                  value: connection.id,
-                  label: connection.provider_account_id ?? connection.provider_account_name ?? connection.id,
-                }))}
-              />
-            ) : null}
-            <div className="flex items-center gap-1.5 font-mono text-xs uppercase tracking-wide text-muted">
-              <span
-                aria-hidden
-                className={[
-                  "inline-block size-1.5 rounded-full",
-                  primaryOrganization?.status === "active" ? "bg-success" : "bg-edge-strong",
-                ].join(" ")}
-              />
-              {formatRole(bootstrap.profile.platform_role)}
-              {primaryOrganization ? ` · ${primaryOrganization.status}` : ""}
+          {/* Mini barra de contexto: solo se muestra si hay algo que seleccionar
+              (cliente activo o tienda). El indicador de rol/estado se quito por no
+              aportar nada al usuario. */}
+          {(isConsultant && bootstrap.memberships.length > 1) || shopifyConnections.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-line bg-surface px-6 py-3 lg:px-10">
+              {isConsultant && bootstrap.memberships.length > 1 ? (
+                <Combobox
+                  className="w-44"
+                  label="Cliente activo"
+                  value={activeOrganizationId}
+                  onChange={selectOrganization}
+                  options={bootstrap.memberships.map((membership) => ({
+                    value: membership.organization_id,
+                    label: membership.organization?.display_name ?? membership.organization_id,
+                  }))}
+                />
+              ) : null}
+              {shopifyConnections.length > 1 ? (
+                <Combobox
+                  className="w-40"
+                  label="Tienda"
+                  value={activeConnectionId}
+                  onChange={selectConnection}
+                  options={shopifyConnections.map((connection) => ({
+                    value: connection.id,
+                    label: connection.provider_account_id ?? connection.provider_account_name ?? connection.id,
+                  }))}
+                />
+              ) : null}
             </div>
-          </div>
+          ) : null}
 
-          {visibleActions.map((action) => (
-            <div key={action.id} className="border-b border-edge px-6 py-3 text-sm lg:px-10">
-              <div className="flex flex-col gap-2 border-l-2 border-brand pl-3 md:flex-row md:items-center md:justify-between md:gap-6">
-                <div>
-                  <p className="font-medium text-brand-deep">{action.title}</p>
-                  <p className="mt-0.5 text-muted">
-                    {action.organization_name ? `${action.organization_name}: ` : ""}
-                    {action.message}
-                    {action.missing_scopes?.length
-                      ? ` (${action.missing_scopes.length} permisos pendientes)`
-                      : ""}
-                  </p>
-                </div>
-                <Link
-                  className="whitespace-nowrap text-sm font-medium underline decoration-brand decoration-1 underline-offset-4 transition hover:text-brand"
-                  href={action.cta_href}
+          {visibleActions.map((action) => {
+            const severityStyle = actionSeverityStyles[action.severity];
+            return (
+              <div key={action.id} className="border-b border-edge px-6 py-3 text-sm lg:px-10">
+                <div
+                  className={`flex flex-col gap-2 border-l-2 ${severityStyle.border} pl-3 md:flex-row md:items-center md:justify-between md:gap-6`}
                 >
-                  {action.cta_label} →
-                </Link>
+                  <div>
+                    <p className={`font-medium ${severityStyle.title}`}>{action.title}</p>
+                    <p className="mt-0.5 text-muted">
+                      {action.organization_name ? `${action.organization_name}: ` : ""}
+                      {action.message}
+                      {action.missing_scopes?.length
+                        ? ` (${action.missing_scopes.length} permisos pendientes)`
+                        : ""}
+                    </p>
+                  </div>
+                  <Link
+                    className="whitespace-nowrap text-sm font-medium underline decoration-brand decoration-1 underline-offset-4 transition hover:text-brand"
+                    href={action.cta_href}
+                  >
+                    {action.cta_label} →
+                  </Link>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {actions.length > visibleActions.length ? (
             <div className="border-b border-edge px-6 py-2 font-mono text-xs text-muted lg:px-10">
               {actions.length - visibleActions.length} avisos más en Integraciones.
             </div>
           ) : null}
-          <header className="px-6 pt-8 pb-6 lg:px-10">
-            {!isConsultant ? (
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-brand">
-                {primaryOrganization?.display_name ?? "Sin organización activa"}
-              </p>
-            ) : null}
-            <h2 className="mt-1 truncate font-display text-4xl leading-tight lg:text-5xl">{title}</h2>
-          </header>
-
-          <div className="px-6 pb-14 lg:px-10">
+          <div className="px-6 pt-6 pb-14 lg:px-10">
             <ActiveOrganizationContext.Provider
               value={{
                 organizationId: activeOrganizationId || (bootstrap.memberships[0]?.organization_id ?? ""),
@@ -467,6 +506,8 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
           <button
             className="fixed bottom-6 right-6 z-30 bg-black px-5 py-3 text-sm font-medium text-white shadow-lg transition hover:bg-brand"
             type="button"
+            aria-expanded={isCopilotOpen}
+            aria-controls="copilot-panel"
             onClick={() => setIsCopilotOpen((open) => !open)}
           >
             {isCopilotOpen ? "Cerrar copiloto" : "Copiloto"}
@@ -479,6 +520,21 @@ export function PortalShell({ title, eyebrow = "EcomScaling IA", children }: Por
           ) : null}
         </>
       ) : null}
-    </main>
+      </main>
+    </>
+  );
+}
+
+/**
+ * PortalShell reads URL state for the active organization/store. Keeping the
+ * navigation-dependent tree behind Suspense makes every App Router page safe
+ * to prerender in production builds, including pages that only render the
+ * shell indirectly.
+ */
+export function PortalShell(props: PortalShellProps) {
+  return (
+    <Suspense fallback={<LoadingBlock label="Cargando EcomScaling..." />}>
+      <PortalShellContent {...props} />
+    </Suspense>
   );
 }

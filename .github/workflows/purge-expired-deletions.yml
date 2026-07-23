@@ -1,0 +1,45 @@
+name: Purge Expired Deletions
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7 3 * * *"
+
+concurrency:
+  group: purge-expired-deletions
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    name: Purge organizations/stores past their retention period
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+      SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+      SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build API and worker
+        run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
+
+      - name: Purge expired soft-deletions
+        run: npm run start:purge-expired-deletions -w @ecomscaling/worker

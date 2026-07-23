@@ -1,10 +1,10 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { LoadingBlock } from "@ecomscaling/ui";
+import { Button, Input, LoadingBlock, Textarea } from "@ecomscaling/ui";
 
 type Milestone = {
   id: string;
@@ -225,13 +225,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 ) : null}
               </div>
               {plan.status === "draft" && canManage ? (
-                <button
-                  className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand"
-                  type="button"
-                  onClick={() => void activatePlan(plan.id)}
-                >
+                <Button type="button" onClick={() => void activatePlan(plan.id)}>
                   Activar plan
-                </button>
+                </Button>
               ) : null}
             </div>
             {totalMilestones > 0 ? (
@@ -260,7 +256,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </h4>
                 <span
                   className={[
-                    "rounded-sm border px-2 py-0.5 text-xs",
+                    "border px-2 py-0.5 text-xs",
                     phase.status === "active"
                       ? "border-black bg-black text-white"
                       : phase.status === "completed"
@@ -302,21 +298,22 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       {canManage && ["pending", "in_progress"].includes(milestone.status) ? (
                         <div className="flex gap-2">
                           {milestone.status === "pending" ? (
-                            <button
-                              className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               type="button"
                               onClick={() => void changeMilestone(milestone.id, "in_progress")}
                             >
                               Empezar
-                            </button>
+                            </Button>
                           ) : null}
-                          <button
-                            className="rounded-md bg-black px-3 py-1 text-xs font-medium text-white hover:bg-brand"
+                          <Button
+                            size="sm"
                             type="button"
                             onClick={() => void changeMilestone(milestone.id, "completed")}
                           >
                             Completar
-                          </button>
+                          </Button>
                         </div>
                       ) : null}
                     </div>
@@ -335,15 +332,16 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </p>
           {canManage ? (
             <form className="mt-4 space-y-3" onSubmit={createPlan}>
-              <input
-                className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+              <Input
+                aria-label="Nombre del plan"
                 value={planName}
                 onChange={(event) => setPlanName(event.target.value)}
                 placeholder="Nombre del plan (p. ej. Escalar a 50k/mes)"
                 required
               />
-              <textarea
-                className="h-48 w-full rounded-none border border-edge-strong bg-transparent px-3 py-2 font-mono text-sm outline-none transition-colors focus:border-ink"
+              <Textarea
+                className="h-48 font-mono"
+                aria-label="Esquema de fases e hitos"
                 value={planOutline}
                 onChange={(event) => setPlanOutline(event.target.value)}
                 placeholder={"Fase: Fundamentos\n- Configurar costes y gastos fijos\n- Cargar costes de producto\nFase: Adquisicion\n- Conectar Meta Ads\n- Definir presupuesto inicial"}
@@ -352,13 +350,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <p className="text-xs text-muted">
                 Formato: cada linea &quot;Fase: nombre&quot; abre una fase; las lineas siguientes son sus hitos.
               </p>
-              <button
-                className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
-                type="submit"
-                disabled={isSubmitting}
-              >
+              <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Creando..." : "Crear plan en borrador"}
-              </button>
+              </Button>
             </form>
           ) : null}
         </section>
@@ -367,10 +361,18 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
 }
 
-export default function StrategicPlanPage() {
+function StrategicPlanPageContent() {
   return (
     <PortalShell title="Mi Camino">
       {(bootstrap) => <PlanContent bootstrap={bootstrap} />}
     </PortalShell>
+  );
+}
+
+export default function StrategicPlanPage() {
+  return (
+    <Suspense fallback={<LoadingBlock label="Cargando Mi Camino..." />}>
+      <StrategicPlanPageContent />
+    </Suspense>
   );
 }

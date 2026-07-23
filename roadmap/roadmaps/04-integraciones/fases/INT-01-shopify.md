@@ -2,9 +2,12 @@
 
 ## Estado
 
-- **Estado real:** `verification_pending`
+- **Estado real:** `pilot_ready` (**actualizado 2026-07-22** — los 5 items del checklist "Cierre real" ya
+  estan resueltos: webhooks de privacidad deployados, `app/uninstalled` reenviado, backoff confirmado,
+  scope decidido explicitamente, reconciliacion de conteos ejecutada con hallazgo explicado. Sigue sin ser
+  `done` porque el bloqueador de distribucion publica de Shopify es externo, ver abajo.)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-07-22
 - **Dependencias:** INT-00, DB-05, BE-03
 - **Bloqueador:** Shopify aun no ha aprobado la distribucion publica de la app
   (`docs/decisions/ADR-0005-shopify-distribution.md`); en produccion se usa temporalmente `Custom
@@ -54,30 +57,63 @@ parametrizado, por bloque:
 
 ## Webhooks
 
-**Solo 4 topics estan registrados** (`shopify-webhooks.ts`): `orders/create`, `orders/updated`,
-`products/update`, `inventory_levels/update`. Esto coincide exactamente con el panel de developers de
-Shopify reportado por Rafa el 2026-07-20 (100% tasa de entrega, sin fallos reales — la alarma era solo que
-esos son los unicos 4 topics con trafico).
+**Correccion 2026-07-20**: una revision anterior de este documento decia "solo 4 topics, sin
+`refunds/create`" — verificado de nuevo contra `shopify-webhooks.ts`, `refunds/create` ya estaba
+registrado (el panel de Shopify reportado por Rafa mostraba trafico solo en 4 topics porque la tienda
+piloto no habia tenido refunds todavia en esa ventana, no porque el topic no existiera).
 
-**Gaps reales frente a lo que Shopify espera de una app publica:**
+Topics registrados hoy (`SHOPIFY_WEBHOOK_TOPICS`): `orders/create`, `orders/updated`, `refunds/create`,
+`products/update`, `inventory_levels/update`, y **`app/uninstalled` (anadido 2026-07-20, R-010)** — sin
+el, el backend no se enteraba de una desinstalacion hecha desde Shopify y la conexion quedaba en
+`connected` de forma incorrecta; ahora `processAppUninstalled` marca la conexion `disconnected`.
 
-- No hay webhooks de privacidad obligatorios para distribucion publica: `customers/data_request`,
-  `customers/redact`, `shop/redact`. Sin estos, Shopify **no aprobara** la app publica — este es
-  probablemente el bloqueador de aprobacion mas concreto y accionable que existe hoy, mas alla de
-  "esperar revision".
-- No hay `app/uninstalled` ni `shop/update` registrados — sin `app/uninstalled` el backend no se entera de
-  una desinstalacion hecha desde Shopify y la conexion queda en `connected` de forma incorrecta.
-- No hay `refunds/create` — los refunds dependen solo de bulk/reconciliacion periodica, no de señal en
-  tiempo real.
-- Verificacion HMAC ya prueba ambos secretos (fix de esta sesion, commit `f74fcc0`); deduplicacion por
-  webhook id vive en `private.webhook_events` (INT-00).
+**Webhooks de privacidad obligatorios anadidos 2026-07-20 (R-010)**: `customers/data_request`,
+`customers/redact`, `shop/redact` tienen handler en `shopify-webhook-handler.ts`
+(`COMPLIANCE_TOPIC_HANDLERS`) — verifican HMAC igual que el resto, dejan constancia en
+`private.webhook_events`, y:
+
+- `customers/redact` borra la fila de `shopify_customers` del cliente (solo guardamos hash de referencia +
+  id externo, nunca email/nombre/telefono — ver DB-05, asi que borrar la fila es la erradicacion completa
+  que nos corresponde).
+- `shop/redact` marca la conexion `disconnected`. **Deliberadamente no** dispara borrado en cascada
+  automatico del historico (pedidos/metricas/costes) — eso es el mismo riesgo de borrado irreversible que
+  ya esta documentado sin resolver (ver `RIESGOS.md`, Q-009); requiere decision de producto de Rafa, no una
+  tomada dentro de un webhook.
+- `customers/data_request` solo deja constancia (no hay email/nombre que exportar automaticamente).
+
+**Resuelto 2026-07-22**: estos 3 topics de privacidad no se registran via `webhookSubscriptionCreate` como
+el resto — Shopify los trata como "compliance webhooks" a nivel de app entera, no por tienda. El panel
+clasico del Partner Dashboard (App setup > Compliance webhooks) ya no aplica a esta app (creada en el Dev
+Dashboard nuevo); se configuran via `shopify.app.toml` + `shopify app deploy`. Vinculado el repo a la app
+real ("EcomScaling - Custom", client_id de `SHOPIFY_CUSTOM_API_KEY`) con
+`shopify app config link --client-id ...`, anadido el bloque `[[webhooks.subscriptions]]` con
+`compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]` apuntando a
+`https://ecom-scaling-api.vercel.app/v1/shopify/webhooks`, y deployado como version `ecomscaling-custom-4`.
+Verificado en vivo: el endpoint responde `401 Unauthorized` a un POST con HMAC invalido, confirmando que
+esta desplegado y validando firmas de verdad, no solo declarado en la config. `shopify.app.toml` queda en
+el repo (no versionado todavia, pendiente de que Rafa decida si se comitea).
+
+**Resuelto 2026-07-22**: reenviado el registro a la tienda piloto ya conectada
+(`padelespana.myshopify.com`). Nueva funcion `resendShopifyWebhookRegistrations`
+(`apps/api/src/shopify-webhooks.ts`, script `apps/worker/src/shopify-resend-webhooks-once.ts`,
+`npm run dev:shopify-resend-webhooks -w @ecomscaling/worker`) reutiliza `registerShopifyWebhooks` sobre
+todas las conexiones Shopify existentes -- idempotente: los 5 topics ya registrados devuelven "Address for
+this topic has already been taken" (no fatal), y `app/uninstalled` se registro de nuevo
+(`gid://shopify/WebhookSubscription/2052274389370`). Requiere pasar `SHOPIFY_REDIRECT_URI` de produccion
+explicitamente al ejecutar en local, ya que `.env.local` trae el valor de `localhost` por defecto y Shopify
+rechaza URLs `http://`/internas.
+
+Verificacion HMAC ya prueba ambos secretos (fix de esta sesion, commit `f74fcc0`); deduplicacion por
+webhook id vive en `private.webhook_events` (INT-00).
 
 ## Rate limits
 
-`shopify-bulk.ts`/`shopify-client.ts` implementan el cliente GraphQL/Bulk; no se ha confirmado con grep
-que se lea `extensions.cost.throttleStatus` y se reintente segun `currentlyAvailable`/`restoreRate` —
-**pendiente de verificar en codigo antes de marcar esto como hecho**, no asumir que existe solo porque el
-ADR-0006 lo exige desde el primer commit.
+**Verificado 2026-07-22** (antes marcado "pendiente de verificar, no asumir"): `shopify-client.ts`
+(`shopifyGraphql`) si reintenta con backoff exponencial (`BASE_BACKOFF_MS * 2^intento`, hasta 5 intentos) —
+pero **reactivo**, no proactivo: detecta HTTP 429/5xx (respetando `Retry-After` si Shopify lo manda) y el
+error GraphQL `extensions.code === "THROTTLED"`, no lee `extensions.cost.throttleStatus.currentlyAvailable`/
+`restoreRate` para espaciar peticiones antes de que ocurra el throttling. Es una mitigacion real, distinta
+de la que el documento original especulaba.
 
 ## Pruebas
 
@@ -88,12 +124,41 @@ desinstalada, bulk fallido, throttling.
 
 ## Cierre real
 
-No cerrar INT-01 hasta reconciliar conteos app vs Shopify Admin (productos, variantes, pedidos, refunds,
-clientes pseudonimizados) con una tienda real con pedidos, y hasta:
+**Reconciliacion de conteos ejecutada 2026-07-22** contra la tienda piloto real (`padelespana.myshopify.com`,
+363 pedidos): nuevo modulo `apps/api/src/shopify-count-reconcile.ts`
+(`reconcileShopifyCounts`, expuesto via `@ecomscaling/api/shopify-count-reconcile`) + script
+`apps/worker/src/shopify-reconcile-counts-once.ts`
+(`npm run dev:shopify-reconcile-counts -w @ecomscaling/worker -- <connection_id>`), compara conteos locales
+contra `productsCount`/`ordersCount`/`customersCount` de la Admin GraphQL API (`precision: EXACT` o
+`AT_LEAST` segun el campo, se reporta tal cual, no se asume exactitud).
 
-1. Anadir los 3 webhooks de privacidad obligatorios (`customers/data_request`, `customers/redact`,
-   `shop/redact`) — condicion previa a que Shopify apruebe distribucion publica.
-2. Anadir `app/uninstalled` para no dejar conexiones huerfanas en estado `connected`.
-3. Confirmar en codigo el manejo real de `throttleStatus`/backoff, no solo asumirlo.
-4. Decidir explicitamente el scope minimo-viable de `.env.example` (hoy es mas amplio de lo necesario).
-5. Validar con tienda real: conteos, webhooks con URL publica, reconciliacion.
+Resultado: **productos 11 vs 11, exacto**. **Pedidos: 363 local vs 341 en Shopify — diferencia de 22,
+explicada y no es un problema de datos**: Shopify solo cuenta pedidos de los ultimos 60 dias via API salvo
+que la app tenga aprobado `read_all_orders` (no solicitado hoy, ver punto 4 abajo); los 22 pedidos "de mas"
+son historial real de mayo 2026 (el mas antiguo, `#6082`, del 18/05) que el sync inicial importo cuando
+todavia estaban dentro de la ventana de 60 dias -- verificado descartando explicitamente `is_test_order` (0
+ordenes de prueba) y `cancelled_at` (0 canceladas) antes de concluir esto. **No se borro ni se debe borrar
+nada**: son pedidos reales, Shopify simplemente ya no los cuenta en su API estandar por la ventana temporal.
+Clientes: 10.807 local vs "al menos 10.000" en Shopify (`precision: AT_LEAST`) -- no comparable de forma
+fiable, Shopify topa ese conteo en tiendas grandes, no es una discrepancia real. Refunds: 1 local, sin
+equivalente expuesto por Shopify a nivel tienda para comparar.
+
+No cerrar INT-01 hasta:
+
+1. ~~Anadir los 3 webhooks de privacidad obligatorios~~ — hecho 2026-07-20 en codigo, y deployados a
+   Shopify 2026-07-22 (`ecomscaling-custom-4`, ver seccion Webhooks arriba).
+2. ~~Anadir `app/uninstalled`~~ — hecho 2026-07-20 en codigo; reenviado a la tienda piloto ya conectada
+   2026-07-22 (`resendShopifyWebhookRegistrations`, ver seccion Webhooks arriba).
+3. ~~Confirmar en codigo el manejo real de throttling/backoff~~ — hecho 2026-07-22: backoff reactivo real
+   confirmado (HTTP 429/5xx + error `THROTTLED`), no proactivo via `throttleStatus`. Decidir si vale la
+   pena el modo proactivo o el reactivo basta para el volumen actual.
+4. ~~Decidir explicitamente el scope minimo-viable~~ — decision explicita de Rafa 2026-07-22: mantener la
+   lista amplia que trae el Dev Dashboard tal cual (no acotar) mientras dure la fase de pruebas, ya
+   deployada en `shopify.app.toml`. No es "minimo-viable" pero es una decision tomada, no un olvido —
+   revisar antes de solicitar distribucion publica final.
+5. ~~Validar con tienda real: conteos, webhooks con URL publica, reconciliacion~~ — hecho 2026-07-22 contra
+   `padelespana.myshopify.com` (ver "Reconciliacion de conteos ejecutada" arriba). Productos exacto; pedidos
+   con diferencia explicada (ventana de 60 dias de la API, no un bug); clientes no comparable de forma
+   fiable por el tope de conteo de Shopify. Sigue pendiente decidir si vale la pena solicitar
+   `read_all_orders` para que el conteo en vivo de Shopify tambien vea el historico completo (no es
+   necesario para que el producto funcione, ya lo tenemos importado).

@@ -8,18 +8,45 @@
       "types": "./dist/src/shopify-reconcile.d.ts",
       "default": "./dist/src/shopify-reconcile.js"
     },
+    "./shopify-webhooks": {
+      "types": "./dist/src/shopify-webhooks.d.ts",
+      "default": "./dist/src/shopify-webhooks.js"
+    },
+    "./shopify-count-reconcile": {
+      "types": "./dist/src/shopify-count-reconcile.d.ts",
+      "default": "./dist/src/shopify-count-reconcile.js"
+    },
     "./operations": {
       "types": "./dist/src/operations.d.ts",
       "default": "./dist/src/operations.js"
+    },
+    "./consultant": {
+      "types": "./dist/src/consultant.d.ts",
+      "default": "./dist/src/consultant.js"
+    },
+    "./ops-health-check": {
+      "types": "./dist/src/ops-health-check.d.ts",
+      "default": "./dist/src/ops-health-check.js"
+    },
+    "./memory-ingestion": {
+      "types": "./dist/src/memory-ingestion.d.ts",
+      "default": "./dist/src/memory-ingestion.js"
     }
   },
   "scripts": {
     "dev": "dotenv -e ../../.env.local -- tsx watch src/server.ts",
+    "eval:a01": "dotenv -e ../../.env.local -- tsx src/eval-a01-call-analyst.ts",
+    "eval:ai04": "dotenv -e ../../.env.local -- tsx src/eval-ai04-rag-retrieval.ts",
+    "eval:a02": "dotenv -e ../../.env.local -- tsx src/eval-a02-monitor.ts",
+    "eval:be07": "dotenv -e ../../.env.local -- tsx src/eval-be07-prompt-injection.ts",
+    "eval:a06": "dotenv -e ../../.env.local -- tsx src/eval-a06-stock-planner.ts",
+    "eval:a08": "dotenv -e ../../.env.local -- tsx src/eval-a08-knowledge-manager.ts",
+    "validate:ai07": "dotenv -e ../../.env.local -- tsx src/validate-ai07-memory-pipeline.ts",
     "build": "npm run build -w @ecomscaling/ai -w @ecomscaling/config -w @ecomscaling/contracts -w @ecomscaling/observability && tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "dotenv -e ../../.env.local -- tsx --test src/sql-gateway.test.ts src/rls-tenant-isolation.test.ts"
+    "test": "dotenv -e ../../.env.local -- tsx --test src/sql-gateway.test.ts src/rls-tenant-isolation.test.ts src/db-00-private-schema-permissions.test.ts src/db-01-enum-drift.test.ts src/db-04-webhook-idempotency.test.ts src/db-04-token-refresh-claim.test.ts src/be-01-cross-tenant-route-manipulation.test.ts src/ai-01-call-summary-decision-status.test.ts src/db-02-metrics-rpc-tenant-isolation.test.ts src/db-08-purge-cascade.test.ts src/db-11-knowledge-search-isolation.test.ts src/be-07-sql-gateway-tenant-isolation.test.ts src/integration-adapters.test.ts src/ai-runtime-envelope.test.ts"
   },
   "engines": {
     "node": "22.x"
@@ -28,9 +55,11 @@
     "@ecomscaling/ai": "^0.1.0",
     "@ecomscaling/config": "0.1.0",
     "@ecomscaling/contracts": "0.1.0",
+    "@ecomscaling/integrations": "0.1.0",
     "@ecomscaling/observability": "0.1.0",
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.1.0",
+    "@fastify/rate-limit": "^11.1.0",
     "@supabase/supabase-js": "^2.109.0",
     "@vercel/node": "^5.8.25",
     "fastify": "^5.6.2",

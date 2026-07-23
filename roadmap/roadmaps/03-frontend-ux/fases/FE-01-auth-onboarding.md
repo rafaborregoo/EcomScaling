@@ -2,27 +2,42 @@
 
 ## Estado
 
-- **Estado real:** `implementation_unknown` (el documento no aporta evidencia suficiente para verificar
-  que esta completado; no confundir con "no funciona" — significa "no demostrado aqui").
+- **Estado real:** `functionally_minimal_gaps_confirmed` — **auditado contra codigo real 2026-07-22**,
+  reemplaza el `implementation_unknown` anterior (que no habia leido el codigo, solo el documento).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-07-22
 - **Dependencias:** DB-02, BE-01
 - **Bloqueador:** ninguno
-- **Evidencia:** login funcional en `/login` (Supabase Auth), redirect por rol tras login (confirmado en
-  trabajo de sesiones previas sobre `portal-shell.tsx`/routing). No hay mas evidencia estructurada en
-  este documento.
-- **Gaps identificados:**
-  - Sin maquina de estados de onboarding documentada. Se recomienda modelarla explicitamente:
-    `account_created -> organization_ready -> shopify_pending -> shopify_syncing ->
-    financial_config_pending -> dashboard_ready`, con una fuente de verdad unica del paso actual (evita
-    que el frontend termine repartiendo condicionales por cada pagina).
-  - Sin contrato de UX para: sesion expirada, correo no verificado, invitacion, usuario sin organizacion,
-    usuario con varias organizaciones, organizacion suspendida, suscripcion suspendida, consultor sin
-    asignaciones, error de bootstrap, onboarding abandonado, conexion incompleta.
-  - Sin definicion de reanudacion del onboarding, que puede saltarse, ni que pasa al caducar un token de
-    Shopify durante el proceso.
-- **Siguiente accion:** modelar el onboarding como maquina de estados explicita antes de seguir anadiendo
-  pantallas que dependan de el implicitamente.
+- **Evidencia real:**
+  - `apps/web/src/app/login/page.tsx`: formulario de email/password contra Supabase Auth
+    (`signInWithPassword`), sin registro propio (las cuentas las crea el consultor/admin, coherente con el
+    modelo B2B consultor-first, ver `seed-demo-user.ts`).
+  - `apps/web/src/app/page.tsx` (raiz): redirige por rol tras `fetchBootstrap` — consultor/admin a
+    `/consultor`, cliente a `/dashboard`; sin sesion, a `/login`.
+  - `apps/web/src/lib/bootstrap.ts`: refresco de token automatico si expira en <60s
+    (`getAccessToken`/`apiFetch`), con reintento de la request original tras un 401.
+  - **Gap real confirmado y corregido 2026-07-22**: un cliente con `bootstrap.memberships` vacio (invitado
+    sin asignar, o eliminado de su unica organizacion) llegaba a `/dashboard` y veia un panel en blanco sin
+    ninguna explicacion — `organization` resolvia a `null` pero nada lo comunicaba. Anadido un
+    `EmptyState` explicito ("Sin organización asignada... contacta con tu consultor") en
+    `apps/web/src/app/dashboard/page.tsx`.
+- **Gaps que siguen sin resolver (confirmados, no solo listados):**
+  - No hay pantalla de recuperacion de contrasena ("olvidé mi contraseña") ni de invitacion/signup — la
+    unica via de acceso es email/password ya provisionado. Puede ser intencional (B2B, cuentas creadas por
+    Rafa), pero no esta declarado como decision de producto en ningun sitio.
+  - Sin maquina de estados de onboarding documentada para el flujo completo (conectar Shopify -> configurar
+    financiero -> dashboard listo). Sigue siendo la recomendacion correcta antes de anadir mas pantallas.
+  - Sin contrato de UX para: sesion expirada mostrando mensaje explicito (hoy solo redirige silenciosamente
+    a `/login`), correo no verificado, organizacion suspendida vista desde el cliente (existe el badge de
+    estado en el header, no una pantalla explicativa), suscripcion suspendida, consultor sin asignaciones
+    (el panel de consultor con 0 clientes no se audito esta vuelta), token de Shopify caducado durante el
+    proceso de conexion.
+  - Selector de organizacion para clientes con varias organizaciones: existe para consultor/admin
+    (`bootstrap.memberships.length > 1` en `portal-shell.tsx`), no confirmado si un cliente real puede
+    tener membership en mas de una organizacion en este modelo de producto.
+- **Siguiente accion:** decidir explicitamente si el signup/invitacion propios son necesarios para el
+  Piloto 1 (hoy el aprovisionamiento manual funciona con pocos clientes) antes de invertir en construirlos;
+  si no, modelar el onboarding de conexion Shopify -> financiero como maquina de estados explicita.
 
 ## Objetivo
 

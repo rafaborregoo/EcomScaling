@@ -17,17 +17,25 @@
   agentes en uso real (`agent_definitions`/`agent_versions`/`prompt_versions`, `is_active` para rollback);
   `agent_runs.store_id` ya existe y A02/A04/A06 lo usan para no mezclar tiendas de una organizacion
   (AI-05).
-- **Por que no es `done` todavia (los 3 criterios de cierre actuales son necesarios pero no suficientes):**
-  - **No hay presupuesto aplicado, solo registrado.** `estimateCostUsd` existe y se guarda en
-    `agent_runs`, pero no hay ningun punto en `ai-runtime.ts` que compare contra un `maxCostUsd`/
-    `maxTokens`/`maxToolCalls` y corte la ejecucion — un run puede costar lo que sea sin bloquearse.
-  - **No hay maquina de estados formal documentada.** `agent_runs.status` existe en la migracion pero este
-    documento no declara los estados/transiciones validas (`queued -> running -> ... -> completed |
-    rejected_output | failed_provider | budget_exceeded | timed_out`), lo que dificulta razonar sobre
-    fallos parciales.
-  - **No hay model routing.** El modelo viene fijado por `agent_versions.model` (hoy `claude-opus-4-8`
-    para todos los agentes vistos) — no hay modelo economico/fallback ni criterio de escalado si el
-    proveedor falla.
+- **Presupuesto aplicado 2026-07-20 (R-011, corrige un gap real de esta seccion)**: `evaluateAgentBudget`
+  (`packages/ai/src/index.ts`, funcion pura con tests) corta el turno con `AgentBudgetExceededError` en
+  cuanto el coste estimado o las tool calls superan el presupuesto declarado; `runAgentTurn` lo comprueba
+  tras cada llamada al modelo y tras cada tool call. Los 3 puntos de entrada (generico A02/A04/A06/A08,
+  A01, A09) pasan `DEFAULT_AGENT_BUDGET` (`maxCostUsd: 1`, `maxToolCalls: 10`) desde `ai-runtime.ts`; un
+  corte por presupuesto queda en `agent_runs.status = "budget_exceeded"` (migracion
+  `20260722190000_ai_09_budget_status.sql`), distinto de `failed`/`rejected_output`. Es una primera
+  version deliberadamente simple: **un limite plano para todos los agentes**, no por agente ni por
+  organizacion — afinar eso es AI-09 (model routing/presupuesto), todavia no implementado.
+- **Por que sigue sin ser `done` (los 3 criterios de cierre actuales son necesarios pero no suficientes):**
+  - **No hay maquina de estados formal documentada mas alla de los valores del constraint.**
+    `agent_runs.status` ahora incluye `budget_exceeded`, pero este documento no declara todas las
+    transiciones validas (`running -> succeeded | failed | rejected_output | budget_exceeded`), lo que
+    dificulta razonar sobre fallos parciales.
+  - **No hay model routing por politica de coste.** El modelo viene fijado por `agent_versions.model` (hoy `claude-opus-4-8`
+    para todos los agentes vistos) — no hay modelo economico ni criterio de escalado. **Si existe fallback
+    de proveedor desde 2026-07-20** (R-020): `runAgentTurnWithFallback` (`apps/api/src/ai-runtime.ts`)
+    reintenta con OpenAI (`runAgentTurnOpenAI`, `packages/ai/src/index.ts`) si Anthropic falla por
+    disponibilidad y hay `OPENAI_API_KEY` configurada — pendiente de que Rafa ponga la clave real.
   - **Sin politica de privacidad/retencion documentada**: que contexto se envia al proveedor, cuanto se
     conservan prompts/outputs, borrado por organizacion.
   - El contrato de entrada (`AgentRunInput`) no esta documentado explicitamente en este archivo aunque

@@ -30,6 +30,12 @@ const apiEnvSchema = z.object({
   // Runtime de agentes IA (AI-00). Opcional: sin key, los endpoints de IA
   // devuelven 503 y el resto de la plataforma funciona igual.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  // Fallback de proveedor LLM (R-020/AI-09): si Anthropic falla de forma no
+  // recuperable (error 5xx/overloaded, no un rechazo de contenido), el
+  // runtime reintenta el mismo turno con OpenAI. Opcional: sin key, un fallo
+  // de Anthropic sigue siendo un fallo, sin fallback (comportamiento actual).
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_MODEL: z.string().min(1).optional(),
   // Embeddings para RAG (AI-04). Opcional: sin key, la ingestion/busqueda de
   // conocimiento devuelve 503 y la tool search_knowledge no se habilita.
   VOYAGE_API_KEY: z.string().min(1).optional(),
@@ -64,6 +70,8 @@ export type LoadedApiEnv = {
   META_REDIRECT_URI?: string;
   META_SCOPES?: string;
   ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
   VOYAGE_API_KEY?: string;
   INTERNAL_API_SECRET?: string;
   REDIS_URL?: string;
@@ -158,6 +166,8 @@ export function loadApiEnv(source: Record<string, string | undefined>): LoadedAp
         }
       : {}),
     ...(env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } : {}),
+    ...(env.OPENAI_API_KEY ? { OPENAI_API_KEY: env.OPENAI_API_KEY } : {}),
+    ...(env.OPENAI_MODEL ? { OPENAI_MODEL: env.OPENAI_MODEL } : {}),
     ...(env.VOYAGE_API_KEY ? { VOYAGE_API_KEY: env.VOYAGE_API_KEY } : {}),
     ...(env.INTERNAL_API_SECRET ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET } : {}),
     ...(env.REDIS_URL ? { REDIS_URL: env.REDIS_URL } : {}),

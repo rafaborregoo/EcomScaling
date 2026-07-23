@@ -18,16 +18,23 @@
     estaba en el snapshot, no aqui.
   - Validado en vivo con un catalogo vacio (A08, gestor de conocimiento): razono correctamente sobre un
     posible fallo de sync/enlace en vez de alucinar vacios inexistentes.
-- **Gaps identificados:**
+- **Test de aislamiento cross-tenant anadido y confirmado 2026-07-21**: `apps/api/src/db-11-knowledge-search-isolation.test.ts`
+  crea un documento privado (`visibility='organization'`) con un chunk de embedding sintetico determinista, y
+  confirma contra el Supabase remoto real que `knowledge_search` (funcion SQL sin `security definer`, confia
+  en el `target_organization_id` que le pasa el backend) nunca lo devuelve para otra organizacion, y si lo
+  devuelve para la suya. Cubre el caso mas grave de "contaminacion cross-tenant" del gap de abajo (fuga de
+  conocimiento privado entre clientes); no cubre recall@k ni precision de citas, que necesitan un dataset
+  real, no solo un caso sintetico de aislamiento.
+- **Gaps identificados que siguen abiertos:**
   - Sin estrategia de re-embedding documentada (cambiar de modelo de embeddings hoy rompe la tabla).
   - Sin localizacion precisa de cita (pagina/seccion/offset), solo documento + chunk.
   - Sin tamano/overlap/normalizacion de chunking documentado como parametro versionado.
   - Sin borrado en cascada / pipeline de tombstones documentado para conocimiento retirado.
-  - Sin dataset de evaluacion (`recall@k`, precision de citas, respuestas sin evidencia, contaminacion
-    cross-tenant) — los tests de prompt injection tampoco existen todavia (AI-06 pendiente).
+  - Sin dataset de evaluacion de calidad (`recall@k`, precision de citas, respuestas sin evidencia) — los
+    tests de prompt injection tampoco existen todavia (AI-06 pendiente).
   - Sin politica de retencion para `ai_conversations`/`ai_messages`.
-- **Siguiente accion:** definir el dataset de evaluacion de retrieval (recall@k + contaminacion
-  cross-tenant) como parte del resto de AI-06.
+- **Siguiente accion:** definir el dataset de evaluacion de calidad de retrieval (recall@k, precision de
+  citas) como parte del resto de AI-06 -- el aislamiento cross-tenant ya no es parte de ese pendiente.
 
 ## Objetivo
 
@@ -53,4 +60,3 @@ Activar conocimiento, conversaciones y recuperacion semantica para el Consultor 
 - RAG cita fuentes.
 - No mezcla conocimiento privado de una organizacion con conocimiento global.
 - Tests de retrieval, permisos y prompt injection.
-

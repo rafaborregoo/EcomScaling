@@ -6,8 +6,22 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { EmptyState } from "@ecomscaling/ui";
+import { EmptyState, Tabs } from "@ecomscaling/ui";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+
+type DashboardTab = "todo" | "shopify" | "meta" | "klaviyo";
+
+// Shopify y Meta ya usan los SVG en apps/web/public/ (shopify-svgrepo-com.svg,
+// meta-logo-facebook-svgrepo-com.svg). Klaviyo sigue apuntando a public/logos/klaviyo.svg,
+// que todavia no existe -- mientras no este, el icono simplemente no se muestra (sin roto ni placeholder).
+function PlatformIcon({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return null;
+  }
+  // eslint-disable-next-line @next/next/no-img-element -- logo pequeno, sin necesidad de optimizacion de next/image
+  return <img src={src} alt={alt} className="h-4 w-4" onError={() => setFailed(true)} />;
+}
 
 type ShopifyConnection = {
   id: string;
@@ -237,12 +251,6 @@ function StoresOverviewTable({
   );
 }
 
-const modules = [
-  { name: "Meta Ads", status: "Pendiente de conexion", next: "Activar lecturas de inversion" },
-  { name: "Klaviyo", status: "Pendiente de conexion", next: "Sincronizar listas y campanas" },
-  { name: "Agentes IA", status: "Bloqueado por datos", next: "Definir runtime y evaluaciones" },
-];
-
 function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const { connectionId: activeConnectionId, setConnectionId } = useActiveConnection();
@@ -254,6 +262,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [periodDays, setPeriodDays] = useState<"7" | "30" | "90" | "all">("30");
   const [metaMetrics, setMetaMetrics] = useState<MetaMetrics | null>(null);
+  const [activeTab, setActiveTab] = useState<DashboardTab>("todo");
 
   const organization =
     bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
@@ -329,9 +338,33 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const showStoresOverview = isConsultant && organization && shopifyConnections.length > 0;
 
+  // FE-01 (gap confirmado 2026-07-22: "sin contrato de UX para usuario sin
+  // organizacion"). Sin esto, un cliente con memberships vacio (invitado
+  // pero sin asignar, o eliminado de su unica organizacion) veia un
+  // dashboard vacio sin ninguna explicacion de por que no habia datos.
+  if (!organization) {
+    return (
+      <EmptyState
+        title="Sin organización asignada"
+        hint="Tu cuenta todavía no está vinculada a ninguna organización. Contacta con tu consultor o con soporte para que te asignen una."
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {showStoresOverview && organization ? (
+      <Tabs
+        value={activeTab}
+        onChange={(value) => setActiveTab(value as DashboardTab)}
+        items={[
+          { value: "todo", label: "Todo" },
+          { value: "shopify", label: "Shopify", icon: <PlatformIcon src="/shopify-svgrepo-com.svg" alt="" /> },
+          { value: "meta", label: "Meta Ads", icon: <PlatformIcon src="/meta-logo-facebook-svgrepo-com.svg" alt="" /> },
+          { value: "klaviyo", label: "Klaviyo", icon: <PlatformIcon src="/logos/klaviyo.svg" alt="" /> },
+        ]}
+      />
+
+      {(activeTab === "todo" || activeTab === "shopify") && showStoresOverview && organization ? (
         <StoresOverviewTable
           organizationId={organization.id}
           connections={shopifyConnections}
@@ -342,6 +375,22 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
       ) : null}
 
+      {activeTab === "klaviyo" ? (
+        <EmptyState
+          title="Klaviyo no está conectado todavía"
+          hint="Conecta la cuenta de Klaviyo en Integraciones para ver listas, campañas y flows en este dashboard."
+          action={
+            <Link
+              className="bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand"
+              href="/integraciones"
+            >
+              Ir a Integraciones
+            </Link>
+          }
+        />
+      ) : null}
+
+      {(activeTab === "todo" || activeTab === "shopify") ? (
       <section className="border-t border-ink/20 pt-5">
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div>
@@ -408,49 +457,6 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </article>
             </div>
 
-            <div className="grid gap-x-8 border-b border-line pb-2 md:grid-cols-3 xl:grid-cols-6">
-              <article className="py-4 md:pr-8">
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Inversión Meta</p>
-                <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                  {metaMetrics && metaMetrics.acquisition.days_with_data > 0
-                    ? Number(metaMetrics.acquisition.spend).toFixed(2)
-                    : "—"}
-                </p>
-              </article>
-              <article className="py-4 md:pr-8">
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">ROAS</p>
-                <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                  {metaMetrics?.acquisition.roas != null
-                    ? Number(metaMetrics.acquisition.roas).toFixed(2)
-                    : "—"}
-                </p>
-              </article>
-              <article className="py-4 xl:pr-8">
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">CAC</p>
-                <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                  {metaMetrics?.acquisition.cac != null
-                    ? Number(metaMetrics.acquisition.cac).toFixed(2)
-                    : "—"}
-                </p>
-              </article>
-              <article className="py-4 md:pr-8">
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Compras atribuidas</p>
-                <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                  {metaMetrics && metaMetrics.acquisition.days_with_data > 0
-                    ? Number(metaMetrics.acquisition.purchases).toFixed(0)
-                    : "—"}
-                </p>
-              </article>
-              <article className="py-4 md:col-span-2">
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Adquisición</p>
-                <p className="mt-2 text-sm leading-6 text-muted">
-                  {metaMetrics && metaMetrics.acquisition.days_with_data > 0
-                    ? `Datos de ${metaMetrics.acquisition.days_with_data} días. Atribucion segun ventana por defecto de Meta; puede diferir del Ads Manager.`
-                    : "Sin datos de Meta Ads. Conecta la cuenta publicitaria en Integraciones para comparar inversion y ROAS contra el break-even."}
-                </p>
-              </article>
-            </div>
-
             {!metrics.financial.has_settings || metrics.financial.fixed_expenses_count === 0 || metrics.financial.items_without_cost > 0 ? (
               <div className="space-y-2 border-b border-line bg-warn-tint px-4 py-3 text-sm">
                 <p className="font-medium">Datos incompletos: el beneficio neto es una estimacion parcial.</p>
@@ -490,8 +496,63 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
         )}
       </section>
+      ) : null}
 
-      {isConsultant && organization ? (
+      {(activeTab === "todo" || activeTab === "meta") ? (
+        <section className="border-t border-ink/20 pt-5">
+          <h3 className="font-display text-2xl">Meta Ads</h3>
+          <div className="mt-3 grid gap-x-8 border-b border-line pb-2 md:grid-cols-3 xl:grid-cols-6">
+            <article className="py-4 md:pr-8">
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Inversión Meta</p>
+              <p className="mt-1.5 font-mono text-3xl tracking-tight">
+                {metaMetrics && metaMetrics.acquisition.days_with_data > 0
+                  ? Number(metaMetrics.acquisition.spend).toFixed(2)
+                  : "—"}
+              </p>
+            </article>
+            <article className="py-4 md:pr-8">
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">ROAS</p>
+              <p className="mt-1.5 font-mono text-3xl tracking-tight">
+                {metaMetrics?.acquisition.roas != null ? Number(metaMetrics.acquisition.roas).toFixed(2) : "—"}
+              </p>
+            </article>
+            <article className="py-4 xl:pr-8">
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">CAC</p>
+              <p className="mt-1.5 font-mono text-3xl tracking-tight">
+                {metaMetrics?.acquisition.cac != null ? Number(metaMetrics.acquisition.cac).toFixed(2) : "—"}
+              </p>
+            </article>
+            <article className="py-4 md:pr-8">
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Compras atribuidas</p>
+              <p className="mt-1.5 font-mono text-3xl tracking-tight">
+                {metaMetrics && metaMetrics.acquisition.days_with_data > 0
+                  ? Number(metaMetrics.acquisition.purchases).toFixed(0)
+                  : "—"}
+              </p>
+            </article>
+            <article className="py-4 md:col-span-2">
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Adquisición</p>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                {metaMetrics && metaMetrics.acquisition.days_with_data > 0
+                  ? `Datos de ${metaMetrics.acquisition.days_with_data} días. Atribucion segun ventana por defecto de Meta; puede diferir del Ads Manager.`
+                  : "Sin datos de Meta Ads. Conecta la cuenta publicitaria en Integraciones para comparar inversion y ROAS contra el break-even."}
+              </p>
+            </article>
+          </div>
+          {!metaMetrics || metaMetrics.acquisition.days_with_data === 0 ? (
+            <div className="pt-4">
+              <Link
+                className="bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand"
+                href="/integraciones"
+              >
+                Conectar Meta Ads
+              </Link>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {activeTab === "todo" && isConsultant && organization ? (
         <>
           <AiDiagnosticSection
             organizationId={organization.id}
@@ -523,6 +584,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </>
       ) : null}
 
+      {(activeTab === "todo" || activeTab === "shopify") ? (
       <section className="border-t border-ink/20">
         <div className="border-b border-line px-4 py-3">
           <h3 className="font-display text-2xl">Tiendas Shopify</h3>
@@ -544,7 +606,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </div>
                 <p className="font-mono text-sm text-brand">{connection.status}</p>
                 <Link
-                  className="w-fit rounded-md bg-black px-3 py-2 text-sm font-medium text-white hover:bg-brand"
+                  className="w-fit bg-black px-3 py-2 text-sm font-medium text-white transition hover:bg-brand"
                   href={`/shopify?organizationId=${selectedOrganizationId}&connectionId=${connection.id}`}
                 >
                   Ver tienda
@@ -571,20 +633,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           )}
         </div>
       </section>
-
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {modules.map((module) => (
-          <article key={module.name} className="border-t border-ink/20 pt-5">
-            <div className="flex items-start justify-between gap-3">
-              <h3 className="font-display text-2xl">{module.name}</h3>
-              <span className="rounded-sm bg-brand-tint px-2 py-1 font-mono text-xs text-brand">
-                {module.status}
-              </span>
-            </div>
-            <p className="mt-4 text-sm text-muted">{module.next}</p>
-          </article>
-        ))}
-      </section>
+      ) : null}
     </div>
   );
 }

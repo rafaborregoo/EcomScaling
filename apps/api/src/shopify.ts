@@ -11,7 +11,7 @@ import {
   type ShopifyOAuthEnv,
   verifyShopifyHmac,
 } from "./shopify-oauth.js";
-import { runShopifyInitialSync } from "./shopify-sync.js";
+import { createIntegrationAdapters, toIntegrationConnection } from "./integration-adapters.js";
 import { resolveCredentialSecret, saveShopifyTokens } from "./shopify-token-store.js";
 import { registerShopifyWebhooks, shopifyWebhookCallbackUrl } from "./shopify-webhooks.js";
 import type { LoadedApiEnv } from "@ecomscaling/config";
@@ -157,16 +157,18 @@ export async function createShopifyConnectionAuthUrl(
     };
   }
 
-  const url = new URL(`https://${shopDomain}/admin/oauth/authorize`);
-  url.searchParams.set("client_id", appEnv.SHOPIFY_API_KEY);
-  url.searchParams.set("scope", appEnv.SHOPIFY_SCOPES);
-  url.searchParams.set("redirect_uri", appEnv.SHOPIFY_REDIRECT_URI);
-  url.searchParams.set("state", state);
+  const authorization = await createIntegrationAdapters(env).shopify.buildAuthorizationUrl({
+    organizationId,
+    shopDomain,
+    appMode,
+    redirectUri: appEnv.SHOPIFY_REDIRECT_URI,
+    state,
+  });
 
   return {
     ok: true,
     data: {
-      redirectUrl: url.toString(),
+      redirectUrl: authorization.url,
     },
   };
 }
@@ -288,7 +290,18 @@ export async function triggerShopifySync(
     };
   }
 
-  void runShopifyInitialSync(env, connection.id, "manual").catch(async (error: unknown) => {
+  const shopifySyncAdapter = createIntegrationAdapters(env).shopify;
+  void shopifySyncAdapter
+    .runInitialSync({
+      mode: "initial",
+      connection: toIntegrationConnection({
+        id: connection.id,
+        organization_id: connection.organization_id,
+        provider: "shopify",
+        status: connection.status,
+      }),
+    })
+    .catch(async (error: unknown) => {
     const message = error instanceof Error ? error.message : "shopify_manual_sync_background_failed";
     await supabase
       .from("integration_connections")
@@ -304,7 +317,7 @@ export async function triggerShopifySync(
       organization_id: organizationId,
       error: message,
     });
-  });
+    });
 
   return {
     ok: true,
@@ -512,14 +525,25 @@ export async function handleShopifyOAuthCallback(
     },
   );
 
-  void runShopifyInitialSync(env, pendingConnection.id).catch((error: unknown) => {
+  const shopifySyncAdapter = createIntegrationAdapters(env).shopify;
+  void shopifySyncAdapter
+    .runInitialSync({
+      mode: "initial",
+      connection: toIntegrationConnection({
+        id: pendingConnection.id,
+        organization_id: pendingConnection.organization_id,
+        provider: "shopify",
+        status: "pending",
+      }),
+    })
+    .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "shopify_initial_sync_background_failed";
     console.error("Shopify initial sync failed", {
       connection_id: pendingConnection.id,
       organization_id: pendingConnection.organization_id,
       error: message,
     });
-  });
+    });
 
   return {
     ok: true,

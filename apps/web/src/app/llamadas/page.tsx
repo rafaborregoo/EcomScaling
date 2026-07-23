@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { LoadingBlock } from "@ecomscaling/ui";
+import { Button, Field, Input, LoadingBlock, Select, Textarea } from "@ecomscaling/ui";
 
 type CallTranscript = {
   id: string;
@@ -372,14 +372,9 @@ function CallDetail({
             </a>
           ) : null}
           {isConsultant && call.status === "scheduled" ? (
-            <button
-              className="bg-black px-3 py-1.5 text-sm text-white hover:bg-brand disabled:opacity-50"
-              type="button"
-              disabled={isBusy}
-              onClick={markHeld}
-            >
+            <Button size="sm" type="button" disabled={isBusy} onClick={markHeld}>
               Marcar realizada
-            </button>
+            </Button>
           ) : null}
         </div>
       </header>
@@ -388,7 +383,7 @@ function CallDetail({
         {error ? <p className="text-sm text-brand-deep">{error}</p> : null}
 
         {publishedSummary ? (
-          <section className="rounded-md border border-line bg-surface p-3">
+          <section className="border border-line bg-surface p-3">
             <p className="text-xs font-medium uppercase text-muted">Resumen de la llamada</p>
             <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{publishedSummary.summary}</p>
             <StructuredSummary summary={publishedSummary} />
@@ -403,7 +398,7 @@ function CallDetail({
         {isConsultant ? (
           <>
             {pendingSummaries.map((summary) => (
-              <section key={summary.id} className="rounded-md border border-warn p-3">
+              <section key={summary.id} className="border border-warn p-3">
                 <p className="text-xs font-medium uppercase text-warn-deep">
                   {summaryStatusLabels[summary.status]}
                   {summary.run_id ? " · generado por IA (A01)" : ""}
@@ -411,27 +406,23 @@ function CallDetail({
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{summary.summary}</p>
                 <StructuredSummary summary={summary} />
                 <div className="mt-3 flex gap-2">
-                  <button
-                    className="bg-black px-3 py-1.5 text-sm text-white hover:bg-success disabled:opacity-50"
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => decideSummary(summary.id, "approved")}
-                  >
+                  <Button size="sm" type="button" disabled={isBusy} onClick={() => decideSummary(summary.id, "approved")}>
                     Aprobar y publicar
-                  </button>
-                  <button
-                    className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand disabled:opacity-50"
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     type="button"
                     disabled={isBusy}
                     onClick={() => decideSummary(summary.id, "rejected")}
                   >
                     Rechazar
-                  </button>
+                  </Button>
                 </div>
               </section>
             ))}
 
-            <details className="rounded-md border border-line">
+            <details className="border border-line">
               <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
                 Transcripcion {currentTranscript ? `(v${currentTranscript.version})` : "(sin transcripcion)"}
               </summary>
@@ -448,28 +439,26 @@ function CallDetail({
                 )}
                 {showTranscriptForm ? (
                   <form className="space-y-2" onSubmit={submitTranscript}>
-                    <textarea
-                      className="h-40 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+                    <Textarea
+                      className="h-40"
+                      aria-label="Transcripcion de la llamada"
                       value={transcriptDraft}
                       onChange={(event) => setTranscriptDraft(event.target.value)}
                       placeholder="Pega aquí la transcripcion completa..."
                     />
-                    <button
-                      className="bg-black px-3 py-1.5 text-sm text-white hover:bg-brand disabled:opacity-50"
-                      type="submit"
-                      disabled={isBusy || !transcriptDraft.trim()}
-                    >
+                    <Button size="sm" type="submit" disabled={isBusy || !transcriptDraft.trim()}>
                       Guardar nueva version
-                    </button>
+                    </Button>
                   </form>
                 ) : (
-                  <button
-                    className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     type="button"
                     onClick={() => setShowTranscriptForm(true)}
                   >
                     {currentTranscript ? "Reemplazar transcripcion" : "Añadir transcripcion"}
-                  </button>
+                  </Button>
                 )}
               </div>
             </details>
@@ -477,24 +466,20 @@ function CallDetail({
             {showSummaryForm ? (
               <form className="space-y-2 border-t border-line pt-3" onSubmit={submitSummary}>
                 <p className="text-sm font-medium">Nuevo resumen (quedara pendiente de aprobación)</p>
-                <textarea
-                  className="h-32 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+                <Textarea
+                  className="h-32"
+                  aria-label="Nuevo resumen de la llamada"
                   value={summaryDraft}
                   onChange={(event) => setSummaryDraft(event.target.value)}
                   placeholder="Puntos tratados, decisiones y próximos pasos..."
                 />
-                <button
-                  className="bg-black px-3 py-1.5 text-sm text-white hover:bg-brand disabled:opacity-50"
-                  type="submit"
-                  disabled={isBusy || !summaryDraft.trim()}
-                >
+                <Button size="sm" type="submit" disabled={isBusy || !summaryDraft.trim()}>
                   Guardar resumen
-                </button>
+                </Button>
               </form>
             ) : (
               <div className="flex flex-wrap items-center gap-4">
-                <button
-                  className="bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
+                <Button
                   type="button"
                   disabled={isBusy || !currentTranscript}
                   onClick={analyzeCall}
@@ -505,14 +490,10 @@ function CallDetail({
                   }
                 >
                   {isBusy ? "Generando..." : "Generar resumen con IA"}
-                </button>
-                <button
-                  className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-                  type="button"
-                  onClick={() => setShowSummaryForm(true)}
-                >
+                </Button>
+                <Button variant="secondary" type="button" onClick={() => setShowSummaryForm(true)}>
                   Redactar a mano
-                </button>
+                </Button>
               </div>
             )}
           </>
@@ -535,34 +516,28 @@ function CallDetail({
         {isConsultant ? (
           <div className="grid gap-3 lg:grid-cols-2">
             <form className="flex gap-2" onSubmit={submitTask}>
-              <input
-                className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+              <Input
+                className="w-full"
+                aria-label="Nueva tarea acordada en la llamada"
                 value={taskTitleDraft}
                 onChange={(event) => setTaskTitleDraft(event.target.value)}
                 placeholder="Nueva tarea acordada en la llamada..."
               />
-              <button
-                className="bg-black px-4 py-2 text-sm text-white hover:bg-brand disabled:opacity-50"
-                type="submit"
-                disabled={isBusy || !taskTitleDraft.trim()}
-              >
+              <Button size="sm" type="submit" disabled={isBusy || !taskTitleDraft.trim()}>
                 Crear
-              </button>
+              </Button>
             </form>
             <form className="flex gap-2" onSubmit={submitNote}>
-              <input
-                className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+              <Input
+                className="w-full"
+                aria-label="Nota interna (solo consultores)"
                 value={noteDraft}
                 onChange={(event) => setNoteDraft(event.target.value)}
                 placeholder="Nota interna (solo consultores)..."
               />
-              <button
-                className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand disabled:opacity-50"
-                type="submit"
-                disabled={isBusy || !noteDraft.trim()}
-              >
+              <Button variant="secondary" size="sm" type="submit" disabled={isBusy || !noteDraft.trim()}>
                 Anotar
-              </button>
+              </Button>
             </form>
           </div>
         ) : null}
@@ -664,59 +639,42 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <section className="flex flex-wrap items-baseline justify-between gap-3 border-t border-ink/20 pt-5">
         <h3 className="font-display text-2xl">Llamadas de consultoría</h3>
         {isConsultant ? (
-          <button
-            className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand"
-            type="button"
-            onClick={() => setShowCreateForm((value) => !value)}
-          >
+          <Button type="button" onClick={() => setShowCreateForm((value) => !value)}>
             {showCreateForm ? "Cerrar" : "Registrar llamada"}
-          </button>
+          </Button>
         ) : null}
       </section>
 
       {showCreateForm && isConsultant ? (
         <form className="space-y-3 border-t border-ink/20 pt-5" onSubmit={submitCreate}>
           <div className="grid gap-3 md:grid-cols-[1fr_200px_1fr]">
-            <label className="block text-sm">
-              <span className="font-medium">Titulo</span>
-              <input
-                className="mt-1 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
+            <Field label="Titulo">
+              <Input
                 value={newTitle}
                 onChange={(event) => setNewTitle(event.target.value)}
                 placeholder="Ej: Revisión mensual julio"
               />
-            </label>
-            <label className="block text-sm">
-              <span className="font-medium">Tipo</span>
-              <select
-                className="mt-1 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
-                value={newType}
-                onChange={(event) => setNewType(event.target.value)}
-              >
+            </Field>
+            <Field label="Tipo">
+              <Select value={newType} onChange={(event) => setNewType(event.target.value)}>
                 {Object.entries(callTypeLabels).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="font-medium">Enlace grabacion (Loom/Fathom, opcional)</span>
-              <input
-                className="mt-1 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
+              </Select>
+            </Field>
+            <Field label="Enlace grabacion (Loom/Fathom, opcional)">
+              <Input
                 value={newRecordingUrl}
                 onChange={(event) => setNewRecordingUrl(event.target.value)}
                 placeholder="https://www.loom.com/share/..."
               />
-            </label>
+            </Field>
           </div>
-          <button
-            className="bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-brand disabled:opacity-50"
-            type="submit"
-            disabled={isCreating || !newTitle.trim()}
-          >
+          <Button type="submit" disabled={isCreating || !newTitle.trim()}>
             {isCreating ? "Creando..." : "Crear llamada"}
-          </button>
+          </Button>
           {createError ? <p className="text-sm text-brand-deep">{createError}</p> : null}
         </form>
       ) : null}

@@ -1,0 +1,45 @@
+name: Backup Database
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 2 * * *"
+
+concurrency:
+  group: backup-database
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Dump Supabase Postgres and upload as artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+
+    steps:
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Dump database
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL secret is not set. See RB-007 for setup." >&2
+            exit 1
+          fi
+          TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          DUMP_FILE="ecomscaling-backup-${TIMESTAMP}.dump"
+          pg_dump "$SUPABASE_DB_URL" --format=custom --no-owner --no-privileges --file="$DUMP_FILE"
+          echo "DUMP_FILE=$DUMP_FILE" >> "$GITHUB_ENV"
+
+      - name: Verify dump integrity
+        run: pg_restore --list "$DUMP_FILE" > /dev/null
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DUMP_FILE }}
+          path: ${{ env.DUMP_FILE }}
+          retention-days: 30

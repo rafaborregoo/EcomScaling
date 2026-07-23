@@ -8,6 +8,8 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { recordAuditLog } from "./audit-log.js";
+import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -443,7 +445,7 @@ export async function decideSummary(
     .eq("id", summaryId)
     .eq("organization_id", organizationId)
     .in("status", ["draft", "pending_approval"])
-    .select("id, status, call_id, key_points")
+    .select("id, status, call_id, key_points, summary")
     .maybeSingle();
 
   if (error) {
@@ -451,7 +453,29 @@ export async function decideSummary(
   }
 
   if (!data) {
-    return { ok: false as const, statusCode: 404, error: "pending_summary_not_found" };
+    // AI-01: el UPDATE no afecto ninguna fila, pero eso puede significar dos
+    // cosas muy distintas -- el recurso no existe (404 real) o ya fue
+    // decidido antes (approved/rejected, reintento o doble clic del
+    // consultor). Antes ambos devolvian 404 `pending_summary_not_found`,
+    // enganoso para el segundo caso. Una consulta adicional sin el filtro de
+    // `status` distingue cual es.
+    const { data: existing } = await supabase
+      .from("call_ai_summaries")
+      .select("status")
+      .eq("id", summaryId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+
+    if (!existing) {
+      return { ok: false as const, statusCode: 404, error: "pending_summary_not_found" };
+    }
+
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "summary_already_decided",
+      current_status: existing.status,
+    };
   }
 
   // Al aprobar un resumen de A01, sus proposed_tasks se materializan como tareas
@@ -517,6 +541,34 @@ export async function decideSummary(
         tasksCreated += 1;
       }
     }
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: decision === "approved" ? "calls.approve_summary" : "calls.reject_summary",
+    entityType: "call_ai_summary",
+    entityId: summaryId,
+    newData: { status: data.status, reason: reason ?? null, tasks_created: tasksCreated },
+  });
+
+  // AI-07: solo un resumen PUBLICADO (aprobado y visible al cliente) entra a
+  // la memoria del copiloto; uno rechazado no aporta conocimiento reutilizable.
+  // Encolar nunca bloquea ni puede fallar esta respuesta (outbox asincrono).
+  if (decision === "approved" && data.summary) {
+    await enqueueMemoryIngestion(env, {
+      organizationId,
+      storeId: null,
+      sourceType: "call_summary",
+      sourceEntityType: "call_ai_summary",
+      sourceEntityId: summaryId,
+      sourceActorId: context.user.id,
+      audience: "client_visible",
+      origin: "human_approved_ai",
+      authority: "contextual",
+      title: `Resumen de llamada publicado (${data.call_id})`,
+      content: data.summary,
+    });
   }
 
   return { ok: true as const, data: { id: data.id, status: data.status, tasks_created: tasksCreated } };

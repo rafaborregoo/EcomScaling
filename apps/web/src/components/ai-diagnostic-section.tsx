@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { useActiveConnection } from "@/components/active-connection";
+import { Button } from "@ecomscaling/ui";
 
 type Finding = { title: string; severity: "info" | "low" | "medium" | "high" | "critical"; evidence: string };
 type Recommendation = {
@@ -26,6 +27,16 @@ type Diagnostic = {
   output: DiagnosticOutput;
   generated_at: string;
   from_cache: boolean;
+  envelope?: {
+    freshness: { status: "fresh" | "stale" | "superseded"; reason?: string };
+    quality: {
+      confidence: "low" | "medium" | "high";
+      groundedness: "verified" | "partially_supported" | "insufficient_evidence";
+      dataCompleteness: "complete" | "partial" | "insufficient";
+      warnings: string[];
+    };
+    sources: Array<{ id: string; label: string }>;
+  };
 };
 
 const severityDot: Record<Finding["severity"], string> = {
@@ -170,18 +181,18 @@ export function AiDiagnosticSection({
               {days ? `últimos ${days} días · ` : ""}
               {diagnostic.from_cache ? "generado" : "recien generado"} el{" "}
               {new Date(diagnostic.generated_at).toLocaleString()}
+              {diagnostic.envelope ? (
+                <>
+                  {" "}· datos {diagnostic.envelope.freshness.status} · {diagnostic.envelope.sources.length} fuente(s)
+                </>
+              ) : null}
             </p>
           ) : null}
         </div>
         {diagnostic ? (
-          <button
-            className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand disabled:cursor-not-allowed disabled:opacity-50"
-            type="button"
-            disabled={isRegenerating}
-            onClick={regenerate}
-          >
+          <Button variant="secondary" size="sm" type="button" disabled={isRegenerating} onClick={regenerate}>
             {isRegenerating ? "Actualizando..." : "Actualizar ahora"}
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -214,8 +225,8 @@ export function AiDiagnosticSection({
           ) : null}
 
           {diagnostic.output.recommendations.length ? (
-            <div>
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Recomendaciones</p>
+            <div className="border-l-2 border-line pl-3">
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-brand">Recomendación</p>
               <ul className="mt-1.5 space-y-1">
                 {diagnostic.output.recommendations.map((rec, index) => (
                   <li key={index} className="text-sm">
@@ -240,20 +251,24 @@ export function AiDiagnosticSection({
           ) : null}
 
           {diagnostic.output.proposed_writes.length ? (
-            <div className="flex flex-wrap items-center gap-4 border-t border-line pt-3">
-              <button
-                className="bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
-                type="button"
-                disabled={isCreatingTasks || diagnostic.output_status !== "pending_approval"}
-                onClick={createSuggestedTasks}
-              >
-                {isCreatingTasks
-                  ? "Creando..."
-                  : diagnostic.output_status !== "pending_approval"
-                    ? "Tareas ya revisadas"
-                    : `Crear ${diagnostic.output.proposed_writes.length} ${tasksLabelSingular}(s) sugerida(s)`}
-              </button>
-              {tasksFeedback ? <p className="text-sm text-muted">{tasksFeedback}</p> : null}
+            <div className="border-t border-line pt-3">
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                {diagnostic.output_status === "pending_approval" ? "Propuesta, sin aplicar" : "Propuesta ya revisada"}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-4">
+                <Button
+                  type="button"
+                  disabled={isCreatingTasks || diagnostic.output_status !== "pending_approval"}
+                  onClick={createSuggestedTasks}
+                >
+                  {isCreatingTasks
+                    ? "Creando..."
+                    : diagnostic.output_status !== "pending_approval"
+                      ? "Tareas ya revisadas"
+                      : `Crear ${diagnostic.output.proposed_writes.length} ${tasksLabelSingular}(s) sugerida(s)`}
+                </Button>
+                {tasksFeedback ? <p className="text-sm text-muted">{tasksFeedback}</p> : null}
+              </div>
             </div>
           ) : tasksFeedback ? (
             <p className="text-sm text-muted">{tasksFeedback}</p>

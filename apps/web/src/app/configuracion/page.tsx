@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, Banner, Button, Card, Field, Input, LoadingBlock, Tabs } from "@ecomscaling/ui";
+import { Badge, Banner, Button, Card, Field, Input, LoadingBlock, Select, Tabs } from "@ecomscaling/ui";
 
 type ShopifyOverviewLite = {
   authorized_scopes: string[];
@@ -97,7 +97,7 @@ function ShopifyCoverageSection({ organizationId }: { organizationId: string }) 
                 <td className="px-3 py-2 font-medium">{dataset.label}</td>
                 <td className="px-3 py-2 font-mono text-xs text-muted">{dataset.table ?? "pendiente_modelo"}</td>
                 <td className="px-3 py-2">
-                  <span className={`rounded-sm border px-2 py-0.5 text-xs ${status.className}`}>{status.label}</span>
+                  <span className={`border px-2 py-0.5 text-xs ${status.className}`}>{status.label}</span>
                 </td>
                 <td className="px-3 py-2 font-mono">{dataset.count}</td>
               </tr>
@@ -353,14 +353,14 @@ function FinancialConfigSection({
                 placeholder="Importe"
                 required
               />
-              <select
-                className="rounded-none border-0 border-b border-edge-strong bg-transparent px-2 py-2 text-sm outline-none transition-colors focus:border-ink"
+              <Select
+                aria-label="Periodicidad del gasto"
                 value={expensePeriod}
                 onChange={(event) => setExpensePeriod(event.target.value === "yearly" ? "yearly" : "monthly")}
               >
                 <option value="monthly">al mes</option>
                 <option value="yearly">al año</option>
-              </select>
+              </Select>
             </div>
             <Button type="submit">Añadir gasto</Button>
           </form>

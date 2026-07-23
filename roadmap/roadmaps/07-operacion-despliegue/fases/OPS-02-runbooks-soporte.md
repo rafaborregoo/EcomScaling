@@ -2,28 +2,43 @@
 
 ## Estado
 
-- **Estado real:** `planned`
+- **Estado real:** `in_progress` (8 runbooks reales; falta solo validar RB-007 con un drill de restauracion
+  real)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
-- **Dependencias:** SQO-02 (observabilidad, para poder diagnosticar lo que el runbook pide comprobar)
-- **Evidencia de que es un indice, no una coleccion de runbooks reales**: este archivo enumera nombres de
-  runbooks pero ninguno tiene pasos concretos todavia. Formato acordado para cuando se escriban (no
-  implementado): un archivo por incidente en `roadmap/roadmaps/07-operacion-despliegue/runbooks/RB-XXX-*.md`
-  con secciones Sintoma / Impacto / Severidad / Comprobaciones iniciales / Diagnostico / Acciones /
-  Rollback / Validacion de recuperacion / Comunicacion al cliente / Escalado / Responsable / Evidencias a
-  conservar / Prevencion.
-- **Runbooks priorizados a escribir primero** (mayor probabilidad x impacto segun `RIESGOS.md`): sync
-  Shopify fallido, token OAuth expirado, coste IA disparado (ver R-011), posible fuga cross-tenant (ver
-  R-004), webhook duplicado/backlog, restauracion de backup (ver R-016, nunca probada).
-- **Siguiente accion**: escribir el runbook de sync fallido primero — es el incidente mas probable en el
-  Piloto 1 (OPS-01) y hoy no existe ningun protocolo, solo investigacion ad-hoc.
+- **Ultima validacion:** 2026-07-23
+- **Dependencias:** SQO-02 (observabilidad, para poder diagnosticar mas alla de consultas SQL directas)
+- **8 runbooks reales** (formato Sintoma/Impacto/Severidad/Comprobaciones iniciales/Diagnostico/Acciones/
+  Rollback/Validacion de recuperacion/Comunicacion al cliente/Escalado/Evidencias a conservar/Prevencion,
+  con queries SQL y nombres de funcion reales, no genericos):
+  [`RB-001-shopify-sync-failed.md`](../runbooks/RB-001-shopify-sync-failed.md) (2026-07-20),
+  [`RB-002-oauth-token-expired.md`](../runbooks/RB-002-oauth-token-expired.md) (2026-07-20),
+  [`RB-006-ai-cost-spike.md`](../runbooks/RB-006-ai-cost-spike.md) (2026-07-20, usa
+  `budget_exceeded`/`DEFAULT_AGENT_BUDGET`, ver AI-00/R-011),
+  [`RB-007-database-backup-restore.md`](../runbooks/RB-007-database-backup-restore.md) (2026-07-22, ver
+  R-016 -- el drill de restauracion real sigue pendiente, pospuesto a proposito hasta que haya datos de
+  produccion),
+  [`RB-008-purge-failed.md`](../runbooks/RB-008-purge-failed.md) (2026-07-22, ver R-008),
+  [`RB-003-cross-tenant-leak.md`](../runbooks/RB-003-cross-tenant-leak.md) (2026-07-23, R-004 -- referencia
+  las dos capas reales de aislamiento, Node + RLS, y los tests existentes de BE-01/AI-03 como cobertura de
+  regresion, dejando explicito que esa cobertura es parcial, no de los ~60+ endpoints con `:organizationId`),
+  [`RB-004-webhook-duplicate-backlog.md`](../runbooks/RB-004-webhook-duplicate-backlog.md) (2026-07-23 --
+  cubre dos sintomas distintos bajo la misma tabla de diagnostico, duplicado real y backlog silencioso;
+  deja explicito que no existe alerta automatica de backlog todavia, a diferencia de tokens
+  expirados/purga pendiente que si tiene `ops-health-check.yml`),
+  [`RB-005-failed-migration.md`](../runbooks/RB-005-failed-migration.md) (2026-07-23 -- escrito comparando
+  `list_migrations` del proyecto real contra los 46 archivos locales; encontro un hallazgo real, no
+  hipotetico: 10 migraciones tienen drift de version -- el nombre coincide pero el timestamp del archivo
+  local no coincide con la version registrada en remoto, probablemente por haberse renombrado tras aplicar
+  para reordenar migraciones del mismo dia. El schema en si esta correcto (confirmado con la suite completa
+  de tests), es solo el metadato de versionado el que diverge; queda como accion pendiente concreta
+  corregirlo con `migration repair` antes de automatizar `supabase db push` en CI).
 
 ## Entregables
 
 - Runbook de sync fallido.
 - Runbook de OAuth/token expirado.
-- Runbook de migracion fallida.
-- Runbook de incidente de privacidad.
+- Runbook de migracion fallida -- cerrado 2026-07-23 (`RB-005-failed-migration.md`).
+- Runbook de incidente de privacidad -- cubierto por `RB-003-cross-tenant-leak.md`.
 - Procedimiento de rollback y replay.
 - Checklist semanal de salud por cliente.
 

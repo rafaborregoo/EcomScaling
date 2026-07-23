@@ -1,0 +1,101 @@
+# RB-007 - Backup y restauracion de la base de datos
+
+## Contexto
+
+El proyecto Supabase (`SaaS-EcomScaling`, organizacion `EcomScaling`) esta en **plan `free`**, que no
+incluye backups automaticos ni PITR (eso empieza en el plan Pro, $25/mes, y PITR real requiere un add-on
+adicional sobre Pro/Team). `RIESGOS.md` R-016 asumia que "Supabase gestiona backups/PITR a nivel de
+infraestructura" — verificado 2026-07-22 que es falso en el plan actual: sin backup propio, un borrado o
+corrupcion en produccion no tiene red de seguridad.
+
+Decision de Rafa (2026-07-22): backup manual propio via `pg_dump` programado, en vez de subir a plan Pro
+por ahora.
+
+## Mecanismo de backup
+
+`.github/workflows/backup-database.yml`, cron diario `30 2 * * *` UTC:
+
+1. Instala `postgresql-client` en el runner (`ubuntu-latest`).
+2. `pg_dump "$SUPABASE_DB_URL" --format=custom --no-owner --no-privileges` — formato custom de
+   `pg_dump`, comprimido y restaurable con `pg_restore` (no un `.sql` plano).
+3. Verifica que el dump no esta corrupto con `pg_restore --list` antes de subirlo (falla el job si el
+   archivo esta roto, en vez de descubrirlo el dia de una restauracion real).
+4. Sube el dump como artifact de GitHub Actions, `retention-days: 30`.
+
+## Configuracion pendiente (accion manual de Rafa, no automatizable por el agente)
+
+El workflow necesita un secret `SUPABASE_DB_URL` con la cadena de conexion directa a Postgres (no la URL
+de la API REST que ya existe como `SUPABASE_URL`). Pasos:
+
+1. Dashboard de Supabase -> Project Settings -> Database -> Connection string -> modo **Session pooler**
+   o conexion directa (puerto 5432), con la contraseña de la base de datos.
+2. `gh secret set SUPABASE_DB_URL --repo <owner>/<repo>` (o Settings -> Secrets and variables -> Actions
+   en GitHub) y pegar la cadena completa (incluye la contraseña, tratar como secreto igual que
+   `SUPABASE_SERVICE_ROLE_KEY`).
+3. Lanzar el workflow manualmente una vez (`workflow_dispatch`) para confirmar que el dump se genera y
+   pasa la verificacion de integridad.
+
+Sin este secret el job falla explicito (`SUPABASE_DB_URL secret is not set`), no en silencio.
+
+## Procedimiento de restauracion (drill — ejecutar al menos una vez, no solo dejarlo escrito)
+
+**No restaurar nunca directamente sobre el proyecto de produccion para probar.** El objetivo del drill es
+demostrar que un dump es utilizable, no verificar el proyecto real.
+
+1. Descargar el artifact mas reciente (`gh run download <run-id> -n <dump-file>` o desde la pestaña
+   Actions del run).
+2. Crear un proyecto Supabase nuevo y vacio *solo para el drill* (o una base Postgres local/Docker si hay
+   Docker disponible — ver Q-007, hoy no disponible en este entorno) y obtener su cadena de conexion.
+3. Restaurar contra ese destino desechable:
+   ```bash
+   pg_restore --clean --if-exists --no-owner --no-privileges \
+     --dbname "<connection-string-del-proyecto-de-prueba>" \
+     ecomscaling-backup-<timestamp>.dump
+   ```
+4. Validar contra el destino restaurado (no contra produccion):
+   - `select count(*) from organizations;` y comparar con el conteo esperado del momento del dump.
+   - Revisar que RLS y funciones `SECURITY DEFINER` existen (`\df` en `psql`, o consulta a
+     `information_schema.routines`) — un dump con `--no-owner --no-privileges` no siempre preserva
+     policies de RLS igual que el original; confirmar antes de asumir que "restaurar" == "restaurar
+     completo".
+5. Borrar el proyecto/base de prueba al terminar — no dejarlo corriendo con datos reales de clientes.
+6. Documentar aqui mismo (seccion "Historial de drills" abajo) fecha, duracion total (RTO real medido) y
+   cualquier gap encontrado (ej. policies de RLS no restauradas, extensiones faltantes en el destino).
+
+## RPO / RTO
+
+- **RPO objetivo**: 24h (frecuencia del cron diario). Si se necesita menor RPO, subir frecuencia del
+  workflow (coste: minutos de Actions, sin coste de Supabase) — no requiere plan Pro.
+- **RTO objetivo**: sin medir todavia — pendiente del primer drill real (ver seccion siguiente). Q-015
+  pide estos numeros formalmente para el criterio de entrada del piloto.
+
+## Historial de drills
+
+_Sin ejecutar todavia. No marcar el criterio de entrada "Backups configurados y restauracion probada al
+menos una vez" (`OPS-01-piloto-mvp.md`) como cumplido hasta que haya al menos una fila aqui._
+
+**Decision de Rafa (2026-07-23)**: pospuesto explicitamente a proposito al final del programa -- el drill
+implica crear un proyecto Supabase nuevo (aunque desechable y en plan free) y no se quiere invertir tiempo
+en eso ahora. `SUPABASE_DB_URL` (el secret que el workflow de backup necesita) se esta configurando en
+paralelo; una vez configurado, el workflow diario de `pg_dump` ya puede correr y validar su propia
+integridad (`pg_restore --list`) sin necesitar el drill completo -- eso si cierra la parte de "backup
+configurado". Solo la restauracion real a un proyecto de prueba queda para el final.
+
+| Fecha | Ejecutado por | Duracion (RTO medido) | Resultado | Gaps encontrados |
+| --- | --- | --- | --- | --- |
+
+## Limitaciones conocidas de este mecanismo
+
+- No es PITR: solo se puede restaurar al punto del ultimo dump diario (hasta 24h de datos perdidos en el
+  peor caso), no a un segundo exacto.
+- Un solo punto de fallo si `SUPABASE_DB_URL` cambia (rotacion de contraseña) y no se actualiza el
+  secret — el job fallaria explicito, pero solo se nota si alguien revisa las Actions o hay alertas
+  configuradas (ver SQO-02, pendiente).
+- `pg_dump`/`pg_restore` de un runner de GitHub Actions no cubre Storage de Supabase (archivos), solo la
+  base de datos — no aplica hoy porque el producto no usa Storage, revisar si eso cambia.
+
+## Prevencion
+
+Reevaluar subir a plan Pro (backups diarios gestionados + opcion de PITR) antes de incorporar el primer
+cliente de pago real — este mecanismo manual es razonable para pre-piloto sin datos de clientes reales
+todavia, no para produccion con clientes.

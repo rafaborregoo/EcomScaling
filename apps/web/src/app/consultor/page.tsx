@@ -44,6 +44,31 @@ type OrganizationStore = {
   last_sync_at: string | null;
 };
 
+type AccessProfile = {
+  id: string;
+  full_name: string | null;
+  platform_role: string;
+  is_active: boolean;
+};
+
+type OrganizationAccess = {
+  members: Array<{
+    id: string;
+    user_id: string;
+    role: string;
+    is_active: boolean;
+    profile: AccessProfile | null;
+  }>;
+  assignments: Array<{
+    id: string;
+    consultant_user_id: string;
+    is_primary: boolean;
+    is_active: boolean;
+    profile: AccessProfile | null;
+  }>;
+  available_profiles: AccessProfile[];
+};
+
 function attentionBadge(score: number) {
   if (score >= 15) {
     return { label: "Urgente", className: "border-brand bg-brand text-white" };
@@ -55,6 +80,149 @@ function attentionBadge(score: number) {
     return { label: "Vigilar", className: "border-edge text-muted" };
   }
   return { label: "Al día", className: "border-success text-success" };
+}
+
+function AccessPanel({ organizationId }: { organizationId: string }) {
+  const [access, setAccess] = useState<OrganizationAccess | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [memberUserId, setMemberUserId] = useState("");
+  const [memberRole, setMemberRole] = useState("member");
+  const [consultantUserId, setConsultantUserId] = useState("");
+  const [isPrimary, setIsPrimary] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function loadAccess() {
+    const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/access`);
+    if (!response.ok) {
+      setError(await readApiError(response));
+      return;
+    }
+    setAccess((await response.json()) as OrganizationAccess);
+    setError(null);
+  }
+
+  useEffect(() => {
+    void loadAccess();
+  }, [organizationId]);
+
+  async function saveMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!memberUserId) return;
+    setIsSaving(true);
+    const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/members`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: memberUserId, role: memberRole }),
+    });
+    if (!response.ok) setError(await readApiError(response));
+    else await loadAccess();
+    setIsSaving(false);
+  }
+
+  async function saveAssignment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!consultantUserId) return;
+    setIsSaving(true);
+    const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/assignments`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ consultant_user_id: consultantUserId, is_primary: isPrimary }),
+    });
+    if (!response.ok) setError(await readApiError(response));
+    else await loadAccess();
+    setIsSaving(false);
+  }
+
+  if (error) {
+    return <p className="mt-4 text-sm text-brand-deep">{error}</p>;
+  }
+  if (!access) {
+    return <p className="mt-4 text-sm text-muted">Cargando acceso...</p>;
+  }
+
+  const consultantProfiles = access.available_profiles.filter(
+    (profile) => profile.platform_role === "consultant" || profile.platform_role === "platform_admin",
+  );
+
+  return (
+    <section className="mt-5 border-t border-line pt-4" aria-labelledby={`access-title-${organizationId}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h4 id={`access-title-${organizationId}`} className="font-display text-xl">Acceso al cliente</h4>
+          <p className="mt-1 text-xs text-muted">Solo perfiles existentes. Las invitaciones de autenticacion se gestionan fuera de este flujo.</p>
+        </div>
+        <span className="font-mono text-xs uppercase tracking-wide text-muted">
+          {access.members.filter((member) => member.is_active).length} miembros · {access.assignments.filter((assignment) => assignment.is_active).length} consultores
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-5 lg:grid-cols-2">
+        <div>
+          <h5 className="text-sm font-medium">Miembros</h5>
+          {access.members.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">Sin miembros asignados.</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-line border-y border-line">
+              {access.members.map((member) => (
+                <li key={member.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <span>{member.profile?.full_name ?? member.user_id}</span>
+                  <span className="font-mono text-xs uppercase text-muted">{member.role} · {member.is_active ? "activo" : "inactivo"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form onSubmit={saveMember} className="mt-3 grid gap-2 sm:grid-cols-[1fr_130px_auto] sm:items-end">
+            <Field label="Perfil existente">
+              <Select value={memberUserId} onChange={(event) => setMemberUserId(event.target.value)} required>
+                <option value="">Seleccionar...</option>
+                {access.available_profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.full_name ?? profile.id}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Rol">
+              <Select value={memberRole} onChange={(event) => setMemberRole(event.target.value)}>
+                {['owner', 'manager', 'member', 'readonly'].map((role) => <option key={role} value={role}>{role}</option>)}
+              </Select>
+            </Field>
+            <Button type="submit" disabled={isSaving || !memberUserId}>Guardar</Button>
+          </form>
+        </div>
+
+        <div>
+          <h5 className="text-sm font-medium">Consultores asignados</h5>
+          {access.assignments.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">Sin consultores asignados.</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-line border-y border-line">
+              {access.assignments.map((assignment) => (
+                <li key={assignment.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <span>{assignment.profile?.full_name ?? assignment.consultant_user_id}</span>
+                  <span className="font-mono text-xs uppercase text-muted">{assignment.is_primary ? "principal · " : ""}{assignment.is_active ? "activo" : "inactivo"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form onSubmit={saveAssignment} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+            <Field label="Consultor existente">
+              <Select value={consultantUserId} onChange={(event) => setConsultantUserId(event.target.value)} required>
+                <option value="">Seleccionar...</option>
+                {consultantProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.full_name ?? profile.id}</option>
+                ))}
+              </Select>
+            </Field>
+            <label className="flex items-center gap-2 pb-2 text-sm">
+              <input type="checkbox" checked={isPrimary} onChange={(event) => setIsPrimary(event.target.checked)} />
+              Principal
+            </label>
+            <Button type="submit" disabled={isSaving || !consultantUserId}>Guardar</Button>
+          </form>
+          {consultantProfiles.length === 0 ? <p className="mt-2 text-xs text-muted">No hay perfiles activos con rol de consultor.</p> : null}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 async function readApiError(response: Response) {
@@ -161,9 +329,11 @@ function StoresPanel({
   const [stores, setStores] = useState<OrganizationStore[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
+  const [restoringStoreId, setRestoringStoreId] = useState<string | null>(null);
   const [confirmDeleteStore, setConfirmDeleteStore] = useState<OrganizationStore | null>(null);
   const [confirmDeleteOrg, setConfirmDeleteOrg] = useState(false);
   const [isDeletingOrg, setIsDeletingOrg] = useState(false);
+  const [isRestoringOrg, setIsRestoringOrg] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
@@ -209,6 +379,35 @@ function StoresPanel({
     }
   }
 
+  async function restoreStore(storeId: string) {
+    setRestoringStoreId(storeId);
+    const response = await apiFetch(
+      `/v1/consultant/organizations/${organization.id}/stores/${storeId}/restore`,
+      { method: "POST" },
+    );
+    if (response.ok) {
+      setStores((current) =>
+        (current ?? []).map((store) => (store.id === storeId ? { ...store, status: "connected" } : store)),
+      );
+    } else {
+      setError(await readApiError(response));
+    }
+    setRestoringStoreId(null);
+  }
+
+  async function restoreOrganization() {
+    setIsRestoringOrg(true);
+    const response = await apiFetch(`/v1/consultant/organizations/${organization.id}/restore`, {
+      method: "POST",
+    });
+    if (response.ok) {
+      onOrganizationUpdated();
+    } else {
+      setError(await readApiError(response));
+    }
+    setIsRestoringOrg(false);
+  }
+
   return (
     <div className="border-t border-line bg-surface px-4 py-4">
       {error ? <p className="mb-3 text-sm text-brand-deep">{error}</p> : null}
@@ -233,24 +432,44 @@ function StoresPanel({
           {stores.map((store) => (
             <div key={store.id} className="grid gap-2 py-2.5 text-sm md:grid-cols-[1fr_120px_140px_auto] md:items-center">
               <span className="font-medium">{store.provider_account_id ?? store.provider_account_name ?? store.id}</span>
-              <span className="font-mono text-xs uppercase text-muted">{store.status}</span>
+              <span
+                className={[
+                  "font-mono text-xs uppercase",
+                  store.status === "pending_deletion" ? "text-brand" : "text-muted",
+                ].join(" ")}
+              >
+                {store.status === "pending_deletion" ? "borrado en 30 dias" : store.status}
+              </span>
               <span className="text-xs text-muted">
                 {store.last_sync_at ? new Date(store.last_sync_at).toLocaleDateString("es-ES") : "sin sync"}
               </span>
               {isPlatformAdmin ? (
-                <button
-                  type="button"
-                  className="w-fit text-xs font-medium text-brand underline decoration-transparent underline-offset-4 transition hover:decoration-brand disabled:opacity-40"
-                  disabled={deletingStoreId === store.id}
-                  onClick={() => setConfirmDeleteStore(store)}
-                >
-                  Borrar tienda
-                </button>
+                store.status === "pending_deletion" ? (
+                  <button
+                    type="button"
+                    className="w-fit text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand disabled:opacity-40"
+                    disabled={restoringStoreId === store.id}
+                    onClick={() => void restoreStore(store.id)}
+                  >
+                    {restoringStoreId === store.id ? "Restaurando..." : "Restaurar tienda"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="w-fit text-xs font-medium text-brand underline decoration-transparent underline-offset-4 transition hover:decoration-brand disabled:opacity-40"
+                    disabled={deletingStoreId === store.id}
+                    onClick={() => setConfirmDeleteStore(store)}
+                  >
+                    Borrar tienda
+                  </button>
+                )
               ) : null}
             </div>
           ))}
         </div>
       )}
+
+      {isPlatformAdmin ? <AccessPanel organizationId={organization.id} /> : null}
 
       <div className="mt-4 flex flex-wrap gap-4 border-t border-line pt-3">
         <Link
@@ -260,28 +479,40 @@ function StoresPanel({
           Añadir tienda
         </Link>
         {isPlatformAdmin ? (
-          <>
+          organization.status === "pending_deletion" ? (
             <button
               type="button"
-              className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-              onClick={() => setIsEditing((current) => !current)}
+              className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand disabled:opacity-40"
+              disabled={isRestoringOrg}
+              onClick={() => void restoreOrganization()}
             >
-              {isEditing ? "Cerrar edicion" : "Editar cliente"}
+              {isRestoringOrg ? "Restaurando..." : "Restaurar cliente"}
             </button>
-            <button
-              type="button"
-              className="text-xs font-medium text-brand underline decoration-transparent underline-offset-4 transition hover:decoration-brand"
-              onClick={() => setConfirmDeleteOrg(true)}
-            >
-              Borrar cliente entero (irreversible)
-            </button>
-          </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                onClick={() => setIsEditing((current) => !current)}
+              >
+                {isEditing ? "Cerrar edicion" : "Editar cliente"}
+              </button>
+              <button
+                type="button"
+                className="text-xs font-medium text-brand underline decoration-transparent underline-offset-4 transition hover:decoration-brand"
+                onClick={() => setConfirmDeleteOrg(true)}
+              >
+                Borrar cliente entero
+              </button>
+            </>
+          )
         ) : null}
       </div>
 
       {confirmDeleteStore ? (
         <ConfirmDangerDialog
           title={`Borrar tienda "${confirmDeleteStore.provider_account_id ?? confirmDeleteStore.provider_account_name}"`}
+          note="30 dias para restaurarla antes del borrado definitivo"
           confirmPhrase={confirmDeleteStore.provider_account_id ?? confirmDeleteStore.provider_account_name ?? confirmDeleteStore.id}
           actionLabel="Borrar tienda"
           isBusy={deletingStoreId === confirmDeleteStore.id}
@@ -293,6 +524,7 @@ function StoresPanel({
       {confirmDeleteOrg ? (
         <ConfirmDangerDialog
           title={`Borrar cliente "${organization.display_name}"`}
+          note="30 dias para restaurarlo antes del borrado definitivo"
           confirmPhrase={organization.display_name}
           actionLabel="Borrar cliente"
           isBusy={isDeletingOrg}
@@ -387,8 +619,9 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
                         >
                           {organization.display_name}
                         </Link>
-                        <p className="text-sm text-muted">
-                          {organization.slug} - {organization.status}
+                        <p className={organization.status === "pending_deletion" ? "text-sm text-brand" : "text-sm text-muted"}>
+                          {organization.slug} -{" "}
+                          {organization.status === "pending_deletion" ? "borrado en 30 dias" : organization.status}
                         </p>
                       </td>
                       <td className="px-4 py-3">
@@ -402,7 +635,7 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`inline-flex w-fit rounded-sm border px-2 py-1 font-mono text-xs ${badge.className}`}
+                          className={`inline-flex w-fit border px-2 py-1 font-mono text-xs ${badge.className}`}
                           title={`Puntuacion: ${organization.attention.score}`}
                         >
                           {badge.label}

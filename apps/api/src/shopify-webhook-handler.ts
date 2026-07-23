@@ -412,6 +412,68 @@ const TOPIC_HANDLERS: Record<
   "inventory_levels/update": { scope: "inventory", handle: processInventoryLevelUpdate },
 };
 
+// R-010/INT-01: webhooks de ciclo de vida y privacidad. No encajan en
+// SyncBlockKey (no son un bloque de sync) asi que se despachan aparte, antes
+// de TOPIC_HANDLERS. Deliberadamente conservadores: reconocen y dejan
+// evidencia en `private.webhook_events`, pero NO borran en cascada todo el
+// historico de una tienda de forma automatica -- eso es el mismo riesgo de
+// borrado irreversible ya documentado (ver RIESGOS.md, Q-009) y requiere
+// decision de producto de Rafa, no una decision tomada dentro de un webhook.
+async function processAppUninstalled(supabase: SupabaseClient, ctx: ConnectionContext) {
+  await supabase
+    .from("integration_connections")
+    .update({ status: "disconnected" })
+    .eq("id", ctx.connectionId);
+}
+
+async function processCustomersRedact(
+  supabase: SupabaseClient,
+  ctx: ConnectionContext,
+  payload: Record<string, unknown>,
+) {
+  const customer = payload.customer as { id?: number | string } | undefined;
+  const externalCustomerId = customer?.id != null ? String(customer.id) : null;
+
+  if (!externalCustomerId) {
+    return;
+  }
+
+  // No guardamos email/nombre/telefono de clientes (solo un hash de
+  // referencia y el id externo, ver DB-05/INT-01) -- borrar la fila entera
+  // es la erradicacion completa que nos corresponde para este cliente.
+  await supabase
+    .from("shopify_customers")
+    .delete()
+    .eq("store_id", ctx.storeId)
+    .eq("external_customer_id", externalCustomerId);
+}
+
+async function processShopRedact(supabase: SupabaseClient, ctx: ConnectionContext) {
+  // Shopify llama esto ~48h despues de la desinstalacion. No hacemos borrado
+  // en cascada automatico del historico (pedidos/metricas/costes) -- ver nota
+  // de la funcion de arriba. Solo garantizamos que la conexion quede marcada
+  // como no operativa; el borrado real de datos sigue el mismo flujo manual
+  // que ya existe en el CRUD de Consultoria (con sus mismas salvaguardas).
+  await supabase
+    .from("integration_connections")
+    .update({ status: "disconnected" })
+    .eq("id", ctx.connectionId);
+}
+
+const COMPLIANCE_TOPIC_HANDLERS: Record<
+  string,
+  (supabase: SupabaseClient, ctx: ConnectionContext, payload: Record<string, unknown>) => Promise<void>
+> = {
+  "app/uninstalled": processAppUninstalled,
+  "customers/redact": processCustomersRedact,
+  "shop/redact": processShopRedact,
+  // customers/data_request: sin email/nombre/telefono almacenados, no hay
+  // exportacion automatica que generar -- se deja constancia en
+  // webhook_events (via el flujo comun de abajo) para responder manualmente
+  // si Shopify o el titular de los datos lo piden.
+  "customers/data_request": async () => {},
+};
+
 export type WebhookResult = { statusCode: number; body: Record<string, unknown> };
 
 export async function handleShopifyWebhookRequest(
@@ -441,11 +503,15 @@ export async function handleShopifyWebhookRequest(
     return { statusCode: 400, body: { error: "missing_shopify_headers" } };
   }
 
-  const handlerEntry = TOPIC_HANDLERS[topic];
+  const syncHandlerEntry = TOPIC_HANDLERS[topic];
+  const complianceHandler = COMPLIANCE_TOPIC_HANDLERS[topic];
 
-  if (!handlerEntry) {
+  if (!syncHandlerEntry && !complianceHandler) {
     return { statusCode: 200, body: { status: "ignored_unknown_topic" } };
   }
+
+  const handle = syncHandlerEntry?.handle ?? complianceHandler;
+  const scope = syncHandlerEntry?.scope;
 
   const supabase = createServiceClient(env);
   const ctx = await resolveConnectionContext(supabase, shopDomain);
@@ -485,7 +551,7 @@ export async function handleShopifyWebhookRequest(
   const payload = JSON.parse(rawBody.toString("utf8")) as Record<string, unknown>;
 
   try {
-    await handlerEntry.handle(supabase, ctx, payload);
+    await handle!(supabase, ctx, payload);
 
     await supabase
       .schema("private")
@@ -494,7 +560,9 @@ export async function handleShopifyWebhookRequest(
       .eq("fingerprint", fingerprint)
       .eq("provider", "shopify");
 
-    await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, handlerEntry.scope, "succeeded");
+    if (scope) {
+      await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, scope, "succeeded");
+    }
 
     return { statusCode: 200, body: { status: "processed" } };
   } catch (error) {
@@ -507,7 +575,9 @@ export async function handleShopifyWebhookRequest(
       .eq("fingerprint", fingerprint)
       .eq("provider", "shopify");
 
-    await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, handlerEntry.scope, "failed", message);
+    if (scope) {
+      await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, scope, "failed", message);
+    }
 
     logger.error("Shopify webhook processing failed", { shop_domain: shopDomain, topic, error: message });
 

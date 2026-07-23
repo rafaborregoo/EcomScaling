@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { Button, Field, Input, Select, Textarea } from "@ecomscaling/ui";
 
 type KnowledgeDocument = {
   id: string;
@@ -208,14 +209,14 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             {isPlatformAdmin ? (
               <label className="flex items-baseline gap-2 font-mono text-xs uppercase tracking-wide text-muted">
                 Destino
-                <select
-                  className="cursor-pointer rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-1 font-sans text-sm normal-case tracking-normal text-black outline-none transition-colors focus:border-ink"
+                <Select
+                  className="cursor-pointer font-sans normal-case tracking-normal text-black"
                   value={visibility}
                   onChange={(event) => setVisibility(event.target.value as "organization" | "global")}
                 >
                   <option value="organization">Esta organización</option>
                   <option value="global">Global (metodología)</option>
-                </select>
+                </Select>
               </label>
             ) : null}
           </div>
@@ -227,35 +228,24 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               O pega el texto a mano
             </summary>
             <form className="mt-3 space-y-4" onSubmit={submitDocument}>
-              <label className="block">
-                <span className="block font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                  Título
-                </span>
-                <input
-                  className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+              <Field label="Título">
+                <Input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder="Ej: Playbook de reposición de stock"
                 />
-              </label>
-              <label className="block">
-                <span className="block font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                  Contenido
-                </span>
-                <textarea
-                  className="mt-1 h-40 w-full rounded-none border border-edge-strong bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-ink"
+              </Field>
+              <Field label="Contenido">
+                <Textarea
+                  className="mt-1 h-40"
                   value={content}
                   onChange={(event) => setContent(event.target.value)}
                   placeholder="Pega aquí la metodología, guía o proceso..."
                 />
-              </label>
-              <button
-                className="bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand disabled:opacity-50"
-                type="submit"
-                disabled={isSaving}
-              >
+              </Field>
+              <Button type="submit" disabled={isSaving}>
                 Ingerir texto
-              </button>
+              </Button>
             </form>
           </details>
         </section>
@@ -263,19 +253,16 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <section className="border-t border-ink/20 pt-5">
           <h4 className="font-display text-2xl">Búsqueda semántica</h4>
           <form className="mt-4 flex items-end gap-4" onSubmit={submitSearch}>
-            <input
-              className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
+            <Input
+              className="w-full"
+              aria-label="Buscar en el conocimiento"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Ej: cuándo escalar inversión en ads"
             />
-            <button
-              className="bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand disabled:opacity-50"
-              type="submit"
-              disabled={isSearching}
-            >
+            <Button type="submit" disabled={isSearching}>
               {isSearching ? "..." : "Buscar"}
-            </button>
+            </Button>
           </form>
           {searchError ? (
             <p className="mt-3 text-sm text-brand-deep">{searchError}</p>

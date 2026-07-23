@@ -4,6 +4,13 @@
 
 Construir una app usable para cliente y consultor sin presentar datos falsos como reales. Cada pantalla debe tener loading, empty, error, permisos, estados de sync y responsive.
 
+## Contrato global
+
+Antes de tocar cualquier `fases/FE-XX-*.md` o codigo en `apps/web/src`, aplica
+[`FRONTEND_CONTRACT.md`](FRONTEND_CONTRACT.md): capacidades por rol (no roles crudos), contratos
+compartidos con el backend (error, dinero, metrica, paginacion), reglas de contenido/subtextos y
+Definition of Done por pantalla.
+
 ## Fases
 
 | Fase | Archivo | Relacion maestro | Resultado |

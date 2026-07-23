@@ -7,7 +7,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { type BootstrapResponse } from "@/lib/bootstrap";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
-import { usePaginated } from "@/hooks/use-paginated";
+import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { Pagination, Tabs } from "@ecomscaling/ui";
 
 const syncBlockLabels: Record<"catalog" | "inventory" | "orders" | "refunds" | "customers", string> = {
@@ -75,9 +75,9 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
 
   const { overview, isLoading, error } = useShopifyOverview(organization?.id, selectedConnectionId);
 
-  const products = usePaginated(overview?.samples.products ?? [], PAGE_SIZE);
-  const orders = usePaginated(overview?.samples.orders ?? [], PAGE_SIZE);
-  const inventory = usePaginated(overview?.samples.inventory ?? [], PAGE_SIZE);
+  const products = usePaginatedUrl(overview?.samples.products ?? [], PAGE_SIZE, "page_productos");
+  const orders = usePaginatedUrl(overview?.samples.orders ?? [], PAGE_SIZE, "page_pedidos");
+  const inventory = usePaginatedUrl(overview?.samples.inventory ?? [], PAGE_SIZE, "page_inventario");
 
   if (isLoading) {
     return <div className="border-t border-ink/20 pt-5">Cargando diagnóstico...</div>;
@@ -119,7 +119,7 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
       {tab === "resumen" ? (
         <div className="space-y-5">
           {overview.connection?.last_error_message ? (
-            <section className="rounded-md border border-brand bg-brand-tint p-4 text-sm text-brand-deep">
+            <section className="border border-brand bg-brand-tint p-4 text-sm text-brand-deep">
               <p className="font-medium">Ultimo error Shopify</p>
               <p className="mt-2 font-mono break-words">{overview.connection.last_error_message}</p>
             </section>
