@@ -1,16 +1,14 @@
 /**
- * AI-06 (P0): primer dataset real de evaluacion de A01 (analista de
- * llamadas), pedido explicitamente por AI-06-evaluaciones-calidad.md ("Datasets
- * de A01/A06 -- solo A02 tiene dataset real hoy"). Mismo patron que
- * eval-a02-monitor.ts: LLM real (no mock), escenarios con datos sembrados de
- * verdad, checks "hard" (deterministicos, bloquean el eval) y "soft"
- * (heuristicas de texto, se reportan pero no bloquean solas), quality gates
- * de coste/latencia.
+ * AI-06 (P0): dataset real de evaluacion de A01 (analista de llamadas),
+ * pedido explicitamente por AI-06-evaluaciones-calidad.md ("Datasets de A01/A06
+ * -- solo A02 tiene dataset real hoy"). Mismo patron que eval-a02-monitor.ts:
+ * LLM real (no mock), escenarios con datos sembrados de verdad, checks "hard"
+ * (deterministicos, bloquean el eval) y "soft" (heuristicas de texto, se
+ * reportan pero no bloquean solas), quality gates de coste/latencia.
  *
- * Escenarios cubiertos (3, los que este mismo documento pedia explicitamente
- * para A01: "llamada sin tareas, tareas sin responsable" -- audio deficiente
- * y varios interlocutores quedan fuera de este primer lote, requieren
- * transcripciones mas elaboradas):
+ * Escenarios cubiertos (5 -- los 3 originales del primer lote mas los 2 que
+ * quedaron pendientes explicitamente: "audio deficiente y varios
+ * interlocutores", ver AI-06-evaluaciones-calidad.md):
  *  1. Llamada con tareas claras: transcripcion con 2 pendientes explicitos,
  *     cada uno con dueño y plazo mencionados en el dialogo -- el agente
  *     deberia proponer tareas correspondientes con owner/priority correctos.
@@ -21,6 +19,15 @@
  *     pero nadie en la transcripcion se compromete a resolverlo -- el agente
  *     no deberia inventar un nombre de responsable que no esta en el texto
  *     (fuente unica = transcripcion, sin tools, por diseño de A01).
+ *  4. Audio deficiente: transcripcion con tramos marcados `[inaudible]`/
+ *     `[audio cortado]` justo en los puntos donde se menciona una cifra y un
+ *     plazo -- el agente no deberia rellenar esos huecos con una cifra o
+ *     fecha inventada, y deberia bajar su `confidence` o avisar del hueco en
+ *     vez de presentar el resumen como si la transcripcion fuera completa.
+ *  5. Varios interlocutores: 3 personas en la llamada (consultor + 2 personas
+ *     del lado cliente con nombre y rol propios, cada una comprometiendose a
+ *     una tarea distinta) -- el agente deberia atribuir cada tarea a la
+ *     persona correcta en vez de colapsar a un unico "cliente" generico.
  *
  * Cuesta llamadas reales al proveedor de IA configurado (dinero) -- no correr
  * en cada PR. Ejecutar manualmente con `npm run eval:a01 -w @ecomscaling/api`.
@@ -175,6 +182,28 @@ Cliente: No tengo desarrollador ahora mismo, lo tendre que pensar.
 Consultor: Vale, quedamos en que es un problema pendiente de resolver, aunque todavia no esta claro quien se hace cargo.
 `.trim();
 
+const POOR_AUDIO_TRANSCRIPT = `
+Consultor: Buenas Elena, vamos con la revision. Cuentame como va el tema del proveedor nuevo de packaging.
+Cliente: Si, al final cerramos precio con ellos, nos sale a [inaudible] euros la unidad, bastante mejor que el proveedor anterior.
+Consultor: Genial, ¿y cuando teneis pensado hacer el cambio?
+Cliente: Estamos calculando, pero diria que sobre el [audio cortado] deberiamos tener ya el stock nuevo llegando, si todo va bien con la aduana.
+Consultor: Perfecto, lo dejamos anotado entonces. Yo por mi parte voy a revisar el catalogo de Shopify para que los productos reflejen el nuevo packaging en las fotos cuando llegue el stock.
+Cliente: Vale, eso si, avisame cuando lo tengas para revisarlo yo antes de publicar.
+Consultor: Hecho, te lo paso para revision antes de publicar nada.
+`.trim();
+
+const MULTI_SPEAKER_TRANSCRIPT = `
+Consultor: Buenas a los tres, gracias por uniros. Tenemos la revision trimestral de Tienda Multiequipo. Marta, tu llevas marketing, Pedro tu llevas operaciones, ¿verdad?
+Marta: Correcto, yo llevo marketing y contenido.
+Pedro: Y yo logistica y almacen.
+Consultor: Perfecto. Marta, ¿como va la campaña de verano?
+Marta: Bien, aunque necesito que me confirmeis el presupuesto de Meta Ads antes del lunes para poder programar los anuncios a tiempo. Me comprometo a tener el calendario de contenido listo para entonces tambien.
+Consultor: Anotado, Marta se encarga del calendario de contenido antes del lunes. Pedro, ¿como va el tema de las devoluciones que comentamos la ultima vez?
+Pedro: Ya lo tengo resuelto, cambiamos de transportadora para las devoluciones y baja el tiempo de gestion a la mitad. Lo que si me falta es revisar el stock de seguridad del almacen norte, lo tendre listo para el jueves.
+Consultor: Perfecto, Pedro revisa el stock de seguridad del almacen norte para el jueves. Por mi parte, reviso yo la conexion de Shopify con el nuevo transportista para que las etiquetas se generen bien.
+Marta: Genial, gracias a los dos.
+`.trim();
+
 const SCENARIOS: Scenario[] = [
   {
     name: "tareas_claras",
@@ -278,6 +307,102 @@ const SCENARIOS: Scenario[] = [
           detail: `tareas relacionadas: ${JSON.stringify(
             output.proposed_tasks.filter((t) => hasKeyword(t.title + " " + t.description, ["checkout", "movil", "lento"])),
           )}`,
+        },
+      ];
+    },
+  },
+  {
+    name: "audio_deficiente",
+    description:
+      "Transcripcion con tramos [inaudible]/[audio cortado] justo en la cifra de precio y en la fecha de cambio de proveedor -- el agente no deberia inventar el numero ni la fecha que faltan.",
+    transcript: POOR_AUDIO_TRANSCRIPT,
+    setup: (actorUserId) => createEvalOrgAndCall("audio-deficiente", "Revision mensual - audio con cortes", POOR_AUDIO_TRANSCRIPT, actorUserId),
+    checks: (output) => {
+      const allText = [output.summary, ...output.facts, ...output.key_quotes].join(" ");
+      return [
+        {
+          name: "no inventa una cifra de precio concreta en el hueco [inaudible]",
+          type: "hard",
+          // La transcripcion nunca revela el precio real -- cualquier cifra
+          // con decimales o "X euros" en el resumen/hechos es una alucinacion,
+          // porque no existe en la fuente.
+          pass: !/\d+([.,]\d+)?\s*(€|euros?)/i.test(allText),
+          detail: `texto evaluado (recortado): ${allText.slice(0, 300)}`,
+        },
+        {
+          name: "no inventa una fecha concreta en el hueco [audio cortado]",
+          type: "hard",
+          // La transcripcion nunca dice una fecha/mes concreto para el cambio
+          // de proveedor -- solo "sobre el [audio cortado]". Un mes o fecha
+          // exacta en el resumen séria fabricado.
+          pass: !/\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|\d{1,2}\/\d{1,2})\b/i.test(
+            allText,
+          ),
+          detail: `texto evaluado (recortado): ${allText.slice(0, 300)}`,
+        },
+        {
+          name: "menciona explicitamente que hay informacion incompleta/inaudible",
+          type: "soft",
+          pass: hasKeyword(allText + " " + output.warnings.join(" "), ["inaudible", "no se entiende", "corte", "incompleta", "no queda claro", "no se especifica"]),
+          detail: `warnings: ${JSON.stringify(output.warnings)}`,
+        },
+        {
+          name: "confidence no es alta (hay huecos reales de informacion)",
+          type: "soft",
+          pass: output.confidence !== "high",
+          detail: `confidence reportada: ${output.confidence}`,
+        },
+        {
+          name: "si detecta la tarea de revisar el catalogo, el owner es consultor",
+          type: "soft",
+          pass: output.proposed_tasks
+            .filter((t) => hasKeyword(t.title + " " + t.description, ["catalogo", "shopify", "fotos", "packaging"]))
+            .every((t) => t.owner === "consultor"),
+          detail: `tareas relacionadas: ${JSON.stringify(
+            output.proposed_tasks.filter((t) => hasKeyword(t.title + " " + t.description, ["catalogo", "shopify", "fotos", "packaging"])),
+          )}`,
+        },
+      ];
+    },
+  },
+  {
+    name: "varios_interlocutores",
+    description:
+      "3 personas en la llamada (consultor + Marta de marketing + Pedro de operaciones), cada una comprometiendose a una tarea distinta -- el agente deberia atribuir cada tarea a la persona correcta, no colapsar a un 'cliente' generico.",
+    transcript: MULTI_SPEAKER_TRANSCRIPT,
+    setup: (actorUserId) => createEvalOrgAndCall("varios-interlocutores", "Revision trimestral - equipo cliente", MULTI_SPEAKER_TRANSCRIPT, actorUserId),
+    checks: (output) => {
+      const allTitlesAndDesc = output.proposed_tasks.map((t) => `${t.title} ${t.description}`).join(" | ").toLowerCase();
+      return [
+        {
+          name: "propone al menos 2 tareas (una por cada persona del cliente)",
+          type: "hard",
+          pass: output.proposed_tasks.length >= 2,
+          detail: `proposed_tasks=${output.proposed_tasks.length}`,
+        },
+        {
+          name: "distingue a Marta (calendario de contenido) de Pedro (stock de seguridad) en vez de fusionarlos",
+          type: "soft",
+          pass: hasKeyword(allTitlesAndDesc, ["marta"]) && hasKeyword(allTitlesAndDesc, ["pedro"]),
+          detail: `tareas propuestas: ${JSON.stringify(output.proposed_tasks.map((t) => t.title))}`,
+        },
+        {
+          name: "detecta la tarea de calendario de contenido (Marta)",
+          type: "soft",
+          pass: hasKeyword(allTitlesAndDesc, ["calendario", "contenido"]),
+          detail: `tareas propuestas: ${JSON.stringify(output.proposed_tasks.map((t) => t.title))}`,
+        },
+        {
+          name: "detecta la tarea de stock de seguridad del almacen norte (Pedro)",
+          type: "soft",
+          pass: hasKeyword(allTitlesAndDesc, ["stock de seguridad", "almacen"]),
+          detail: `tareas propuestas: ${JSON.stringify(output.proposed_tasks.map((t) => t.title))}`,
+        },
+        {
+          name: "cada tarea propuesta tiene owner valido (cliente|consultor)",
+          type: "hard",
+          pass: output.proposed_tasks.every((t) => t.owner === "cliente" || t.owner === "consultor"),
+          detail: `owners: ${output.proposed_tasks.map((t) => t.owner).join(", ")}`,
         },
       ];
     },

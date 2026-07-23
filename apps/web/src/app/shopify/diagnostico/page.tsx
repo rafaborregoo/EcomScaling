@@ -270,7 +270,7 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
       {tab === "muestras" ? (
         <div className="space-y-8">
           <section>
-            <h3 className="font-display text-xl">Productos ({overview.samples.products.length})</h3>
+            <h2 className="font-display text-xl">Productos ({overview.samples.products.length})</h2>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[680px] text-left text-sm">
                 <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
@@ -302,7 +302,7 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
           </section>
 
           <section>
-            <h3 className="font-display text-xl">Pedidos ({overview.samples.orders.length})</h3>
+            <h2 className="font-display text-xl">Pedidos ({overview.samples.orders.length})</h2>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[680px] text-left text-sm">
                 <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
@@ -333,7 +333,7 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
           </section>
 
           <section>
-            <h3 className="font-display text-xl">Inventory items ({overview.samples.inventory.length})</h3>
+            <h2 className="font-display text-xl">Inventory items ({overview.samples.inventory.length})</h2>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[560px] text-left text-sm">
                 <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">

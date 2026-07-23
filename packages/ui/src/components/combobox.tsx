@@ -133,6 +133,7 @@ export function Combobox({
       {isOpen ? (
         <div
           role="listbox"
+          aria-label={typeof label === "string" ? label : "Opciones"}
           onKeyDown={handleListKeyDown}
           className="absolute left-0 top-full z-40 mt-1.5 max-h-72 w-max min-w-full overflow-y-auto border border-ink bg-white"
         >
@@ -146,8 +147,10 @@ export function Combobox({
               role="option"
               aria-selected={option.value === value}
               className={cn(
-                "block w-full whitespace-nowrap px-3 py-2 text-left text-sm transition-colors hover:bg-surface focus-visible:bg-surface",
-                option.value === value ? "bg-black text-white hover:bg-black" : "text-black",
+                "block w-full whitespace-nowrap px-3 py-2 text-left text-sm transition-colors",
+                option.value === value
+                  ? "bg-black text-white"
+                  : "text-black hover:bg-surface focus-visible:bg-surface",
               )}
               onClick={() => {
                 onChange(option.value);

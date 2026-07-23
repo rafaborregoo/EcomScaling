@@ -182,6 +182,7 @@ async function processInventoryLevelUpdate(supabase: SupabaseClient, ctx: Connec
   if (!inventoryItem || !location) {
     logger.info("Shopify inventory webhook skipped - item or location not synced yet", {
       connection_id: ctx.connectionId,
+      organization_id: ctx.organizationId,
       external_inventory_item_id: externalInventoryItemId,
       external_location_id: externalLocationId,
     });
@@ -317,6 +318,7 @@ async function processRefundCreate(supabase: SupabaseClient, ctx: ConnectionCont
   if (!order) {
     logger.info("Shopify refund webhook skipped - order not synced yet", {
       connection_id: ctx.connectionId,
+      organization_id: ctx.organizationId,
       external_order_id: externalOrderId,
     });
     return;
@@ -544,7 +546,12 @@ export async function handleShopifyWebhookRequest(
     if (eventInsertError.code === "23505") {
       return { statusCode: 200, body: { status: "duplicate" } };
     }
-    logger.error("Shopify webhook event insert failed", { shop_domain: shopDomain, topic, error: eventInsertError.message });
+    logger.error("Shopify webhook event insert failed", {
+      shop_domain: shopDomain,
+      organization_id: ctx.organizationId,
+      topic,
+      error: eventInsertError.message,
+    });
     return { statusCode: 500, body: { error: "webhook_event_insert_failed" } };
   }
 
@@ -579,7 +586,12 @@ export async function handleShopifyWebhookRequest(
       await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, scope, "failed", message);
     }
 
-    logger.error("Shopify webhook processing failed", { shop_domain: shopDomain, topic, error: message });
+    logger.error("Shopify webhook processing failed", {
+      shop_domain: shopDomain,
+      organization_id: ctx.organizationId,
+      topic,
+      error: message,
+    });
 
     return { statusCode: 500, body: { error: "webhook_processing_failed" } };
   }

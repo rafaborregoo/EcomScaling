@@ -157,10 +157,14 @@ los archivos locales en el momento del incidente, y el archivo de la migracion c
 - **Accion pendiente concreta** (no solo principio general): las 10 migraciones listadas en "Hallazgo real"
   arriba tienen drift de version hoy mismo — corregirlas con `migration repair` (o renombrado local) antes
   de automatizar cualquier `supabase db push` en CI, para que la primera ejecucion automatica no falle por
-  un `already exists` sobre objetos que llevan dias en produccion.
+  un `already exists` sobre objetos que llevan dias en produccion. **Intentado 2026-07-23**: la correccion
+  via `UPDATE` directo sobre `supabase_migrations.schema_migrations` quedo bloqueada por el clasificador de
+  auto-mode (escritura directa sobre metadatos de produccion) -- pendiente de que Rafa autorice
+  explicitamente esta accion puntual antes de ejecutarla.
 - Nunca renombrar un archivo de migracion despues de haberlo aplicado a un proyecto real — si hace falta
   reordenar migraciones del mismo dia, usar un sufijo de segundos/minutos distinto desde el principio en vez
   de renombrar retroactivamente.
-- Politica de migraciones escrita (gap ya senalado en OPS-00): quien puede aplicar migraciones a produccion,
-  con que mecanismo (CLI local vs CI vs MCP), y si se requiere revision antes de aplicar — sigue sin
-  decidirse formalmente.
+- **Resuelto 2026-07-23**: politica de migraciones escrita —
+  [`ADR-0014-migration-policy.md`](../../../docs/decisions/ADR-0014-migration-policy.md). Define quien
+  aplica (hoy, cualquiera con acceso, equipo de una persona), con que mecanismo (CLI o MCP, indistinto sin
+  staging que proteger), y deja explicito que no hay revision formal por PR todavia.

@@ -445,6 +445,7 @@ export async function runShopifyInitialSync(
     storeId = storeRow.id;
     logger.info("Shopify shop identity synced", {
       connection_id: connectionId,
+      organization_id: connection.organization_id,
       shop_domain: shopDomain,
       store_id: storeId,
     });
@@ -622,6 +623,7 @@ export async function runShopifyInitialSync(
       if (productLines.length && !childrenByParentId.size) {
         logger.error("Shopify bulk grouping produced zero child lines for a non-empty product export", {
           connection_id: connectionId,
+          organization_id: connection.organization_id,
           shop_domain: shopDomain,
           product_lines: productLines.length,
           total_lines: lines.length,
@@ -642,6 +644,7 @@ export async function runShopifyInitialSync(
       if (productMap.size && !variantLines.length) {
         logger.error("Shopify bulk grouping found no variants for any synced product - __parentId matching likely broke", {
           connection_id: connectionId,
+          organization_id: connection.organization_id,
           shop_domain: shopDomain,
           products_synced: productMap.size,
         });
@@ -728,6 +731,7 @@ export async function runShopifyInitialSync(
       if (inventoryRows.length && locationMap.size && !inventorySnapshotRows.length) {
         logger.error("Shopify bulk grouping found no inventory levels despite tracked items and known locations", {
           connection_id: connectionId,
+          organization_id: connection.organization_id,
           shop_domain: shopDomain,
           inventory_items: inventoryRows.length,
           locations_known: locationMap.size,
@@ -773,6 +777,7 @@ export async function runShopifyInitialSync(
 
       logger.info("Shopify catalog and inventory bulk sync completed", {
         connection_id: connectionId,
+        organization_id: connection.organization_id,
         shop_domain: shopDomain,
         object_count: bulkResult.objectCount,
         catalog_written: blocks.catalog.written,
@@ -905,6 +910,7 @@ export async function runShopifyInitialSync(
       if (orderMap.size && !lineItemsByOrderId.length) {
         logger.error("Shopify bulk grouping found no line items for any synced order - __parentId matching likely broke", {
           connection_id: connectionId,
+          organization_id: connection.organization_id,
           shop_domain: shopDomain,
           orders_synced: orderMap.size,
         });
@@ -1022,6 +1028,7 @@ export async function runShopifyInitialSync(
       if (refundMap.size && !refundItemRows.length) {
         logger.info("Shopify bulk grouping found no refund line items for any synced refund", {
           connection_id: connectionId,
+          organization_id: connection.organization_id,
           shop_domain: shopDomain,
           refunds_synced: refundMap.size,
         });
@@ -1043,6 +1050,7 @@ export async function runShopifyInitialSync(
 
       logger.info("Shopify orders and refunds bulk sync completed", {
         connection_id: connectionId,
+        organization_id: connection.organization_id,
         shop_domain: shopDomain,
         object_count: bulkResult.objectCount,
         orders_written: blocks.orders.written,
@@ -1102,6 +1110,7 @@ export async function runShopifyInitialSync(
 
       logger.info("Shopify customers bulk sync completed", {
         connection_id: connectionId,
+        organization_id: connection.organization_id,
         shop_domain: shopDomain,
         object_count: bulkResult.objectCount,
         customers_written: blocks.customers.written,

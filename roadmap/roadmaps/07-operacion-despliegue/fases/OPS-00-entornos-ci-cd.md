@@ -25,8 +25,18 @@
   proyecto real vs `ls supabase/migrations/`), probablemente por renombrarse tras aplicar para reordenar
   migraciones del mismo dia. El schema esta correcto (confirmado con la suite completa de tests), pero
   automatizar `supabase db push` en CI sin corregir antes este drift fallaria en el primer intento.
+  **Correccion del drift en si (UPDATE sobre `supabase_migrations.schema_migrations`) bloqueada por el
+  clasificador de auto-mode** por ser una escritura directa sobre metadatos de produccion -- queda
+  pendiente de autorizacion explicita de Rafa, no es un problema de diseño de la correccion.
+- **Resuelto 2026-07-23 (politica de migraciones escrita)**: `docs/decisions/ADR-0014-migration-policy.md`
+  -- fuente de verdad es siempre el archivo en `supabase/migrations/`, timestamp inmutable una vez aplicado
+  (causa raiz exacta del drift de RB-005), forward-fix en vez de editar migraciones aplicadas, verificacion
+  de drift obligatoria antes de automatizar `supabase db push` en CI, sin revision formal por PR todavia
+  (equipo de una persona, reconocido como gap explicito). Cierra el entregable de politica de migraciones
+  que llevaba pendiente desde el origen de este documento.
 - **Siguiente accion real**: resolver Q-001 (proveedor de hosting API/worker) — sin eso no se puede crear
-  un staging real, y sin staging no se puede cerrar ningun criterio de entrada al piloto (OPS-01).
+  un staging real, y sin staging no se puede cerrar ningun criterio de entrada al piloto (OPS-01). Aparte,
+  autorizacion pendiente de Rafa para corregir el drift de version de las 10 migraciones (ver arriba).
 
 ## Entregables
 

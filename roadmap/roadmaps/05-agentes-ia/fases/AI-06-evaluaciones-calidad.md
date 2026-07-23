@@ -93,8 +93,17 @@
   findings/sources correctos y sin fabricacion, pero con el gate de latencia violado y el hallazgo de
   corrupcion parcial de texto arriba. Coste total entre las 3 corridas (incluida la fallida por 429 durante
   la ingesta): ~$0.35.
-  - Faltan tambien, del propio pedido original de este documento para A01: audio deficiente y varios
-    interlocutores (transcripciones mas elaboradas que las 3 de este primer lote).
+- **Resuelto 2026-07-23 (audio deficiente y varios interlocutores, A01)**: los 2 escenarios que quedaban
+  pendientes explicitamente del pedido original para A01 anadidos a `eval-a01-call-analyst.ts` (5 escenarios
+  en total ahora). **Audio deficiente**: transcripcion con tramos `[inaudible]`/`[audio cortado]` justo en
+  la cifra de precio y la fecha de un cambio de proveedor -- el agente no inventa ni la cifra ni la fecha
+  (2 checks hard), avisa explicitamente de los cortes en `warnings`, y baja su `confidence` a `medium`.
+  **Varios interlocutores**: 3 personas en la llamada (consultor + 2 personas del cliente con nombre y rol
+  propios, cada una con una tarea distinta) -- el agente distingue correctamente a cada persona y le atribuye
+  su tarea, sin colapsarlas en un "cliente" generico. Corrida real: **0 fallos hard, 2/13 fallos soft (15%,
+  bajo el umbral de 1/3)** -- ambos soft fails son la misma ambiguedad razonable ya vista en A01/A02 (el
+  agente asigna `owner: "cliente"` a una decision que legitimamente le corresponde al cliente, no una
+  alucinacion). Coste total de la corrida (5 escenarios): $0.15.
 - **Resuelto 2026-07-23 (deteccion de apertura incoherente en `checkOutputSanity`)**: implementada la mejora
   que quedo pendiente tras el hallazgo de A08 -- `hasIncoherentOpening` (`packages/ai/src/index.ts`) rechaza
   ahora un `answer`/`summary` que (1) empieza con puntuacion de continuacion imposible al inicio de un texto

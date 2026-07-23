@@ -637,7 +637,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     <div className="space-y-4">
       <section className="flex flex-wrap items-baseline justify-between gap-3 border-t border-ink/20 pt-5">
-        <h3 className="font-display text-2xl">Llamadas de consultoría</h3>
+        <h2 className="font-display text-2xl">Llamadas de consultoría</h2>
         {isConsultant ? (
           <Button type="button" onClick={() => setShowCreateForm((value) => !value)}>
             {showCreateForm ? "Cerrar" : "Registrar llamada"}

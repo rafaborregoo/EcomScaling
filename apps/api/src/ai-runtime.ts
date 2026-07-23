@@ -108,6 +108,8 @@ async function runAgentTurnWithFallback<TOutput>(
     }
 
     logger.info("anthropic_call_failed_falling_back_to_openai", {
+      organization_id: params.input.organization_id,
+      agent_code: params.input.agent_code,
       error: error instanceof Error ? error.message : String(error),
     });
 

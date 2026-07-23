@@ -193,7 +193,7 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
       <section className="border-t border-ink/20 pt-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h3 className="font-display text-2xl">{overview.store?.shop_name ?? "Sin tienda conectada"}</h3>
+            <h2 className="font-display text-2xl">{overview.store?.shop_name ?? "Sin tienda conectada"}</h2>
             <p className="mt-1 font-mono text-xs text-muted">
               {overview.store?.primary_domain ?? overview.store?.myshopify_domain ?? "sin dominio"}
             </p>
@@ -222,7 +222,7 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
 
       <section className="border-t border-ink/20">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-          <h3 className="font-display text-2xl">Ventas</h3>
+          <h2 className="font-display text-2xl">Ventas</h2>
           <div className="flex gap-2">
             {periodOptions.map((option) => (
               <button

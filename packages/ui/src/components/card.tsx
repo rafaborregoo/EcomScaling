@@ -31,7 +31,7 @@ export function Card({
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">{kicker}</p>
             ) : null}
             {title ? (
-              <h3 className="font-display text-xl leading-snug">{title}</h3>
+              <h2 className="font-display text-xl leading-snug">{title}</h2>
             ) : null}
             {description ? (
               <p className="mt-1 max-w-xl text-sm leading-6 text-muted">{description}</p>

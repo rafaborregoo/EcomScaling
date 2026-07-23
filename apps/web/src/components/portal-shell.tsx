@@ -186,6 +186,15 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
     setIsMobileNavOpen(false);
   }, [pathname]);
 
+  // WCAG 2.4.2 (Page Titled): antes todas las paginas compartian el mismo
+  // <title>"EcomScaling IA" del layout raiz (los componentes de pagina son
+  // client components, no pueden exportar `metadata` de Next.js) -- se
+  // reutiliza el `title` que cada pagina ya le pasa a PortalShell para el
+  // encabezado movil/sidebar, sin introducir una API nueva.
+  useEffect(() => {
+    document.title = `${title} · EcomScaling IA`;
+  }, [title]);
+
   // Tiendas Shopify de la organización activa, para el selector global de
   // tienda del header. Se recarga cada vez que cambia la organización, via
   // un endpoint liviano (solo conexiones, no el overview completo) para que

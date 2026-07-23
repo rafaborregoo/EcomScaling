@@ -10,31 +10,52 @@ los diagnosticos cacheados de A02/A04/A06/A08 y a las respuestas de chat A09; lo
 `output_status`, `generated_at`) se mantienen para compatibilidad. `AiDiagnosticSection` ya muestra freshness
 y el numero de fuentes sin interpretar warnings como unica senal.
 
-- **Estado real:** `planned` (no iniciado — el roadmap ya preveia este documento en
-  `roadmap/roadmaps/05-agentes-ia/README.md` como "formato universal de evidencia", pero nunca se escribio
-  hasta ahora).
+- **Estado real:** `implemented_partial` — **corregido 2026-07-23**: la cabecera de este documento seguia
+  diciendo `planned`/"no existe hoy ninguna envolvente comun" (ver seccion "Evidencia de implementacion" mas
+  abajo, que ya documentaba lo contrario desde el 2026-07-22) — desactualizacion real del propio documento,
+  no del codigo. Verificado contra codigo real: `AgentOutputEnvelope`/`AgentSourceReference`/`AgentProposal`
+  existen tal cual en `packages/contracts/src/index.ts` (no solo como contrato en este doc, coinciden campo
+  por campo), y `buildAgentOutputEnvelope` (`apps/api/src/ai-runtime.ts`) los rellena en 3 sitios reales:
+  `getCachedDiagnostic` (A02/A04/A06/A08, cache-hit y fresh) y `runConsultantChatTurn` (A09). Los 2 primeros
+  criterios de cierre ya se cumplen (envolvente usada por 4 agentes de diagnostico + el copiloto, con
+  `content: AgentOutput` y `content: ChatOutput`).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-22
+- **Ultima validacion:** 2026-07-23
 - **Dependencias:** AI-00, AI-01, AI-02, AI-05
 - **Bloqueador:** ninguno
-- **Evidencia:** este documento es contrato, no implementacion. Los payloads de dominio que envuelve **si**
-  existen ya en `packages/ai/src/index.ts`: `agentOutputSchema` (A02/A04/A06/A08), `chatOutputSchema`
-  (A09), `callSummaryOutputSchema` (A01). Los metadatos de ejecucion viven en `agent_runs`
+- **Evidencia:** `packages/contracts/src/index.ts` (tipos), `apps/api/src/ai-runtime.ts` (`buildAgentOutputEnvelope`,
+  `getCachedDiagnostic`, `runConsultantChatTurn`), `apps/web/src/components/ai-diagnostic-section.tsx` (el
+  frontend ya lee `envelope.freshness.status`/`envelope.sources.length` en vez de solo `warnings`, ver linea
+  con "datos {freshness.status} · N fuente(s)"). Metadatos de ejecucion en `agent_runs`
   (`supabase/migrations/20260717200000_db_08a_runtime_agentes.sql` +
   `20260722190000_ai_09_budget_status.sql` para `budget_exceeded`).
-- **Gaps identificados:**
-  - No existe hoy ninguna envolvente comun: cada endpoint que sirve un output de agente al frontend expone
-    su propio shape ad-hoc a partir de `agent_runs` + el payload de dominio.
-  - `agentSourceSchema` actual (`kind: metric|table|tool|document`, `reference: string`,
-    `period: string|null`) es mucho mas pobre que lo que necesita una cita auditable: sin `organizationId`,
-    sin `storeId`, sin `location` (pagina/seccion/timestamp), sin `href`. Migrar esto es cambio de contrato,
-    no solo de documentacion (ver AI-04 para el gap de citas de RAG).
-  - No existe `freshness`/`quality` como concepto en ningun schema — hoy la unica señal de "estos datos
-    pueden estar desactualizados" es el campo libre `warnings: string[]`.
+- **Gaps identificados (reales, verificados en codigo, no el estado obsoleto de arriba):**
+  - **`freshness.status` es hoy efectivamente siempre `"fresh"`** — hallazgo real 2026-07-23:
+    `buildAgentOutputEnvelope` tiene `freshness: { status: fromCache ? "fresh" : "fresh", ... }` (ambas ramas
+    del ternario devuelven el mismo valor), y `getCachedDiagnostic` solo sirve un run cacheado cuando ya paso
+    el chequeo `isFresh` (`< DIAGNOSTIC_STALE_AFTER_MS`, 24h) -- un diagnostico mas viejo nunca se sirve como
+    `"stale"`, se regenera en su lugar. Los valores `"stale"`/`"superseded"` del tipo son alcanzables en el
+    schema pero no hay ninguna rama de codigo que los produzca hoy. No es un bug (el frontend nunca muestra
+    un dato viejo como si fuera nuevo, porque nunca sirve datos viejos), pero el criterio de cierre "el
+    frontend usa `freshness.status` en vez de `warnings`" esta solo parcialmente cumplido: el campo se lee,
+    pero no transmite informacion real todavia porque solo tiene un valor posible en la practica.
+  - `AgentSourceReference` en uso real tiene `kind` mapeado desde el `agentSourceSchema` legacy
+    (`sourceKind()` en `ai-runtime.ts`: `metric`->`metric`, `table`/`tool`->`sql_result`, `document`->`document`,
+    cualquier otro->`integration`) pero `location`/`href` nunca se rellenan (siguen `undefined` como preveia
+    este documento) -- depende de que RAG (AI-04) y transcripciones (AI-01) cierren su propio gap de
+    localizacion precisa, sigue fuera de alcance.
+  - `AgentProposal.type` en uso real solo distingue `"create_task"` vs `"update_plan"` (deriva de
+    `item.kind === "task"`) -- el resto del enum (`update_task`, `publish_summary`, `create_alert`,
+    `request_reauthorization`) no se genera desde ningun agente todavia, es aspiracional.
+  - `quality.groundedness`/`quality.dataCompleteness` se calculan con una heuristica minima real
+    (`sources.length > 0 ? "partially_supported" : "insufficient_evidence"`), no con evaluacion real de
+    groundedness -- correcto que siga fuera de alcance de este documento (depende de AI-06).
   - Los nombres internos (`A01`..`A09`) no tienen hoy un nombre de producto mapeado en ningun sitio del
-    codigo ni la documentacion.
-- **Siguiente accion:** cuando se implemente, empezar por el campo `scope` (organizationId/storeId/period),
-  que ya existe como dato real en `agent_runs.store_id` — es el que menos invento requiere.
+    codigo ni la documentacion, mas alla de la tabla de este mismo doc.
+- **Siguiente accion:** decidir si vale la pena que `freshness.status` distinga `"stale"` de verdad (ej.
+  servir un diagnostico cacheado mas alla de 24h con `status: "stale"` en vez de bloquear en regenerar) o si
+  el patron actual (siempre regenerar, nunca mostrar stale) es preferible y el campo se simplifica/documenta
+  como "reservado, no usado hoy" en vez de dejarlo pareciendo mas rico de lo que es.
 
 ## Objetivo
 
@@ -168,11 +189,17 @@ El mapeo vive aqui como referencia; implementarlo es anadir un campo `displayNam
 
 ## Criterios de cierre
 
-- `AgentOutputEnvelope` implementado como tipo compartido en `@ecomscaling/contracts`, usado por al menos
-  dos agentes (uno con `content: AgentOutput`, uno con `content: ChatOutput`).
-- `AgentSourceReference` sustituye a `agentSourceSchema` en al menos un agente sin romper los ya migrados.
-- El frontend deja de inspeccionar `warnings` como texto libre para decidir si un resultado esta
-  desactualizado — usa `freshness.status`.
+- [x] `AgentOutputEnvelope` implementado como tipo compartido en `@ecomscaling/contracts`, usado por al
+      menos dos agentes (uno con `content: AgentOutput`, uno con `content: ChatOutput`) — cumplido: A02/A04/
+      A06/A08 (`AgentOutput`) + A09 (`ChatOutput`), verificado 2026-07-23.
+- [x] `AgentSourceReference` sustituye a `agentSourceSchema` en al menos un agente sin romper los ya
+      migrados — cumplido: `sourceKind()` mapea el legacy a los 5 agentes con envolvente, sin romper el
+      payload `output.sources` legacy que se sigue guardando en paralelo.
+- [ ] El frontend deja de inspeccionar `warnings` como texto libre para decidir si un resultado esta
+      desactualizado — usa `freshness.status`. **Parcial**: el frontend ya lee `freshness.status` (no
+      `warnings`), pero el backend solo produce el valor `"fresh"` hoy (ver gap de arriba) — el criterio esta
+      tecnicamente conectado de punta a punta, pero no aporta senal real todavia porque no hay otro valor
+      posible en la practica.
 
 ## Fuera de alcance de este documento
 

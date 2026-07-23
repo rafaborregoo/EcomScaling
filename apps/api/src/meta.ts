@@ -214,7 +214,11 @@ export async function discoverMetaAssets(
     fields: "id,name,verification_status,vertical",
   }).catch((error: unknown) => {
     // business_management puede no estar concedido; el resto del descubrimiento sigue.
-    logger.info(`meta_business_discovery_failed: ${error instanceof Error ? error.message : String(error)}`);
+    logger.info("meta_business_discovery_failed", {
+      connection_id: connectionId,
+      organization_id: organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return [] as MetaBusiness[];
   });
 
@@ -285,7 +289,11 @@ export async function discoverMetaAssets(
   const pages = await metaGraphGetAll<MetaPageNode>("me/accounts", accessToken, {
     fields: "id,name,category,tasks,picture",
   }).catch((error: unknown) => {
-    logger.info(`meta_pages_discovery_failed: ${error instanceof Error ? error.message : String(error)}`);
+    logger.info("meta_pages_discovery_failed", {
+      connection_id: connectionId,
+      organization_id: organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return [] as MetaPageNode[];
   });
 
@@ -449,9 +457,11 @@ export async function handleMetaOAuthCallback(
       }),
     })
     .catch((error: unknown) => {
-    logger.error(
-      `meta_initial_sync_failed connection=${pending.id}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+      logger.error("meta_initial_sync_failed", {
+        connection_id: pending.id,
+        organization_id: pending.organization_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
 
   return { ok: true, data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?meta=connected` } };
@@ -509,9 +519,11 @@ export async function triggerMetaSync(
       }),
     })
     .catch((syncError: unknown) => {
-    logger.error(
-      `meta_manual_sync_failed connection=${connection.id}: ${syncError instanceof Error ? syncError.message : String(syncError)}`,
-    );
+      logger.error("meta_manual_sync_failed", {
+        connection_id: connection.id,
+        organization_id: connection.organization_id,
+        error: syncError instanceof Error ? syncError.message : String(syncError),
+      });
     });
 
   return { ok: true, data: { status: "queued", connectionId: connection.id } };

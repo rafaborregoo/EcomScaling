@@ -64,7 +64,12 @@ export function verifyShopifyWebhookHmac(rawBody: Buffer, hmacHeader: string | u
   return crypto.timingSafeEqual(digest, providedDigest);
 }
 
-export async function registerShopifyWebhooks(shopDomain: string, accessToken: string, callbackUrl: string) {
+export async function registerShopifyWebhooks(
+  shopDomain: string,
+  accessToken: string,
+  callbackUrl: string,
+  organizationId?: string,
+) {
   for (const topic of SHOPIFY_WEBHOOK_TOPICS) {
     try {
       const result = await shopifyGraphql<{
@@ -94,6 +99,7 @@ export async function registerShopifyWebhooks(shopDomain: string, accessToken: s
       if (userErrors?.length) {
         logger.info("Shopify webhook subscription skipped", {
           shop_domain: shopDomain,
+          organization_id: organizationId,
           topic: topic.graphqlTopic,
           errors: userErrors.map((item) => item.message).join("; "),
         });
@@ -102,12 +108,14 @@ export async function registerShopifyWebhooks(shopDomain: string, accessToken: s
 
       logger.info("Shopify webhook subscription registered", {
         shop_domain: shopDomain,
+        organization_id: organizationId,
         topic: topic.graphqlTopic,
         subscription_id: result.webhookSubscriptionCreate.webhookSubscription?.id,
       });
     } catch (error) {
       logger.error("Shopify webhook subscription failed", {
         shop_domain: shopDomain,
+        organization_id: organizationId,
         topic: topic.graphqlTopic,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -150,7 +158,7 @@ export async function resendShopifyWebhookRegistrations(env: ApiEnv) {
 
     try {
       const accessToken = await getValidShopifyAccessToken(env, connection.id);
-      await registerShopifyWebhooks(connection.provider_account_id, accessToken, callbackUrl);
+      await registerShopifyWebhooks(connection.provider_account_id, accessToken, callbackUrl, connection.organization_id);
       logger.info("Shopify webhook registration resent", {
         connection_id: connection.id,
         organization_id: connection.organization_id,

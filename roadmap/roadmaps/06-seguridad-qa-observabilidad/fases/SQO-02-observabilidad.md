@@ -42,15 +42,32 @@
   disparaba con `organization_id`, asi que rutas sin `:organizationId` en el path (p. ej. `/v1/bootstrap`)
   no tenian ninguna linea de cierre filtrable. Verificado en vivo con `app.inject` contra un usuario real
   de Supabase: el `user_id` del log coincide exactamente con el id del usuario autenticado.
-- **Sigue faltando de verdad, no solo por pulir**: `createLogger` se usa de forma inconsistente (9 archivos de muchos mas, y no lleva `organization_id`
-  todavia -- solo el logger de Fastify por request lo tiene). Sin metricas (contadores/histogramas de API,
-  worker, sync, coste IA) mas alla de logs individuales. Sin error tracking/APM (Sentry o equivalente). Sin
-  alertas ni panel de salud.
+- **Resuelto 2026-07-23 (`organization_id` en `createLogger`, no solo en el logger de Fastify)**: auditados
+  los 46 usos reales de `logger.info`/`logger.error` en los 13 archivos de produccion que usan
+  `createLogger` (`packages/observability`) -- solo 7 llevaban `organization_id` en su `meta`, pese a estar
+  disponible en scope en la mayoria. Corregidos 21 mas en `shopify-sync.ts` (9), `shopify-webhooks.ts` (3,
+  mas un parametro `organizationId` nuevo en `registerShopifyWebhooks` para poder pasarlo desde sus 2
+  llamadores), `shopify-webhook-handler.ts` (4), `meta-sync.ts` (1), `meta.ts` (4), `memory-ingestion.ts`
+  (3), `shopify-count-reconcile.ts` (1), `audit-log.ts` (1 -- hallazgo curioso: el propio log de "fallo al
+  escribir auditoria" no llevaba el campo que la auditoria existe para filtrar), `consultant.ts` (2, mas
+  normalizado `organizationId`->`organization_id` para que sea el mismo nombre de campo en todo el sistema)
+  y `ai-runtime.ts` (1, fallback Anthropic->OpenAI). `shopify-token-store.ts` (1) y `shopify-reconcile.ts`
+  (2) revisados y dejados igual a proposito: el primero solo tiene `connectionId` en scope sin el
+  `organization_id` ya cargado (anadirlo exigiria una consulta extra solo para loguear, no vale la pena); el
+  segundo son logs legitimamente a nivel de lote (fallo de consulta / resumen de la pasada), no de una
+  organizacion concreta. 105/105 tests de `apps/api` pasan tras el cambio, typecheck limpio en los 10
+  workspaces.
+- **Sigue faltando de verdad, no solo por pulir**: sin metricas (contadores/histogramas de API, worker,
+  sync, coste IA) mas alla de logs individuales. Sin error tracking/APM (Sentry o equivalente, herramienta de
+  pago -- fuera de alcance mientras no haya presupuesto). Sin alertas mas alla de `ops-health-check.yml`. Sin
+  panel de salud dedicado (aunque `/consultor` ya cubre gran parte de esa necesidad via el score de FE-07,
+  ver `CHECKLIST-SALUD-CLIENTE.md`).
 - **Por que sigue siendo relevante y no un "nice to have"**: cuando un cliente reporte "los pedidos de ayer
-  no aparecen", ahora se puede filtrar por `organization_id` en los logs de una request de API real (gap
-  cerrado), pero sigue sin existir metricas agregadas de sync/cola/coste ni logs de `organization_id` en
-  el codigo de worker/cron (que usa `createLogger`, no el logger de Fastify) — todavia hace falta leer
-  codigo y consultar la DB a mano para investigaciones que crucen varias requests o corran fuera de la API.
+  no aparecen", ahora se puede filtrar por `organization_id` tanto en los logs de una request de API real
+  como en los del worker/cron de sync (`shopify-sync.ts`/`meta-sync.ts`/`shopify-webhooks.ts`, gap cerrado
+  2026-07-23) -- pero sigue sin existir metricas agregadas de sync/cola/coste, asi que aunque ahora se puede
+  filtrar logs por organizacion, seguir sumando/comparando esos logs a lo largo del tiempo sigue siendo
+  trabajo manual.
 
 ## Entregables
 

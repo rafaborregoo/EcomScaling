@@ -67,9 +67,36 @@
     existente antes que un fetch nuevo) -- no es una migracion de codigo, es la regla que aplica a
     pantallas nuevas y refactors futuros.
   - Sin catalogo exacto de componentes mantenido aqui todavia mas alla del listado de archivos de arriba.
-- **Siguiente accion:** auditoria formal de accesibilidad (axe/lector de pantalla) mas alla de la
-  correccion puntual del `Combobox`; definir tokens canonicos mas alla de color; aplicar la regla de
-  "titulos discretos" a paginas existentes cuando se toquen por otro motivo (no en una pasada masiva).
+- **Resuelto 2026-07-23 (auditoria formal de accesibilidad con axe-core, primera vez)**: `axe-core` 4.12.1
+  (via Playwright real, no revision manual) contra `/dashboard`, `/tareas`, `/consultor`, `/configuracion`,
+  `/integraciones`, `/shopify` y `/login` (wcag2a/wcag2aa/wcag21a/wcag21aa/best-practice). Hallazgos reales,
+  no hipoteticos:
+  - **`heading-order` (moderado, 6 de 7 paginas)**: causa unica raiz -- el shell renderiza `<h1>Centro
+    operativo</h1>` y toda pagina saltaba directo a `<h3>` para su primer titulo de seccion, sin `<h2>`
+    intermedio (consecuencia lateral de la limpieza de titulos de pagina pedida por Rafa el mismo dia, ver
+    ADR-0013). **Corregido**: `Card`/`Section` (`packages/ui/src/components/card.tsx`) y los 14+ titulos de
+    seccion ad-hoc en 9 paginas promovidos de `<h3>` a `<h2>`.
+  - **`aria-input-field-name` (serio) y `color-contrast` (serio, 1.04:1) en el panel abierto del
+    `Combobox`**: invisibles a cualquier escaneo que no interactue con el componente -- el `role="listbox"`
+    no tenia nombre accesible, y la fila seleccionada mostraba texto blanco casi invisible sobre fondo casi
+    blanco por una colision real de clases Tailwind (`hover:bg-surface` sin condicionar chocando con
+    `bg-black` de la fila seleccionada, agravado por que `cn()` es un join plano sin resolucion de
+    conflictos). **Corregido**: `aria-label` en el listbox, y las clases de hover/focus-visible ahora
+    excluidas explicitamente de la rama de la opcion seleccionada.
+  - **Hallazgo manual adicional (WCAG 2.4.2, no capturado por axe)**: las 7 paginas compartian el mismo
+    `<title>EcomScaling IA</title>` exacto. **Corregido**: `PortalShell` fija `document.title` por pagina
+    reutilizando el `title` que cada pagina ya le pasaba.
+  - **Verificado en navegador real dos veces** (auditoria inicial + re-verificacion tras aplicar las
+    correcciones): las 3 clases de hallazgo confirmadas resueltas -- 0 violaciones `heading-order` en las 6
+    paginas autenticadas, 0 `aria-input-field-name`, contraste solido 21:1 en reposo y en hover sobre la
+    opcion seleccionada, `document.title` distinto y no vacio en cada pagina verificada. Sin trampas de
+    teclado en ninguna pagina, orden de tabulacion coherente en todas. Coste: 2 corridas de agente, sin
+    dinero real (axe-core es gratuito, ya era dependencia transitiva).
+  - **Sigue sin cubrir**: lector de pantalla real (NVDA/VoiceOver) -- axe confirma cumplimiento de reglas
+    WCAG automatizables, no equivale a una prueba real con tecnologia asistiva.
+- **Siguiente accion:** prueba manual con lector de pantalla real; definir tokens canonicos mas alla de
+  color; aplicar la regla de "titulos discretos" a paginas existentes cuando se toquen por otro motivo (no
+  en una pasada masiva).
 
 ## Objetivo
 

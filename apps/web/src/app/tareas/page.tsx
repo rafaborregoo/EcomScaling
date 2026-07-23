@@ -291,7 +291,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <>
           <section className="border-t border-ink/20">
             <div className="border-b border-line px-4 py-3">
-              <h3 className="font-display text-2xl">Alertas activas ({activeAlerts.length})</h3>
+              <h2 className="font-display text-2xl">Alertas activas ({activeAlerts.length})</h2>
             </div>
             <div className="divide-y divide-line">
               {activeAlerts.length === 0 ? (
@@ -347,7 +347,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
           <section className="border-t border-ink/20">
             <div className="border-b border-line px-4 py-3">
-              <h3 className="font-display text-2xl">Tareas ({filteredTasks.length})</h3>
+              <h2 className="font-display text-2xl">Tareas ({filteredTasks.length})</h2>
             </div>
             <div className="divide-y divide-line">
               {filteredTasks.length === 0 ? (
@@ -460,7 +460,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           {resolvedAlerts.length > 0 ? (
             <section className="border-t border-ink/20">
               <div className="border-b border-line px-4 py-3">
-                <h3 className="font-display text-2xl">Alertas resueltas ({resolvedAlerts.length})</h3>
+                <h2 className="font-display text-2xl">Alertas resueltas ({resolvedAlerts.length})</h2>
               </div>
               <div className="divide-y divide-line">
                 {resolvedAlerts.slice(0, 20).map((alert) => (

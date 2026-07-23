@@ -174,7 +174,7 @@ function StoresOverviewTable({
   return (
     <section className="border-t border-ink/20">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h3 className="font-display text-2xl">Todas las tiendas</h3>
+        <h2 className="font-display text-2xl">Todas las tiendas</h2>
         <PeriodSelector periodDays={periodDays} onPeriodChange={onPeriodChange} />
       </div>
       <div className="overflow-x-auto">
@@ -394,9 +394,9 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <section className="border-t border-ink/20 pt-5">
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div>
-            <h3 className="font-display text-2xl">
+            <h2 className="font-display text-2xl">
               {activeConnectionId ? "Resumen de la tienda seleccionada" : "Resumen ejecutivo"}
-            </h3>
+            </h2>
             {metrics ? (
               <p className="mt-1 font-mono text-xs text-muted">
                 hasta {new Date(metrics.period.end).toLocaleString()}
@@ -500,7 +500,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {(activeTab === "todo" || activeTab === "meta") ? (
         <section className="border-t border-ink/20 pt-5">
-          <h3 className="font-display text-2xl">Meta Ads</h3>
+          <h2 className="font-display text-2xl">Meta Ads</h2>
           <div className="mt-3 grid gap-x-8 border-b border-line pb-2 md:grid-cols-3 xl:grid-cols-6">
             <article className="py-4 md:pr-8">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Inversión Meta</p>
@@ -587,7 +587,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {(activeTab === "todo" || activeTab === "shopify") ? (
       <section className="border-t border-ink/20">
         <div className="border-b border-line px-4 py-3">
-          <h3 className="font-display text-2xl">Tiendas Shopify</h3>
+          <h2 className="font-display text-2xl">Tiendas Shopify</h2>
         </div>
         <div className="divide-y divide-line">
           {isLoadingStores ? (

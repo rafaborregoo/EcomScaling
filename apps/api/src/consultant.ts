@@ -890,7 +890,7 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
       // en silencio -- una organizacion con datos que rompieran el borrado
       // en cascada (ver fix de log_financial_change) nunca se purgaba y
       // nadie se enteraba. Ahora queda en logs y en el resultado del cron.
-      logger.error("Failed to purge organization", { organizationId: organization.id, error: deleteError.message });
+      logger.error("Failed to purge organization", { organization_id: organization.id, error: deleteError.message });
       failedOrganizationIds.push(organization.id);
       continue;
     }
@@ -926,7 +926,11 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
   for (const connection of connections ?? []) {
     const { error: deleteError } = await supabase.from("integration_connections").delete().eq("id", connection.id);
     if (deleteError) {
-      logger.error("Failed to purge integration connection", { connectionId: connection.id, error: deleteError.message });
+      logger.error("Failed to purge integration connection", {
+        connection_id: connection.id,
+        organization_id: connection.organization_id,
+        error: deleteError.message,
+      });
       failedConnectionIds.push(connection.id);
       continue;
     }

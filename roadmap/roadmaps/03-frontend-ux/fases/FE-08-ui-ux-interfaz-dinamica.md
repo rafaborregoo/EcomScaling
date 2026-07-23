@@ -50,7 +50,7 @@ negocio y a los objetivos de cada organizacion, con la IA integrada en la superf
 | Contexto global cliente/tienda | `done` (ADR-0010) | `ActiveOrganizationContext`/`ActiveConnectionContext`, URL como fuente primaria desde 2026-07-21 | — |
 | CRUD de clientes/tiendas (Consultoria) | `done` | `consultor/page.tsx`, soft-delete con periodo de gracia desde 2026-07-21, UI de restauracion conectada 2026-07-22 (ver FE-07) | — |
 | Responsive 375px | `done` | Auditado 2026-07-22: toda tabla ancha ya tenia `overflow-x-auto`+`min-w`, grids con prefijos `md:`/`lg:`/`xl:` (1 columna por defecto en movil) | Re-auditar si se anaden layouts nuevos |
-| Accesibilidad AA | `in_progress` | `Combobox` (selector cliente/tienda, el mas usado) gano navegacion por teclado tipo listbox 2026-07-22 (antes solo abria/cerraba) | Auditoria formal con axe + lector de pantalla, contraste en el resto de componentes |
+| Accesibilidad AA | `in_progress` | `Combobox` gano navegacion por teclado 2026-07-22. **Auditoria formal con axe-core 2026-07-23** (ver FE-00): 3 hallazgos reales corregidos y verificados en navegador real -- `heading-order` en 6 paginas (causa unica, `Card`/titulos de seccion promovidos a `h2`), `aria-input-field-name` + `color-contrast` 1.04:1 en el panel abierto del `Combobox`, mas `document.title` duplicado en las 7 paginas (WCAG 2.4.2) | Prueba manual con lector de pantalla real (NVDA/VoiceOver) -- axe cubre reglas automatizables, no equivale a probar con tecnologia asistiva real |
 | Home adaptativo por prioridad | `pending` | — | Depende de AI-02 |
 | Resumen ejecutivo narrado | `pending` | — | Depende de AI-02 |
 | Copiloto embebido | `in_progress` | `copilot-panel.tsx` (panel lateral, ver FE-06) | La diferenciacion info/recomendacion/propuesta no aplica al copiloto (chat de solo lectura sin ese contrato) -- ya reforzada donde si aplica, `AiDiagnosticSection`, ver FE-06 |
@@ -117,8 +117,15 @@ consumiendo estas rutas todavia, asi que no hizo falta cambiar UI existente. Ver
 
 ### Validacion adicional 2026-07-22
 
-Se incorporaron mejoras transversales de accesibilidad en `apps/web`: skip link al contenido principal,
-foco visible global, soporte `prefers-reduced-motion`, dialogs con `role="dialog"`/`aria-modal`, nombres
-accesibles, estados live del copiloto y ciclo de foco por teclado con Escape. La auditoria automatizada
-formal con axe y la prueba manual con lector de pantalla siguen pendientes porque requieren ejecutar la
-aplicacion en un navegador asistido.
+Se incorporaron mejoras transversales de accesibilidad en `apps/web`: foco visible global, soporte
+`prefers-reduced-motion`, dialogs con `role="dialog"`/`aria-modal`, nombres accesibles, estados live del
+copiloto y ciclo de foco por teclado con Escape. El skip link al contenido principal que existia en esta
+fecha **se elimino el 2026-07-23 por peticion explicita de Rafa** (junto con los titulos `<h2>` grandes de
+seccion), no es una regresion de accesibilidad -- decision de producto documentada, ver memoria de sesion.
+
+### Auditoria formal con axe-core, 2026-07-23
+
+Ejecutada por primera vez (ver detalle completo en FE-00): 3 clases de hallazgo real corregidas y
+verificadas dos veces en navegador real (auditoria + re-verificacion tras el fix). Pendiente real que sigue
+abierto: prueba manual con lector de pantalla (NVDA/VoiceOver) -- axe cubre reglas WCAG automatizables, no
+sustituye una prueba real con tecnologia asistiva.

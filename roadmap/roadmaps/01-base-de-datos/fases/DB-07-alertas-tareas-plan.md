@@ -14,7 +14,18 @@
   - Categorizacion de tareas por modulo (shopify/meta/klaviyo/general) anadida 2026-07-20, deterministica segun el origen (plantilla de alerta o agente), nunca decidida por el LLM.
 - **Gaps identificados:**
   - Este documento agrupa reglas+alertas, tareas y Mi Camino en un solo bloque; separarlo (DB-07A/B/C) facilitaria auditar cada subdominio por separado.
-  - Sin `cooldown`/`suppression window` explicito documentado para alertas (existe deduplicacion por `fingerprint`, pero no una ventana de reapertura documentada).
+- **Resuelto 2026-07-23 (cooldown/suppression window documentado)**: confirmado en codigo real
+  (`upsertAlertWithTask`/`resolveStaleAlerts`, `apps/api/src/operations.ts`) que **no existe un cooldown
+  explicito** -- una alerta resuelta puede reabrirse (nueva fila, no la misma) en la siguiente evaluacion si
+  la condicion vuelve a cumplirse, sin ventana minima de espera en el codigo. Lo que si actua como cooldown
+  de facto es la cadencia del cron `alert-rules.yml` (`workflow_dispatch` + `cron: "43 */6 * * *"`, cada 6h):
+  como las alertas solo se evaluan cada 6h, el intervalo minimo real entre "se resolvio" y "se reabrio" es
+  de hasta 6h, aunque no hay ningun debounce si la metrica sigue oscilando alrededor del umbral entre
+  evaluaciones -- cada evaluacion ve un estado limpio, sin memoria de flapping previo. Dentro de una misma
+  evaluacion, la deduplicacion por `fingerprint` (unico mientras `status in (open, acknowledged)`) si evita
+  duplicados: una alerta viva se refresca (`last_detected_at`/`metric_value`), nunca se duplica. No es una
+  laguna que bloquee el piloto (el volumen de alertas de un solo cliente no justifica un cooldown mas
+  sofisticado todavia), pero es el comportamiento real, no lo que sugeria la ausencia de documentacion.
 - **Resuelto 2026-07-21**: el test que faltaba ya existe. `rls-tenant-isolation.test.ts` (ampliado en la ronda DB-02) incluye "el trigger de integridad rechaza una tarea que enlaza una alerta de otra organizacion", que confirma contra el Supabase remoto real que `enforce_task_alert_same_org` rechaza el enlace cross-tenant.
 - **Resuelto 2026-07-23 (SLA/overdue formalizado)**: la definicion ya existia en codigo pero solo en un
   sitio (`consultant.ts`, health score del panel de consultor: `due_at` en el pasado + estado

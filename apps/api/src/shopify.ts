@@ -515,7 +515,12 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
-  void registerShopifyWebhooks(shop, tokenResult.accessToken, shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI)).catch(
+  void registerShopifyWebhooks(
+    shop,
+    tokenResult.accessToken,
+    shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI),
+    pendingConnection.organization_id,
+  ).catch(
     (error: unknown) => {
       console.error("Shopify webhook registration failed", {
         connection_id: pendingConnection.id,

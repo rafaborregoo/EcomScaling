@@ -219,7 +219,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <p className="font-mono text-xs text-brand">
                   v{plan.version} · {plan.status}
                 </p>
-                <h3 className="mt-1 text-lg font-semibold">{plan.name}</h3>
+                <h2 className="mt-1 text-lg font-semibold">{plan.name}</h2>
                 {plan.description ? (
                   <p className="mt-1 text-sm leading-6 text-muted">{plan.description}</p>
                 ) : null}
@@ -324,7 +324,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </>
       ) : (
         <section className="border-t border-ink/20 pt-5">
-          <h3 className="font-display text-2xl">Sin plan estratégico</h3>
+          <h2 className="font-display text-2xl">Sin plan estratégico</h2>
           <p className="mt-1 text-sm leading-6 text-muted">
             {canManage
               ? "Crea el primer plan: escribe el nombre y el esquema de fases e hitos."

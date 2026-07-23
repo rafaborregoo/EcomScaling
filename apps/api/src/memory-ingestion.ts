@@ -100,7 +100,7 @@ export async function enqueueMemoryIngestion(env: EnqueueEnv, input: EnqueueMemo
     // solo se registra, no se propaga al llamador.
     logger.error("memory_ingestion_enqueue_failed", {
       error: queueError.message,
-      organizationId: input.organizationId,
+      organization_id: input.organizationId,
       sourceType: input.sourceType,
       sourceEntityId: input.sourceEntityId,
     });
@@ -139,6 +139,7 @@ export async function enqueueMemoryIngestion(env: EnqueueEnv, input: EnqueueMemo
     logger.error("memory_ingestion_document_placeholder_failed", {
       error: documentError?.message,
       queueId: queueRow.id,
+      organization_id: input.organizationId,
     });
     return { ok: false as const, error: documentError?.message ?? "document_placeholder_failed" };
   }
@@ -236,7 +237,7 @@ export async function processMemoryIngestionQueue(env: ProcessEnv) {
         .update({ status: "failed", last_error: message.slice(0, 500), attempts: row.attempts + 1 })
         .eq("id", row.id);
 
-      logger.error("memory_ingestion_row_failed", { queueId: row.id, error: message });
+      logger.error("memory_ingestion_row_failed", { queueId: row.id, organization_id: row.organization_id, error: message });
       result.failed += 1;
     }
   }

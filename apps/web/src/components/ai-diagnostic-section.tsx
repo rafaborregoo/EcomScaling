@@ -175,7 +175,7 @@ export function AiDiagnosticSection({
     <section className="border-t border-ink/20 pt-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
         <div>
-          <h3 className="font-display text-2xl">{title}</h3>
+          <h2 className="font-display text-2xl">{title}</h2>
           {diagnostic ? (
             <p className="mt-1 font-mono text-xs text-muted">
               {days ? `últimos ${days} días · ` : ""}

@@ -64,7 +64,12 @@ async function recordSyncRun(
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error(`meta_sync_block_failed scope=${scope} connection=${connectionId}: ${message}`);
+    logger.error("meta_sync_block_failed", {
+      scope,
+      connection_id: connectionId,
+      organization_id: organizationId,
+      message,
+    });
     await supabase
       .from("integration_sync_runs")
       .upsert(

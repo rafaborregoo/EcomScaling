@@ -35,6 +35,10 @@ export async function recordAuditLog(
   });
 
   if (error) {
-    logger.error("audit_log_insert_failed", { action: entry.action, error: error.message });
+    logger.error("audit_log_insert_failed", {
+      action: entry.action,
+      organization_id: entry.organizationId,
+      error: error.message,
+    });
   }
 }

@@ -2,8 +2,8 @@
 
 ## Estado
 
-- **Estado real:** `in_progress` (8 runbooks reales; falta solo validar RB-007 con un drill de restauracion
-  real)
+- **Estado real:** `in_progress` (8 runbooks reales + checklist semanal de salud por cliente; falta solo
+  validar RB-007 con un drill de restauracion real, pospuesto a proposito al final del programa)
 - **Responsable:** sin asignar
 - **Ultima validacion:** 2026-07-23
 - **Dependencias:** SQO-02 (observabilidad, para poder diagnosticar mas alla de consultas SQL directas)
@@ -40,7 +40,8 @@
 - Runbook de migracion fallida -- cerrado 2026-07-23 (`RB-005-failed-migration.md`).
 - Runbook de incidente de privacidad -- cubierto por `RB-003-cross-tenant-leak.md`.
 - Procedimiento de rollback y replay.
-- Checklist semanal de salud por cliente.
+- Checklist semanal de salud por cliente -- cerrado 2026-07-23 (`CHECKLIST-SALUD-CLIENTE.md`), construido
+  sobre las señales ya existentes en `/consultor` (score de atencion de FE-07), sin metricas nuevas.
 
 ## Criterios de cierre
 

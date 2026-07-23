@@ -583,7 +583,7 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
   return (
     <div className="space-y-4">
       <section className="border-t border-ink/20 pt-5">
-        <h3 className="font-display text-2xl">Qué cliente necesita atención hoy</h3>
+        <h2 className="font-display text-2xl">Qué cliente necesita atención hoy</h2>
         {needsAttention.length === 0 ? (
           <p className="mt-1 font-mono text-xs uppercase tracking-wide text-success">Todos al día</p>
         ) : null}

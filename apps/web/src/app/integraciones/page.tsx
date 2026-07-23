@@ -232,7 +232,7 @@ function IntegrationsList({
       ) : null}
 
       <section className="border-t border-ink/20 pt-5">
-        <h3 className="font-display text-2xl">Conectar Shopify</h3>
+        <h2 className="font-display text-2xl">Conectar Shopify</h2>
         <p className="mt-2 text-sm leading-6 text-muted">
           Introduce el dominio <span className="font-mono">*.myshopify.com</span> de la tienda.
           La URL de admin de Shopify no sirve como callback OAuth.
@@ -352,7 +352,7 @@ function IntegrationsList({
           <article key={provider.id} className="border-t border-ink/20 pt-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="font-display text-2xl">{provider.name}</h3>
+                <h2 className="font-display text-2xl">{provider.name}</h2>
                 <p className="mt-1 font-mono text-xs text-brand">{provider.phase}</p>
               </div>
               <span className="border border-brand px-2 py-1 text-xs text-brand">

@@ -128,6 +128,7 @@ export async function reconcileShopifyCounts(env: ApiEnv, connectionId: string) 
   logger.info("Shopify count reconciliation", {
     shop_domain: shopDomain,
     connection_id: connectionId,
+    organization_id: organizationId,
     comparisons,
     local_refunds: localRefunds,
   });
