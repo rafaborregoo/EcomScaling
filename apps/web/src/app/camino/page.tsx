@@ -4,7 +4,7 @@ import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Button, Input, LoadingBlock, Textarea } from "@ecomscaling/ui";
+import { Button, Input, LoadingBlock, Textarea } from "@/components/ui";
 
 type Milestone = {
   id: string;

@@ -154,13 +154,13 @@ los archivos locales en el momento del incidente, y el archivo de la migracion c
 
 ## Prevencion
 
-- **Accion pendiente concreta** (no solo principio general): las 10 migraciones listadas en "Hallazgo real"
-  arriba tienen drift de version hoy mismo — corregirlas con `migration repair` (o renombrado local) antes
-  de automatizar cualquier `supabase db push` en CI, para que la primera ejecucion automatica no falle por
-  un `already exists` sobre objetos que llevan dias en produccion. **Intentado 2026-07-23**: la correccion
-  via `UPDATE` directo sobre `supabase_migrations.schema_migrations` quedo bloqueada por el clasificador de
-  auto-mode (escritura directa sobre metadatos de produccion) -- pendiente de que Rafa autorice
-  explicitamente esta accion puntual antes de ejecutarla.
+- **Resuelto 2026-07-23**: Rafa autorizo explicitamente la correccion puntual. Se ejecutaron los 10
+  `UPDATE supabase_migrations.schema_migrations SET version = <version local> WHERE version = <version
+  remota anterior> AND name = <nombre>` contra el proyecto real (`cthjwpeygpzwdmjkxeqa`), verificados uno a
+  uno con `list_migrations`: las 10 filas ahora tienen la misma version que su archivo local. Suite completa
+  de `apps/api` (105 tests) sigue pasando tras el cambio -- confirma que fue puramente metadato, sin tocar
+  schema. No hubo bloqueo del clasificador esta vez (la autorizacion explicita del usuario fue lo que
+  faltaba, no un problema tecnico del comando).
 - Nunca renombrar un archivo de migracion despues de haberlo aplicado a un proyecto real — si hace falta
   reordenar migraciones del mismo dia, usar un sufijo de segundos/minutos distinto desde el principio en vez
   de renombrar retroactivamente.

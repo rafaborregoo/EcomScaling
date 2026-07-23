@@ -7,7 +7,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
-import { Button, Input } from "@ecomscaling/ui";
+import { Button, Input } from "@/components/ui";
 
 type ShopifyMetrics = {
   organization_id: string;

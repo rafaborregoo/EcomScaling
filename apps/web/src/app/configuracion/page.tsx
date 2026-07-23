@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, Banner, Button, Card, Field, Input, LoadingBlock, Select, Tabs } from "@ecomscaling/ui";
+import { Badge, Banner, Button, Card, Field, Input, LoadingBlock, Select, Tabs } from "@/components/ui";
 
 type ShopifyOverviewLite = {
   authorized_scopes: string[];

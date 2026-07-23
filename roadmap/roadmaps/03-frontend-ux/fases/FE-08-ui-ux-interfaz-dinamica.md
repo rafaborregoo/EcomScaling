@@ -34,7 +34,9 @@ negocio y a los objetivos de cada organizacion, con la IA integrada en la superf
 
 ## Arquitectura actual (resumen — detalle en el codigo, no aqui)
 
-- Design system "Libro Mayor" v2 en `packages/ui` + tokens en `globals.css`.
+- Design system HeroUI v3 (`@heroui/react`) desde 2026-07-23, catalogo en `apps/web/src/components/ui/`
+  y tokens en `globals.css` — reemplaza "Libro Mayor v2"/`packages/ui` (eliminado). Ver
+  [`ADR-0015-heroui-design-system.md`](../../../../docs/decisions/ADR-0015-heroui-design-system.md).
 - Shell (`portal-shell.tsx`) con navegacion por rol (ADR-0009) y contexto global de
   cliente/tienda activos (ADR-0010).
 - Cache de bootstrap en memoria en el shell para no remontar todo el chrome en cada

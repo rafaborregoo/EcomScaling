@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Drawer } from "@heroui/react";
 import { apiFetch } from "@/lib/bootstrap";
+import { Button, Input } from "@/components/ui";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type ChatSource = { kind: string; reference: string; period: string | null };
@@ -24,7 +26,6 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
   const [error, setError] = useState<string | null>(null);
   const [lastSources, setLastSources] = useState<ChatSource[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   // Nueva conversacion al cambiar de cliente activo.
   useEffect(() => {
@@ -38,39 +39,8 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    const input = panel.querySelector<HTMLInputElement>("input");
-    input?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusable = Array.from(
-        panel.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), textarea:not([disabled])',
-        ),
-      );
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    panel.addEventListener("keydown", handleKeyDown);
-    return () => panel.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  // Foco inicial, atrapado de foco y cierre con Escape ya los da el Drawer
+  // (React Aria Modal) -- antes se manejaban a mano aqui.
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -109,78 +79,68 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
   }
 
   return (
-    <div
-      id="copilot-panel"
-      ref={panelRef}
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-line bg-white shadow-2xl"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="copilot-panel-title"
-    >
-      <div className="flex items-center justify-between border-b border-line px-5 py-4">
-        <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-brand">Copiloto</p>
-          <p id="copilot-panel-title" className="font-display text-xl">Pregunta sobre este negocio</p>
-        </div>
-        <button
-          className="text-sm text-muted transition hover:text-black"
-          type="button"
-          onClick={onClose}
-          aria-label="Cerrar copiloto"
-        >
-          Cerrar
-        </button>
-      </div>
+    <Drawer isOpen onOpenChange={(open) => !open && onClose()}>
+      <Drawer.Backdrop>
+        <Drawer.Content placement="right" className="w-full max-w-md">
+          <Drawer.Dialog id="copilot-panel">
+            <Drawer.Header>
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-brand">Copiloto</p>
+              <Drawer.Heading>Pregunta sobre este negocio</Drawer.Heading>
+              <Drawer.CloseTrigger aria-label="Cerrar copiloto" />
+            </Drawer.Header>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-4" aria-live="polite" aria-busy={isSending}>
-        {messages.length === 0 ? (
-          <p className="text-sm text-muted">
-            Pregunta lo que quieras sobre las métricas o la metodología de este cliente. Responde solo con datos
-            reales del sistema y cita las fuentes.
-          </p>
-        ) : (
-          messages.map((message, index) => (
-            <div key={index}>
-              <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">
-                {message.role === "user" ? "Tú" : "Copiloto"}
-              </p>
-              <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-            </div>
-          ))
-        )}
-        {isSending ? <p className="text-sm text-muted">Pensando...</p> : null}
-        {error ? <p className="text-sm text-brand" role="alert">{error}</p> : null}
-        {!isSending && lastSources.length > 0 ? (
-          <div className="border-t border-line pt-2">
-            <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">Fuentes</p>
-            <ul className="mt-1 space-y-0.5">
-              {lastSources.map((source, index) => (
-                <li key={index} className="text-xs text-muted">
-                  {source.reference}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </div>
+            <Drawer.Body>
+              <div ref={scrollRef} className="space-y-4" aria-live="polite" aria-busy={isSending}>
+                {messages.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    Pregunta lo que quieras sobre las métricas o la metodología de este cliente. Responde solo con
+                    datos reales del sistema y cita las fuentes.
+                  </p>
+                ) : (
+                  messages.map((message, index) => (
+                    <div key={index}>
+                      <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">
+                        {message.role === "user" ? "Tú" : "Copiloto"}
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                    </div>
+                  ))
+                )}
+                {isSending ? <p className="text-sm text-muted">Pensando...</p> : null}
+                {error ? <p className="text-sm text-brand" role="alert">{error}</p> : null}
+                {!isSending && lastSources.length > 0 ? (
+                  <div className="border-t border-line pt-2">
+                    <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">Fuentes</p>
+                    <ul className="mt-1 space-y-0.5">
+                      {lastSources.map((source, index) => (
+                        <li key={index} className="text-xs text-muted">
+                          {source.reference}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            </Drawer.Body>
 
-      <form className="flex items-center gap-2 border-t border-line px-5 py-3" onSubmit={submit}>
-        <input
-          aria-label="Pregunta para el copiloto"
-          className="w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder="Ej: ¿cuánto hemos vendido esta semana?"
-          disabled={isSending}
-        />
-        <button
-          className="bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
-          type="submit"
-          disabled={isSending || !input.trim()}
-        >
-          Enviar
-        </button>
-      </form>
-    </div>
+            <Drawer.Footer>
+              <form className="flex w-full items-center gap-2" onSubmit={submit}>
+                <Input
+                  className="w-full"
+                  aria-label="Pregunta para el copiloto"
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder="Ej: ¿cuánto hemos vendido esta semana?"
+                  disabled={isSending}
+                />
+                <Button type="submit" disabled={isSending || !input.trim()}>
+                  Enviar
+                </Button>
+              </form>
+            </Drawer.Footer>
+          </Drawer.Dialog>
+        </Drawer.Content>
+      </Drawer.Backdrop>
+    </Drawer>
   );
 }

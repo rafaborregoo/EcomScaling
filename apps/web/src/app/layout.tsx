@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Toast } from "@heroui/react";
 import "./globals.css";
 
 // Una sola fuente estandar para todo el portal (titulares, cuerpo y cifras).
@@ -22,6 +23,7 @@ export default function RootLayout({
     <html lang="es" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         {children}
+        <Toast.Provider />
       </body>
     </html>
   );

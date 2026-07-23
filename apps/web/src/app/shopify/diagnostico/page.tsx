@@ -8,7 +8,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { type BootstrapResponse } from "@/lib/bootstrap";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
-import { Pagination, Tabs } from "@ecomscaling/ui";
+import { Pagination, Tabs } from "@/components/ui";
 
 const syncBlockLabels: Record<"catalog" | "inventory" | "orders" | "refunds" | "customers", string> = {
   catalog: "Catalogo",

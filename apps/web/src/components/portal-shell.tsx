@@ -12,7 +12,7 @@ import {
   type BootstrapResponse,
 } from "@/lib/bootstrap";
 import { supabase } from "@/lib/supabase";
-import { Combobox, ErrorBlock, LoadingBlock } from "@ecomscaling/ui";
+import { Avatar, Breadcrumbs, Button, Combobox, ConfirmDialog, ErrorBlock, LoadingBlock } from "@/components/ui";
 import {
   ACTIVE_ORGANIZATION_STORAGE_KEY,
   ActiveOrganizationContext,
@@ -375,17 +375,30 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
 
   const accountBlock = (
     <div className="border-t border-line pt-5 text-sm text-muted">
-      <p className="truncate text-black">{bootstrap.profile.full_name ?? bootstrap.user.email}</p>
-      <p className="mt-1 font-mono text-xs text-brand">
-        {formatRole(bootstrap.profile.platform_role)}
-      </p>
-      <button
-        className="mt-4 w-full border border-edge px-3 py-2 text-left text-sm text-black transition hover:border-brand hover:text-brand"
-        type="button"
-        onClick={signOut}
-      >
-        Cerrar sesión
-      </button>
+      <div className="flex items-center gap-3">
+        <Avatar name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"} size="sm" color="accent" />
+        <div className="min-w-0">
+          <p className="truncate text-black">{bootstrap.profile.full_name ?? bootstrap.user.email}</p>
+          <p className="mt-0.5 font-mono text-xs text-brand">
+            {formatRole(bootstrap.profile.platform_role)}
+          </p>
+        </div>
+      </div>
+      <ConfirmDialog
+        trigger={
+          <Button
+            variant="secondary"
+            className="mt-4 block w-full border border-edge px-3 py-2 text-left text-sm text-black transition hover:border-brand hover:text-brand"
+          >
+            Cerrar sesión
+          </Button>
+        }
+        title="Cerrar sesión"
+        description="Vas a salir de tu cuenta en este dispositivo."
+        confirmLabel="Cerrar sesión"
+        status="default"
+        onConfirm={signOut}
+      />
     </div>
   );
 
@@ -429,6 +442,9 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
         </aside>
 
         <section className="min-w-0">
+          <div className="hidden border-b border-line px-6 py-3 lg:block lg:px-10">
+            <Breadcrumbs items={[{ label: eyebrow, href: "/dashboard" }, { label: title }]} />
+          </div>
           {/* Mini barra de contexto: solo se muestra si hay algo que seleccionar
               (cliente activo o tienda). El indicador de rol/estado se quito por no
               aportar nada al usuario. */}

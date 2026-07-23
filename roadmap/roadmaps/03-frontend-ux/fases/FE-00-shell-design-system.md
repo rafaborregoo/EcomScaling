@@ -98,6 +98,27 @@
   color; aplicar la regla de "titulos discretos" a paginas existentes cuando se toquen por otro motivo (no
   en una pasada masiva).
 
+### Resuelto 2026-07-23 (reemplazo completo a HeroUI v3)
+
+Peticion directa de Rafa: `packages/ui` ("Libro Mayor v2") se elimino del monorepo y se reemplazo por
+HeroUI v3 (`@heroui/react`) como sistema de componentes de `apps/web`, via un catalogo nuevo en
+`apps/web/src/components/ui/`. Detalle completo, decisiones y excepciones documentadas en
+[`ADR-0015-heroui-design-system.md`](../../../../docs/decisions/ADR-0015-heroui-design-system.md).
+
+Bug real encontrado y corregido durante la migracion: `@import "@heroui/react/styles"` en `globals.css`
+resolvia a un placeholder casi vacio (el resolvedor de CSS de Next.js/Turbopack no sigue la condicion
+`"style"` del exports map de `@heroui/styles`) -- los componentes se montaban en React con las clases
+correctas pero sin ningun estilo visual. Fix: `@import "@heroui/styles/css"`. Verificado en navegador real
+con login real: `getComputedStyle(document.documentElement).getPropertyValue('--accent')` devuelve
+`#1d4ed8` (antes vacio), capturas confirman botones/tabs/alerts con el estilo real de HeroUI en
+`/dashboard`, `/tareas`, `/configuracion`, `/consultor`.
+
+Migrado tambien: `CopilotPanel` (boton flotante A09) de un panel lateral hecho a mano a `Drawer` real de
+HeroUI (foco atrapado y cierre con Escape ya no se reimplementan a mano); `ConfirmDangerDialog` (borrado
+de cliente/tienda con "escribe el nombre para confirmar") de un modal hecho a mano a `Modal` real.
+`Toast.Provider` global anadido en `layout.tsx`, primer uso real en el guardado de documentos de
+`/conocimiento`.
+
 ## Objetivo
 
 Un unico sistema visual y de shell compartido por los tres roles (cliente, consultor, `platform_admin`),
@@ -125,13 +146,16 @@ sin apps ni paletas separadas — la separacion es de capacidades (ver ADR-0009)
 (ADR-0009), banda superior de avisos (`AccountAction`, catalogo cerrado en `@ecomscaling/contracts`),
 cache de bootstrap en memoria, panel del copiloto (A09) como boton flotante global.
 
-## Catalogo de componentes (`packages/ui/src/components/`, un archivo por componente desde 2026-07-23)
+## Catalogo de componentes (`apps/web/src/components/ui/`, HeroUI v3 desde 2026-07-23)
 
-`Button`, `Card` (alias `Section`), `Stat`, `Badge`, `Banner`, `Field`/`Input`/`Select`/`Textarea`,
-`LoadingBlock`/`ErrorBlock`/`EmptyState`, `SyncStateBadge`, `Tabs`, `Pagination`, `Combobox` (con
-navegacion por teclado ARIA `listbox` desde 2026-07-22, sin sombra desde 2026-07-23). `index.tsx` es un
-barrel de reexport, no el catalogo en si. Sin Storybook ni pagina `/ui` de referencia visual todavia — este
-listado es la unica fuente de verdad del catalogo real por ahora.
+`packages/ui` ya no existe. El catalogo vive en `apps/web/src/components/ui/` sobre `@heroui/react`, con
+wrappers propios donde habia comportamiento que preservar (`Button`, `Card`, `Badge`, `Banner`, `Field`,
+`Input`, `Select` (nativo, excepcion documentada), `Textarea`, `LoadingBlock`, `ErrorBlock`, `EmptyState`,
+`Tabs`, `Pagination`, `Combobox` (sin cambios de comportamiento, excepcion documentada), `Autocomplete`,
+`ConfirmDialog`, `Checkbox`, `Avatar`, `Breadcrumbs`, `NotificationBadge`) y re-exports directos de HeroUI
+para el resto (`Dropdown`, `Modal`, `Drawer`, `Toast`, `Table`, `Tooltip`, `ListBox`, etc. -- lista
+completa en [`ADR-0015`](../../../../docs/decisions/ADR-0015-heroui-design-system.md)). `index.ts` es el
+barrel; sin Storybook ni pagina `/ui` de referencia visual todavia.
 
 ## Criterios de cierre
 

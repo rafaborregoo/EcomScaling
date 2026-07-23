@@ -7,15 +7,13 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { cn } from "./cn.js";
+import { cn } from "./cn";
 
-// Combobox: selector personalizado (boton + panel) para reemplazar el
-// <select> nativo donde el contexto importa (cliente activo, tienda activa).
-// Mismo lenguaje tipografico que Field (kicker mono uppercase + valor
-// subrayado), panel plano con separadores de linea, sin sombras: la
-// separacion del panel respecto al fondo la da el borde + blanco solido, no
-// una sombra (ver ADR-0013 -- se quito una sombra dura que sobrevivio a la
-// auditoria de FE-00).
+// Se conserva tal cual (sin reescribir a HeroUI ComboBox): tiene logica de
+// teclado/ARIA propia recien auditada con axe-core y verificada en navegador
+// real esta misma semana (ver FE-00, 2026-07-23). Migrar a la version
+// compound de HeroUI ComboBox es un cambio de comportamiento, no solo de
+// estilo -- fuera de alcance de este primer pase (ver plan de migracion).
 export type ComboboxOption = { value: string; label: string; hint?: string };
 
 export function Combobox({
@@ -44,9 +42,6 @@ export function Combobox({
     triggerRef.current?.focus();
   }
 
-  // Navegacion por teclado tipo listbox (flechas mueven el foco entre
-  // opciones, Home/End saltan a los extremos, Escape cierra y devuelve el
-  // foco al trigger).
   function focusOption(index: number) {
     const clamped = Math.max(0, Math.min(index, options.length - 1));
     optionRefs.current[clamped]?.focus();

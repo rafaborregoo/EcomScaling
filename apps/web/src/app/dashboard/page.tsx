@@ -6,7 +6,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { EmptyState, Tabs } from "@ecomscaling/ui";
+import { EmptyState, Tabs } from "@/components/ui";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 
 type DashboardTab = "todo" | "shopify" | "meta" | "klaviyo";

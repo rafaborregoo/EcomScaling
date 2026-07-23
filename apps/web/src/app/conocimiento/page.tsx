@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
-import { Button, Field, Input, Select, Textarea } from "@ecomscaling/ui";
+import { Accordion, Button, Field, Input, Select, Textarea, toast } from "@/components/ui";
 
 type KnowledgeDocument = {
   id: string;
@@ -51,7 +51,6 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [content, setContent] = useState("");
   const [visibility, setVisibility] = useState<"organization" | "global">("organization");
   const [isSaving, setIsSaving] = useState(false);
-  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [matches, setMatches] = useState<KnowledgeMatch[] | null>(null);
@@ -84,7 +83,6 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   async function ingestDocument(documentTitle: string, documentContent: string, sourceType: string) {
     setIsSaving(true);
-    setSaveFeedback(null);
 
     const targetPath =
       visibility === "global"
@@ -102,13 +100,15 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     });
 
     if (!response.ok) {
-      setSaveFeedback(await readApiError(response));
+      toast.danger(await readApiError(response));
       setIsSaving(false);
       return false;
     }
 
     const payload = (await response.json()) as { chunk_count: number };
-    setSaveFeedback(`"${documentTitle}" ingerido (${payload.chunk_count} fragmentos indexados).`);
+    toast.success(`"${documentTitle}" ingerido`, {
+      description: `${payload.chunk_count} fragmentos indexados`,
+    });
     setIsSaving(false);
     void loadDocuments();
     return true;
@@ -120,7 +120,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     const text = await file.text();
 
     if (!text.trim()) {
-      setSaveFeedback(`"${file.name}" esta vacio o no es un archivo de texto.`);
+      toast.danger(`"${file.name}" esta vacio o no es un archivo de texto.`);
       return;
     }
 
@@ -132,7 +132,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     event.preventDefault();
 
     if (!title.trim() || !content.trim()) {
-      setSaveFeedback("Título y contenido son obligatorios.");
+      toast.danger("Título y contenido son obligatorios.");
       return;
     }
 
@@ -221,33 +221,38 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ) : null}
           </div>
 
-          {saveFeedback ? <p className="mt-3 text-sm text-muted">{saveFeedback}</p> : null}
 
-          <details className="mt-5 border-t border-line pt-3">
-            <summary className="cursor-pointer text-sm text-muted transition hover:text-black">
-              O pega el texto a mano
-            </summary>
-            <form className="mt-3 space-y-4" onSubmit={submitDocument}>
-              <Field label="Título">
-                <Input
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="Ej: Playbook de reposición de stock"
-                />
-              </Field>
-              <Field label="Contenido">
-                <Textarea
-                  className="mt-1 h-40"
-                  value={content}
-                  onChange={(event) => setContent(event.target.value)}
-                  placeholder="Pega aquí la metodología, guía o proceso..."
-                />
-              </Field>
-              <Button type="submit" disabled={isSaving}>
-                Ingerir texto
-              </Button>
-            </form>
-          </details>
+          <Accordion
+            className="mt-5 border-t border-line pt-3"
+            items={[
+              {
+                id: "paste-form",
+                title: "O pega el texto a mano",
+                content: (
+                  <form className="space-y-4" onSubmit={submitDocument}>
+                    <Field label="Título">
+                      <Input
+                        value={title}
+                        onChange={(event) => setTitle(event.target.value)}
+                        placeholder="Ej: Playbook de reposición de stock"
+                      />
+                    </Field>
+                    <Field label="Contenido">
+                      <Textarea
+                        className="mt-1 h-40"
+                        value={content}
+                        onChange={(event) => setContent(event.target.value)}
+                        placeholder="Pega aquí la metodología, guía o proceso..."
+                      />
+                    </Field>
+                    <Button type="submit" disabled={isSaving}>
+                      Ingerir texto
+                    </Button>
+                  </form>
+                ),
+              },
+            ]}
+          />
         </section>
 
         <section className="border-t border-ink/20 pt-5">

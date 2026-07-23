@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Button, Field, Input, LoadingBlock, Select, Textarea } from "@ecomscaling/ui";
+import { Button, Field, Input, LoadingBlock, Select, Textarea } from "@/components/ui";
 
 type CallTranscript = {
   id: string;

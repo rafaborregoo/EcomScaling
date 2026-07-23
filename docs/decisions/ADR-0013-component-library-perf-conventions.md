@@ -1,7 +1,11 @@
 # ADR-0013: Componentes separados por archivo, sin sombras/adornos, paginación con memoria de posición, y disciplina de carga de datos
 
 - **Fecha:** 2026-07-23
-- **Estado:** Aprobada
+- **Estado:** Aprobada. **Parcialmente sustituida** el mismo día por
+  [`ADR-0015-heroui-design-system.md`](ADR-0015-heroui-design-system.md): `packages/ui` (la sección 1,
+  "un componente, un archivo") ya no existe, reemplazado por `apps/web/src/components/ui/` sobre HeroUI
+  v3. Las secciones 3, 4 y 5 (títulos discretos, paginación con memoria de posición vía URL, disciplina
+  de carga de datos) siguen vigentes sin cambios.
 - **Relacionada:** [`FE-00-shell-design-system.md`](../../roadmap/roadmaps/03-frontend-ux/fases/FE-00-shell-design-system.md) (filosofía visual "Libro Mayor" v2, que esta decisión refuerza y corrige en dos puntos concretos), [`ADR-0010-global-client-store-context.md`](ADR-0010-global-client-store-context.md) (mismo patrón de URL-como-fuente-de-verdad que se reutiliza aquí para paginación)
 
 ## Contexto

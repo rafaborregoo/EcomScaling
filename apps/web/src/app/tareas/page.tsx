@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, Button, Input, LoadingBlock, Pagination, Select } from "@ecomscaling/ui";
+import { Badge, Button, Input, LoadingBlock, Pagination, Select } from "@/components/ui";
 
 const TASKS_PAGE_SIZE = 20;
 

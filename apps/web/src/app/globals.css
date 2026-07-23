@@ -1,14 +1,62 @@
-@import "tailwindcss";
+/* @heroui/react/styles resuelve, via el paquete @heroui/react, a un archivo
+   placeholder que re-exporta @heroui/styles usando la condicion "style" del
+   exports map -- el resolver de CSS de Next.js/Turbopack no pide esa
+   condicion (usa node/import), asi que ese import se quedaba en un .js vacio
+   y el CSS real de HeroUI nunca llegaba al navegador (bug real encontrado y
+   verificado en vivo el 2026-07-23, ver FE-00). El subpath "/css" resuelve
+   directo a la hoja de estilos via la condicion "default", que si alcanza.
+   Este archivo ya incluye "@import tailwindcss" internamente (arquitectura
+   de capas @layer theme, base, components, utilities de HeroUI v3), asi que
+   no se importa tailwindcss por separado para evitar declarar la capa dos
+   veces. */
+@import "@heroui/styles/css";
 
-/* Design system v1 (FE-08 Bloque A).
-   Tokens centralizados: las paginas usan utilidades semanticas (text-brand,
-   border-edge, bg-surface...) en lugar de hex ad-hoc. Cambiar la identidad
-   visual = cambiar este archivo. */
-@source "../../../../packages/ui/src";
+/* Design system: HeroUI v3 (reemplaza "Libro Mayor v2" desde 2026-07-23).
+   Los tokens de marca se definen sobre las variables CSS que expone HeroUI
+   (--accent, --danger, --warning, --success) en vez de un plugin propio. */
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Marca: azul EcomScaling mapeado al token de acento de HeroUI (antes
+     --color-brand propio, migrado 2026-07-23). */
+  --accent: #1d4ed8;
+  --accent-hover: #1e3a8a;
+  --accent-foreground: #ffffff;
+
+  --danger: #dc2626;
+  --warning: #856400;
+  --success: #1a7f37;
+
+  /* Radio recto ya validado (auditoria de accesibilidad 2026-07-23); HeroUI
+     usa por defecto radios grandes (rounded-3xl) que no se adoptan aqui. */
+  --radius: 0.375rem;
+}
+
+@theme {
+  /* Tokens heredados de "Libro Mayor v2": 16 archivos de apps/web todavia los
+     usan como clases Tailwind directas (bg-surface, border-edge, text-brand...)
+     fuera de los componentes ya migrados a HeroUI. Se mantienen mientras dura
+     la migracion completa y se retiran en una pasada final aparte. */
+  --color-brand: #1d4ed8;
+  --color-brand-bright: #3b82f6;
+  --color-brand-deep: #1e3a8a;
+  --color-brand-tint: #f5f8ff;
+
+  --color-ink: #171717;
+  --color-muted: #5f5f5f;
+  --color-edge: #d8d8d8;
+  --color-edge-strong: #cfcfcf;
+  --color-line: #e2e2e2;
+  --color-surface: #fafafa;
+
+  --color-success: #1a7f37;
+  --color-warn: #e0a800;
+  --color-warn-deep: #856400;
+  --color-warn-tint: #fffaf0;
+
+  --radius-card: 0.375rem;
 }
 
 @theme inline {
@@ -18,32 +66,6 @@
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-}
-
-@theme {
-  /* Marca: azul EcomScaling sobre base negro/blanco (cambio 2026-07-23, antes rojo) */
-  --color-brand: #1d4ed8;
-  --color-brand-bright: #3b82f6;
-  --color-brand-deep: #1e3a8a;
-  --color-brand-tint: #f5f8ff;
-
-  /* Neutros */
-  --color-ink: #171717;
-  --color-muted: #5f5f5f;
-  --color-edge: #d8d8d8;
-  --color-edge-strong: #cfcfcf;
-  --color-line: #e2e2e2;
-  --color-surface: #fafafa;
-
-  /* Estado */
-  --color-success: #1a7f37;
-  --color-warn: #e0a800;
-  /* warn-deep oscurecido para alcanzar contraste AA (>=4.5:1) sobre blanco. */
-  --color-warn-deep: #856400;
-  --color-warn-tint: #fffaf0;
-
-  /* Radios y sombras consistentes */
-  --radius-card: 0.375rem;
 }
 
 body {
@@ -84,4 +106,26 @@ body {
 .font-display {
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+/* Alert de HeroUI reestilado al lenguaje editorial "Libro Mayor": regla
+   lateral de color, sin caja rellena ni sombra (en vez del look por defecto
+   con fondo de color solido). Usado por Banner y ErrorBlock
+   (apps/web/src/components/ui). */
+@layer components {
+  .alert {
+    @apply rounded-none border-0 border-l-2 bg-transparent py-0.5 pl-3 text-sm leading-6 shadow-none;
+  }
+
+  .alert--danger {
+    @apply border-danger text-danger;
+  }
+
+  .alert--warning {
+    @apply border-warning text-warning;
+  }
+
+  .alert--success {
+    @apply border-success text-success;
+  }
 }

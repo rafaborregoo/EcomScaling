@@ -5,7 +5,19 @@ import { Fragment, type FormEvent, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
-import { Button, EmptyState, ErrorBlock, Field, Input, LoadingBlock, Select } from "@ecomscaling/ui";
+import {
+  Avatar,
+  Button,
+  Checkbox,
+  Dropdown,
+  EmptyState,
+  ErrorBlock,
+  Field,
+  Input,
+  Label,
+  LoadingBlock,
+  Select,
+} from "@/components/ui";
 import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
 
 const ORGANIZATION_STATUSES = ["onboarding", "active", "suspended", "cancelled"] as const;
@@ -212,10 +224,11 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
                 ))}
               </Select>
             </Field>
-            <label className="flex items-center gap-2 pb-2 text-sm">
-              <input type="checkbox" checked={isPrimary} onChange={(event) => setIsPrimary(event.target.checked)} />
-              Principal
-            </label>
+            <div className="pb-2">
+              <Checkbox checked={isPrimary} onChange={setIsPrimary}>
+                Principal
+              </Checkbox>
+            </div>
             <Button type="submit" disabled={isSaving || !consultantUserId}>Guardar</Button>
           </form>
           {consultantProfiles.length === 0 ? <p className="mt-2 text-xs text-muted">No hay perfiles activos con rol de consultor.</p> : null}
@@ -489,22 +502,29 @@ function StoresPanel({
               {isRestoringOrg ? "Restaurando..." : "Restaurar cliente"}
             </button>
           ) : (
-            <>
-              <button
-                type="button"
-                className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-                onClick={() => setIsEditing((current) => !current)}
-              >
-                {isEditing ? "Cerrar edicion" : "Editar cliente"}
-              </button>
-              <button
-                type="button"
-                className="text-xs font-medium text-brand underline decoration-transparent underline-offset-4 transition hover:decoration-brand"
-                onClick={() => setConfirmDeleteOrg(true)}
-              >
-                Borrar cliente entero
-              </button>
-            </>
+            <Dropdown>
+              <Button variant="secondary" size="sm">
+                Acciones rápidas
+              </Button>
+              <Dropdown.Popover>
+                <Dropdown.Menu
+                  onAction={(key) => {
+                    if (key === "edit") {
+                      setIsEditing((current) => !current);
+                    } else if (key === "delete") {
+                      setConfirmDeleteOrg(true);
+                    }
+                  }}
+                >
+                  <Dropdown.Item id="edit" textValue={isEditing ? "Cerrar edición" : "Editar cliente"}>
+                    <Label>{isEditing ? "Cerrar edición" : "Editar cliente"}</Label>
+                  </Dropdown.Item>
+                  <Dropdown.Item id="delete" textValue="Borrar cliente entero" variant="danger">
+                    <Label>Borrar cliente entero</Label>
+                  </Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown>
           )
         ) : null}
       </div>
@@ -612,17 +632,22 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
                   <Fragment key={organization.id}>
                     <tr className="align-top">
                       <td className="px-4 py-3">
-                        <Link
-                          className="font-medium transition hover:text-brand"
-                          href="/dashboard"
-                          onClick={() => setOrganizationId(organization.id)}
-                        >
-                          {organization.display_name}
-                        </Link>
-                        <p className={organization.status === "pending_deletion" ? "text-sm text-brand" : "text-sm text-muted"}>
-                          {organization.slug} -{" "}
-                          {organization.status === "pending_deletion" ? "borrado en 30 dias" : organization.status}
-                        </p>
+                        <div className="flex items-center gap-3">
+                          <Avatar name={organization.display_name} size="sm" />
+                          <div>
+                            <Link
+                              className="font-medium transition hover:text-brand"
+                              href="/dashboard"
+                              onClick={() => setOrganizationId(organization.id)}
+                            >
+                              {organization.display_name}
+                            </Link>
+                            <p className={organization.status === "pending_deletion" ? "text-sm text-brand" : "text-sm text-muted"}>
+                              {organization.slug} -{" "}
+                              {organization.status === "pending_deletion" ? "borrado en 30 dias" : organization.status}
+                            </p>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <button

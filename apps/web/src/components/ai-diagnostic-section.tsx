@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { useActiveConnection } from "@/components/active-connection";
-import { Button } from "@ecomscaling/ui";
+import { Button } from "@/components/ui";
 
 type Finding = { title: string; severity: "info" | "low" | "medium" | "high" | "critical"; evidence: string };
 type Recommendation = {
