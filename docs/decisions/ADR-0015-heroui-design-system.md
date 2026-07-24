@@ -51,9 +51,14 @@ Se usan **tal cual la documentación oficial de HeroUI v3** (compound components
 
 ### Excepciones documentadas (no todo se migró a compound components de HeroUI)
 
-- **`Select`**: sigue siendo un `<select>` nativo estilado con los tokens de HeroUI, no el `Select`
-  compound de HeroUI (`Select.Trigger`/`Select.Popover`/`ListBox.Item`). Migrar cada uso exigiría
-  reescribir cada `<option>` como `ListBox.Item` en 6 archivos — no se hizo en el primer pase.
+- **`Select`**: migrado 2026-07-23 al `Select` compound real de HeroUI (`Select.Trigger`/`Select.Popover`/
+  `ListBox.Item`) en los 9 usos de 6 archivos (`configuracion`, `conocimiento`, `tareas` x2, `consultor`
+  x4, `integraciones`, `llamadas`). El wrapper (`apps/web/src/components/ui/select.tsx`) expone
+  `options: {value,label}[]` en vez de children `<option>`, y `onChange(value: string)` en vez de un
+  evento. Nota de accesibilidad real encontrada: los usos envueltos en `Field` (un `<label>` que envuelve
+  el control) dejaron de tener nombre accesible al pasar de `<select>` nativo (donde el `<label>` que
+  envuelve asocia automaticamente) a un `<button>` de disparo (donde no asocia) — se añadio `aria-label`
+  explicito en cada uso para no perder el nombre accesible.
 - **`Combobox`**: se mantuvo la implementación propia (teclado/ARIA manual) sin cambios, porque tiene
   lógica de accesibilidad recién auditada con axe-core y verificada en navegador real la misma semana
   (ver FE-00). Migrar a `ComboBox`/`Autocomplete` de HeroUI es un cambio de comportamiento, no solo de

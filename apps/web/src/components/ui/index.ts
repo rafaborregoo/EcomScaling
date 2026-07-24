@@ -26,10 +26,13 @@ export type { AutocompleteOption } from "./autocomplete";
 export { Autocomplete } from "./autocomplete";
 export { ConfirmDialog } from "./confirm-dialog";
 export { Checkbox } from "./checkbox";
+export { Link } from "./link";
+export { Heading } from "./heading";
 
 // Re-exportados directos de HeroUI (sin API propia que preservar -- sin uso
 // existente que migrar hoy, se usan tal cual documenta HeroUI).
 export {
+  Alert,
   ButtonGroup,
   Calendar,
   CheckboxGroup,
@@ -49,13 +52,14 @@ export {
   ErrorMessage,
   Label,
   Description,
-  Link,
   ListBox,
   Meter,
   Modal,
   NumberField,
   Popover,
+  ProgressBar,
   ProgressCircle,
+  Slider,
   Radio,
   RadioGroup,
   RangeCalendar,
@@ -71,4 +75,5 @@ export {
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
+  Typography,
 } from "@heroui/react";

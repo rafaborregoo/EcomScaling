@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Button, Field, Input, LoadingBlock, Select } from "@/components/ui";
+import { Heading, Badge, Banner, Button, ErrorBlock, Field, Input, Label, LoadingBlock, Radio, RadioGroup, Select } from "@/components/ui";
 
 type IntegrationProvider = {
   id: string;
@@ -215,7 +215,7 @@ function IntegrationsList({
   }
 
   if (error) {
-    return <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">{error}</div>;
+    return <ErrorBlock>{error}</ErrorBlock>;
   }
 
   if (!payload) {
@@ -225,14 +225,14 @@ function IntegrationsList({
   return (
     <div className="space-y-4">
       {!payload.schema_ready ? (
-        <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">
+        <Banner tone="danger">
           No se pudo cargar el estado de las integraciones ahora mismo. Reintenta en unos minutos o
           contacta con soporte si sigue igual.
-        </div>
+        </Banner>
       ) : null}
 
       <section className="border-t border-ink/20 pt-5">
-        <h2 className="font-display text-2xl">Conectar Shopify</h2>
+        <Heading size="lg">Conectar Shopify</Heading>
         <p className="mt-2 text-sm leading-6 text-muted">
           Introduce el dominio <span className="font-mono">*.myshopify.com</span> de la tienda.
           La URL de admin de Shopify no sirve como callback OAuth.
@@ -278,53 +278,42 @@ function IntegrationsList({
         <div className="mt-4">
           <Field label="Organización">
             <Select
+              aria-label="Organización"
               value={organization?.id ?? ""}
-              onChange={(event) => {
-                setSelectedOrganizationId(event.target.value);
+              onChange={(value) => {
+                setSelectedOrganizationId(value);
                 setError(null);
               }}
-            >
-              {bootstrap.memberships.map((membership) => (
-                <option key={membership.organization_id} value={membership.organization_id}>
-                  {membership.organization?.display_name ?? membership.organization_id}
-                </option>
-              ))}
-            </Select>
+              options={bootstrap.memberships.map((membership) => ({
+                value: membership.organization_id,
+                label: membership.organization?.display_name ?? membership.organization_id,
+              }))}
+            />
           </Field>
         </div>
         {payload?.shopify_custom_app_available ? (
           <div className="mt-4 flex flex-col gap-2 text-sm">
-            <span className="font-medium">App de Shopify a usar</span>
-            <div className="flex flex-wrap gap-2">
-              <label
-                className={[
-                  "flex cursor-pointer items-center gap-2 border px-3 py-2",
-                  appMode === "custom" ? "border-black bg-surface" : "border-edge-strong",
-                ].join(" ")}
-              >
-                <input
-                  type="radio"
-                  name="app-mode"
-                  checked={appMode === "custom"}
-                  onChange={() => setAppMode("custom")}
-                />
-                App personalizada (para clientes reales, ya activa)
-              </label>
-              <label
-                className={[
-                  "flex cursor-pointer items-center gap-2 border px-3 py-2",
-                  appMode === "public" ? "border-black bg-surface" : "border-edge-strong",
-                ].join(" ")}
-              >
-                <input
-                  type="radio"
-                  name="app-mode"
-                  checked={appMode === "public"}
-                  onChange={() => setAppMode("public")}
-                />
-                App publica (pendiente de revisión de Shopify)
-              </label>
-            </div>
+            <RadioGroup value={appMode} onChange={(value) => setAppMode(value as "custom" | "public")}>
+              <Label className="font-medium">App de Shopify a usar</Label>
+              <div className="flex flex-wrap gap-2">
+                <Radio value="custom">
+                  <Radio.Content>
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    App personalizada (para clientes reales, ya activa)
+                  </Radio.Content>
+                </Radio>
+                <Radio value="public">
+                  <Radio.Content>
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    App publica (pendiente de revisión de Shopify)
+                  </Radio.Content>
+                </Radio>
+              </div>
+            </RadioGroup>
             <p className="text-xs text-muted">
               Usa &quot;App personalizada&quot; para conectar tiendas reales de clientes ahora mismo. Cuando la
               app publica pase la revisión de Shopify, cambia a esa opcion para los clientes nuevos.
@@ -352,12 +341,10 @@ function IntegrationsList({
           <article key={provider.id} className="border-t border-ink/20 pt-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="font-display text-2xl">{provider.name}</h2>
+                <Heading size="lg">{provider.name}</Heading>
                 <p className="mt-1 font-mono text-xs text-brand">{provider.phase}</p>
               </div>
-              <span className="border border-brand px-2 py-1 text-xs text-brand">
-                {statusLabel(provider)}
-              </span>
+              <Badge tone="brand">{statusLabel(provider)}</Badge>
             </div>
 
             <p className="mt-4 text-sm leading-6 text-muted">{provider.description}</p>
@@ -379,24 +366,26 @@ function IntegrationsList({
                       : "Conectar Meta Ads"}
                 </Button>
               ) : (
-                <p className="mt-4 border border-edge bg-surface p-2 text-xs text-muted">
-                  La app de Meta no esta configurada en el servidor todavia (META_APP_ID/SECRET).
-                </p>
+                <div className="mt-4">
+                  <Banner tone="warn">La app de Meta no esta configurada en el servidor todavia (META_APP_ID/SECRET).</Banner>
+                </div>
               )
             ) : null}
             {!provider.available ? (
-              <div className="mt-4 border border-edge bg-surface p-3 text-xs leading-5 text-muted">
-                <p className="font-medium text-ink">Disponible más adelante</p>
-                <p className="mt-1">
-                  La interfaz ya está preparada para este conector, pero todavía no se activa porque no hay
-                  credenciales ni sincronización real configuradas. No se muestran datos simulados.
-                </p>
+              <div className="mt-4">
+                <Banner tone="warn">
+                  <span className="font-medium">Disponible más adelante.</span> La interfaz ya está preparada
+                  para este conector, pero todavía no se activa porque no hay credenciales ni sincronización
+                  real configuradas. No se muestran datos simulados.
+                </Banner>
               </div>
             ) : null}
             {integrationErrorMessage(provider) ? (
-              <div className="mt-4 border border-brand bg-brand-tint p-3 text-xs leading-5 text-brand-deep">
-                <p className="font-medium">Ultimo error</p>
-                <p className="mt-1 font-mono break-words">{integrationErrorMessage(provider)}</p>
+              <div className="mt-4">
+                <Banner tone="danger">
+                  <span className="font-medium">Ultimo error:</span>{" "}
+                  <span className="font-mono break-words">{integrationErrorMessage(provider)}</span>
+                </Banner>
               </div>
             ) : null}
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Button, Field, Input, LoadingBlock, Select, Textarea } from "@/components/ui";
+import { Heading, Accordion, Alert, Button, ErrorBlock, Field, Input, Link, LoadingBlock, Select, Textarea } from "@/components/ui";
 
 type CallTranscript = {
   id: string;
@@ -362,14 +362,9 @@ function CallDetail({
             </span>
           ) : null}
           {call.recording_url ? (
-            <a
-              className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-              href={call.recording_url}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <Link href={call.recording_url} target="_blank" rel="noreferrer">
               Ver grabacion{call.recording_provider ? ` (${call.recording_provider})` : ""}
-            </a>
+            </Link>
           ) : null}
           {isConsultant && call.status === "scheduled" ? (
             <Button size="sm" type="button" disabled={isBusy} onClick={markHeld}>
@@ -380,7 +375,7 @@ function CallDetail({
       </header>
 
       <div className="space-y-4 px-4 py-4">
-        {error ? <p className="text-sm text-brand-deep">{error}</p> : null}
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
         {publishedSummary ? (
           <section className="border border-line bg-surface p-3">
@@ -398,70 +393,79 @@ function CallDetail({
         {isConsultant ? (
           <>
             {pendingSummaries.map((summary) => (
-              <section key={summary.id} className="border border-warn p-3">
-                <p className="text-xs font-medium uppercase text-warn-deep">
-                  {summaryStatusLabels[summary.status]}
-                  {summary.run_id ? " · generado por IA (A01)" : ""}
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{summary.summary}</p>
-                <StructuredSummary summary={summary} />
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" type="button" disabled={isBusy} onClick={() => decideSummary(summary.id, "approved")}>
-                    Aprobar y publicar
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => decideSummary(summary.id, "rejected")}
-                  >
-                    Rechazar
-                  </Button>
-                </div>
-              </section>
+              <Alert key={summary.id} status="warning" className="items-start p-3">
+                <Alert.Indicator />
+                <Alert.Content className="gap-1">
+                  <Alert.Title className="text-xs uppercase">
+                    {summaryStatusLabels[summary.status]}
+                    {summary.run_id ? " · generado por IA (A01)" : ""}
+                  </Alert.Title>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-black">{summary.summary}</p>
+                  <StructuredSummary summary={summary} />
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" type="button" disabled={isBusy} onClick={() => decideSummary(summary.id, "approved")}>
+                      Aprobar y publicar
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => decideSummary(summary.id, "rejected")}
+                    >
+                      Rechazar
+                    </Button>
+                  </div>
+                </Alert.Content>
+              </Alert>
             ))}
 
-            <details className="border border-line">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-                Transcripcion {currentTranscript ? `(v${currentTranscript.version})` : "(sin transcripcion)"}
-              </summary>
-              <div className="space-y-3 border-t border-line px-3 py-3">
-                {currentTranscript ? (
-                  <p className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-ink">
-                    {currentTranscript.content}
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted">
-                    Pega la transcripcion de Loom/Fathom para que el resumen (y el futuro agente A01)
-                    tenga contexto.
-                  </p>
-                )}
-                {showTranscriptForm ? (
-                  <form className="space-y-2" onSubmit={submitTranscript}>
-                    <Textarea
-                      className="h-40"
-                      aria-label="Transcripcion de la llamada"
-                      value={transcriptDraft}
-                      onChange={(event) => setTranscriptDraft(event.target.value)}
-                      placeholder="Pega aquí la transcripcion completa..."
-                    />
-                    <Button size="sm" type="submit" disabled={isBusy || !transcriptDraft.trim()}>
-                      Guardar nueva version
-                    </Button>
-                  </form>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    type="button"
-                    onClick={() => setShowTranscriptForm(true)}
-                  >
-                    {currentTranscript ? "Reemplazar transcripcion" : "Añadir transcripcion"}
-                  </Button>
-                )}
-              </div>
-            </details>
+            <Accordion
+              className="border border-line"
+              items={[
+                {
+                  id: "transcript",
+                  title: `Transcripcion ${currentTranscript ? `(v${currentTranscript.version})` : "(sin transcripcion)"}`,
+                  content: (
+                    <div className="space-y-3">
+                      {currentTranscript ? (
+                        <p className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-ink">
+                          {currentTranscript.content}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted">
+                          Pega la transcripcion de Loom/Fathom para que el resumen (y el futuro agente A01)
+                          tenga contexto.
+                        </p>
+                      )}
+                      {showTranscriptForm ? (
+                        <form className="space-y-2" onSubmit={submitTranscript}>
+                          <Textarea
+                            className="h-40"
+                            aria-label="Transcripcion de la llamada"
+                            value={transcriptDraft}
+                            onChange={(event) => setTranscriptDraft(event.target.value)}
+                            placeholder="Pega aquí la transcripcion completa..."
+                          />
+                          <Button size="sm" type="submit" disabled={isBusy || !transcriptDraft.trim()}>
+                            Guardar nueva version
+                          </Button>
+                        </form>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          type="button"
+                          onClick={() => setShowTranscriptForm(true)}
+                        >
+                          {currentTranscript ? "Reemplazar transcripcion" : "Añadir transcripcion"}
+                        </Button>
+                      )}
+                    </div>
+                  ),
+                },
+              ]}
+            />
 
             {showSummaryForm ? (
               <form className="space-y-2 border-t border-line pt-3" onSubmit={submitSummary}>
@@ -637,7 +641,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     <div className="space-y-4">
       <section className="flex flex-wrap items-baseline justify-between gap-3 border-t border-ink/20 pt-5">
-        <h2 className="font-display text-2xl">Llamadas de consultoría</h2>
+        <Heading size="lg">Llamadas de consultoría</Heading>
         {isConsultant ? (
           <Button type="button" onClick={() => setShowCreateForm((value) => !value)}>
             {showCreateForm ? "Cerrar" : "Registrar llamada"}
@@ -656,13 +660,12 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               />
             </Field>
             <Field label="Tipo">
-              <Select value={newType} onChange={(event) => setNewType(event.target.value)}>
-                {Object.entries(callTypeLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
+              <Select
+                aria-label="Tipo"
+                value={newType}
+                onChange={setNewType}
+                options={Object.entries(callTypeLabels).map(([value, label]) => ({ value, label }))}
+              />
             </Field>
             <Field label="Enlace grabacion (Loom/Fathom, opcional)">
               <Input
@@ -675,13 +678,11 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <Button type="submit" disabled={isCreating || !newTitle.trim()}>
             {isCreating ? "Creando..." : "Crear llamada"}
           </Button>
-          {createError ? <p className="text-sm text-brand-deep">{createError}</p> : null}
+          {createError ? <ErrorBlock>{createError}</ErrorBlock> : null}
         </form>
       ) : null}
 
-      {error ? (
-        <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">{error}</div>
-      ) : null}
+      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {isLoading ? (
         <LoadingBlock label="Cargando llamadas..." />

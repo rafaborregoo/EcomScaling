@@ -16,14 +16,16 @@ const colorMap: Record<Tone, "default" | "accent" | "success" | "warning" | "dan
 export function Badge({
   tone = "neutral",
   className,
+  title,
   children,
 }: {
   tone?: Tone;
   className?: string;
+  title?: string;
   children: ReactNode;
 }) {
   return (
-    <Chip variant="soft" color={colorMap[tone]} size="sm" className={className}>
+    <Chip variant="soft" color={colorMap[tone]} size="sm" className={className} title={title}>
       {children}
     </Chip>
   );

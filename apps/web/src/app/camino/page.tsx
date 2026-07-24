@@ -4,7 +4,7 @@ import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Button, Input, LoadingBlock, Textarea } from "@/components/ui";
+import { Heading, Badge, Button, ErrorBlock, Input, LoadingBlock, ProgressBar, Textarea } from "@/components/ui";
 
 type Milestone = {
   id: string;
@@ -205,9 +205,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="space-y-4">
-      {error ? (
-        <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">{error}</div>
-      ) : null}
+      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {isLoading ? (
         <LoadingBlock label="Cargando plan..." />
@@ -231,41 +229,33 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               ) : null}
             </div>
             {totalMilestones > 0 ? (
-              <div className="mt-4">
+              <ProgressBar
+                className="mt-4"
+                value={(doneMilestones / totalMilestones) * 100}
+                aria-label="Progreso del plan"
+              >
                 <div className="flex justify-between text-xs text-muted">
                   <span>Progreso</span>
                   <span className="font-mono">
                     {doneMilestones}/{totalMilestones} hitos
                   </span>
                 </div>
-                <div className="mt-1 h-2 w-full rounded-full bg-line">
-                  <div
-                    className="h-2 rounded-full bg-black"
-                    style={{ width: `${totalMilestones ? (doneMilestones / totalMilestones) * 100 : 0}%` }}
-                  />
-                </div>
-              </div>
+                <ProgressBar.Track>
+                  <ProgressBar.Fill />
+                </ProgressBar.Track>
+              </ProgressBar>
             ) : null}
           </section>
 
           {phases.map((phase) => (
             <section key={phase.id} className="border-t border-ink/20">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-                <h4 className="font-display text-xl">
+                <Heading level={3} size="md">
                   Fase {phase.position}: {phase.name}
-                </h4>
-                <span
-                  className={[
-                    "border px-2 py-0.5 text-xs",
-                    phase.status === "active"
-                      ? "border-black bg-black text-white"
-                      : phase.status === "completed"
-                        ? "border-success text-success"
-                        : "border-edge text-muted",
-                  ].join(" ")}
-                >
+                </Heading>
+                <Badge tone={phase.status === "active" ? "brand" : phase.status === "completed" ? "success" : "neutral"}>
                   {PHASE_STATUS_LABELS[phase.status] ?? phase.status}
-                </span>
+                </Badge>
               </div>
               <div className="divide-y divide-line">
                 {phase.strategic_plan_milestones
@@ -324,7 +314,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </>
       ) : (
         <section className="border-t border-ink/20 pt-5">
-          <h2 className="font-display text-2xl">Sin plan estratégico</h2>
+          <Heading size="lg">Sin plan estratégico</Heading>
           <p className="mt-1 text-sm leading-6 text-muted">
             {canManage
               ? "Crea el primer plan: escribe el nombre y el esquema de fases e hitos."

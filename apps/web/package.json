@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "dotenv -e ../../.env.local -- next dev --port 3001",
-    "build": "next build",
+    "build": "npm run build -w @ecomscaling/contracts && next build",
     "build:local": "dotenv -e ../../.env.local -- next build",
     "start": "dotenv -e ../../.env.local -- next start --port 3001",
     "lint": "eslint",

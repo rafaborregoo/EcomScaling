@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { useActiveConnection } from "@/components/active-connection";
-import { Button } from "@/components/ui";
+import { Badge, Banner, Button, Card, ErrorBlock, Heading, LoadingBlock, type Tone } from "@/components/ui";
 
 type Finding = { title: string; severity: "info" | "low" | "medium" | "high" | "critical"; evidence: string };
 type Recommendation = {
@@ -39,12 +39,12 @@ type Diagnostic = {
   };
 };
 
-const severityDot: Record<Finding["severity"], string> = {
-  info: "bg-muted",
-  low: "bg-muted",
-  medium: "bg-warn",
-  high: "bg-brand",
-  critical: "bg-brand",
+const severityTone: Record<Finding["severity"], Tone> = {
+  info: "neutral",
+  low: "neutral",
+  medium: "warn",
+  high: "danger",
+  critical: "danger",
 };
 
 const priorityLabelsEs: Record<string, string> = {
@@ -175,7 +175,7 @@ export function AiDiagnosticSection({
     <section className="border-t border-ink/20 pt-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
         <div>
-          <h2 className="font-display text-2xl">{title}</h2>
+          <Heading size="lg">{title}</Heading>
           {diagnostic ? (
             <p className="mt-1 font-mono text-xs text-muted">
               {days ? `últimos ${days} días · ` : ""}
@@ -197,27 +197,26 @@ export function AiDiagnosticSection({
       </div>
 
       {isLoading ? (
-        <p className="mt-3 text-sm text-muted">{loadingLabel}</p>
+        <div className="mt-3">
+          <LoadingBlock label={loadingLabel} />
+        </div>
       ) : error ? (
-        <p className="mt-3 text-sm text-brand">{error}</p>
+        <div className="mt-3">
+          <ErrorBlock>{error}</ErrorBlock>
+        </div>
       ) : diagnostic ? (
-        <div className="mt-3 space-y-4">
+        <Card className="mt-3">
           <p className="text-sm leading-6">{diagnostic.output.answer}</p>
 
           {diagnostic.output.findings.length ? (
-            <div>
+            <div className="mt-4">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Hallazgos</p>
-              <ul className="mt-1.5 space-y-1.5">
+              <ul className="mt-2 space-y-2">
                 {diagnostic.output.findings.map((finding, index) => (
-                  <li key={index} className="flex items-start gap-2 text-sm">
-                    <span
-                      aria-hidden
-                      className={["mt-1.5 inline-block size-1.5 shrink-0 rounded-full", severityDot[finding.severity]].join(" ")}
-                    />
-                    <span>
-                      <span className="font-medium">{finding.title}</span>{" "}
-                      <span className="text-muted">— {finding.evidence}</span>
-                    </span>
+                  <li key={index} className="flex flex-wrap items-baseline gap-2 text-sm">
+                    <Badge tone={severityTone[finding.severity]}>{finding.severity}</Badge>
+                    <span className="font-medium">{finding.title}</span>
+                    <span className="text-muted">— {finding.evidence}</span>
                   </li>
                 ))}
               </ul>
@@ -225,9 +224,11 @@ export function AiDiagnosticSection({
           ) : null}
 
           {diagnostic.output.recommendations.length ? (
-            <div className="border-l-2 border-line pl-3">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-brand">Recomendación</p>
-              <ul className="mt-1.5 space-y-1">
+            <Card
+              className="mt-4"
+              kicker="Recomendación"
+            >
+              <ul className="space-y-1.5">
                 {diagnostic.output.recommendations.map((rec, index) => (
                   <li key={index} className="text-sm">
                     <span className="font-medium">{rec.action}</span>{" "}
@@ -237,21 +238,21 @@ export function AiDiagnosticSection({
                   </li>
                 ))}
               </ul>
-            </div>
+            </Card>
           ) : null}
 
           {diagnostic.output.warnings.length ? (
-            <div className="border-l-2 border-warn pl-3">
-              <ul className="space-y-1 text-sm text-muted">
+            <Banner tone="warn" className="mt-4">
+              <ul className="space-y-1">
                 {diagnostic.output.warnings.map((warning, index) => (
                   <li key={index}>{warning}</li>
                 ))}
               </ul>
-            </div>
+            </Banner>
           ) : null}
 
           {diagnostic.output.proposed_writes.length ? (
-            <div className="border-t border-line pt-3">
+            <div className="mt-4 border-t border-line pt-3">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
                 {diagnostic.output_status === "pending_approval" ? "Propuesta, sin aplicar" : "Propuesta ya revisada"}
               </p>
@@ -271,9 +272,9 @@ export function AiDiagnosticSection({
               </div>
             </div>
           ) : tasksFeedback ? (
-            <p className="text-sm text-muted">{tasksFeedback}</p>
+            <p className="mt-4 text-sm text-muted">{tasksFeedback}</p>
           ) : null}
-        </div>
+        </Card>
       ) : null}
     </section>
   );

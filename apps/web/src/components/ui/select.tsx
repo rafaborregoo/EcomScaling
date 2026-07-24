@@ -1,15 +1,53 @@
 "use client";
 
-import type { SelectHTMLAttributes } from "react";
-import { cn } from "./cn";
+import type { Key } from "@heroui/react";
+import { Select as HeroSelect, ListBox } from "@heroui/react";
 
-// HeroUI v3 Select es un compound component (Trigger/Popover/ListBox.Item)
-// que exige reescribir cada <option> como ListBox.Item -- fuera de alcance
-// de este pase (ver plan de migracion HeroUI, "fuera de alcance"). Se
-// mantiene el <select> nativo, estilado con los mismos tokens que Input.
-const fieldClass =
-  "w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 text-sm outline-none transition-colors focus:border-ink disabled:opacity-50";
+export type SelectOption = { value: string; label: string };
 
-export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={cn(fieldClass, "cursor-pointer", className)} {...props} />;
+export function Select({
+  value,
+  onChange,
+  options,
+  placeholder = "Seleccionar...",
+  className,
+  required,
+  disabled,
+  "aria-label": ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: SelectOption[];
+  placeholder?: string;
+  className?: string;
+  required?: boolean;
+  disabled?: boolean;
+  "aria-label"?: string;
+}) {
+  return (
+    <HeroSelect
+      className={className}
+      placeholder={placeholder}
+      isRequired={required}
+      isDisabled={disabled}
+      aria-label={ariaLabel}
+      value={(value || null) as Key | null}
+      onChange={(key) => onChange(key ? String(key) : "")}
+    >
+      <HeroSelect.Trigger>
+        <HeroSelect.Value />
+        <HeroSelect.Indicator />
+      </HeroSelect.Trigger>
+      <HeroSelect.Popover>
+        <ListBox>
+          {options.map((option) => (
+            <ListBox.Item key={option.value} id={option.value} textValue={option.label}>
+              {option.label}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </HeroSelect.Popover>
+    </HeroSelect>
+  );
 }

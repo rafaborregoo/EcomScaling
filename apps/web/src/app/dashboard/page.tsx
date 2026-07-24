@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { EmptyState, Tabs } from "@/components/ui";
+import { Heading, Button, EmptyState, ErrorBlock, Link, LoadingBlock, Tabs } from "@/components/ui";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 
 type DashboardTab = "todo" | "shopify" | "meta" | "klaviyo";
@@ -91,19 +90,14 @@ function PeriodSelector({
   return (
     <div className="flex gap-5">
       {PERIOD_OPTIONS.map((option) => (
-        <button
+        <Button
           key={option}
-          type="button"
+          size="sm"
+          variant={periodDays === option ? "primary" : "secondary"}
           onClick={() => onPeriodChange(option)}
-          className={[
-            "border-b-2 pb-1 font-mono text-sm transition-colors",
-            periodDays === option
-              ? "border-brand font-medium text-black"
-              : "border-transparent text-muted hover:text-black",
-          ].join(" ")}
         >
           {option === "all" ? "Todo" : `${option}d`}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -174,7 +168,7 @@ function StoresOverviewTable({
   return (
     <section className="border-t border-ink/20">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h2 className="font-display text-2xl">Todas las tiendas</h2>
+        <Heading size="lg">Todas las tiendas</Heading>
         <PeriodSelector periodDays={periodDays} onPeriodChange={onPeriodChange} />
       </div>
       <div className="overflow-x-auto">
@@ -221,22 +215,10 @@ function StoresOverviewTable({
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        className={[
-                          "text-sm font-medium underline decoration-1 underline-offset-4 transition",
-                          isActive
-                            ? "decoration-brand text-brand"
-                            : "decoration-edge-strong hover:text-brand hover:decoration-brand",
-                        ].join(" ")}
-                        onClick={() => onSelectConnection(connection.id)}
-                      >
+                      <Button size="sm" variant="ghost" onClick={() => onSelectConnection(connection.id)}>
                         {isActive ? "Viendo aquí" : "Ver aquí"}
-                      </button>
-                      <Link
-                        className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-                        href={`/shopify?organizationId=${organizationId}&connectionId=${connection.id}`}
-                      >
+                      </Button>
+                      <Link href={`/shopify?organizationId=${organizationId}&connectionId=${connection.id}`}>
                         Diagnóstico
                       </Link>
                     </div>
@@ -380,10 +362,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           title="Klaviyo no está conectado todavía"
           hint="Conecta la cuenta de Klaviyo en Integraciones para ver listas, campañas y flows en este dashboard."
           action={
-            <Link
-              className="bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand"
-              href="/integraciones"
-            >
+            <Link className="button button--primary" href="/integraciones">
               Ir a Integraciones
             </Link>
           }
@@ -394,9 +373,9 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <section className="border-t border-ink/20 pt-5">
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div>
-            <h2 className="font-display text-2xl">
+            <Heading size="lg">
               {activeConnectionId ? "Resumen de la tienda seleccionada" : "Resumen ejecutivo"}
-            </h2>
+            </Heading>
             {metrics ? (
               <p className="mt-1 font-mono text-xs text-muted">
                 hasta {new Date(metrics.period.end).toLocaleString()}
@@ -409,9 +388,13 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </div>
 
         {isLoadingMetrics ? (
-          <div className="p-4 text-sm text-muted">Cargando métricas...</div>
+          <div className="p-4">
+            <LoadingBlock label="Cargando métricas..." />
+          </div>
         ) : metricsError ? (
-          <div className="p-4 text-sm text-brand">{metricsError}</div>
+          <div className="p-4">
+            <ErrorBlock>{metricsError}</ErrorBlock>
+          </div>
         ) : metrics ? (
           <>
             <div className="mt-3 grid gap-x-8 border-b border-line pb-2 md:grid-cols-3 xl:grid-cols-6">
@@ -464,7 +447,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   {!metrics.financial.has_settings ? (
                     <li>
                       Faltan las comisiones de pago y el envío medio.{" "}
-                      <Link className="underline hover:text-brand" href="/configuracion">
+                      <Link href="/configuracion">
                         Configurar costes por pedido
                       </Link>
                     </li>
@@ -472,7 +455,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   {metrics.financial.fixed_expenses_count === 0 ? (
                     <li>
                       Sin gastos fijos: el break-even no es fiable.{" "}
-                      <Link className="underline hover:text-brand" href="/configuracion">
+                      <Link href="/configuracion">
                         Añadir gastos fijos
                       </Link>
                     </li>
@@ -481,7 +464,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <li>
                       {metrics.financial.items_without_cost} lineas de pedido sin coste de producto: el COGS
                       esta infravalorado.{" "}
-                      <Link className="underline hover:text-brand" href="/shopify">
+                      <Link href="/shopify">
                         Cargar costes de producto
                       </Link>
                     </li>
@@ -500,7 +483,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {(activeTab === "todo" || activeTab === "meta") ? (
         <section className="border-t border-ink/20 pt-5">
-          <h2 className="font-display text-2xl">Meta Ads</h2>
+          <Heading size="lg">Meta Ads</Heading>
           <div className="mt-3 grid gap-x-8 border-b border-line pb-2 md:grid-cols-3 xl:grid-cols-6">
             <article className="py-4 md:pr-8">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Inversión Meta</p>
@@ -541,10 +524,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
           {!metaMetrics || metaMetrics.acquisition.days_with_data === 0 ? (
             <div className="pt-4">
-              <Link
-                className="bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand"
-                href="/integraciones"
-              >
+              <Link className="button button--primary" href="/integraciones">
                 Conectar Meta Ads
               </Link>
             </div>
@@ -587,11 +567,13 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {(activeTab === "todo" || activeTab === "shopify") ? (
       <section className="border-t border-ink/20">
         <div className="border-b border-line px-4 py-3">
-          <h2 className="font-display text-2xl">Tiendas Shopify</h2>
+          <Heading size="lg">Tiendas Shopify</Heading>
         </div>
         <div className="divide-y divide-line">
           {isLoadingStores ? (
-            <div className="px-4 py-3 text-sm text-muted">Cargando tiendas...</div>
+            <div className="px-4 py-3">
+              <LoadingBlock label="Cargando tiendas..." />
+            </div>
           ) : isConsultant && shopifyConnections.length > 0 ? null : shopifyConnections.length ? (
             shopifyConnections.map((connection) => (
               <div
@@ -606,7 +588,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </div>
                 <p className="font-mono text-sm text-brand">{connection.status}</p>
                 <Link
-                  className="w-fit bg-black px-3 py-2 text-sm font-medium text-white transition hover:bg-brand"
+                  className="button button--primary w-fit"
                   href={`/shopify?organizationId=${selectedOrganizationId}&connectionId=${connection.id}`}
                 >
                   Ver tienda
@@ -614,17 +596,16 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
             ))
           ) : storesLoadError ? (
-            <div className="px-4 py-3 text-sm text-brand">{storesLoadError}</div>
+            <div className="px-4 py-3">
+              <ErrorBlock>{storesLoadError}</ErrorBlock>
+            </div>
           ) : (
             <div className="px-4 py-4">
               <EmptyState
                 title="Sin tiendas Shopify conectadas"
                 hint="Conecta la tienda del cliente para empezar a ver ventas, margen y stock en tiempo real."
                 action={
-                  <Link
-                    className="bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand"
-                    href="/integraciones"
-                  >
+                  <Link className="button button--primary" href="/integraciones">
                     Conectar Shopify
                   </Link>
                 }

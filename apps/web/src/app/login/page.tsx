@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { fetchBootstrap, getAccessToken } from "@/lib/bootstrap";
+import { Button, ErrorBlock, Field, Input } from "@/components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -66,10 +67,8 @@ export default function LoginPage() {
           <h1 className="mt-2 font-display text-3xl lg:mt-0">Inicia sesión</h1>
 
           <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-            <label className="block text-sm">
-              <span className="font-medium">Email</span>
-              <input
-                className="mt-2 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
+            <Field label="Email">
+              <Input
                 type="email"
                 autoComplete="email"
                 placeholder="tu@empresa.com"
@@ -77,11 +76,9 @@ export default function LoginPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
               />
-            </label>
-            <label className="block text-sm">
-              <span className="font-medium">Contraseña</span>
-              <input
-                className="mt-2 w-full rounded-none border-0 border-b border-edge-strong bg-transparent px-0 py-2 outline-none transition-colors focus:border-ink"
+            </Field>
+            <Field label="Contraseña">
+              <Input
                 type="password"
                 autoComplete="current-password"
                 placeholder="••••••••"
@@ -89,22 +86,11 @@ export default function LoginPage() {
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
-            </label>
-            {error ? (
-              <p
-                className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep"
-                role="alert"
-              >
-                {error}
-              </p>
-            ) : null}
-            <button
-              className="w-full bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand disabled:cursor-not-allowed disabled:bg-muted"
-              type="submit"
-              disabled={isSubmitting}
-            >
+            </Field>
+            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+            <Button className="w-full" type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Entrando..." : "Entrar"}
-            </button>
+            </Button>
           </form>
         </section>
       </div>

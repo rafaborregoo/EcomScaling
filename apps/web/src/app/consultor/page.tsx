@@ -1,20 +1,22 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, type FormEvent, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
 import {
   Avatar,
+  Badge,
   Button,
   Checkbox,
   Dropdown,
   EmptyState,
   ErrorBlock,
   Field,
+  Heading,
   Input,
   Label,
+  Link,
   LoadingBlock,
   Select,
 } from "@/components/ui";
@@ -83,15 +85,15 @@ type OrganizationAccess = {
 
 function attentionBadge(score: number) {
   if (score >= 15) {
-    return { label: "Urgente", className: "border-brand bg-brand text-white" };
+    return { label: "Urgente", tone: "danger" as const };
   }
   if (score >= 5) {
-    return { label: "Revisar", className: "border-warn text-warn-deep" };
+    return { label: "Revisar", tone: "warn" as const };
   }
   if (score > 0) {
-    return { label: "Vigilar", className: "border-edge text-muted" };
+    return { label: "Vigilar", tone: "neutral" as const };
   }
-  return { label: "Al día", className: "border-success text-success" };
+  return { label: "Al día", tone: "success" as const };
 }
 
 function AccessPanel({ organizationId }: { organizationId: string }) {
@@ -146,7 +148,11 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
   }
 
   if (error) {
-    return <p className="mt-4 text-sm text-brand-deep">{error}</p>;
+    return (
+      <div className="mt-4">
+        <ErrorBlock>{error}</ErrorBlock>
+      </div>
+    );
   }
   if (!access) {
     return <p className="mt-4 text-sm text-muted">Cargando acceso...</p>;
@@ -160,7 +166,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
     <section className="mt-5 border-t border-line pt-4" aria-labelledby={`access-title-${organizationId}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h4 id={`access-title-${organizationId}`} className="font-display text-xl">Acceso al cliente</h4>
+          <Heading level={3} size="md" id={`access-title-${organizationId}`}>Acceso al cliente</Heading>
           <p className="mt-1 text-xs text-muted">Solo perfiles existentes. Las invitaciones de autenticacion se gestionan fuera de este flujo.</p>
         </div>
         <span className="font-mono text-xs uppercase tracking-wide text-muted">
@@ -185,17 +191,24 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
           )}
           <form onSubmit={saveMember} className="mt-3 grid gap-2 sm:grid-cols-[1fr_130px_auto] sm:items-end">
             <Field label="Perfil existente">
-              <Select value={memberUserId} onChange={(event) => setMemberUserId(event.target.value)} required>
-                <option value="">Seleccionar...</option>
-                {access.available_profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>{profile.full_name ?? profile.id}</option>
-                ))}
-              </Select>
+              <Select
+                aria-label="Perfil existente"
+                value={memberUserId}
+                onChange={setMemberUserId}
+                required
+                options={access.available_profiles.map((profile) => ({
+                  value: profile.id,
+                  label: profile.full_name ?? profile.id,
+                }))}
+              />
             </Field>
             <Field label="Rol">
-              <Select value={memberRole} onChange={(event) => setMemberRole(event.target.value)}>
-                {['owner', 'manager', 'member', 'readonly'].map((role) => <option key={role} value={role}>{role}</option>)}
-              </Select>
+              <Select
+                aria-label="Rol"
+                value={memberRole}
+                onChange={setMemberRole}
+                options={["owner", "manager", "member", "readonly"].map((role) => ({ value: role, label: role }))}
+              />
             </Field>
             <Button type="submit" disabled={isSaving || !memberUserId}>Guardar</Button>
           </form>
@@ -217,12 +230,16 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
           )}
           <form onSubmit={saveAssignment} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
             <Field label="Consultor existente">
-              <Select value={consultantUserId} onChange={(event) => setConsultantUserId(event.target.value)} required>
-                <option value="">Seleccionar...</option>
-                {consultantProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>{profile.full_name ?? profile.id}</option>
-                ))}
-              </Select>
+              <Select
+                aria-label="Consultor existente"
+                value={consultantUserId}
+                onChange={setConsultantUserId}
+                required
+                options={consultantProfiles.map((profile) => ({
+                  value: profile.id,
+                  label: profile.full_name ?? profile.id,
+                }))}
+              />
             </Field>
             <div className="pb-2">
               <Checkbox checked={isPrimary} onChange={setIsPrimary}>
@@ -291,13 +308,12 @@ function EditOrganizationForm({
         <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
       </Field>
       <Field label="Estado">
-        <Select value={status} onChange={(event) => setStatus(event.target.value)}>
-          {ORGANIZATION_STATUSES.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </Select>
+        <Select
+          aria-label="Estado"
+          value={status}
+          onChange={setStatus}
+          options={ORGANIZATION_STATUSES.map((value) => ({ value, label: value }))}
+        />
       </Field>
       <Field label="Zona horaria">
         <Input value={timezone} onChange={(event) => setTimezone(event.target.value)} required />
@@ -310,19 +326,18 @@ function EditOrganizationForm({
           required
         />
       </Field>
-      {error ? <p className="md:col-span-4 text-sm text-brand-deep">{error}</p> : null}
+      {error ? (
+        <div className="md:col-span-4">
+          <ErrorBlock>{error}</ErrorBlock>
+        </div>
+      ) : null}
       <div className="flex gap-4 md:col-span-4">
         <Button type="submit" disabled={isSaving}>
           {isSaving ? "Guardando..." : "Guardar cambios"}
         </Button>
-        <button
-          type="button"
-          className="text-sm text-muted underline decoration-transparent underline-offset-4 transition hover:text-black"
-          onClick={onCancel}
-          disabled={isSaving}
-        >
+        <Button variant="ghost" onClick={onCancel} disabled={isSaving}>
           Cancelar
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -423,7 +438,11 @@ function StoresPanel({
 
   return (
     <div className="border-t border-line bg-surface px-4 py-4">
-      {error ? <p className="mb-3 text-sm text-brand-deep">{error}</p> : null}
+      {error ? (
+        <div className="mb-3">
+          <ErrorBlock>{error}</ErrorBlock>
+        </div>
+      ) : null}
 
       {isEditing ? (
         <EditOrganizationForm
@@ -458,23 +477,23 @@ function StoresPanel({
               </span>
               {isPlatformAdmin ? (
                 store.status === "pending_deletion" ? (
-                  <button
-                    type="button"
-                    className="w-fit text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand disabled:opacity-40"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     disabled={restoringStoreId === store.id}
                     onClick={() => void restoreStore(store.id)}
                   >
                     {restoringStoreId === store.id ? "Restaurando..." : "Restaurar tienda"}
-                  </button>
+                  </Button>
                 ) : (
-                  <button
-                    type="button"
-                    className="w-fit text-xs font-medium text-brand underline decoration-transparent underline-offset-4 transition hover:decoration-brand disabled:opacity-40"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     disabled={deletingStoreId === store.id}
                     onClick={() => setConfirmDeleteStore(store)}
                   >
                     Borrar tienda
-                  </button>
+                  </Button>
                 )
               ) : null}
             </div>
@@ -485,22 +504,12 @@ function StoresPanel({
       {isPlatformAdmin ? <AccessPanel organizationId={organization.id} /> : null}
 
       <div className="mt-4 flex flex-wrap gap-4 border-t border-line pt-3">
-        <Link
-          href={`/integraciones?organizationId=${organization.id}`}
-          className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-        >
-          Añadir tienda
-        </Link>
+        <Link href={`/integraciones?organizationId=${organization.id}`}>Añadir tienda</Link>
         {isPlatformAdmin ? (
           organization.status === "pending_deletion" ? (
-            <button
-              type="button"
-              className="text-xs font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand disabled:opacity-40"
-              disabled={isRestoringOrg}
-              onClick={() => void restoreOrganization()}
-            >
+            <Button size="sm" variant="ghost" disabled={isRestoringOrg} onClick={() => void restoreOrganization()}>
               {isRestoringOrg ? "Restaurando..." : "Restaurar cliente"}
-            </button>
+            </Button>
           ) : (
             <Dropdown>
               <Button variant="secondary" size="sm">
@@ -603,7 +612,7 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
   return (
     <div className="space-y-4">
       <section className="border-t border-ink/20 pt-5">
-        <h2 className="font-display text-2xl">Qué cliente necesita atención hoy</h2>
+        <Heading size="lg">Qué cliente necesita atención hoy</Heading>
         {needsAttention.length === 0 ? (
           <p className="mt-1 font-mono text-xs uppercase tracking-wide text-success">Todos al día</p>
         ) : null}
@@ -635,11 +644,7 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
                         <div className="flex items-center gap-3">
                           <Avatar name={organization.display_name} size="sm" />
                           <div>
-                            <Link
-                              className="font-medium transition hover:text-brand"
-                              href="/dashboard"
-                              onClick={() => setOrganizationId(organization.id)}
-                            >
+                            <Link href="/dashboard" onClick={() => setOrganizationId(organization.id)}>
                               {organization.display_name}
                             </Link>
                             <p className={organization.status === "pending_deletion" ? "text-sm text-brand" : "text-sm text-muted"}>
@@ -650,21 +655,18 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          className="w-fit font-mono text-sm underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
+                        <Button
+                          size="sm"
+                          variant="ghost"
                           onClick={() => setExpandedId(isExpanded ? null : organization.id)}
                         >
                           {organization.store_count} {isExpanded ? "▲" : "▼"}
-                        </button>
+                        </Button>
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex w-fit border px-2 py-1 font-mono text-xs ${badge.className}`}
-                          title={`Puntuacion: ${organization.attention.score}`}
-                        >
+                        <Badge tone={badge.tone} title={`Puntuacion: ${organization.attention.score}`}>
                           {badge.label}
-                        </span>
+                        </Badge>
                       </td>
                       <td className="px-4 py-3">
                         {organization.attention.open_alerts === 0 ? (
@@ -698,18 +700,10 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
-                          <Link
-                            className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-                            href="/dashboard"
-                            onClick={() => setOrganizationId(organization.id)}
-                          >
+                          <Link href="/dashboard" onClick={() => setOrganizationId(organization.id)}>
                             Dashboard
                           </Link>
-                          <Link
-                            className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-                            href="/tareas"
-                            onClick={() => setOrganizationId(organization.id)}
-                          >
+                          <Link href="/tareas" onClick={() => setOrganizationId(organization.id)}>
                             Tareas
                           </Link>
                         </div>

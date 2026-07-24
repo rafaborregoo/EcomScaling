@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, Button, Input, LoadingBlock, Pagination, Select } from "@/components/ui";
+import { Heading, Badge, Button, Card, ErrorBlock, Input, LoadingBlock, Modal, Pagination, Select } from "@/components/ui";
 
 const TASKS_PAGE_SIZE = 20;
 
@@ -73,12 +73,12 @@ const CATEGORY_LABELS: Record<string, string> = {
   general: "General",
 };
 
-const SEVERITY_STYLES: Record<string, string> = {
-  info: "border-edge text-muted",
-  low: "border-edge text-muted",
-  medium: "border-warn text-warn-deep",
-  high: "border-brand text-brand",
-  critical: "border-brand bg-brand text-white",
+const SEVERITY_TONE: Record<string, "neutral" | "warn" | "danger"> = {
+  info: "neutral",
+  low: "neutral",
+  medium: "warn",
+  high: "danger",
+  critical: "danger",
 };
 
 // DB-07: SLA de overdue formalizado -- una tarea esta vencida si su
@@ -102,6 +102,94 @@ async function readApiError(response: Response) {
   return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
 }
 
+// Badges + acciones + comentarios de una tarea: se usa tanto en la fila de la
+// vista de lista como dentro del modal de detalle de la vista de tarjetas,
+// para no duplicar la logica de estado/comentarios en dos sitios.
+function TaskBadges({ task }: { task: Task }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge tone="neutral">{CATEGORY_LABELS[task.category] ?? task.category}</Badge>
+      <Badge tone="neutral">{PRIORITY_LABELS[task.priority] ?? task.priority}</Badge>
+      <Badge tone="neutral">{STATUS_LABELS[task.status] ?? task.status}</Badge>
+      {task.source === "alert" ? <Badge tone="brand">desde alerta</Badge> : null}
+      {isTaskOverdue(task) ? <Badge tone="danger">Vencida</Badge> : null}
+    </div>
+  );
+}
+
+function TaskDetail({
+  task,
+  commentDraft,
+  onCommentChange,
+  onSubmitComment,
+  onStatusChange,
+}: {
+  task: Task;
+  commentDraft: string;
+  onCommentChange: (value: string) => void;
+  onSubmitComment: (event: FormEvent<HTMLFormElement>) => void;
+  onStatusChange: (status: string) => void;
+}) {
+  return (
+    <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <TaskBadges task={task} />
+          <p className="mt-2 font-medium">{task.title}</p>
+          {task.description ? <p className="mt-1 text-sm leading-6 text-muted">{task.description}</p> : null}
+          {task.due_at ? (
+            <p className="mt-1 font-mono text-xs text-muted">vence {formatDueDate(task.due_at)}</p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {task.status === "pending" ? (
+            <Button variant="secondary" size="sm" onClick={() => onStatusChange("in_progress")}>
+              Empezar
+            </Button>
+          ) : null}
+          {["pending", "in_progress"].includes(task.status) ? (
+            <>
+              <Button size="sm" onClick={() => onStatusChange("completed")}>
+                Completar
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onStatusChange("ignored")}>
+                Ignorar
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      {task.task_comments.length > 0 ? (
+        <div className="mt-3 space-y-2 border-l-2 border-line pl-3">
+          {task.task_comments.map((comment) => (
+            <div key={comment.id} className="text-sm">
+              <p className="leading-6">{comment.body}</p>
+              <p className="font-mono text-xs text-muted">
+                {comment.is_internal ? "interno · " : ""}
+                {new Date(comment.created_at).toLocaleString()}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <form className="mt-3 flex gap-2" onSubmit={onSubmitComment}>
+        <Input
+          className="min-w-0 flex-1"
+          aria-label={`Comentario para la tarea ${task.title}`}
+          value={commentDraft}
+          onChange={(event) => onCommentChange(event.target.value)}
+          placeholder="Añadir comentario..."
+        />
+        <Button variant="secondary" type="submit">
+          Comentar
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const organization =
@@ -115,6 +203,8 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [statusFilter, setStatusFilter] = useState<string>("open");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [viewMode, setViewMode] = useState<"list" | "cards">("cards");
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
 
   const loadOperations = useCallback(async () => {
     if (!organization) {
@@ -250,35 +340,35 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="space-y-4">
-      {error ? (
-        <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">{error}</div>
-      ) : null}
+      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       <section className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/20 pt-5">
         <div className="flex flex-wrap items-center gap-3">
           <Select
             aria-label="Filtrar por estado"
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-          >
-            <option value="open">Abiertas (pendiente + en curso)</option>
-            <option value="pending">Pendientes</option>
-            <option value="in_progress">En curso</option>
-            <option value="completed">Completadas</option>
-            <option value="ignored">Ignoradas</option>
-            <option value="all">Todas</option>
-          </Select>
+            onChange={setStatusFilter}
+            options={[
+              { value: "open", label: "Abiertas (pendiente + en curso)" },
+              { value: "pending", label: "Pendientes" },
+              { value: "in_progress", label: "En curso" },
+              { value: "completed", label: "Completadas" },
+              { value: "ignored", label: "Ignoradas" },
+              { value: "all", label: "Todas" },
+            ]}
+          />
           <Select
             aria-label="Filtrar por modulo"
             value={categoryFilter}
-            onChange={(event) => setCategoryFilter(event.target.value)}
-          >
-            <option value="all">Todos los modulos</option>
-            <option value="shopify">Shopify</option>
-            <option value="meta">Meta Ads</option>
-            <option value="klaviyo">Klaviyo</option>
-            <option value="general">General</option>
-          </Select>
+            onChange={setCategoryFilter}
+            options={[
+              { value: "all", label: "Todos los modulos" },
+              { value: "shopify", label: "Shopify" },
+              { value: "meta", label: "Meta Ads" },
+              { value: "klaviyo", label: "Klaviyo" },
+              { value: "general", label: "General" },
+            ]}
+          />
         </div>
         <Button type="button" onClick={() => void evaluateRules()} disabled={isEvaluating}>
           {isEvaluating ? "Evaluando..." : "Evaluar reglas ahora"}
@@ -291,7 +381,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <>
           <section className="border-t border-ink/20">
             <div className="border-b border-line px-4 py-3">
-              <h2 className="font-display text-2xl">Alertas activas ({activeAlerts.length})</h2>
+              <Heading size="lg">Alertas activas ({activeAlerts.length})</Heading>
             </div>
             <div className="divide-y divide-line">
               {activeAlerts.length === 0 ? (
@@ -303,14 +393,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <div key={alert.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={[
-                            "border px-2 py-0.5 text-xs",
-                            SEVERITY_STYLES[alert.severity] ?? SEVERITY_STYLES.info,
-                          ].join(" ")}
-                        >
-                          {alert.severity}
-                        </span>
+                        <Badge tone={SEVERITY_TONE[alert.severity] ?? "neutral"}>{alert.severity}</Badge>
                         <p className="font-medium">{alert.title}</p>
                       </div>
                       <p className="mt-1 text-sm leading-6 text-muted">{alert.message}</p>
@@ -346,109 +429,56 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </section>
 
           <section className="border-t border-ink/20">
-            <div className="border-b border-line px-4 py-3">
-              <h2 className="font-display text-2xl">Tareas ({filteredTasks.length})</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+              <Heading size="lg">Tareas ({filteredTasks.length})</Heading>
+              <div className="flex gap-2">
+                <Button size="sm" variant={viewMode === "list" ? "primary" : "secondary"} onClick={() => setViewMode("list")}>
+                  Lista
+                </Button>
+                <Button size="sm" variant={viewMode === "cards" ? "primary" : "secondary"} onClick={() => setViewMode("cards")}>
+                  Tarjetas
+                </Button>
+              </div>
             </div>
-            <div className="divide-y divide-line">
-              {filteredTasks.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-muted">Sin tareas para este filtro.</p>
-              ) : (
-                tasksPage.pageItems.map((task) => (
+
+            {filteredTasks.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-muted">Sin tareas para este filtro.</p>
+            ) : viewMode === "list" ? (
+              <div className="divide-y divide-line">
+                {tasksPage.pageItems.map((task) => (
                   <div key={task.id} className="px-4 py-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="border border-ink px-2 py-0.5 font-mono text-xs uppercase">
-                            {CATEGORY_LABELS[task.category] ?? task.category}
-                          </span>
-                          <span className="bg-surface px-2 py-0.5 font-mono text-xs">
-                            {PRIORITY_LABELS[task.priority] ?? task.priority}
-                          </span>
-                          <span className="border border-edge px-2 py-0.5 text-xs text-muted">
-                            {STATUS_LABELS[task.status] ?? task.status}
-                          </span>
-                          {task.source === "alert" ? (
-                            <span className="border border-brand px-2 py-0.5 text-xs text-brand">
-                              desde alerta
-                            </span>
-                          ) : null}
-                          {isTaskOverdue(task) ? <Badge tone="danger">Vencida</Badge> : null}
-                          <p className="font-medium">{task.title}</p>
-                        </div>
-                        {task.description ? (
-                          <p className="mt-1 text-sm leading-6 text-muted">{task.description}</p>
-                        ) : null}
-                        {task.due_at ? (
-                          <p className="mt-1 font-mono text-xs text-muted">
-                            vence {formatDueDate(task.due_at)}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {task.status === "pending" ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            type="button"
-                            onClick={() => void changeTaskStatus(task.id, "in_progress")}
-                          >
-                            Empezar
-                          </Button>
-                        ) : null}
-                        {["pending", "in_progress"].includes(task.status) ? (
-                          <>
-                            <Button
-                              size="sm"
-                              type="button"
-                              onClick={() => void changeTaskStatus(task.id, "completed")}
-                            >
-                              Completar
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              type="button"
-                              onClick={() => void changeTaskStatus(task.id, "ignored")}
-                            >
-                              Ignorar
-                            </Button>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {task.task_comments.length > 0 ? (
-                      <div className="mt-3 space-y-2 border-l-2 border-line pl-3">
-                        {task.task_comments.map((comment) => (
-                          <div key={comment.id} className="text-sm">
-                            <p className="leading-6">{comment.body}</p>
-                            <p className="font-mono text-xs text-muted">
-                              {comment.is_internal ? "interno · " : ""}
-                              {new Date(comment.created_at).toLocaleString()}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-
-                    <form className="mt-3 flex gap-2" onSubmit={(event) => submitComment(event, task.id)}>
-                      <Input
-                        className="min-w-0 flex-1"
-                        aria-label={`Comentario para la tarea ${task.title}`}
-                        value={commentDrafts[task.id] ?? ""}
-                        onChange={(event) =>
-                          setCommentDrafts((drafts) => ({ ...drafts, [task.id]: event.target.value }))
-                        }
-                        placeholder="Añadir comentario..."
-                      />
-                      <Button variant="secondary" type="submit">
-                        Comentar
-                      </Button>
-                    </form>
+                    <TaskDetail
+                      task={task}
+                      commentDraft={commentDrafts[task.id] ?? ""}
+                      onCommentChange={(value) => setCommentDrafts((drafts) => ({ ...drafts, [task.id]: value }))}
+                      onSubmitComment={(event) => submitComment(event, task.id)}
+                      onStatusChange={(status) => void changeTaskStatus(task.id, status)}
+                    />
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
+                {tasksPage.pageItems.map((task) => (
+                  <Card key={task.id} className="flex flex-col gap-3">
+                    <TaskBadges task={task} />
+                    <div>
+                      <p className="font-medium">{task.title}</p>
+                      {task.description ? (
+                        <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">{task.description}</p>
+                      ) : null}
+                      {task.due_at ? (
+                        <p className="mt-1 font-mono text-xs text-muted">vence {formatDueDate(task.due_at)}</p>
+                      ) : null}
+                    </div>
+                    <Button size="sm" variant="secondary" className="mt-auto" onClick={() => setDetailTaskId(task.id)}>
+                      Ver detalle{task.task_comments.length > 0 ? ` (${task.task_comments.length})` : ""}
+                    </Button>
+                  </Card>
+                ))}
+              </div>
+            )}
+
             <Pagination
               className="mx-4 mb-3"
               page={tasksPage.page}
@@ -457,10 +487,42 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             />
           </section>
 
+          {(() => {
+            const detailTask = detailTaskId ? filteredTasks.find((task) => task.id === detailTaskId) : null;
+            if (!detailTask) {
+              return null;
+            }
+            return (
+              <Modal isOpen onOpenChange={(open) => !open && setDetailTaskId(null)}>
+                <Modal.Backdrop>
+                  <Modal.Container size="md">
+                    <Modal.Dialog>
+                      <Modal.CloseTrigger />
+                      <Modal.Header>
+                        <Modal.Heading>Detalle de tarea</Modal.Heading>
+                      </Modal.Header>
+                      <Modal.Body>
+                        <TaskDetail
+                          task={detailTask}
+                          commentDraft={commentDrafts[detailTask.id] ?? ""}
+                          onCommentChange={(value) =>
+                            setCommentDrafts((drafts) => ({ ...drafts, [detailTask.id]: value }))
+                          }
+                          onSubmitComment={(event) => submitComment(event, detailTask.id)}
+                          onStatusChange={(status) => void changeTaskStatus(detailTask.id, status)}
+                        />
+                      </Modal.Body>
+                    </Modal.Dialog>
+                  </Modal.Container>
+                </Modal.Backdrop>
+              </Modal>
+            );
+          })()}
+
           {resolvedAlerts.length > 0 ? (
             <section className="border-t border-ink/20">
               <div className="border-b border-line px-4 py-3">
-                <h2 className="font-display text-2xl">Alertas resueltas ({resolvedAlerts.length})</h2>
+                <Heading size="lg">Alertas resueltas ({resolvedAlerts.length})</Heading>
               </div>
               <div className="divide-y divide-line">
                 {resolvedAlerts.slice(0, 20).map((alert) => (

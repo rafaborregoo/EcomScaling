@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, type ReactNode, useEffect, useState } from "react";
 import {
@@ -12,7 +11,7 @@ import {
   type BootstrapResponse,
 } from "@/lib/bootstrap";
 import { supabase } from "@/lib/supabase";
-import { Avatar, Breadcrumbs, Button, Combobox, ConfirmDialog, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { Alert, Avatar, Breadcrumbs, Button, Combobox, ConfirmDialog, ErrorBlock, Link, LoadingBlock } from "@/components/ui";
 import {
   ACTIVE_ORGANIZATION_STORAGE_KEY,
   ActiveOrganizationContext,
@@ -89,10 +88,10 @@ function formatRole(role: string) {
 // (siempre rojo de marca) aunque `severity` ya distinguia los dos casos desde
 // el backend -- un error real (integracion caida) y un aviso (permisos
 // pendientes) no deberian competir por la misma urgencia visual.
-const actionSeverityStyles: Record<AccountAction["severity"], { border: string; title: string }> = {
-  error: { border: "border-brand", title: "text-brand-deep" },
-  warning: { border: "border-warn", title: "text-warn-deep" },
-  info: { border: "border-edge-strong", title: "text-black" },
+const actionSeverityStatus: Record<AccountAction["severity"], "danger" | "warning" | "default"> = {
+  error: "danger",
+  warning: "warning",
+  info: "default",
 };
 
 type ShopifyConnectionSummary = {
@@ -411,16 +410,15 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
           <p className="font-mono text-[0.65rem] uppercase text-brand">{eyebrow}</p>
           <p className="text-sm font-semibold">{title}</p>
         </div>
-        <button
-          className="inline-flex items-center gap-2 border border-edge px-3 py-2 text-sm transition hover:border-brand hover:text-brand"
-          type="button"
+        <Button
+          variant="secondary"
           aria-expanded={isMobileNavOpen}
           aria-controls="mobile-nav"
           onClick={() => setIsMobileNavOpen((open) => !open)}
         >
           <span aria-hidden>{isMobileNavOpen ? "✕" : "☰"}</span>
           Menú
-        </button>
+        </Button>
       </div>
 
       {/* Panel de navegacion móvil desplegable */}
@@ -477,33 +475,28 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
             </div>
           ) : null}
 
-          {visibleActions.map((action) => {
-            const severityStyle = actionSeverityStyles[action.severity];
-            return (
-              <div key={action.id} className="border-b border-edge px-6 py-3 text-sm lg:px-10">
-                <div
-                  className={`flex flex-col gap-2 border-l-2 ${severityStyle.border} pl-3 md:flex-row md:items-center md:justify-between md:gap-6`}
-                >
+          {visibleActions.map((action) => (
+            <div key={action.id} className="border-b border-edge px-6 py-3 lg:px-10">
+              <Alert status={actionSeverityStatus[action.severity]} className="items-center">
+                <Alert.Indicator />
+                <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
                   <div>
-                    <p className={`font-medium ${severityStyle.title}`}>{action.title}</p>
-                    <p className="mt-0.5 text-muted">
+                    <Alert.Title>{action.title}</Alert.Title>
+                    <Alert.Description>
                       {action.organization_name ? `${action.organization_name}: ` : ""}
                       {action.message}
                       {action.missing_scopes?.length
                         ? ` (${action.missing_scopes.length} permisos pendientes)`
                         : ""}
-                    </p>
+                    </Alert.Description>
                   </div>
-                  <Link
-                    className="whitespace-nowrap text-sm font-medium underline decoration-brand decoration-1 underline-offset-4 transition hover:text-brand"
-                    href={action.cta_href}
-                  >
+                  <Link className="whitespace-nowrap" href={action.cta_href}>
                     {action.cta_label} →
                   </Link>
-                </div>
-              </div>
-            );
-          })}
+                </Alert.Content>
+              </Alert>
+            </div>
+          ))}
           {actions.length > visibleActions.length ? (
             <div className="border-b border-edge px-6 py-2 font-mono text-xs text-muted lg:px-10">
               {actions.length - visibleActions.length} avisos más en Integraciones.
@@ -528,15 +521,14 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
 
       {(activeOrganizationId || bootstrap.memberships[0]?.organization_id) ? (
         <>
-          <button
-            className="fixed bottom-6 right-6 z-30 bg-black px-5 py-3 text-sm font-medium text-white shadow-lg transition hover:bg-brand"
-            type="button"
+          <Button
+            className="fixed bottom-6 right-6 z-30"
             aria-expanded={isCopilotOpen}
             aria-controls="copilot-panel"
             onClick={() => setIsCopilotOpen((open) => !open)}
           >
             {isCopilotOpen ? "Cerrar copiloto" : "Copiloto"}
-          </button>
+          </Button>
           {isCopilotOpen ? (
             <CopilotPanel
               organizationId={activeOrganizationId || (bootstrap.memberships[0]?.organization_id ?? "")}

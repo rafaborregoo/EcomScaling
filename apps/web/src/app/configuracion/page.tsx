@@ -70,12 +70,12 @@ function ShopifyCoverageSection({ organizationId }: { organizationId: string }) 
 
   const statusLabel = (dataset: ShopifyOverviewLite["datasets"][number]) => {
     if (dataset.status === "active") {
-      return { label: "se vuelca", className: "border-black bg-black text-white" };
+      return { label: "se vuelca", tone: "success" as const };
     }
     const hasScope = dataset.scopes.some((scope) => overview.authorized_scopes.includes(scope));
     return hasScope
-      ? { label: "autorizado pendiente", className: "border-brand text-brand" }
-      : { label: "requiere permiso", className: "border-edge text-muted" };
+      ? { label: "autorizado pendiente", tone: "brand" as const }
+      : { label: "requiere permiso", tone: "neutral" as const };
   };
 
   return (
@@ -97,7 +97,7 @@ function ShopifyCoverageSection({ organizationId }: { organizationId: string }) 
                 <td className="px-3 py-2 font-medium">{dataset.label}</td>
                 <td className="px-3 py-2 font-mono text-xs text-muted">{dataset.table ?? "pendiente_modelo"}</td>
                 <td className="px-3 py-2">
-                  <span className={`border px-2 py-0.5 text-xs ${status.className}`}>{status.label}</span>
+                  <Badge tone={status.tone}>{status.label}</Badge>
                 </td>
                 <td className="px-3 py-2 font-mono">{dataset.count}</td>
               </tr>
@@ -356,11 +356,12 @@ function FinancialConfigSection({
               <Select
                 aria-label="Periodicidad del gasto"
                 value={expensePeriod}
-                onChange={(event) => setExpensePeriod(event.target.value === "yearly" ? "yearly" : "monthly")}
-              >
-                <option value="monthly">al mes</option>
-                <option value="yearly">al año</option>
-              </Select>
+                onChange={(value) => setExpensePeriod(value === "yearly" ? "yearly" : "monthly")}
+                options={[
+                  { value: "monthly", label: "al mes" },
+                  { value: "yearly", label: "al año" },
+                ]}
+              />
             </div>
             <Button type="submit">Añadir gasto</Button>
           </form>

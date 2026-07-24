@@ -19,6 +19,9 @@ export function Button({
   type = "button",
   title,
   children,
+  "aria-expanded": ariaExpanded,
+  "aria-controls": ariaControls,
+  "aria-label": ariaLabel,
 }: {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -28,6 +31,9 @@ export function Button({
   type?: "button" | "submit" | "reset";
   title?: string;
   children?: ReactNode;
+  "aria-expanded"?: boolean;
+  "aria-controls"?: string;
+  "aria-label"?: string;
 }) {
   const button = (
     <HeroButton
@@ -37,6 +43,9 @@ export function Button({
       isDisabled={disabled}
       className={className}
       onPress={onClick}
+      aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
+      aria-label={ariaLabel}
     >
       {children}
     </HeroButton>

@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
-import { Accordion, Button, Field, Input, Select, Textarea, toast } from "@/components/ui";
+import { Heading, Accordion, Button, ErrorBlock, Field, Input, LoadingBlock, Select, Textarea, toast } from "@/components/ui";
 
 type KnowledgeDocument = {
   id: string;
@@ -187,10 +187,10 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <div className="grid gap-8 lg:grid-cols-2">
         <section className="border-t border-ink/20 pt-5">
-          <h4 className="font-display text-2xl">Añadir documento</h4>
+          <Heading level={3} size="lg">Añadir documento</Heading>
 
           <div className="mt-4 flex flex-wrap items-center gap-4">
-            <label className="cursor-pointer bg-black px-5 py-2.5 text-sm font-medium text-white transition hover:bg-brand">
+            <label className="button button--primary cursor-pointer">
               {isSaving ? "Indexando..." : "Subir documento (.txt, .md)"}
               <input
                 type="file"
@@ -207,17 +207,19 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               />
             </label>
             {isPlatformAdmin ? (
-              <label className="flex items-baseline gap-2 font-mono text-xs uppercase tracking-wide text-muted">
+              <div className="flex items-baseline gap-2 font-mono text-xs uppercase tracking-wide text-muted">
                 Destino
                 <Select
-                  className="cursor-pointer font-sans normal-case tracking-normal text-black"
+                  aria-label="Destino"
+                  className="font-sans normal-case tracking-normal text-black"
                   value={visibility}
-                  onChange={(event) => setVisibility(event.target.value as "organization" | "global")}
-                >
-                  <option value="organization">Esta organización</option>
-                  <option value="global">Global (metodología)</option>
-                </Select>
-              </label>
+                  onChange={(value) => setVisibility(value as "organization" | "global")}
+                  options={[
+                    { value: "organization", label: "Esta organización" },
+                    { value: "global", label: "Global (metodología)" },
+                  ]}
+                />
+              </div>
             ) : null}
           </div>
 
@@ -256,7 +258,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </section>
 
         <section className="border-t border-ink/20 pt-5">
-          <h4 className="font-display text-2xl">Búsqueda semántica</h4>
+          <Heading level={3} size="lg">Búsqueda semántica</Heading>
           <form className="mt-4 flex items-end gap-4" onSubmit={submitSearch}>
             <Input
               className="w-full"
@@ -270,7 +272,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Button>
           </form>
           {searchError ? (
-            <p className="mt-3 text-sm text-brand-deep">{searchError}</p>
+            <div className="mt-3">
+              <ErrorBlock>{searchError}</ErrorBlock>
+            </div>
           ) : null}
           {matches !== null && !searchError ? (
             <div className="mt-3 space-y-2">
@@ -300,12 +304,16 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <section className="border-t border-ink/20">
         <div className="border-b border-line px-4 py-3">
-          <h4 className="font-display text-xl">Documentos ({documents.length})</h4>
+          <Heading level={3} size="md">Documentos ({documents.length})</Heading>
         </div>
         {error ? (
-          <p className="px-4 py-3 text-sm text-brand-deep">{error}</p>
+          <div className="px-4 py-3">
+            <ErrorBlock>{error}</ErrorBlock>
+          </div>
         ) : isLoading ? (
-          <p className="px-4 py-3 text-sm text-muted">Cargando documentos...</p>
+          <div className="px-4 py-3">
+            <LoadingBlock label="Cargando documentos..." />
+          </div>
         ) : documents.length === 0 ? (
           <p className="px-4 py-3 text-sm text-muted">
             Aún no hay documentos. Ingiere el primero con el formulario de arriba.

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
@@ -8,7 +7,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { type BootstrapResponse } from "@/lib/bootstrap";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
-import { Pagination, Tabs } from "@/components/ui";
+import { Banner, ErrorBlock, Heading, Link, LoadingBlock, Pagination, Tabs } from "@/components/ui";
 
 const syncBlockLabels: Record<"catalog" | "inventory" | "orders" | "refunds" | "customers", string> = {
   catalog: "Catalogo",
@@ -80,11 +79,15 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
   const inventory = usePaginatedUrl(overview?.samples.inventory ?? [], PAGE_SIZE, "page_inventario");
 
   if (isLoading) {
-    return <div className="border-t border-ink/20 pt-5">Cargando diagnóstico...</div>;
+    return (
+      <div className="border-t border-ink/20 pt-5">
+        <LoadingBlock label="Cargando diagnóstico..." />
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="border-l-2 border-brand py-0.5 pl-3 text-sm text-brand-deep">{error}</div>;
+    return <ErrorBlock>{error}</ErrorBlock>;
   }
 
   if (!overview) {
@@ -106,12 +109,7 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between border-t border-ink/20 pt-5">
-        <Link
-          className="text-sm font-medium underline decoration-edge-strong decoration-1 underline-offset-4 transition hover:text-brand hover:decoration-brand"
-          href="/shopify"
-        >
-          ← Volver a Shopify
-        </Link>
+        <Link href="/shopify">← Volver a Shopify</Link>
       </div>
 
       <Tabs items={tabs} value={tab} onChange={setTab} />
@@ -119,10 +117,10 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
       {tab === "resumen" ? (
         <div className="space-y-5">
           {overview.connection?.last_error_message ? (
-            <section className="border border-brand bg-brand-tint p-4 text-sm text-brand-deep">
-              <p className="font-medium">Ultimo error Shopify</p>
-              <p className="mt-2 font-mono break-words">{overview.connection.last_error_message}</p>
-            </section>
+            <Banner tone="danger">
+              <span className="font-medium">Ultimo error Shopify:</span>{" "}
+              <span className="font-mono break-words">{overview.connection.last_error_message}</span>
+            </Banner>
           ) : null}
 
           <section className="overflow-x-auto">
@@ -270,7 +268,7 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
       {tab === "muestras" ? (
         <div className="space-y-8">
           <section>
-            <h2 className="font-display text-xl">Productos ({overview.samples.products.length})</h2>
+            <Heading size="md">Productos ({overview.samples.products.length})</Heading>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[680px] text-left text-sm">
                 <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
@@ -302,7 +300,7 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
           </section>
 
           <section>
-            <h2 className="font-display text-xl">Pedidos ({overview.samples.orders.length})</h2>
+            <Heading size="md">Pedidos ({overview.samples.orders.length})</Heading>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[680px] text-left text-sm">
                 <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
@@ -333,7 +331,7 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
           </section>
 
           <section>
-            <h2 className="font-display text-xl">Inventory items ({overview.samples.inventory.length})</h2>
+            <Heading size="md">Inventory items ({overview.samples.inventory.length})</Heading>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[560px] text-left text-sm">
                 <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
