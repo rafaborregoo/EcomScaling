@@ -19,8 +19,15 @@ jobs:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
 
     steps:
-      - name: Install postgresql-client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Install postgresql-client-17
+        # El pg_dump de Ubuntu (postgresql-client, 16.x) rechaza volcar un
+        # servidor mas nuevo que el (Supabase corre Postgres 17.6). Se instala
+        # el cliente 17 desde el repositorio oficial de PGDG en vez del que
+        # trae Ubuntu por defecto.
+        run: |
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
 
       - name: Dump database
         run: |
