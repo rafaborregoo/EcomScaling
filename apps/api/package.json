@@ -42,7 +42,7 @@
     "eval:a06": "dotenv -e ../../.env.local -- tsx src/eval-a06-stock-planner.ts",
     "eval:a08": "dotenv -e ../../.env.local -- tsx src/eval-a08-knowledge-manager.ts",
     "validate:ai07": "dotenv -e ../../.env.local -- tsx src/validate-ai07-memory-pipeline.ts",
-    "build": "npm run build -w @ecomscaling/ai -w @ecomscaling/config -w @ecomscaling/contracts -w @ecomscaling/observability && tsc -p tsconfig.json",
+    "build": "npm run build -w @ecomscaling/ai -w @ecomscaling/config -w @ecomscaling/contracts -w @ecomscaling/integrations -w @ecomscaling/observability && tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
