@@ -37,14 +37,23 @@ clases correctas pero sin ningún estilo visual — verificado con captura real:
    con elipsis, HeroUI no la trae), `Combobox` (sin cambios de comportamiento, ver excepción abajo),
    `Autocomplete`, `ConfirmDialog` (envuelve `AlertDialog`), `Checkbox`, `Avatar`, `Breadcrumbs`,
    `NotificationBadge` (el `Badge` "punto de notificación" de HeroUI, renombrado para no chocar con
-   nuestro `Badge`/`Chip`).
+   nuestro `Badge`/`Chip`), `Table` (ver migración 2026-07-27 abajo).
 2. **Re-exports directos** de `@heroui/react`, sin wrapper propio, para componentes sin uso existente que
    migrar: `ButtonGroup`, `Calendar`, `CheckboxGroup`, `Dropdown`, `DateField`, `DatePicker`, `TextField`,
    `FieldError`, `InputGroup`, `InputOTP`, `Kbd`, `TagGroup`/`Tag`, `Fieldset`, `Surface`, `Form`,
    `ErrorMessage`, `Label`, `Description`, `Link`, `ListBox`, `Meter`, `Modal`, `NumberField`, `Popover`,
    `ProgressCircle`, `Radio`/`RadioGroup`, `RangeCalendar`, `ScrollShadow`, `SearchField`, `Separator`,
-   `Skeleton`, `Switch`, `Table`, `Toast`/`toast`, `Toolbar`, `ToggleButton`/`ToggleButtonGroup`,
+   `Skeleton`, `Switch`, `Toast`/`toast`, `Toolbar`, `ToggleButton`/`ToggleButtonGroup`,
    `Tooltip`.
+
+**`Table` migrado de re-export directo a wrapper (2026-07-27)**: el compuesto crudo de HeroUI
+(`TableRoot`/`TableHeader`/`TableColumn`/`TableBody`/`TableRow`/`TableCell`, primitivos de
+react-aria-components) obliga a repetir el mismo boilerplate de columnas/filas en cada pantalla. El
+wrapper (`apps/web/src/components/ui/table.tsx`) expone `columns: {key,label,render?}[]` +
+`rows: (T & {id: string})[]`, columnas estáticas y filas dinámicas — sigue usando los primitivos reales
+de HeroUI por dentro, no los reemplaza. Motivado por pedido explícito de Rafa de que las salidas de
+agentes IA (`AiDiagnosticSection`, `CopilotPanel`) se muestren con tablas/componentes reales en vez de
+listas de texto plano.
 
 Se usan **tal cual la documentación oficial de HeroUI v3** (compound components: `Card.Header`,
 `Alert.Content`, `Select.Trigger`, etc.) — no se reinventa su API.

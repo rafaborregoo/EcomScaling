@@ -4,7 +4,7 @@
 
 - **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-07-27
 - **Dependencias:** DB-02
 - **Evidencia:** `apps/api/src/rls-tenant-isolation.test.ts` (19 casos), `.github/workflows/ci.yml`
   (job `secret-scan` con gitleaks), `@fastify/helmet`/`@fastify/cors` en `buildApp`, `loadApiEnv` (zod) en
@@ -28,9 +28,14 @@
 - **Por que `verification_pending` y no `done` — la cobertura crecio pero sigue siendo pequeña frente a la
   superficie del sistema:**
   - Dominios probados: `organizations`/`tasks`/`alerts`, schema `private` (permisos de rol), webhooks
-    (idempotencia), RAG (`knowledge_search`), SQL Gateway (RPC). Sigue faltando: configuracion financiera,
-    conexiones/Shopify/Meta, llamadas, planes, agent runs, campañas, stock. Falta una matriz real
-    SELECT/INSERT/UPDATE/DELETE x cross-tenant x rol por dominio, no solo por tabla.
+    (idempotencia), RAG (`knowledge_search`), SQL Gateway (RPC), configuracion financiera, conexiones
+    Shopify/integraciones, planes estrategicos. **Cerrado 2026-07-27**: llamadas y agent runs como
+    dominios propios ya tienen 3 tests cross-tenant dedicados en `rls-tenant-isolation.test.ts`
+    (verificados contra Supabase remoto real, `npm run test -w @ecomscaling/api`, 108/108 pasan):
+    `agent_runs` ajeno no visible cross-tenant, `agent_outputs` ajeno no visible cross-tenant
+    (independiente de su `status`), `consulting_calls`/`call_transcripts` ajenos no visibles cross-tenant.
+    Sigue faltando: campañas, stock (dominios sin tablas propias todavia, ver INT-02/BE-06). Falta una
+    matriz real SELECT/INSERT/UPDATE/DELETE x cross-tenant x rol por dominio, no solo por tabla.
   - **Integridad referencial cross-tenant, auditada 2026-07-22** (no solo listada como gap): revisados los
     endpoints que escriben una fila ligada a otra entidad ajena (`addTaskComment`, `saveTranscript`,
     actualizaciones de `consulting_calls`/`call_ai_summaries`) — todos validan la propiedad de la entidad
@@ -54,13 +59,19 @@
     esta configurado -- necesario porque `apps/api` corre serverless en Vercel, donde el estado en memoria
     no persiste entre invocaciones -- con fallback a memoria para desarrollo local; `skipOnError: true`
     para que un fallo del store no tumbe la API. Verificado en vivo (`curl -sD -` contra `/health`
-    devuelve `x-ratelimit-limit`/`x-ratelimit-remaining` reales). **Pendiente real**: en produccion hoy no
-    hay `REDIS_URL` configurada (nada mas la necesita, ver OPS-00/Q-001) — hasta que se provisione, el
-    limite global funciona por instancia serverless, no de forma centralizada entre invocaciones distintas;
-    mitigacion parcial, no completa, mientras tanto.
+    devuelve `x-ratelimit-limit`/`x-ratelimit-remaining` reales). **Corregido 2026-07-27**: una nota
+    anterior de esta seccion decia que `apps/worker` ya usaba Redis en produccion (Q-002) y que solo
+    faltaba reutilizar esa misma variable -- **incorrecto**, verificado contra el `.env.local` real (apunta
+    a `localhost`, solo desarrollo) y contra `OPS-00` (`apps/worker` no esta desplegado en ningun sitio hoy,
+    las secrets de GitHub Actions no incluyen `REDIS_URL`). No existe ningun Redis en produccion todavia.
+  - **Aceptado 2026-07-27** (decision explicita de Rafa, mismo patron que R-015 staging): provisionar un
+    Redis gestionado (ej. Upstash) para centralizar el rate limit **se pospone a proposito** hasta que haya
+    trafico real de Piloto 1 -- sin clientes reales hoy, el limite por instancia serverless ya es
+    suficiente, no vale la pena la infraestructura extra ahora. Revisar cuando OPS-01 (piloto) abra de
+    verdad.
   - Sin threat model documentado (ver SQO-04 propuesto en el README de este dominio).
-- **Siguiente accion:** ampliar la matriz de RLS a configuracion financiera y conexiones (los dominios con
-  mas impacto si fallan) antes de sumar mas dominios de superficie menor.
+- **Siguiente accion:** ampliar la matriz de RLS a campañas/stock cuando esos dominios tengan tablas
+  propias (INT-02/BE-06). `REDIS_URL` en produccion queda diferido (ver arriba), no es la siguiente accion.
 
 ## Entregables
 

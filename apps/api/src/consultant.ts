@@ -508,6 +508,21 @@ export async function listOrganizationStores(env: ApiEnv, authorization: string,
     };
   }
 
+  // BE-01 (gap real encontrado 2026-07-28): antes solo se comprobaba el rol,
+  // no que ESTE consultor este asignado a ESTA organizacion -- dependia
+  // solo de RLS (private.can_access_org via is_assigned_consultant) como
+  // unica linea de defensa. `context.memberships` ya incluye las
+  // organizaciones virtuales de platform_admin/consultant (auth-context.ts),
+  // asi que reusarlo aqui es la misma verificacion que el resto de servicios
+  // (requireMembership), sin una query nueva.
+  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
+  }
+
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
 

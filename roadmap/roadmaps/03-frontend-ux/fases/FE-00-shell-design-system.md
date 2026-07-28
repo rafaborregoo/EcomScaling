@@ -153,9 +153,23 @@ wrappers propios donde habia comportamiento que preservar (`Button`, `Card`, `Ba
 `Input`, `Select` (nativo, excepcion documentada), `Textarea`, `LoadingBlock`, `ErrorBlock`, `EmptyState`,
 `Tabs`, `Pagination`, `Combobox` (sin cambios de comportamiento, excepcion documentada), `Autocomplete`,
 `ConfirmDialog`, `Checkbox`, `Avatar`, `Breadcrumbs`, `NotificationBadge`) y re-exports directos de HeroUI
-para el resto (`Dropdown`, `Modal`, `Drawer`, `Toast`, `Table`, `Tooltip`, `ListBox`, etc. -- lista
+para el resto (`Dropdown`, `Modal`, `Drawer`, `Toast`, `Tooltip`, `ListBox`, etc. -- lista
 completa en [`ADR-0015`](../../../../docs/decisions/ADR-0015-heroui-design-system.md)). `index.ts` es el
 barrel; sin Storybook ni pagina `/ui` de referencia visual todavia.
+
+**`Table` anadido 2026-07-27** (`apps/web/src/components/ui/table.tsx`): ya no es un re-export directo
+(el compuesto crudo de react-aria-components/HeroUI es incomodo de usar columna por columna en cada
+pantalla) -- es un wrapper propio con API simple `columns`/`rows` (columnas estaticas, filas dinamicas)
+sobre los primitivos `TableRoot`/`TableHeader`/`TableColumn`/`TableBody`/`TableRow`/`TableCell` de HeroUI.
+Primer uso real: `AiDiagnosticSection` (hallazgos y recomendaciones de A02/A04/A06, antes listas `<ul>`) y
+`CopilotPanel` (fuentes citadas por A09, antes `<ul>` de texto plano) -- pedido explicito de Rafa de que
+las salidas de agentes se vean con componentes/tablas reales, no texto plano. Build local (`npm run
+typecheck -w web`, `npm run lint -w web`) verificado; **no verificado visualmente en navegador** -- este
+entorno no tiene `NEXT_PUBLIC_SUPABASE_URL`/`.env.local` configurado, `next build` falla al prerenderizar
+por eso (no relacionado con el cambio). El contenido de `answer`/`summary` de los agentes sigue siendo
+texto libre (los schemas Zod de `packages/ai` no producen datos tabulares fuera de
+`findings`/`recommendations`/`sources`) -- no hay mas superficie tabular real que migrar hoy sin inventar
+estructura donde el modelo solo devuelve texto.
 
 ## Criterios de cierre
 

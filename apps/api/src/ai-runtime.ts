@@ -1848,8 +1848,31 @@ export async function decideAgentOutput(
     const agentCode = await resolveAgentCodeForRun(supabase, output.run_id);
     const category = agentCode ? (AGENT_TASK_CATEGORY[agentCode] ?? "general") : "general";
 
+    // AI-12 (Orchestration patterns, gap real cerrado 2026-07-27): A02 y A04
+    // corren de forma independiente y pueden proponer la misma tarea (mismo
+    // riesgo ya senalado en ESTADO_GLOBAL). Mismo patron de dedup por titulo
+    // exacto normalizado que ya usa la aprobacion de resumenes de llamada
+    // (calls.ts) -- no detecta duplicados semanticos, solo el caso mas comun
+    // (dos agentes proponiendo literalmente el mismo titulo).
+    const { data: openTasks } = await supabase
+      .from("tasks")
+      .select("title")
+      .eq("organization_id", organizationId)
+      .in("status", ["pending", "in_progress"]);
+
+    const existingTitles = new Set(
+      (openTasks ?? []).map((task) => task.title.trim().toLowerCase()).filter(Boolean),
+    );
+
     for (const write of proposedWrites) {
       if (write.kind !== "task") {
+        continue;
+      }
+
+      const title = String(write.title ?? "Tarea propuesta por IA").slice(0, 255);
+      const normalizedTitle = title.trim().toLowerCase();
+
+      if (!normalizedTitle || existingTitles.has(normalizedTitle)) {
         continue;
       }
 
@@ -1857,7 +1880,7 @@ export async function decideAgentOutput(
         organization_id: organizationId,
         source: "ai_consultant",
         priority: typeof write.priority === "string" ? write.priority : "medium",
-        title: String(write.title ?? "Tarea propuesta por IA").slice(0, 255),
+        title,
         description: typeof write.description === "string" ? write.description : null,
         created_by: context.user.id,
         metadata: { agent_output_id: outputId },
@@ -1866,6 +1889,7 @@ export async function decideAgentOutput(
 
       if (!taskError) {
         tasksCreated += 1;
+        existingTitles.add(normalizedTitle);
       }
     }
   }
@@ -1938,4 +1962,89 @@ export async function listAgentRuns(
   }
 
   return { ok: true as const, data: { organization_id: organizationId, runs: data ?? [] } };
+}
+
+/**
+ * AI-12 (Observability & tracing): reconstruye una ejecucion completa de
+ * agente (pasos, llamadas a herramientas, snapshots de contexto, consultas
+ * SQL) en una sola respuesta -- hoy requeria consultar 4 tablas a mano.
+ * Solo consultor/platform_admin (mismo criterio que `agent_context_snapshots`/
+ * `agent_query_runs`, que ya restringen su RLS a ese rol porque pueden
+ * contener datos amplios del negocio, no solo metadatos de ejecucion).
+ */
+export async function getAgentRunTrace(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+  runId: string,
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) {
+    return access;
+  }
+
+  const canView = ["platform_admin", "consultant"].includes(context.profile.platform_role);
+  if (!canView) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "trace_access_denied",
+      message: "Solo un consultor o platform admin puede ver la traza de ejecucion de un agente.",
+    };
+  }
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: run, error: runError } = await supabase
+    .from("agent_runs")
+    .select(
+      "id, trigger_type, objective, status, input_tokens, output_tokens, cache_read_tokens, estimated_cost_usd, latency_ms, error_message, started_at, finished_at, agent_versions(version, model, agent_definitions(code))",
+    )
+    .eq("id", runId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (runError) {
+    return { ok: false as const, statusCode: 500, error: "agent_run_load_failed", detail: runError.message };
+  }
+
+  if (!run) {
+    return { ok: false as const, statusCode: 404, error: "agent_run_not_found" };
+  }
+
+  const [steps, toolCalls, contextSnapshots, queryRuns] = await Promise.all([
+    supabase
+      .from("agent_run_steps")
+      .select("id, position, step_type, summary, duration_ms, created_at")
+      .eq("run_id", runId)
+      .order("position", { ascending: true }),
+    supabase
+      .from("agent_tool_calls")
+      .select("id, tool_name, is_error, duration_ms, created_at")
+      .eq("run_id", runId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("agent_context_snapshots")
+      .select("id, context_level, created_at")
+      .eq("run_id", runId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("agent_query_runs")
+      .select("id, sql_text, tables_used, rows_returned, duration_ms, was_rejected, rejection_reason, created_at")
+      .eq("run_id", runId)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  return {
+    ok: true as const,
+    data: {
+      run,
+      steps: steps.data ?? [],
+      tool_calls: toolCalls.data ?? [],
+      context_snapshots: contextSnapshots.data ?? [],
+      query_runs: queryRuns.data ?? [],
+    },
+  };
 }

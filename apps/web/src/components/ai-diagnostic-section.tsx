@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { useActiveConnection } from "@/components/active-connection";
-import { Badge, Banner, Button, Card, ErrorBlock, Heading, LoadingBlock, type Tone } from "@/components/ui";
+import { Badge, Banner, Button, Card, ErrorBlock, Heading, LoadingBlock, Table, type Tone } from "@/components/ui";
 
 type Finding = { title: string; severity: "info" | "low" | "medium" | "high" | "critical"; evidence: string };
 type Recommendation = {
@@ -211,33 +211,39 @@ export function AiDiagnosticSection({
           {diagnostic.output.findings.length ? (
             <div className="mt-4">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Hallazgos</p>
-              <ul className="mt-2 space-y-2">
-                {diagnostic.output.findings.map((finding, index) => (
-                  <li key={index} className="flex flex-wrap items-baseline gap-2 text-sm">
-                    <Badge tone={severityTone[finding.severity]}>{finding.severity}</Badge>
-                    <span className="font-medium">{finding.title}</span>
-                    <span className="text-muted">— {finding.evidence}</span>
-                  </li>
-                ))}
-              </ul>
+              <Table
+                className="mt-2"
+                ariaLabel="Hallazgos del diagnostico"
+                columns={[
+                  {
+                    key: "severity",
+                    label: "Severidad",
+                    render: (row) => <Badge tone={severityTone[row.severity]}>{row.severity}</Badge>,
+                  },
+                  { key: "title", label: "Hallazgo" },
+                  { key: "evidence", label: "Evidencia" },
+                ]}
+                rows={diagnostic.output.findings.map((finding, index) => ({ id: String(index), ...finding }))}
+              />
             </div>
           ) : null}
 
           {diagnostic.output.recommendations.length ? (
-            <Card
-              className="mt-4"
-              kicker="Recomendación"
-            >
-              <ul className="space-y-1.5">
-                {diagnostic.output.recommendations.map((rec, index) => (
-                  <li key={index} className="text-sm">
-                    <span className="font-medium">{rec.action}</span>{" "}
-                    <span className="font-mono text-xs text-muted">
-                      ({priorityLabelsEs[rec.priority] ?? rec.priority} · {rec.owner})
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <Card className="mt-4" kicker="Recomendación">
+              <Table
+                ariaLabel="Recomendaciones del diagnostico"
+                columns={[
+                  { key: "action", label: "Acción" },
+                  {
+                    key: "priority",
+                    label: "Prioridad",
+                    render: (row) => priorityLabelsEs[row.priority] ?? row.priority,
+                  },
+                  { key: "expected_impact", label: "Impacto esperado" },
+                  { key: "owner", label: "Responsable" },
+                ]}
+                rows={diagnostic.output.recommendations.map((rec, index) => ({ id: String(index), ...rec }))}
+              />
             </Card>
           ) : null}
 

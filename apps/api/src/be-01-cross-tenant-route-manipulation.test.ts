@@ -117,6 +117,37 @@ const CROSS_TENANT_ROUTES: Array<{ method: "GET"; path: (organizationId: string)
   { method: "GET", path: (id) => `/v1/organizations/${id}/integrations`, label: "integrations" },
   { method: "GET", path: (id) => `/v1/organizations/${id}/operations`, label: "operations" },
   { method: "GET", path: (id) => `/v1/organizations/${id}/financial-config`, label: "financial-config" },
+  // BE-01 (2026-07-28): ampliado de 5 a 13 endpoints con control positivo --
+  // ninguno de estos dispara una llamada real a un LLM (a diferencia de
+  // ai/monitor, ai/task-planner, ai/stock-planner, ai/knowledge-manager, ver
+  // CROSS_TENANT_DENIAL_ONLY_ROUTES abajo), asi que el control positivo
+  // (organizacion propia) es barato y rapido de correr en cada PR.
+  { method: "GET", path: (id) => `/v1/organizations/${id}/shopify/metrics`, label: "shopify/metrics" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/shopify/product-costs`, label: "shopify/product-costs" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/meta/metrics`, label: "meta/metrics" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/strategic-plan`, label: "strategic-plan" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/ai/runs`, label: "ai/runs" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/knowledge/documents`, label: "knowledge/documents" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/calls`, label: "calls" },
+  {
+    method: "GET",
+    path: (id) => `/v1/organizations/${id}/consultant-chat/conversations`,
+    label: "consultant-chat/conversations",
+  },
+];
+
+// Estos SI disparan una ejecucion real de agente (llamada real al proveedor
+// LLM, coste real) cuando no hay un diagnostico cacheado -- que es siempre el
+// caso para una organizacion de test recien creada. Solo se prueba el rechazo
+// cross-tenant (barato, `requireMembership` corta antes de invocar el
+// modelo); no se anade el control positivo para no gastar dinero/tiempo real
+// en cada corrida de CI, mismo criterio que los evals de AI-06 ("no correr en
+// cada PR").
+const CROSS_TENANT_DENIAL_ONLY_ROUTES: Array<{ method: "GET"; path: (organizationId: string) => string; label: string }> = [
+  { method: "GET", path: (id) => `/v1/organizations/${id}/ai/monitor`, label: "ai/monitor" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/ai/task-planner`, label: "ai/task-planner" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/ai/stock-planner`, label: "ai/stock-planner" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/ai/knowledge-manager`, label: "ai/knowledge-manager" },
 ];
 
 for (const route of CROSS_TENANT_ROUTES) {
@@ -149,5 +180,24 @@ for (const route of CROSS_TENANT_ROUTES) {
       403,
       `un miembro real de la organizacion no deberia recibir 403 en su propia org: ${response.body}`,
     );
+  });
+}
+
+for (const route of CROSS_TENANT_DENIAL_ONLY_ROUTES) {
+  test(`${route.label}: un miembro de org A no puede leer datos de org B forzando el organizationId en el path`, async () => {
+    const response = await app.inject({
+      method: route.method,
+      url: route.path(orgB),
+      headers: { authorization: `Bearer ${ownerAAccessToken}` },
+    });
+
+    assert.equal(
+      response.statusCode,
+      403,
+      `se esperaba 403 (organization_access_denied), se obtuvo ${response.statusCode}: ${response.body}`,
+    );
+
+    const body = JSON.parse(response.body);
+    assert.equal(body.error, "organization_access_denied");
   });
 }

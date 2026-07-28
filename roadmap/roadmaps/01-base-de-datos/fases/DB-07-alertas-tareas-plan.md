@@ -4,7 +4,7 @@
 
 - **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-07-23
 - **Dependencias:** DB-00, DB-02
 - **Bloqueador:** ninguno
 - **Evidencia:**

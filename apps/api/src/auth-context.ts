@@ -14,9 +14,18 @@ type Profile = {
   is_active: boolean;
 };
 
+// BE-01/Q-008 (cerrado 2026-07-28, ver ADR-0012): antes de esto, una
+// membership sintetica de platform_admin/consultant (sin fila real en
+// organization_members) era indistinguible de una membership real -- misma
+// forma de dato, sin campo que dijera de donde vino el acceso. accessSource
+// lo hace explicito sin cambiar el comportamiento de autorizacion existente
+// (nada consume este campo todavia, es aditivo).
+export type AccessSource = "membership" | "consultant_assignment" | "platform_admin";
+
 type Membership = {
   organization_id: string;
   role: string;
+  accessSource: AccessSource;
 };
 
 type Organization = {
@@ -136,7 +145,13 @@ async function loadMemberships(supabase: SupabaseClient, userId: string) {
     };
   }
 
-  return { ok: true as const, data: (data ?? []) as Membership[] };
+  const memberships: Membership[] = (data ?? []).map((row) => ({
+    organization_id: row.organization_id as string,
+    role: row.role as string,
+    accessSource: "membership" as const,
+  }));
+
+  return { ok: true as const, data: memberships };
 }
 
 /**
@@ -156,7 +171,11 @@ async function loadConsultantOrganizationIds(
     if (error) {
       return { ok: false as const, detail: error.message };
     }
-    return { ok: true as const, ids: (data ?? []).map((row) => row.id as string) };
+    return {
+      ok: true as const,
+      ids: (data ?? []).map((row) => row.id as string),
+      accessSource: "platform_admin" as const,
+    };
   }
 
   if (platformRole === "consultant") {
@@ -168,10 +187,14 @@ async function loadConsultantOrganizationIds(
     if (error) {
       return { ok: false as const, detail: error.message };
     }
-    return { ok: true as const, ids: (data ?? []).map((row) => row.organization_id as string) };
+    return {
+      ok: true as const,
+      ids: (data ?? []).map((row) => row.organization_id as string),
+      accessSource: "consultant_assignment" as const,
+    };
   }
 
-  return { ok: true as const, ids: [] as string[] };
+  return { ok: true as const, ids: [] as string[], accessSource: "membership" as const };
 }
 
 export async function resolveAuthContext(
@@ -238,7 +261,11 @@ export async function resolveAuthContext(
   );
   const virtualMemberships: Membership[] = consultantOrgsResult.ids
     .filter((organizationId) => !realMembershipIds.has(organizationId))
-    .map((organizationId) => ({ organization_id: organizationId, role: "consultant" }));
+    .map((organizationId) => ({
+      organization_id: organizationId,
+      role: "consultant",
+      accessSource: consultantOrgsResult.accessSource,
+    }));
 
   const allMemberships = [...membershipsResult.data, ...virtualMemberships];
 

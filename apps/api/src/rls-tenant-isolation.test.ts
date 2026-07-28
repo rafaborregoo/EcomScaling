@@ -74,6 +74,7 @@ let internalTaskA = "";
 let internalTaskHistoryA = "";
 let draftPlanA = "";
 let activePlanA = "";
+let agentRunA = "";
 
 before(async () => {
   const { data: orgs, error: orgsError } = await admin
@@ -208,6 +209,7 @@ before(async () => {
   if (runError || !runRow) {
     throw new Error(`No se pudo crear el run de prueba: ${runError?.message}`);
   }
+  agentRunA = runRow.id;
 
   const { data: outputRow, error: outputError } = await admin
     .from("agent_outputs")
@@ -420,6 +422,62 @@ test("las conversaciones del copiloto (A09) son privadas por usuario, no por org
     .eq("id", conversation!.id);
   assert.equal(otherError, null);
   assert.deepEqual(visibleToOther, [], "otro miembro de la misma organizacion no debe ver la conversacion");
+});
+
+// SQO-00 (gap identificado 2026-07-22, cerrado 2026-07-27): "llamadas y agent
+// runs como dominios propios, cubiertos indirectamente por otros tests, sin
+// casos dedicados". Los tests de arriba prueban draft/pending vs
+// published/approved dentro de la MISMA organizacion; estos prueban
+// aislamiento cross-tenant real (org B intentando leer datos de org A).
+test("un cliente de otra organizacion no ve un agent_run ajeno", async () => {
+  const { data, error } = await ownerB.client.from("agent_runs").select("id").eq("id", agentRunA);
+  assert.equal(error, null);
+  assert.deepEqual(data, [], "agent_runs de otra organizacion no debe ser visible cross-tenant");
+});
+
+test("un cliente de otra organizacion no ve un agent_output ajeno (independiente de su status)", async () => {
+  const { data, error } = await ownerB.client.from("agent_outputs").select("id").eq("id", pendingOutputA);
+  assert.equal(error, null);
+  assert.deepEqual(data, [], "agent_outputs de otra organizacion no debe ser visible cross-tenant");
+});
+
+test("un cliente de otra organizacion no ve una llamada de consultoria ajena", async () => {
+  const { data: call, error: callError } = await admin
+    .from("consulting_calls")
+    .insert({
+      organization_id: orgA,
+      title: "Llamada cross-tenant DB-08",
+      is_visible_to_client: true,
+      created_by: platformAdmin.id,
+    })
+    .select("id")
+    .single();
+  assert.equal(callError, null);
+
+  const { data: transcript, error: transcriptError } = await admin
+    .from("call_transcripts")
+    .insert({ call_id: call!.id, organization_id: orgA, content: "Transcripcion de prueba cross-tenant" })
+    .select("id")
+    .single();
+  assert.equal(transcriptError, null);
+
+  const { data: callVisible, error: callVisibleError } = await ownerB.client
+    .from("consulting_calls")
+    .select("id")
+    .eq("id", call!.id);
+  assert.equal(callVisibleError, null);
+  assert.deepEqual(callVisible, [], "consulting_calls de otra organizacion no debe ser visible cross-tenant");
+
+  const { data: transcriptVisible, error: transcriptVisibleError } = await ownerB.client
+    .from("call_transcripts")
+    .select("id")
+    .eq("id", transcript!.id);
+  assert.equal(transcriptVisibleError, null);
+  assert.deepEqual(
+    transcriptVisible,
+    [],
+    "call_transcripts de otra organizacion no debe ser visible cross-tenant",
+  );
 });
 
 test("un miembro puede ver el consultor asignado a SU organizacion", async () => {

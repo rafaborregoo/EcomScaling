@@ -37,7 +37,10 @@ type NavGroup = { label: string; items: NavItem[] };
 const consultantNavGroups: NavGroup[] = [
   {
     label: "Consultoría",
-    items: [{ href: "/consultor", label: "Clientes" }],
+    items: [
+      { href: "/consultor", label: "Clientes" },
+      { href: "/agentes", label: "Ejecuciones IA" },
+    ],
   },
   {
     label: "Cliente activo",

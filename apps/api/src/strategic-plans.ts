@@ -375,6 +375,18 @@ export async function addMilestoneInternalNote(
     };
   }
 
+  // BE-01 (bug real de seguridad encontrado 2026-07-28, no solo un gap
+  // teorico): el chequeo de arriba solo confirma el ROL de plataforma, no que
+  // ESTE consultor este asignado a ESTA organizacion. Como el insert de abajo
+  // usa `createServiceClient` (service_role, sin RLS), un consultor asignado
+  // solo a otra organizacion podia escribir una nota interna aqui con solo
+  // conocer un `milestoneId` ajeno. `context.memberships` ya incluye las
+  // organizaciones virtuales del consultor (auth-context.ts) exactamente para
+  // esto -- mismo patron que `requireMembership` en el resto del backend.
+  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
+    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+  }
+
   if (!body || body.trim().length === 0) {
     return { ok: false as const, statusCode: 400, error: "missing_note_body" };
   }

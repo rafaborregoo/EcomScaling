@@ -100,10 +100,16 @@ before(async () => {
   }
   summaryId = summary.id;
 
+  // BE-01 (2026-07-28): `memberships: []` funcionaba antes solo por el bug
+  // real corregido en `calls.ts:requireOrganizationAccess` (un platform_admin
+  // pasaba el chequeo de organizacion sin necesitar una membership real ni
+  // virtual). El `resolveAuthContext` real siempre puebla una membership
+  // virtual para platform_admin en cada organizacion -- este fixture manual
+  // debe reflejar lo mismo para seguir siendo representativo.
   platformAdminContext = {
     user: { id: creatorUserId },
     profile: { id: creatorUserId, full_name: null, avatar_url: null, platform_role: "platform_admin", is_active: true },
-    memberships: [],
+    memberships: [{ organization_id: orgId, role: "consultant", accessSource: "platform_admin", organization: null }],
     subscriptions: [],
   };
 });

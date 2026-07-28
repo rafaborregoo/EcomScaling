@@ -30,10 +30,20 @@ llega ya calculado en el contexto (evidence pack), no vuelto a calcular por el m
 que AI-02 todavia no adopto (ver AI-02).
 
 **Riesgo de proliferacion real, no solo teorico**: A02 (detecta hallazgos) y A04 (prioriza/genera tareas)
-no tienen una frontera de responsabilidad escrita en ningun documento — hoy ambos pueden terminar
-proponiendo tareas similares desde angulos distintos. Recomendado (sin implementar): A02 emite
-`recommended_actions`, no tareas completas; A04 es el unico que convierte hallazgos aceptados + backlog en
-plan priorizado.
+no tienen una frontera de responsabilidad escrita en ningun documento — ambos pueden terminar proponiendo
+tareas similares desde angulos distintos (comparten alertas activas y ventas del periodo como contexto,
+`ai-runtime.ts:runMonitorAgent`/`runTaskPlannerAgent`). **Mitigado en la materializacion 2026-07-27**
+(`decideAgentOutput`, `apps/api/src/ai-runtime.ts`): antes de insertar una tarea propuesta se comprueba
+contra las tareas abiertas (`pending`/`in_progress`) de la organizacion por titulo exacto normalizado
+(trim + minusculas) — mismo patron que ya usaba A01 (`calls.ts`) para resumenes de llamada. Si A02 y A04
+proponen literalmente el mismo titulo, solo la primera aprobada se materializa. Test real:
+`ai-orchestration-task-dedup.test.ts` (Supabase remoto real, 1/1 pasa). **Frontera semantica cerrada 2026-07-27** (`supabase/migrations/20260727100000_ai_12_a02_no_task_writes.sql`,
+aplicada y verificada en el proyecto remoto real, `agent_versions` v4 activa): el prompt de A02 ahora
+instruye explicitamente `proposed_writes: []` siempre -- diagnostica y explica que se deberia hacer en
+`recommendations`, pero ya no crea tareas el mismo. A04 (prompt v3, sin cambios) sigue siendo el unico
+agente de diagnostico que convierte hallazgos/backlog en tareas nuevas. Nota operativa: la migracion se
+aplico manualmente contra la base antes de que quedara registrada en `supabase_migrations.schema_migrations`
+-- reconciliada sin re-ejecutar el DML, mismo patron que RB-005.
 
 **A00 (orquestador) — decision: diferir.** Con 5 agentes automaticos (A02/A04/A06/A08/A09) el valor de un
 orquestador que decida cual ejecutar es marginal: cada uno ya se autoactiva por pagina (dashboard/

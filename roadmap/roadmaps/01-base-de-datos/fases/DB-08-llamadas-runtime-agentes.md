@@ -4,7 +4,7 @@
 
 - **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-07-27
 - **Dependencias:** DB-00, DB-02
 - **Bloqueador:** ninguno
 - **Evidencia:**
@@ -23,7 +23,11 @@
 - **Gaps identificados:**
   - Este documento mezcla runtime de agentes, llamadas/transcripciones y aprobaciones en un solo bloque de
     estado (dividir en DB-08A/B/C facilitaria auditarlos por separado).
-  - Sin politica de retencion/redaccion de PII documentada para transcripciones.
+  - **Cerrado 2026-07-27**: politica de retencion/redaccion de PII para transcripciones ya no es un olvido
+    sin decidir -- decision explicita en [`ADR-0016-retencion-transcripciones-llamadas.md`](../../../../docs/decisions/ADR-0016-retencion-transcripciones-llamadas.md):
+    sin retencion por tiempo (conservacion indefinida) y sin redaccion de PII antes de guardar, mientras no
+    haya cliente real en el Piloto 1 ni requisito contractual/legal que lo exija. Reevaluar segun los
+    disparadores listados en la ADR.
 - **Correcciones 2026-07-21 (la auditoria anterior subestimaba lo ya construido):**
   - **"Sin evidencia formal de tests de alucinacion/rechazo para A01"** era incorrecto: `checkOutputSanity`
     (AI-06, `packages/ai/src/index.test.ts`) ya es generico por duck-typing sobre `summary`/`proposed_tasks`
@@ -32,7 +36,7 @@
   - **"Sin verificacion de acceso cliente antes/despues de publicar"** ya tiene test: `rls-tenant-isolation.test.ts`
     incluye "el cliente no ve un resumen de llamada en borrador, pero si en cuanto se publica" (`call_ai_summaries`,
     status `draft` -> `published`), confirmado contra el Supabase remoto real.
-- **Siguiente accion:** documentar retencion/redaccion de PII de transcripciones; evaluar dividir el documento en DB-08A/B/C.
+- **Siguiente accion:** evaluar dividir el documento en DB-08A/B/C (organizacion, no bloqueante).
 
 ## Objetivo
 

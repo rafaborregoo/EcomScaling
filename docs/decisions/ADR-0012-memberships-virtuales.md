@@ -23,14 +23,17 @@ autoriza acceso de forma uniforme sin distinguir el origen.
 
 `apps/api/src/auth-context.ts` (`resolveAuthContext`).
 
-## Consecuencias y riesgo abierto (sin resolver)
+## Consecuencias y riesgo abierto (resuelto parcialmente 2026-07-28)
 
 Las memberships virtuales mezclan dos fuentes de acceso distintas (membership real vs
-`consultant_assignment`) bajo una misma forma de dato — riesgo de diseño documentado en
-`roadmap/roadmaps/02-backend-api/fases/BE-01-identidad-tenancy.md` y en la pregunta abierta Q-008
-(`PREGUNTAS_ABIERTAS.md`). Alternativa propuesta ahi, no implementada: `AuthContext.accessSource:
-"membership" | "consultant_assignment" | "platform_admin"` explicito, en vez de sintetizar un membership
-que aparenta ser real.
+`consultant_assignment`) bajo una misma forma de dato. **Cerrado 2026-07-28 (Q-008)**: se anadio
+`Membership.accessSource: "membership" | "consultant_assignment" | "platform_admin"` en
+`apps/api/src/auth-context.ts` -- cada entrada de `AuthContext.memberships` ahora declara su origen real,
+verificado con `auth-context-access-source.test.ts` (3/3 contra Supabase remoto real). Decision deliberada:
+se resolvio el riesgo real (indistinguibilidad de origen) con un campo aditivo, sin migrar a un tipo
+`OrganizationAccess` completo con `permissions[]` -- esa reestructuracion mas amplia seguia sin
+justificarse por ningun bug real, solo por limpieza de diseño, y el cambio aditivo no rompe ningun
+consumidor existente (`role`/`organization_id` se siguen leyendo igual).
 
 ## Historial relacionado
 

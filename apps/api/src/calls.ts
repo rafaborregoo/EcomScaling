@@ -20,15 +20,27 @@ function createServiceClient(env: ApiEnv) {
   });
 }
 
+// BE-01 (bug critico de seguridad encontrado y corregido 2026-07-28): la
+// version anterior dejaba pasar a CUALQUIER consultant/platform_admin sin
+// comprobar `membership` -- `!membership && !isPrivileged` es `false` en
+// cuanto `isPrivileged` es true, saltandose el chequeo de organizacion por
+// completo. Como los escritores de este archivo (createCall/updateCall/
+// saveTranscript/createSummary/decideSummary/addInternalNote/
+// createTaskFromCall) usan `createServiceClient` (service_role, sin RLS),
+// cualquier consultor de la plataforma podia escribir llamadas/transcripciones
+// /resumenes/tareas de una organizacion a la que NO estaba asignado, con solo
+// conocer su `organizationId`. `context.memberships` ya incluye las
+// organizaciones virtuales de platform_admin (todas) y consultant (solo las
+// asignadas, ver auth-context.ts) -- comprobar solo `membership` es correcto
+// y suficiente, `isPrivileged` como bypass nunca hacia falta.
 function requireOrganizationAccess(context: AuthContext, organizationId: string) {
   const membership = context.memberships.find((item) => item.organization_id === organizationId);
-  const isPrivileged = ["platform_admin", "consultant"].includes(context.profile.platform_role);
 
-  if (!membership && !isPrivileged) {
+  if (!membership) {
     return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
   }
 
-  return { ok: true as const, membership: membership ?? null, isPrivileged };
+  return { ok: true as const, membership };
 }
 
 // Gestionar llamadas (crear, transcribir, resumir, publicar) es trabajo del

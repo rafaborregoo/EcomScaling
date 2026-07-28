@@ -58,6 +58,7 @@ import {
   getStockPlannerDiagnostic,
   getTaskPlannerDiagnostic,
   listAgentRuns,
+  getAgentRunTrace,
   listConsultantChatConversations,
   runCallAnalyst,
   runConsultantChatTurn,
@@ -1567,6 +1568,37 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     const result = await listAgentRuns(env, authorization, auth.context, request.params.organizationId);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  },
+  );
+
+  app.get<{ Params: { organizationId: string; runId: string } }>(
+  "/v1/organizations/:organizationId/ai/runs/:runId/trace",
+  async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await getAgentRunTrace(
+      env,
+      authorization,
+      auth.context,
+      request.params.organizationId,
+      request.params.runId,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);

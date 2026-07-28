@@ -28,6 +28,8 @@ export { ConfirmDialog } from "./confirm-dialog";
 export { Checkbox } from "./checkbox";
 export { Link } from "./link";
 export { Heading } from "./heading";
+export type { TableColumnDef } from "./table";
+export { Table } from "./table";
 
 // Re-exportados directos de HeroUI (sin API propia que preservar -- sin uso
 // existente que migrar hoy, se usan tal cual documenta HeroUI).
@@ -68,7 +70,6 @@ export {
   Separator,
   Skeleton,
   Switch,
-  Table,
   Toast,
   toast,
   Toolbar,

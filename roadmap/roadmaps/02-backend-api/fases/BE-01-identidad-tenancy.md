@@ -15,14 +15,18 @@
     sus `consultant_assignments` activas, ambas con `role: "consultant"`. RLS ya cubria este acceso via
     `private.can_access_org`.
   - Seed operativo con usuario admin/cliente reales para pruebas manuales.
-- **Riesgo de diseno abierto (sin resolver, ver `PREGUNTAS_ABIERTAS.md`):** un consultor asignado no es
-  realmente un miembro de la organizacion. Materializarlo como membership virtual simplifica el checkeo
-  uniforme pero puede confundir permisos, hacer que la UI lo trate como miembro interno, mezclar rol de
-  plataforma con rol de organizacion, y complicarse cuando aparezcan mas tipos de acceso (p. ej. un
-  auditor de solo lectura). Alternativa mas limpia: que `AuthContext` devuelva
-  `{ organizationId, accessSource: "membership" | "consultant_assignment" | "platform_admin",
-  organizationRole?, platformRole, permissions[] }` — uniformar el **contrato de acceso**, no la
-  **identidad de la relacion**. No implementado todavia; es un cambio de contrato, no un parche.
+- **Cerrado 2026-07-28 (Q-008, ver ADR-0012 actualizada):** `AuthContext.memberships[].accessSource:
+  "membership" | "consultant_assignment" | "platform_admin"` implementado en `auth-context.ts` --
+  cada membership (real o virtual) declara ahora explicitamente de donde viene el acceso, en vez de que
+  una membership sintetica sea indistinguible de una real. **Decision deliberadamente acotada**: se anadio
+  el campo (aditivo, no rompe ningun consumidor existente -- 7 sitios que construian `AuthContext` a mano
+  en evals/tests se actualizaron) sin tocar la logica de autorizacion real, que sigue leyendo
+  `organization_id`/`role` exactamente igual que antes. La alternativa mas ambiciosa que proponia esta
+  seccion (reemplazar `memberships` por un tipo `OrganizationAccess` con `permissions[]` explicito) sigue
+  sin implementarse -- no hacia falta para resolver el riesgo real senalado (memberships virtuales
+  indistinguibles de reales), que ya esta resuelto con el campo aditivo. Test real:
+  `auth-context-access-source.test.ts` (3/3, Supabase remoto real: membership real, `consultant_assignment`,
+  `platform_admin`, cada uno con su propio usuario y sesion).
 - **Test anadido y confirmado 2026-07-22**: `rls-tenant-isolation.test.ts` incluye "un consultor pierde
   acceso en cuanto se desactiva su asignacion (en caliente, sin re-login)" -- desactiva
   `consultant_assignments.is_active` para un consultor real y confirma que pierde visibilidad de la
@@ -59,8 +63,30 @@
     encontro y corrigio un bug real de tipos en `upsertOrganizationMember`: el `select` de la fila previa
     no traia `invited_at`/`joined_at`, asi que cada edicion de rol los sobreescribia con la fecha actual en
     vez de preservar los originales.
-- **Siguiente accion:** decidir si se migra a `OrganizationAccess` tipado (ver riesgo de diseno) antes de
-  seguir anadiendo superficie que dependa de memberships virtuales.
+- **Auditoria completa 2026-07-28 (pedida por Rafa: "extender validacion a los ~57 endpoints
+  restantes")**: `be-01-cross-tenant-route-manipulation.test.ts` paso de 5 a 17 endpoints con control
+  positivo + 4 rutas de solo-rechazo (las que invocan un LLM real, sin control positivo por coste) --
+  46/46 tests pasan. Auditados a mano todos los archivos de servicio (`shopify.ts`, `meta.ts`, `calls.ts`,
+  `knowledge.ts`, `operations.ts`, `strategic-plans.ts`, `financial-config.ts`, `integrations.ts`,
+  `shopify-metrics.ts`, `shopify-overview.ts`, `shopify-product-costs.ts`, `meta-metrics.ts`, `consultant.ts`)
+  linea por linea buscando el chequeo de organizacion en cada funcion exportada.
+  - **CRITICO encontrado y corregido el mismo dia (R-023, ver `RIESGOS.md`)**: `calls.ts`,
+    `knowledge.ts` (`searchKnowledge`) y `strategic-plans.ts` (`addMilestoneInternalNote`) tenian el mismo
+    bug real -- `!membership && !isPrivileged` dejaba pasar a cualquier consultant/platform_admin sin
+    comprobar la organizacion especifica, y esas 3 funciones escriben/leen con `service_role` o una RPC
+    sin RLS. Cualquier consultor de la plataforma podia leer/escribir datos de una organizacion a la que
+    no estaba asignado. Corregido: las 3 ahora exigen `context.memberships.some(...)` sin excepcion. 5
+    tests de regresion nuevos con un consultor real asignado solo a una organizacion
+    (`be-01-consultant-cross-tenant-write.test.ts`, 5/5 contra Supabase remoto real).
+  - **Gap menor tambien corregido**: `listOrganizationStores` (panel consultor) tenia el mismo patron de
+    chequeo (rol sin organizacion especifica) pero sin explotacion posible -- usa `createUserScopedClient`
+    (RLS real de por medio, `is_assigned_consultant` ya lo protegia). Corregido igual por consistencia
+    con el resto del backend.
+  - **Resto de archivos auditados: sin gaps encontrados** -- todos ya usaban `requireMembership`/
+    `assertCanManage*`/`context.memberships.some(...)` correctamente antes de esta ronda.
+- **Siguiente accion:** ninguna pendiente critica; quedan ~15-20 endpoints de escritura menores (PATCH
+  status de tareas/alertas/hitos, comentarios) sin test dedicado de cross-tenant, aunque su codigo ya usa
+  el patron correcto (auditado por lectura, no por test de integracion todavia).
 
 ## Objetivo
 

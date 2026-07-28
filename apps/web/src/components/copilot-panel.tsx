@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Drawer } from "@heroui/react";
 import { apiFetch } from "@/lib/bootstrap";
-import { Button, Input } from "@/components/ui";
+import { Badge, Button, Card, Input, Table } from "@/components/ui";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type ChatSource = { kind: string; reference: string; period: string | null };
@@ -97,27 +97,34 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
                     datos reales del sistema y cita las fuentes.
                   </p>
                 ) : (
-                  messages.map((message, index) => (
-                    <div key={index}>
-                      <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">
-                        {message.role === "user" ? "Tú" : "Copiloto"}
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                    </div>
-                  ))
+                  messages.map((message, index) =>
+                    message.role === "assistant" ? (
+                      <Card key={index} kicker="Copiloto">
+                        <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                      </Card>
+                    ) : (
+                      <div key={index}>
+                        <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">Tú</p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                      </div>
+                    ),
+                  )
                 )}
                 {isSending ? <p className="text-sm text-muted">Pensando...</p> : null}
                 {error ? <p className="text-sm text-brand" role="alert">{error}</p> : null}
                 {!isSending && lastSources.length > 0 ? (
                   <div className="border-t border-line pt-2">
                     <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">Fuentes</p>
-                    <ul className="mt-1 space-y-0.5">
-                      {lastSources.map((source, index) => (
-                        <li key={index} className="text-xs text-muted">
-                          {source.reference}
-                        </li>
-                      ))}
-                    </ul>
+                    <Table
+                      className="mt-1"
+                      ariaLabel="Fuentes de la respuesta del copiloto"
+                      columns={[
+                        { key: "kind", label: "Tipo", render: (row) => <Badge tone="neutral">{row.kind}</Badge> },
+                        { key: "reference", label: "Referencia" },
+                        { key: "period", label: "Periodo", render: (row) => row.period ?? "—" },
+                      ]}
+                      rows={lastSources.map((source, index) => ({ id: String(index), ...source }))}
+                    />
                   </div>
                 ) : null}
               </div>

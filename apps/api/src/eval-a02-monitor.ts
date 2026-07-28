@@ -105,7 +105,7 @@ function fakeAuthContext(organizationId: string, actorUserId: string): AuthConte
       platform_role: "platform_admin",
       is_active: true,
     },
-    memberships: [{ organization_id: organizationId, role: "owner", organization: null }],
+    memberships: [{ organization_id: organizationId, role: "owner", accessSource: "membership", organization: null }],
     subscriptions: [],
   };
 }

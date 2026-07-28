@@ -25,16 +25,28 @@
   devuelve para la suya. Cubre el caso mas grave de "contaminacion cross-tenant" del gap de abajo (fuga de
   conocimiento privado entre clientes); no cubre recall@k ni precision de citas, que necesitan un dataset
   real, no solo un caso sintetico de aislamiento.
+- **Cerrado 2026-07-23 (correccion 2026-07-27: esta seccion no se habia actualizado cuando cerro, deriva
+  documental real, ver R-022)**: dataset de `recall@k` corrido contra Voyage real
+  (`apps/api/src/eval-ai04-rag-retrieval.ts`, `npm run eval:ai04 -w @ecomscaling/api`) -- 6 documentos de
+  metodologia con consultas parafraseadas (nunca coincidencia lexica exacta), recall@8 y recall@3 ambos
+  6/6 (100%). Cubre el caso principal del gap; no cubre corpus grande/estructurado ni terminologia exacta
+  (busqueda hibrida).
+- **Cerrado 2026-07-27**: politica de retencion de `ai_conversations`/`ai_messages` decidida con el mismo
+  criterio que ADR-0016 (transcripciones) y AI-00 (contexto enviado al LLM) -- sin limite de tiempo ni
+  redaccion mientras no haya cliente real en el Piloto 1, purga junto con el resto de datos de la
+  organizacion via `purgeExpiredDeletions` (`ai_conversations.organization_id references organizations on
+  delete cascade`, `ai_messages` en cascada de `ai_conversations`). Reevaluar en los mismos disparadores que
+  ADR-0016.
 - **Gaps identificados que siguen abiertos:**
   - Sin estrategia de re-embedding documentada (cambiar de modelo de embeddings hoy rompe la tabla).
   - Sin localizacion precisa de cita (pagina/seccion/offset), solo documento + chunk.
   - Sin tamano/overlap/normalizacion de chunking documentado como parametro versionado.
-  - Sin borrado en cascada / pipeline de tombstones documentado para conocimiento retirado.
-  - Sin dataset de evaluacion de calidad (`recall@k`, precision de citas, respuestas sin evidencia) — los
-    tests de prompt injection tampoco existen todavia (AI-06 pendiente).
-  - Sin politica de retencion para `ai_conversations`/`ai_messages`.
-- **Siguiente accion:** definir el dataset de evaluacion de calidad de retrieval (recall@k, precision de
-  citas) como parte del resto de AI-06 -- el aislamiento cross-tenant ya no es parte de ese pendiente.
+  - Sin borrado en cascada / pipeline de tombstones documentado para conocimiento **retirado en vida**
+    (`status='archived'` sin borrar) -- el borrado por baja de organizacion si esta cubierto (ver arriba).
+  - Sin dataset de precision de citas ni de respuestas sin evidencia (recall@k si esta cerrado, ver
+    arriba); tests de prompt injection documental ya existen para BE-07, no repetidos aqui todavia.
+- **Siguiente accion:** chunking por tamano/overlap versionado y busqueda hibrida son las dos mejoras que
+  mas moverian precision — ninguna es urgente sin corpus real de cliente todavia.
 
 ## Objetivo
 

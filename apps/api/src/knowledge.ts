@@ -186,18 +186,19 @@ export async function listKnowledgeDocuments(
   context: AuthContext,
   organizationId: string,
 ) {
-  const membership = context.memberships.find((item) => item.organization_id === organizationId);
-  const isPrivileged = ["platform_admin", "consultant"].includes(context.profile.platform_role);
-
-  if (!membership && !isPrivileged) {
+  // BE-01 (bug de seguridad corregido 2026-07-28): la version anterior dejaba
+  // pasar a CUALQUIER consultant/platform_admin sin comprobar membership para
+  // ESTA organizacion (`!membership && !isPrivileged` nunca bloqueaba a un
+  // rol privilegiado). RLS (`createUserScopedClient` abajo) ya evitaba que
+  // esto filtrara documentos privados de otra organizacion, pero la capa de
+  // Node no cumplia su propio principio de ser la primera linea de defensa.
+  // `context.memberships` ya incluye las organizaciones virtuales de
+  // platform_admin (todas) y consultant (solo asignadas), asi que comprobar
+  // solo `membership` es correcto y suficiente.
+  if (!context.memberships.some((item) => item.organization_id === organizationId)) {
     return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
   }
 
-  // Los platform_admin/consultant pasan el chequeo de membership sin una
-  // comparacion exacta contra sus propias organizaciones (bypass
-  // intencional), asi que organizationId aqui SI puede ser una entrada no
-  // vetada -- validar el formato antes de interpolarla en un filtro .or()
-  // crudo.
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(organizationId)) {
     return { ok: false as const, statusCode: 400, error: "invalid_organization_id" };
   }
@@ -230,10 +231,22 @@ export async function searchKnowledge(
   query: unknown,
   storeId?: string | null,
 ) {
-  const membership = context.memberships.find((item) => item.organization_id === organizationId);
+  // BE-01 (bug critico de seguridad encontrado y corregido 2026-07-28): a
+  // diferencia de `listKnowledgeDocuments`, esta funcion llama a
+  // `knowledge_search` via `createServiceClient` (service_role) mas abajo --
+  // la funcion SQL confia ciegamente en `target_organization_id` sin RLS ni
+  // verificacion propia (no es `security definer` con chequeo de sesion). La
+  // version anterior de este gate dejaba pasar a CUALQUIER consultant/
+  // platform_admin sin comprobar membership para ESTA organizacion, asi que
+  // cualquier consultor de la plataforma (asignado o no) podia leer memoria
+  // `consultant_only` (notas internas, decisiones sobre salidas de IA) de
+  // CUALQUIER organizacion con solo conocer su `organizationId` -- sin RLS
+  // que lo frenara como en el caso de arriba. `context.memberships` ya
+  // incluye las organizaciones virtuales correctas (platform_admin: todas;
+  // consultant: solo asignadas), comprobar solo `membership` es correcto.
   const isPrivileged = ["platform_admin", "consultant"].includes(context.profile.platform_role);
 
-  if (!membership && !isPrivileged) {
+  if (!context.memberships.some((item) => item.organization_id === organizationId)) {
     return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
   }
 
