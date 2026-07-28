@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 };
 
 const LAST_UPDATED = "28 de julio de 2026";
-const CONTACT_EMAIL = "borregorafa99@gmail.com";
+const CONTACT_EMAIL = "rafael@noraapp.es";
 
 export default function PrivacyPolicyPage() {
   return (
