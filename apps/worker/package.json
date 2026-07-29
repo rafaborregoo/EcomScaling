@@ -23,7 +23,7 @@
     "start:memory-ingestion": "node dist/memory-ingestion-once.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test"
+    "test": "tsx --test src/repeatable-jobs.test.ts"
   },
   "dependencies": {
     "@ecomscaling/api": "0.1.0",

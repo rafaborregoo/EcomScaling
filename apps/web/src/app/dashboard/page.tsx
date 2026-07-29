@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Heading, Button, EmptyState, ErrorBlock, Link, LoadingBlock, Tabs } from "@/components/ui";
+import { Badge, Heading, Button, EmptyState, ErrorBlock, Link, LoadingBlock, Table, Tabs, type TableColumnDef } from "@/components/ui";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 
 type DashboardTab = "todo" | "shopify" | "meta" | "klaviyo";
@@ -56,7 +56,38 @@ type ShopifyMetrics = {
     fixed_expenses_count: number;
     items_without_cost: number;
   };
+  previous_period: {
+    period: { start: string; end: string };
+    sales: { orders_count: number; net_sales: number; aov: number };
+    financial: { net_profit: number };
+  } | null;
 };
+
+// FE-02: "+12,3%" / "-5,1%" vs el periodo anterior (mismo numero de dias,
+// inmediatamente antes). `null` cuando no hay base valida para comparar
+// (periodo "Todo", sin datos previos, o el valor anterior era 0 -- una
+// division por cero no es un "-100%" util para el consultor).
+function periodDeltaPct(current: number, previous: number | undefined | null): number | null {
+  if (previous === undefined || previous === null || previous === 0) {
+    return null;
+  }
+  return ((current - previous) / Math.abs(previous)) * 100;
+}
+
+function PeriodDeltaBadge({ current, previous }: { current: number; previous: number | undefined | null }) {
+  const deltaPct = periodDeltaPct(current, previous);
+  if (deltaPct === null) {
+    return null;
+  }
+  const tone = deltaPct > 0 ? "success" : deltaPct < 0 ? "danger" : "neutral";
+  const sign = deltaPct > 0 ? "+" : "";
+  return (
+    <Badge tone={tone} className="mt-1" title="vs. el periodo anterior (mismo numero de dias)">
+      {sign}
+      {deltaPct.toFixed(1)}%
+    </Badge>
+  );
+}
 
 type MetaMetrics = {
   period: { days: number | "all"; start: string | null; end: string };
@@ -165,70 +196,68 @@ function StoresOverviewTable({
     return null;
   }
 
+  const columns: TableColumnDef<ShopifyConnection>[] = [
+    {
+      key: "name",
+      label: "Tienda",
+      render: (row) => (
+        <p className="font-medium">{row.provider_account_id ?? row.provider_account_name ?? "Tienda Shopify"}</p>
+      ),
+    },
+    { key: "status", label: "Estado", render: (row) => <span className="font-mono text-xs uppercase text-muted">{row.status}</span> },
+    {
+      key: "net_sales",
+      label: "Facturación neta",
+      render: (row) => {
+        const summary = summaries[row.id];
+        return (
+          <span className="font-mono">
+            {isLoading && summary === undefined ? "..." : summary ? Number(summary.net_sales).toFixed(2) : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      key: "orders_count",
+      label: "Pedidos",
+      render: (row) => {
+        const summary = summaries[row.id];
+        return <span className="font-mono">{isLoading && summary === undefined ? "..." : (summary?.orders_count ?? "—")}</span>;
+      },
+    },
+    {
+      key: "net_profit",
+      label: "Beneficio neto",
+      render: (row) => {
+        const summary = summaries[row.id];
+        return (
+          <span className="font-mono">
+            {isLoading && summary === undefined ? "..." : summary ? Number(summary.net_profit).toFixed(2) : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      key: "actions",
+      label: "Ir a",
+      render: (row) => (
+        <div className="flex flex-wrap gap-3">
+          <Button size="sm" variant="ghost" onClick={() => onSelectConnection(row.id)}>
+            {activeConnectionId === row.id ? "Viendo aquí" : "Ver aquí"}
+          </Button>
+          <Link href={`/shopify?organizationId=${organizationId}&connectionId=${row.id}`}>Diagnóstico</Link>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <section className="border-t border-ink/20">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
         <Heading size="lg">Todas las tiendas</Heading>
         <PeriodSelector periodDays={periodDays} onPeriodChange={onPeriodChange} />
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-xs font-medium uppercase text-muted">
-              <th className="px-4 py-3 font-medium">Tienda</th>
-              <th className="px-4 py-3 font-medium">Estado</th>
-              <th className="px-4 py-3 font-medium">Facturación neta</th>
-              <th className="px-4 py-3 font-medium">Pedidos</th>
-              <th className="px-4 py-3 font-medium">Beneficio neto</th>
-              <th className="px-4 py-3 font-medium">Ir a</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {connections.map((connection) => {
-              const summary = summaries[connection.id];
-              const isActive = activeConnectionId === connection.id;
-
-              return (
-                <tr key={connection.id} className={isActive ? "bg-surface" : undefined}>
-                  <td className="px-4 py-3">
-                    <p className="font-medium">
-                      {connection.provider_account_id ?? connection.provider_account_name ?? "Tienda Shopify"}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs uppercase text-muted">{connection.status}</td>
-                  <td className="px-4 py-3 font-mono">
-                    {isLoading && summary === undefined
-                      ? "..."
-                      : summary
-                        ? Number(summary.net_sales).toFixed(2)
-                        : "—"}
-                  </td>
-                  <td className="px-4 py-3 font-mono">
-                    {isLoading && summary === undefined ? "..." : (summary?.orders_count ?? "—")}
-                  </td>
-                  <td className="px-4 py-3 font-mono">
-                    {isLoading && summary === undefined
-                      ? "..."
-                      : summary
-                        ? Number(summary.net_profit).toFixed(2)
-                        : "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-3">
-                      <Button size="sm" variant="ghost" onClick={() => onSelectConnection(connection.id)}>
-                        {isActive ? "Viendo aquí" : "Ver aquí"}
-                      </Button>
-                      <Link href={`/shopify?organizationId=${organizationId}&connectionId=${connection.id}`}>
-                        Diagnóstico
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <Table ariaLabel="Todas las tiendas Shopify" columns={columns} rows={connections} />
     </section>
   );
 }
@@ -401,14 +430,17 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <article className="py-4 md:pr-8">
                 <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Facturación neta</p>
                 <p className="mt-1.5 font-mono text-3xl tracking-tight">{Number(metrics.sales.net_sales).toFixed(2)}</p>
+                <PeriodDeltaBadge current={metrics.sales.net_sales} previous={metrics.previous_period?.sales.net_sales} />
               </article>
               <article className="py-4 md:pr-8">
                 <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Pedidos</p>
                 <p className="mt-1.5 font-mono text-3xl tracking-tight">{metrics.sales.orders_count}</p>
+                <PeriodDeltaBadge current={metrics.sales.orders_count} previous={metrics.previous_period?.sales.orders_count} />
               </article>
               <article className="py-4 xl:pr-8">
                 <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">AOV</p>
                 <p className="mt-1.5 font-mono text-3xl tracking-tight">{Number(metrics.sales.aov).toFixed(2)}</p>
+                <PeriodDeltaBadge current={metrics.sales.aov} previous={metrics.previous_period?.sales.aov} />
               </article>
               <article className="py-4 md:pr-8">
                 <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Beneficio neto estimado</p>
@@ -423,6 +455,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <p className="mt-1 font-mono text-xs text-muted">
                   {Number(metrics.financial.net_margin_pct).toFixed(1)}% margen
                 </p>
+                <PeriodDeltaBadge current={metrics.financial.net_profit} previous={metrics.previous_period?.financial.net_profit} />
               </article>
               <article className="py-4 md:pr-8">
                 <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Break-even mensual</p>

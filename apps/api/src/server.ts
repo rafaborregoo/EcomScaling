@@ -78,13 +78,19 @@ import {
   saveTranscript,
   updateCall,
 } from "./calls.js";
+import { listNotifications, markAllNotificationsRead, updateNotificationStatus } from "./notifications.js";
 import {
   activateStrategicPlan,
   addMilestoneInternalNote,
+  createMilestone,
+  createMilestoneTask,
+  createPhase,
   createStrategicPlan,
   getStrategicPlan,
   linkTaskToMilestone,
+  updateMilestone,
   updateMilestoneStatus,
+  updatePhase,
 } from "./strategic-plans.js";
 
 const logger = createLogger("api");
@@ -244,8 +250,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   // deja la conexion abierta y el proceso nunca termina limpio ante SIGTERM
   // (encontrado escribiendo be-01-cross-tenant-route-manipulation.test.ts:
   // el test colgaba indefinidamente en el cleanup, no en las aserciones).
+  // `retryStrategy: () => null` (2026-07-29, mismo hallazgo repetido en la
+  // misma suite): sin esto, si `.disconnect()` corre mientras la conexion
+  // inicial todavia se esta estableciendo, ioredis puede dejar programado un
+  // reintento de reconexion que abre un socket nuevo *despues* del
+  // disconnect() -- confirmado con diagnostico real (`process._getActiveHandles()`
+  // mostraba 2 sockets huerfanos tras `app.close()` incluso sin ninguna
+  // request de por medio). Mismo patron que ya usaba `redis-cache.ts`.
   const rateLimitRedis = env.REDIS_URL
-    ? new Redis(env.REDIS_URL, { maxRetriesPerRequest: null, enableOfflineQueue: false })
+    ? new Redis(env.REDIS_URL, { maxRetriesPerRequest: null, enableOfflineQueue: false, retryStrategy: () => null })
     : undefined;
 
   if (rateLimitRedis) {
@@ -1202,6 +1215,80 @@ export async function buildApp(): Promise<FastifyInstance> {
   },
   );
 
+  app.get<{ Querystring: { status?: string } }>("/v1/notifications", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listNotifications(env, authorization, request.query?.status);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.patch<{ Params: { notificationId: string }; Body: { status?: string } }>(
+  "/v1/notifications/:notificationId/status",
+  async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await updateNotificationStatus(
+      env,
+      authorization,
+      request.params.notificationId,
+      request.body?.status,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  },
+  );
+
+  app.post("/v1/notifications/read-all", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await markAllNotificationsRead(env, authorization);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
   app.get<{ Params: { organizationId: string } }>(
   "/v1/organizations/:organizationId/strategic-plan",
   async (request, reply) => {
@@ -1253,6 +1340,53 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   return reply.code(201).send(result.data);
   });
+
+  app.post<{
+  Params: { organizationId: string; planId: string };
+  Body: { name?: string; description?: string | null };
+}>("/v1/organizations/:organizationId/strategic-plan/:planId/phases", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await createPhase(env, auth.context, request.params.organizationId, request.params.planId, {
+      name: request.body?.name,
+      description: request.body?.description,
+    });
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return reply.code(201).send(result.data);
+  },
+  );
+
+  app.post<{
+  Params: { organizationId: string; phaseId: string };
+  Body: { name?: string; description?: string | null; targetDate?: string | null };
+}>("/v1/organizations/:organizationId/strategic-plan/phases/:phaseId/milestones", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await createMilestone(env, auth.context, request.params.organizationId, request.params.phaseId, {
+      name: request.body?.name,
+      description: request.body?.description,
+      targetDate: request.body?.targetDate,
+    });
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return reply.code(201).send(result.data);
+  },
+  );
 
   app.post<{ Params: { organizationId: string; planId: string } }>(
   "/v1/organizations/:organizationId/strategic-plan/:planId/activate",
@@ -1328,28 +1462,92 @@ export async function buildApp(): Promise<FastifyInstance> {
   },
   );
 
-  app.post<{ Params: { organizationId: string; milestoneId: string }; Body: { taskId?: string } }>(
-  "/v1/organizations/:organizationId/milestones/:milestoneId/tasks",
-  async (request, reply) => {
+  app.post<{
+  Params: { organizationId: string; milestoneId: string };
+  Body: {
+    taskId?: string;
+    title?: string;
+    description?: string | null;
+    priority?: string;
+    dueAt?: string | null;
+  };
+}>("/v1/organizations/:organizationId/milestones/:milestoneId/tasks", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
     if (isAuthContextError(auth)) {
       return sendAuthFailure(reply, auth.error);
     }
 
-    const result = await linkTaskToMilestone(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.milestoneId,
-      request.body?.taskId,
-    );
+    // Dos modos: enlazar una tarea ya existente (taskId) o crearla directamente
+    // con el contexto del hito (title) -- el consultor/IA que compone Mi Camino
+    // usa el segundo para no tener que crear la tarea aparte y volver a enlazarla.
+    const result = request.body?.taskId
+      ? await linkTaskToMilestone(
+          env,
+          auth.context,
+          request.params.organizationId,
+          request.params.milestoneId,
+          request.body.taskId,
+        )
+      : await createMilestoneTask(env, auth.context, request.params.organizationId, request.params.milestoneId, {
+          title: request.body?.title,
+          description: request.body?.description,
+          priority: request.body?.priority,
+          dueAt: request.body?.dueAt,
+        });
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
     }
 
     return reply.code(201).send(result.data);
+  },
+  );
+
+  app.patch<{
+  Params: { organizationId: string; phaseId: string };
+  Body: { name?: string; description?: string | null };
+}>("/v1/organizations/:organizationId/strategic-plan/phases/:phaseId", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await updatePhase(env, auth.context, request.params.organizationId, request.params.phaseId, {
+      name: request.body?.name,
+      description: request.body?.description,
+    });
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  },
+  );
+
+  app.patch<{
+  Params: { organizationId: string; milestoneId: string };
+  Body: { name?: string; description?: string | null; targetDate?: string | null };
+}>("/v1/organizations/:organizationId/milestones/:milestoneId", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await updateMilestone(env, auth.context, request.params.organizationId, request.params.milestoneId, {
+      name: request.body?.name,
+      description: request.body?.description,
+      targetDate: request.body?.targetDate,
+    });
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
   },
   );
 
@@ -2078,6 +2276,58 @@ export async function buildApp(): Promise<FastifyInstance> {
 
 const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
 
+// BE-00: sin esto, un SIGTERM (docker stop, redeploy, scale-down) mata el
+// proceso a mitad de request en vez de drenar las conexiones en vuelo --
+// `app.close()` deja de aceptar conexiones nuevas y espera a que las
+// existentes terminen (Fastify), ademas de correr los hooks `onClose` ya
+// registrados en `buildApp()` (desconectar el Redis del rate-limit). Timeout
+// de seguridad: un `app.close()` colgado (encontrado 2026-07-29 en tests,
+// ver BE-00) no debe dejar el proceso zombie en produccion esperando un
+// SIGKILL del orquestador -- forzamos la salida si no cierra a tiempo.
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+
+// `exit`/`timeoutMs` inyectables solo para poder probar el timeout y el
+// guard de senal duplicada sin depender de un SIGTERM real del SO (Windows
+// no entrega SIGTERM real a procesos hijos, ver be-00-graceful-shutdown.test.ts)
+// ni de registrar listeners reales de `process` en el proceso de test.
+export function createShutdownHandler(
+  app: { close: () => Promise<unknown> },
+  { exit = process.exit, timeoutMs = SHUTDOWN_TIMEOUT_MS }: { exit?: (code: number) => void; timeoutMs?: number } = {},
+) {
+  let shuttingDown = false;
+
+  return async function shutdown(signal: string) {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    logger.info(`Received ${signal}, shutting down gracefully`);
+
+    const forceExitTimer = setTimeout(() => {
+      logger.error(`Graceful shutdown did not complete within ${timeoutMs}ms, forcing exit`);
+      exit(1);
+    }, timeoutMs);
+    forceExitTimer.unref();
+
+    try {
+      await app.close();
+      clearTimeout(forceExitTimer);
+      logger.info("Shutdown complete");
+      exit(0);
+    } catch (error) {
+      clearTimeout(forceExitTimer);
+      logger.error("Error during shutdown", error);
+      exit(1);
+    }
+  };
+}
+
+function registerGracefulShutdown(app: FastifyInstance) {
+  const shutdown = createShutdownHandler(app);
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+}
+
 if (isDirectRun) {
   const env = loadApiEnv(process.env);
   const app = await buildApp();
@@ -2085,6 +2335,7 @@ if (isDirectRun) {
   try {
     await app.listen({ host: env.API_HOST, port: env.API_PORT });
     logger.info(`API listening on ${env.API_HOST}:${env.API_PORT}`);
+    registerGracefulShutdown(app);
   } catch (error) {
     logger.error("API failed to start", error);
     process.exit(1);

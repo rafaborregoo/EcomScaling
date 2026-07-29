@@ -6,8 +6,10 @@
 - **Responsable:** sin asignar
 - **Ultima validacion:** 2026-07-20
 - **Dependencias:** INT-00, DB-08 (llamadas), AI-01 (analista de llamadas)
-- **Bloqueador (solo para Fathom):** ninguno tecnico documentado; requiere decidir modo de auth (API key
-  interna vs OAuth publico) antes de escribir codigo.
+- **Bloqueador (solo para Fathom):** **Q-011 resuelta 2026-07-29** (Rafa decidio API key interna, ver mas
+  abajo), pero construir/validar el modulo real sigue bloqueado -- falta una API key de una cuenta de
+  prueba de Fathom que Rafa tiene que proporcionar (ADR-0006 exige validar contra cuenta real antes de
+  cerrar un modulo, no se puede construir a ciegas sin poder probarlo).
 - **Evidencia:** `apps/api/src/calls.ts` (enlace manual + transcripcion versionada),
   `apps/api/src/ai-runtime.ts:860` (`runCallAnalyst`, agente `a01_analista_llamadas`).
 
@@ -32,10 +34,11 @@ No existe endpoint de webhook, ni OAuth, ni cliente HTTP de Fathom en `apps/api/
 (`grep -rl fathom apps/api/src` solo devuelve `calls.ts`, donde `fathom` es un valor de enum de
 `recording_provider`/`source`, no una integracion funcional).
 
-Decisiones a tomar antes de programar (no se ha decidido ninguna todavia):
+Decisiones a tomar antes de programar:
 
-- **Modo de auth**: API key para pruebas internas con una sola cuenta controlada, u OAuth si se va a
-  ofrecer conexion a multiples clientes. Fathom recomienda OAuth para apps publicas multi-usuario.
+- **Modo de auth**: **decidido 2026-07-29 (Q-011, Rafa) -- API key interna**, mas simple para el piloto con
+  pocos clientes (una sola cuenta controlada). Revisar si se pasa a OAuth cuando se ofrezca conexion
+  multi-cliente (Fathom recomienda OAuth para apps publicas multi-usuario, pero no es el caso hoy).
 - **Multitenancy del webhook**: la organizacion debe resolverse desde la `integration_connection` que
   registro el webhook (el secreto identifica la conexion), nunca deduciendola del correo del invitado a la
   reunion — evita que una reunion se materialice en la organizacion equivocada.
@@ -49,11 +52,13 @@ Decisiones a tomar antes de programar (no se ha decidido ninguna todavia):
 
 ## Pendiente antes de avanzar Fathom
 
-1. Decidir modo de auth (API key vs OAuth) — bloquea todo lo demas.
-2. Diseñar el flujo webhook -> verificar firma -> deduplicar -> resolver organizacion por conexion ->
+1. ~~Decidir modo de auth (API key vs OAuth)~~ — **resuelto 2026-07-29 (Q-011): API key interna.**
+2. Conseguir una API key de una cuenta de prueba real de Fathom (Rafa) — bloquea todo lo demas: sin ella no
+   se puede construir ni validar el modulo (ADR-0006, punto 8).
+3. Diseñar el flujo webhook -> verificar firma -> deduplicar -> resolver organizacion por conexion ->
    guardar `call_transcripts` con `source: fathom` -> ejecutar A01 -> aprobacion humana (mismo punto de
    entrada que ya usa Loom manual, para no duplicar el pipeline de A01).
-3. Definir pruebas: webhook valido, firma incorrecta, timestamp expirado, webhook duplicado, reunion sin
+4. Definir pruebas: webhook valido, firma incorrecta, timestamp expirado, webhook duplicado, reunion sin
    transcripcion, retry que no duplica tareas.
 
 ## Criterios de cierre

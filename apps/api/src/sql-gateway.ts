@@ -74,6 +74,14 @@ const FORBIDDEN_FUNCTIONS = new Set([
   "database_to_xml",
   "table_to_xml",
   "xpath_table",
+  // SQO-04 (gap real cerrado 2026-07-29, fila 7 de la matriz de amenazas):
+  // funciones que generan/expanden filas sin necesidad de tocar una tabla de
+  // la allowlist -- un `select count(*) from generate_series(1, 10000000000)`
+  // pasa la validacion de tablas pero puede agotar el statement_timeout de
+  // 8s igual que un CTE recursivo, solo que sin pasar por FORBIDDEN_NODE_TYPES.
+  "generate_series",
+  "regexp_split_to_table",
+  "jsonb_path_query",
 ]);
 
 const TOP_LEVEL_ALLOWED_TYPES = new Set(["select", "union", "union all", "with", "values"]);

@@ -1,13 +1,24 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { fetchBootstrap, getAccessToken } from "@/lib/bootstrap";
-import { Button, ErrorBlock, Field, Input } from "@/components/ui";
+import { Button, ErrorBlock, Field, Input, LoadingBlock } from "@/components/ui";
 
-export default function LoginPage() {
+// FE-01: antes una sesion expirada (o un signOut forzado por el backend, ej.
+// consultor suspendido en caliente) redirigia aqui en silencio -- el usuario
+// no sabia por que "le echaron". `PortalShell` distingue si habia una sesion
+// previa (expirada) de no haber ninguna (primera visita/ya cerrada sesion) y
+// solo en el primer caso anade `?reason=session_expired`.
+const REASON_MESSAGES: Record<string, string> = {
+  session_expired: "Tu sesión expiró. Vuelve a iniciar sesión para continuar.",
+};
+
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const sessionReason = searchParams.get("reason");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +77,12 @@ export default function LoginPage() {
           </p>
           <h1 className="mt-2 font-display text-3xl lg:mt-0">Inicia sesión</h1>
 
+          {sessionReason && REASON_MESSAGES[sessionReason] ? (
+            <p className="mt-4 rounded-md border border-line bg-warn-tint px-3 py-2 text-sm">
+              {REASON_MESSAGES[sessionReason]}
+            </p>
+          ) : null}
+
           <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
             <Field label="Email">
               <Input
@@ -95,5 +112,13 @@ export default function LoginPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoadingBlock label="Cargando..." />}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

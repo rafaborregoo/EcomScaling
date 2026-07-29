@@ -51,6 +51,18 @@ jobs:
       - name: AI output sanity guard tests
         run: npm run test -w @ecomscaling/ai
 
+      # SQO-01: regresion del bug real de repetibles huerfanos en BullMQ
+      # (apps/worker/src/repeatable-jobs.ts), pura y sin I/O -- no necesita
+      # Redis ni secrets.
+      - name: Worker repeatable-job tests
+        run: npm run test -w @ecomscaling/worker
+
+      # SQO-01: reglas reales de validacion de env vars (requeridas, grupos
+      # todo-o-nada de Shopify custom/Meta, default de META_SCOPES), pura y
+      # sin I/O -- no necesita secrets.
+      - name: Config env validation tests
+        run: npm run test -w @ecomscaling/config
+
       # SQO-00: "tests A/B de tenant pasan". Corre contra el Supabase remoto
       # real (no hay entorno de test separado): crea organizaciones/usuarios
       # efimeros y los borra al terminar (ver apps/api/src/rls-tenant-isolation.test.ts).

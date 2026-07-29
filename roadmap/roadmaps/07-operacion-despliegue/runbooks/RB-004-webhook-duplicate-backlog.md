@@ -135,8 +135,14 @@ para el test de regresion.
 
 ## Prevencion
 
-No existe todavia una alerta automatica de backlog de webhooks (a diferencia de `ops-health-check.yml`,
-que si cubre tokens expirados y organizaciones/conexiones pendientes de purga, ver SQO-02) — anadir un
-chequeo de "webhooks en `received` con mas de N minutos" al mismo cron cerraria este gap de raiz. La
-deduplicacion en si (`db-04-webhook-idempotency.test.ts`, 2026-07-21) ya esta probada con concurrencia real
-y no es el punto debil actual; el punto debil es la falta de visibilidad proactiva del backlog.
+**Resuelto 2026-07-29**: `runOpsHealthCheck` (`apps/api/src/ops-health-check.ts`) ahora incluye el chequeo
+que faltaba aqui -- consulta `private.webhook_events` con `status = 'received'` y `received_at` con mas de
+30 minutos (mismo umbral que la consulta manual del paso 3 de "Comprobaciones iniciales"), agrupa por
+conexion en memoria (Supabase-js no soporta `group by` en la query) y emite un finding `webhook_backlog` por
+conexion afectada con el conteo y el mas antiguo. Corre en el mismo cron que ya cubria tokens expirados y
+purgas pendientes (`.github/workflows/ops-health-check.yml`, sin cambios necesarios ahi — el workflow ya
+reporta genericamente cualquier finding que devuelva `runOpsHealthCheck`). Verificado contra Supabase remoto
+real (sin backlog en los datos de prueba, 0 findings de este tipo, sin excepciones). La deduplicacion en si
+(`db-04-webhook-idempotency.test.ts`, 2026-07-21) ya estaba probada con concurrencia real y seguia sin ser
+el punto debil; el punto debil era la falta de visibilidad proactiva del backlog, que es lo que se cierra
+aqui.

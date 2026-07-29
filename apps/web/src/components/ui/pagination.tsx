@@ -1,6 +1,7 @@
 "use client";
 
 import { Pagination as HeroPagination } from "@heroui/react";
+import { IconChevronLeft, IconChevronRight } from "./icons";
 
 // Rango con elipsis: HeroUI Pagination es puramente presentacional (Link,
 // Previous, Next, Ellipsis) y no calcula el rango de paginas, asi que se
@@ -48,7 +49,7 @@ export function Pagination({
       <HeroPagination.Content>
         <HeroPagination.Item>
           <HeroPagination.Previous isDisabled={page <= 1} onPress={() => onChange(page - 1)}>
-            ← Anterior
+            <IconChevronLeft aria-hidden /> Anterior
           </HeroPagination.Previous>
         </HeroPagination.Item>
         {paginationRange(page, pageCount).map((item, index) =>
@@ -66,7 +67,7 @@ export function Pagination({
         )}
         <HeroPagination.Item>
           <HeroPagination.Next isDisabled={page >= pageCount} onPress={() => onChange(page + 1)}>
-            Siguiente →
+            Siguiente <IconChevronRight aria-hidden />
           </HeroPagination.Next>
         </HeroPagination.Item>
       </HeroPagination.Content>

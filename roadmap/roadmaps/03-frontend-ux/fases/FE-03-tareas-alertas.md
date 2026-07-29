@@ -29,7 +29,11 @@
   - `task_status` en DB solo tiene `pending/in_progress/completed/ignored/cancelled` — no existe un
     estado `blocked` explicito; si se necesita, es un cambio de enum (ver DB-01, estrategia de
     evolucion de enums).
-  - Sin filtros persistidos, sin busqueda de texto.
+  - **Busqueda de texto cerrada 2026-07-29**: campo de busqueda por titulo/descripcion (filtro en el
+    propio navegador sobre la lista ya cargada), combinable con los filtros de estado/modulo existentes.
+    Build de produccion limpio; sin verificar visualmente en navegador (sin Playwright/Chromium en este
+    entorno).
+  - Sin filtros persistidos (URL/localStorage) todavia.
   - Sin optimistic UI ni manejo explicito de fallo de backend en un cambio de estado concurrente.
 - **`strategic_plans.status = 'draft'` cerrado 2026-07-22**: ya no hace falta esperar a que FE-05 tenga
   frontend -- se corrigio la RLS ahora (ver matriz arriba) para no dejar la tabla expuesta sin filtro por

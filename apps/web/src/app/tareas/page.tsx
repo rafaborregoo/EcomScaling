@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Heading, Badge, Button, Card, ErrorBlock, Input, LoadingBlock, Modal, Pagination, Select } from "@/components/ui";
+import { Heading, Badge, Button, Card, ErrorBlock, Input, LoadingBlock, Modal, Pagination, Select, toast } from "@/components/ui";
 
 const TASKS_PAGE_SIZE = 20;
 
@@ -202,6 +202,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("open");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  // FE-03: sin buscador, encontrar una tarea concreta entre muchas exigia
+  // escanear la lista/tarjetas a ojo -- filtro por titulo o descripcion.
+  const [searchQuery, setSearchQuery] = useState("");
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [viewMode, setViewMode] = useState<"list" | "cards">("cards");
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
@@ -266,6 +269,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
+    toast.success("Estado de la tarea actualizado.");
     void loadOperations();
   }
 
@@ -294,6 +298,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
 
     setCommentDrafts((drafts) => ({ ...drafts, [taskId]: "" }));
+    toast.success("Comentario añadido.");
     void loadOperations();
   }
 
@@ -313,6 +318,8 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
+    toast.success("Estado de la alerta actualizado.");
+
     void loadOperations();
   }
 
@@ -323,17 +330,26 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     (alert) => !["open", "acknowledged"].includes(alert.status),
   );
 
+  const normalizedTaskQuery = searchQuery.trim().toLowerCase();
+
   const filteredTasks = (payload?.tasks ?? []).filter((task) => {
     if (categoryFilter !== "all" && task.category !== categoryFilter) {
       return false;
     }
-    if (statusFilter === "open") {
-      return ["pending", "in_progress"].includes(task.status);
+    if (statusFilter === "open" && !["pending", "in_progress"].includes(task.status)) {
+      return false;
     }
-    if (statusFilter === "all") {
-      return true;
+    if (statusFilter !== "open" && statusFilter !== "all" && task.status !== statusFilter) {
+      return false;
     }
-    return task.status === statusFilter;
+    if (
+      normalizedTaskQuery &&
+      !task.title.toLowerCase().includes(normalizedTaskQuery) &&
+      !(task.description ?? "").toLowerCase().includes(normalizedTaskQuery)
+    ) {
+      return false;
+    }
+    return true;
   });
 
   const tasksPage = usePaginatedUrl(filteredTasks, TASKS_PAGE_SIZE);
@@ -344,6 +360,14 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <section className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/20 pt-5">
         <div className="flex flex-wrap items-center gap-3">
+          <Input
+            type="search"
+            aria-label="Buscar tarea"
+            placeholder="Buscar por título o descripción..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            className="w-56"
+          />
           <Select
             aria-label="Filtrar por estado"
             value={statusFilter}

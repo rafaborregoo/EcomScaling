@@ -1,18 +1,67 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Drawer } from "@heroui/react";
+import { Drawer, Alert } from "@heroui/react";
 import { apiFetch } from "@/lib/bootstrap";
 import { Badge, Button, Card, Input, Table } from "@/components/ui";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type ChatSource = { kind: string; reference: string; period: string | null };
+type ChatError = { message: string; status: "warning" | "danger" };
 
-async function readError(response: Response) {
+// FE-06: antes cualquier fallo del copiloto (IA no configurada, presupuesto
+// diario agotado, turno rechazado por control de calidad, fallo generico)
+// mostraba el mismo texto crudo del backend concatenado. El backend ya
+// distingue estos casos con codigos estables -- mapearlos aqui evita que el
+// consultor tenga que interpretar mensajes de error tecnicos.
+const ERROR_MESSAGES: Record<string, { message: string; status: "warning" | "danger" }> = {
+  ai_runtime_not_configured: {
+    message: "El asistente de IA no está disponible ahora mismo. Vuelve a intentarlo más tarde.",
+    status: "warning",
+  },
+  organization_daily_budget_exceeded: {
+    message:
+      "Esta organización alcanzó su límite diario de uso de IA. El copiloto se reactiva automáticamente al empezar el día siguiente.",
+    status: "warning",
+  },
+  conversation_not_found: {
+    message: "No se encontró esta conversación. Cierra el panel y ábrelo de nuevo para empezar una nueva.",
+    status: "danger",
+  },
+  organization_access_denied: {
+    message: "No tienes acceso a esta organización.",
+    status: "danger",
+  },
+};
+
+const CHAT_TURN_STATUS_MESSAGES: Record<string, { message: string; status: "warning" | "danger" }> = {
+  budget_exceeded: {
+    message: "Esta pregunta superó el presupuesto máximo por turno. Prueba con una pregunta más concreta.",
+    status: "warning",
+  },
+  rejected_output: {
+    message: "La respuesta generada no pasó los controles de calidad. Intenta reformular la pregunta.",
+    status: "danger",
+  },
+};
+
+async function readError(response: Response): Promise<ChatError> {
   const body = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string; detail?: string }
+    | { error?: string; message?: string; detail?: string; status?: string }
     | null;
-  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
+
+  if (body?.error === "chat_turn_failed" && body.status && CHAT_TURN_STATUS_MESSAGES[body.status]) {
+    return CHAT_TURN_STATUS_MESSAGES[body.status];
+  }
+
+  if (body?.error && ERROR_MESSAGES[body.error]) {
+    return ERROR_MESSAGES[body.error];
+  }
+
+  return {
+    message: [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - "),
+    status: "danger",
+  };
 }
 
 // AI-05 (A09): copiloto del consultor embebido, accesible desde cualquier
@@ -23,7 +72,7 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ChatError | null>(null);
   const [lastSources, setLastSources] = useState<ChatSource[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -111,7 +160,14 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
                   )
                 )}
                 {isSending ? <p className="text-sm text-muted">Pensando...</p> : null}
-                {error ? <p className="text-sm text-brand" role="alert">{error}</p> : null}
+                {error ? (
+                  <Alert status={error.status} role="alert">
+                    <Alert.Indicator />
+                    <Alert.Content>
+                      <Alert.Description>{error.message}</Alert.Description>
+                    </Alert.Content>
+                  </Alert>
+                ) : null}
                 {!isSending && lastSources.length > 0 ? (
                   <div className="border-t border-line pt-2">
                     <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">Fuentes</p>

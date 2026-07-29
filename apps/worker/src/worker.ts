@@ -1,6 +1,7 @@
 import { Queue, Worker } from "bullmq";
 import { loadWorkerEnv } from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
+import { SHOPIFY_RECONCILE_CRON, SHOPIFY_RECONCILE_TZ, isStaleShopifyReconcileRepeatable } from "./repeatable-jobs.js";
 
 const env = loadWorkerEnv(process.env);
 const logger = createLogger("worker");
@@ -13,9 +14,6 @@ const connection = {
   ...(redisUrl.username ? { username: decodeURIComponent(redisUrl.username) } : {}),
   ...(redisUrl.password ? { password: decodeURIComponent(redisUrl.password) } : {}),
 };
-
-const SHOPIFY_RECONCILE_CRON = "0 2 * * *";
-const SHOPIFY_RECONCILE_TZ = "Europe/Madrid";
 
 async function runShopifyReconcile() {
   if (!env.INTERNAL_API_SECRET) {
@@ -37,12 +35,9 @@ async function runShopifyReconcile() {
 
 const queue = new Queue("ecomscaling-default", { connection });
 
-// BullMQ indexa los jobs repetibles por su configuracion de repeat, no solo por
-// jobId: cambiar de `every` (6h) a `pattern` (cron diario) deja el job viejo
-// huerfano en Redis si no se borra explicitamente, duplicando el reconcile.
 const staleRepeatables = await queue.getRepeatableJobs();
 for (const repeatable of staleRepeatables) {
-  if (repeatable.name === "shopify-reconcile" && repeatable.pattern !== SHOPIFY_RECONCILE_CRON) {
+  if (isStaleShopifyReconcileRepeatable(repeatable, SHOPIFY_RECONCILE_CRON)) {
     await queue.removeRepeatableByKey(repeatable.key);
     logger.info(`Removed stale shopify-reconcile repeatable job (${repeatable.key})`);
   }

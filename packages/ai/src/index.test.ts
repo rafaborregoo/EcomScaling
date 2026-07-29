@@ -129,6 +129,32 @@ test("no confunde un salto de linea legitimo (tras puntuacion, en un parrafo) co
   });
 });
 
+// AI-06 (hallazgo 2026-07-28): hasIncoherentOpening solo cubria el primer
+// salto de linea cerca del inicio -- el mismo glitch de palabra partida a
+// mitad de un answer largo, en una linea posterior, pasaba sin deteccion.
+test("rechaza un answer con palabra partida a mitad de texto, no solo al inicio", () => {
+  assertRejected(
+    {
+      answer:
+        "El diagnostico esta listo. Hay tres alertas activas de stock bajo.\nContinua man\nana con la revision del margen por producto, que sigue sin cerrarse.",
+    },
+    "answer_con_texto_partido",
+  );
+});
+
+test("no confunde varios parrafos legitimos (todos con punto de cierre) con texto partido", () => {
+  assertOk({
+    answer:
+      "Primer hallazgo: el stock de FUSION esta roto.\nSegundo hallazgo: el margen de PADEL bajo del 20%.\nTercer hallazgo: sin alertas nuevas esta semana.",
+  });
+});
+
+test("no confunde una lista con guiones (mayuscula tras salto) con texto partido", () => {
+  assertOk({
+    answer: "Hallazgos de la semana\n- Stock roto en FUSION\n- Margen bajo en PADEL",
+  });
+});
+
 test("ignora campos que no son string/array (no revienta con tipos inesperados)", () => {
   assertOk({ answer: "ok", confidence: "high", warnings: ["x"], findings: [] });
 });

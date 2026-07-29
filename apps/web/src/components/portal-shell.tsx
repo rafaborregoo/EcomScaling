@@ -11,7 +11,20 @@ import {
   type BootstrapResponse,
 } from "@/lib/bootstrap";
 import { supabase } from "@/lib/supabase";
-import { Alert, Avatar, Breadcrumbs, Button, Combobox, ConfirmDialog, ErrorBlock, Link, LoadingBlock } from "@/components/ui";
+import {
+  Alert,
+  Avatar,
+  Breadcrumbs,
+  Button,
+  CloseIcon,
+  Combobox,
+  ConfirmDialog,
+  ErrorBlock,
+  IconChevronRight,
+  Link,
+  LoadingBlock,
+  MenuIcon,
+} from "@/components/ui";
 import {
   ACTIVE_ORGANIZATION_STORAGE_KEY,
   ActiveOrganizationContext,
@@ -21,6 +34,7 @@ import {
   ActiveConnectionContext,
 } from "@/components/active-connection";
 import { CopilotPanel } from "@/components/copilot-panel";
+import { NotificationsBell } from "@/components/notifications-bell";
 
 type PortalShellProps = {
   title: string;
@@ -269,10 +283,17 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
   useEffect(() => {
     async function load() {
       try {
+        // FE-01: si ya habia una sesion guardada (aunque `getAccessToken`
+        // no pudiera refrescarla), es una sesion expirada -- distinto de
+        // nunca haber iniciado sesion. Solo el primer caso justifica
+        // explicarle al usuario por que aterrizo en /login.
+        const {
+          data: { session: existingSession },
+        } = await supabase.auth.getSession();
         const accessToken = await getAccessToken();
 
         if (!accessToken) {
-          router.replace("/login");
+          router.replace(existingSession ? "/login?reason=session_expired" : "/login");
           return;
         }
 
@@ -413,15 +434,18 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
           <p className="font-mono text-[0.65rem] uppercase text-brand">{eyebrow}</p>
           <p className="text-sm font-semibold">{title}</p>
         </div>
-        <Button
-          variant="secondary"
-          aria-expanded={isMobileNavOpen}
-          aria-controls="mobile-nav"
-          onClick={() => setIsMobileNavOpen((open) => !open)}
-        >
-          <span aria-hidden>{isMobileNavOpen ? "✕" : "☰"}</span>
-          Menú
-        </Button>
+        <div className="flex items-center gap-2">
+          <NotificationsBell token={token} />
+          <Button
+            variant="secondary"
+            aria-expanded={isMobileNavOpen}
+            aria-controls="mobile-nav"
+            onClick={() => setIsMobileNavOpen((open) => !open)}
+          >
+            {isMobileNavOpen ? <CloseIcon aria-hidden /> : <MenuIcon aria-hidden />}
+            Menú
+          </Button>
+        </div>
       </div>
 
       {/* Panel de navegacion móvil desplegable */}
@@ -443,8 +467,9 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
         </aside>
 
         <section className="min-w-0">
-          <div className="hidden border-b border-line px-6 py-3 lg:block lg:px-10">
+          <div className="hidden items-center justify-between border-b border-line px-6 py-3 lg:flex lg:px-10">
             <Breadcrumbs items={[{ label: eyebrow, href: "/dashboard" }, { label: title }]} />
+            <NotificationsBell token={token} />
           </div>
           {/* Mini barra de contexto: solo se muestra si hay algo que seleccionar
               (cliente activo o tienda). El indicador de rol/estado se quito por no
@@ -493,8 +518,9 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
                         : ""}
                     </Alert.Description>
                   </div>
-                  <Link className="whitespace-nowrap" href={action.cta_href}>
-                    {action.cta_label} →
+                  <Link className="inline-flex items-center gap-1 whitespace-nowrap" href={action.cta_href}>
+                    {action.cta_label}
+                    <IconChevronRight aria-hidden />
                   </Link>
                 </Alert.Content>
               </Alert>

@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, Banner, Button, Card, Field, Input, LoadingBlock, Select, Tabs } from "@/components/ui";
+import { Badge, Banner, Button, Card, Field, Input, LoadingBlock, Select, Table, Tabs, type TableColumnDef } from "@/components/ui";
 
 type ShopifyOverviewLite = {
   authorized_scopes: string[];
@@ -78,34 +78,26 @@ function ShopifyCoverageSection({ organizationId }: { organizationId: string }) 
       : { label: "requiere permiso", tone: "neutral" as const };
   };
 
+  const columns: TableColumnDef<ShopifyOverviewLite["datasets"][number] & { id: string }>[] = [
+    { key: "label", label: "Dataset", render: (row) => <span className="font-medium">{row.label}</span> },
+    { key: "table", label: "Tabla", render: (row) => <span className="font-mono text-xs text-muted">{row.table ?? "pendiente_modelo"}</span> },
+    {
+      key: "status",
+      label: "Estado",
+      render: (row) => {
+        const status = statusLabel(row);
+        return <Badge tone={status.tone}>{status.label}</Badge>;
+      },
+    },
+    { key: "count", label: "Registros", render: (row) => <span className="font-mono">{row.count}</span> },
+  ];
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[560px] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-line text-left text-xs font-medium uppercase text-muted">
-            <th className="px-3 py-2 font-medium">Dataset</th>
-            <th className="px-3 py-2 font-medium">Tabla</th>
-            <th className="px-3 py-2 font-medium">Estado</th>
-            <th className="px-3 py-2 font-medium">Registros</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-line">
-          {overview.datasets.map((dataset) => {
-            const status = statusLabel(dataset);
-            return (
-              <tr key={dataset.key}>
-                <td className="px-3 py-2 font-medium">{dataset.label}</td>
-                <td className="px-3 py-2 font-mono text-xs text-muted">{dataset.table ?? "pendiente_modelo"}</td>
-                <td className="px-3 py-2">
-                  <Badge tone={status.tone}>{status.label}</Badge>
-                </td>
-                <td className="px-3 py-2 font-mono">{dataset.count}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      ariaLabel="Cobertura de datos de Shopify"
+      columns={columns}
+      rows={overview.datasets.map((dataset) => ({ id: dataset.key, ...dataset }))}
+    />
   );
 }
 

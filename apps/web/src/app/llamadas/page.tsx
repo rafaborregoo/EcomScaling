@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Heading, Accordion, Alert, Button, ErrorBlock, Field, Input, Link, LoadingBlock, Select, Textarea } from "@/components/ui";
+import { Heading, Accordion, Alert, Button, ErrorBlock, Field, Input, Link, LoadingBlock, Select, Textarea, toast } from "@/components/ui";
 
 type CallTranscript = {
   id: string;
@@ -238,7 +238,7 @@ function CallDetail({
     (summary) => summary.status === "pending_approval",
   );
 
-  async function run(action: () => Promise<Response>) {
+  async function run(action: () => Promise<Response>, successMessage?: string) {
     setIsBusy(true);
     setError(null);
     const response = await action();
@@ -250,6 +250,9 @@ function CallDetail({
     }
 
     setIsBusy(false);
+    if (successMessage) {
+      toast.success(successMessage);
+    }
     onChanged();
     return true;
   }
@@ -305,12 +308,14 @@ function CallDetail({
   }
 
   async function decideSummary(summaryId: string, decision: "approved" | "rejected") {
-    await run(() =>
-      apiFetch(`/v1/organizations/${organizationId}/call-summaries/${summaryId}/decision`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision }),
-      }),
+    await run(
+      () =>
+        apiFetch(`/v1/organizations/${organizationId}/call-summaries/${summaryId}/decision`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision }),
+        }),
+      decision === "approved" ? "Resumen aprobado y publicado." : "Resumen rechazado.",
     );
   }
 

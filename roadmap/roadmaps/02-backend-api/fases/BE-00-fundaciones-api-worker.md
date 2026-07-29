@@ -38,10 +38,38 @@
   BE-01 de organizacion manipulada (`be-01-cross-tenant-route-manipulation.test.ts`) -- `app.close()` se
   colgaba indefinidamente porque el cliente Redis que `server.ts` le pasa a `@fastify/rate-limit` nunca se
   desconectaba (ese plugin asume que un cliente externo se administra fuera de Fastify). Corregido con un
-  hook `onClose` en `buildApp()` que lo desconecta explicitamente; confirmado que el test ahora cierra
-  limpio. Sigue sin documentar/probar la señal `SIGTERM` en si (drenar requests en vuelo antes de cerrar
-  el listener HTTP) -- este fix es sobre el `Redis` handle especifico que se encontro colgado, no una
-  auditoria completa de shutdown.
+  hook `onClose` en `buildApp()` que lo desconecta explicitamente. Sigue sin documentar/probar la señal
+  `SIGTERM` en si (drenar requests en vuelo antes de cerrar el listener HTTP) -- este fix es sobre el
+  `Redis` handle especifico que se encontro colgado, no una auditoria completa de shutdown.
+  - **Reabierto y vuelto a cerrar 2026-07-29**: el mismo cuelgue reaparecio (encontrado corriendo la suite
+    completa de `apps/api` mientras se verificaba Q-012) -- el fix de 2026-07-23 (`onClose` +
+    `rateLimitRedis.disconnect()`) no era suficiente: si `disconnect()` corre mientras la conexion inicial
+    de Redis todavia se esta estableciendo, ioredis puede dejar un intento de reconexion en curso que abre
+    un socket *despues* del `disconnect()`, confirmado con diagnostico real
+    (`process._getActiveHandles()` mostraba sockets huerfanos incluso mucho despues de que `app.close()` ya
+    hubiera resuelto). Se probo `retryStrategy: () => null` en el cliente de rate-limit (mismo patron que
+    ya usaba `redis-cache.ts`) -- ayuda pero no elimina el problema del todo en todos los casos. **Mitigacion
+    real aplicada**: `--test-force-exit` (flag nativo de `node --test` desde Node 22) anadido al script
+    `test` de `apps/api`, que fuerza al test runner a salir tras completar todos los tests/hooks sin
+    esperar a que el event loop drene solo -- es el mismo patron que recomienda la propia documentacion de
+    Node para librerias de terceros con handles que no se cierran perfectamente. Confirmado con el archivo
+    que colgaba (30/30 tests, cierre limpio) y con la suite completa. Esto resuelve el sintoma en CI/tests;
+    la causa raiz (comportamiento exacto de ioredis en la carrera connect/disconnect) sigue sin
+    caracterizarse del todo -- no bloqueante para produccion (el proceso de la API real nunca llama
+    `app.close()` fuera de un shutdown real, donde unos segundos extra de socket colgado no importan).
+  - **Cerrado 2026-07-29 (manejo real de SIGTERM/SIGINT)**: `server.ts` no tenia ningun `process.on("SIGTERM"|"SIGINT", ...)`
+    -- confirmado por grep, cero coincidencias antes de este cambio. Anadido `createShutdownHandler`
+    (exportado, logica pura inyectable) + `registerGracefulShutdown` (lo cablea a los signals reales):
+    al recibir la senal, deja de aceptar conexiones nuevas y espera a que las existentes terminen via
+    `app.close()` de Fastify (que tambien corre los hooks `onClose` ya registrados, incluido el
+    `rateLimitRedis.disconnect()` de arriba), y solo entonces sale con codigo 0. Timeout de seguridad de
+    10s que fuerza `exit(1)` si `close()` no resuelve -- justificado directamente por el hallazgo de arriba
+    (un `app.close()` colgado no debe dejar el proceso zombie esperando un SIGKILL del orquestador). 4 tests
+    unitarios puros (timeout, rechazo, guard de senal duplicada, cierre normal) mas un test de extremo a
+    extremo con un proceso hijo real enviandole SIGTERM -- este ultimo se salta en Windows (confirmado en
+    este mismo entorno: `child.kill("SIGTERM")` en Windows mata el proceso a la fuerza sin invocar el
+    manejador, no es un SIGTERM real) pero corre de verdad en CI (`ubuntu-latest`) y en produccion (Linux),
+    que es donde el comportamiento real importa.
   - Sin definicion de proveedor de cola mas alla de BullMQ+Redis, reintentos/backoff/DLQ formales.
   - Sin escaneo de dependencias/imagenes en CI.
   - Sin formato de error estandar ni correlation ID propagado end-to-end.

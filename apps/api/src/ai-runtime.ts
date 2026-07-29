@@ -24,6 +24,7 @@ import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { executeGatewayQuery, SQL_GATEWAY_SCHEMA_DOC } from "./sql-gateway.js";
 import { recordAuditLog } from "./audit-log.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
+import { findCurrentMilestoneId } from "./strategic-plans.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -54,6 +55,60 @@ const AGENT_TASK_CATEGORY: Record<string, "shopify" | "meta" | "klaviyo" | "gene
 // agentes, no por agente/organizacion) -- afinar por agente es AI-09
 // (model routing/presupuesto), todavia no implementado.
 const DEFAULT_AGENT_BUDGET = { maxCostUsd: 1, maxToolCalls: 10 };
+
+// Q-012 (2026-07-29, decision de Rafa): ademas del limite por turno de arriba,
+// un tope diario por organizacion -- sin esto una sola organizacion con uso
+// intensivo (o un bug en cliente disparando turnos en bucle) podria agotar
+// presupuesto sin limite mientras se escalan clientes reales. Plano para
+// todas las organizaciones por ahora, igual que DEFAULT_AGENT_BUDGET; ajustar
+// por organizacion/plan es AI-09, todavia no implementado.
+const DEFAULT_ORGANIZATION_DAILY_BUDGET_USD = 20;
+
+/**
+ * Suma `estimated_cost_usd` de los runs de la organizacion desde el inicio
+ * del dia UTC. Un fallo en la consulta en si (Supabase caido, etc.) no
+ * bloquea el turno -- solo se registra -- porque el limite por turno
+ * (DEFAULT_AGENT_BUDGET) sigue protegiendo contra un gasto descontrolado en
+ * una unica ejecucion.
+ */
+export async function checkOrganizationDailyBudget(
+  supabase: SupabaseClient,
+  organizationId: string,
+  dailyBudgetUsd: number = DEFAULT_ORGANIZATION_DAILY_BUDGET_USD,
+): Promise<{ ok: true } | { ok: false; statusCode: number; error: string; message: string }> {
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .select("estimated_cost_usd")
+    .eq("organization_id", organizationId)
+    .gte("started_at", startOfDayUtc.toISOString());
+
+  if (error) {
+    logger.error("organization_daily_budget_check_failed", {
+      organization_id: organizationId,
+      error: error.message,
+    });
+    return { ok: true };
+  }
+
+  const spentTodayUsd = (data ?? []).reduce(
+    (sum, row) => sum + Number((row as { estimated_cost_usd: number | null }).estimated_cost_usd ?? 0),
+    0,
+  );
+
+  if (spentTodayUsd >= dailyBudgetUsd) {
+    return {
+      ok: false,
+      statusCode: 429,
+      error: "organization_daily_budget_exceeded",
+      message: `La organizacion ha superado el presupuesto diario de IA ($${dailyBudgetUsd}). Los agentes se reactivan automaticamente al empezar el siguiente dia (UTC).`,
+    };
+  }
+
+  return { ok: true };
+}
 
 // Traduce el error de un turno fallido al mismo par (status, mensaje) en los
 // tres puntos donde se llama a runAgentTurn (generico, A01, A09).
@@ -388,6 +443,11 @@ async function runGenericDiagnosticAgent(
   }
 
   const supabase = createServiceClient(env);
+
+  const dailyBudgetCheck = await checkOrganizationDailyBudget(supabase, organizationId);
+  if (dailyBudgetCheck.ok === false) {
+    return dailyBudgetCheck;
+  }
 
   const { data: agentVersion, error: versionError } = await supabase
     .from("agent_versions")
@@ -1200,6 +1260,11 @@ export async function runCallAnalyst(
 
   const supabase = createServiceClient(env);
 
+  const dailyBudgetCheck = await checkOrganizationDailyBudget(supabase, organizationId);
+  if (dailyBudgetCheck.ok === false) {
+    return dailyBudgetCheck;
+  }
+
   const { data: agentVersion, error: versionError } = await supabase
     .from("agent_versions")
     .select("id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode, agent_definitions!inner(code)")
@@ -1465,6 +1530,11 @@ export async function runConsultantChatTurn(
 
   const supabase = createServiceClient(env);
 
+  const dailyBudgetCheck = await checkOrganizationDailyBudget(supabase, organizationId);
+  if (dailyBudgetCheck.ok === false) {
+    return dailyBudgetCheck;
+  }
+
   const { data: agentVersion, error: versionError } = await supabase
     .from("agent_versions")
     .select("id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode, agent_definitions!inner(code)")
@@ -1694,7 +1764,10 @@ export async function runConsultantChatTurn(
       })
       .eq("id", runId);
 
-    return { ok: false as const, statusCode: 502, error: "chat_turn_failed", detail: message };
+    // FE-06: `status` expuesto ademas de `detail` para que el frontend pueda
+    // distinguir presupuesto agotado / salida rechazada / fallo generico sin
+    // depender de parsear el texto libre de `detail`.
+    return { ok: false as const, statusCode: 502, error: "chat_turn_failed", status, detail: message };
   }
 }
 
@@ -1876,20 +1949,44 @@ export async function decideAgentOutput(
         continue;
       }
 
-      const { error: taskError } = await supabase.from("tasks").insert({
-        organization_id: organizationId,
-        source: "ai_consultant",
-        priority: typeof write.priority === "string" ? write.priority : "medium",
-        title,
-        description: typeof write.description === "string" ? write.description : null,
-        created_by: context.user.id,
-        metadata: { agent_output_id: outputId },
-        category,
-      });
+      const { data: createdTask, error: taskError } = await supabase
+        .from("tasks")
+        .insert({
+          organization_id: organizationId,
+          source: "ai_consultant",
+          priority: typeof write.priority === "string" ? write.priority : "medium",
+          title,
+          description: typeof write.description === "string" ? write.description : null,
+          created_by: context.user.id,
+          metadata: { agent_output_id: outputId },
+          category,
+        })
+        .select("id")
+        .single();
 
-      if (!taskError) {
+      if (!taskError && createdTask) {
         tasksCreated += 1;
         existingTitles.add(normalizedTitle);
+
+        // La IA puede proponer a que hito de Mi Camino pertenece la tarea
+        // (write.milestone_id); el trigger enforce_milestone_task_link_same_org
+        // rechaza silenciosamente un hito de otra organizacion o inexistente,
+        // asi que el enlace es best-effort y no bloquea la creacion de la tarea.
+        // Si el LLM no propuso hito, se intenta el hito activo actual del plan
+        // (findCurrentMilestoneId, DB-07 2026-07-29) para que la tarea no quede
+        // huerfana de Mi Camino por defecto.
+        const milestoneId =
+          typeof write.milestone_id === "string" && write.milestone_id
+            ? write.milestone_id
+            : await findCurrentMilestoneId(supabase, organizationId);
+
+        if (milestoneId) {
+          await supabase.from("milestone_task_links").insert({
+            organization_id: organizationId,
+            milestone_id: milestoneId,
+            task_id: createdTask.id,
+          });
+        }
       }
     }
   }

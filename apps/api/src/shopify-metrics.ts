@@ -1,5 +1,8 @@
+import { createLogger } from "@ecomscaling/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
+
+const logger = createLogger("api:shopify-metrics");
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -57,6 +60,11 @@ type ShopifyMetricsData = {
     fixed_expenses_count: number;
     items_without_cost: number;
   };
+  previous_period: {
+    period: { start: string; end: string };
+    sales: ShopifyMetricsData["sales"];
+    financial: { net_profit: number; net_margin_pct: number };
+  } | null;
 };
 
 function parsePeriodDays(daysInput: string | undefined): number | "all" {
@@ -138,6 +146,7 @@ function emptyMetricsData(
       items_without_cost: 0,
     },
     financial: emptyFinancialData(),
+    previous_period: null,
   };
 }
 
@@ -181,6 +190,15 @@ export async function getShopifyMetrics(
   const periodEnd = new Date();
   const periodStart = periodDays === "all" ? null : new Date(periodEnd.getTime() - periodDays * 24 * 60 * 60 * 1000);
 
+  // FE-02: comparacion contra el periodo anterior -- mismo numero de dias,
+  // inmediatamente antes de `periodStart`. No aplica a "Todo" (no hay un
+  // "periodo anterior" bien definido cuando se pide el historico completo).
+  const previousPeriodEnd = periodStart;
+  const previousPeriodStart =
+    periodDays === "all" || !periodStart
+      ? null
+      : new Date(periodStart.getTime() - periodDays * 24 * 60 * 60 * 1000);
+
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
 
@@ -201,7 +219,15 @@ export async function getShopifyMetrics(
       return { ok: true as const, data: cached };
     }
 
-    const [salesResult, topProductsResult, stockResult, marginResult, financialResult] = await Promise.all([
+    const [
+      salesResult,
+      topProductsResult,
+      stockResult,
+      marginResult,
+      financialResult,
+      previousSalesResult,
+      previousFinancialResult,
+    ] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
         period_start: periodStart?.toISOString() ?? null,
@@ -232,6 +258,22 @@ export async function getShopifyMetrics(
         period_end: periodEnd.toISOString(),
         target_store_id: storeId,
       }),
+      previousPeriodStart
+        ? supabase.rpc("shopify_sales_summary", {
+            target_organization_id: organizationId,
+            period_start: previousPeriodStart.toISOString(),
+            period_end: previousPeriodEnd!.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
+      previousPeriodStart
+        ? supabase.rpc("shopify_financial_summary", {
+            target_organization_id: organizationId,
+            period_start: previousPeriodStart.toISOString(),
+            period_end: previousPeriodEnd!.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (salesResult.error) {
@@ -252,6 +294,15 @@ export async function getShopifyMetrics(
 
     if (financialResult.error) {
       throw new Error(`shopify_financial_summary_failed: ${financialResult.error.message}`);
+    }
+
+    // No fatal: la comparacion contra el periodo anterior es un anadido, no
+    // debe tumbar el dashboard entero si falla.
+    if (previousSalesResult.error) {
+      logger.error("shopify_sales_summary_previous_period_failed", { organization_id: organizationId, error: previousSalesResult.error.message });
+    }
+    if (previousFinancialResult.error) {
+      logger.error("shopify_financial_summary_previous_period_failed", { organization_id: organizationId, error: previousFinancialResult.error.message });
     }
 
     const sales = salesResult.data?.[0] ?? {
@@ -282,6 +333,24 @@ export async function getShopifyMetrics(
 
     const financial = financialResult.data?.[0] ?? emptyFinancialData();
 
+    const previousSales =
+      !previousSalesResult.error && previousPeriodStart
+        ? previousSalesResult.data?.[0] ?? { orders_count: 0, gross_sales: 0, net_sales: 0, discounts: 0, refunds: 0, units_sold: 0, aov: 0 }
+        : null;
+    const previousFinancial =
+      !previousFinancialResult.error && previousPeriodStart
+        ? previousFinancialResult.data?.[0] ?? emptyFinancialData()
+        : null;
+
+    const previousPeriod =
+      previousPeriodStart && previousSales && previousFinancial
+        ? {
+            period: { start: previousPeriodStart.toISOString(), end: previousPeriodEnd!.toISOString() },
+            sales: previousSales,
+            financial: { net_profit: previousFinancial.net_profit, net_margin_pct: previousFinancial.net_margin_pct },
+          }
+        : null;
+
     const data = {
       organization_id: organizationId,
       selected_connection_id: connectionId ?? null,
@@ -296,6 +365,7 @@ export async function getShopifyMetrics(
       stock,
       margin,
       financial,
+      previous_period: previousPeriod,
     };
 
     await setCached(env.REDIS_URL, cacheKey, data, METRICS_CACHE_TTL_SECONDS);

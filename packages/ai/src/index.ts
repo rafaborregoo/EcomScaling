@@ -526,6 +526,31 @@ function hasIncoherentOpening(text: string): boolean {
   return false;
 }
 
+// AI-06 (hallazgo documentado 2026-07-28, gap dejado abierto por el fix de
+// hasIncoherentOpening del 2026-07-23): esa guarda solo mira el primer salto
+// de linea dentro de los primeros 60 caracteres, asi que el mismo glitch de
+// palabra partida a mitad de un `answer`/`summary` largo (turnos con varias
+// llamadas a herramientas encadenadas, mismo origen que el glitch de apertura)
+// pasaba sin deteccion. Reutiliza la misma heuristica (palabra rota entre
+// lineas, sin puntuacion de cierre de frase antes del salto) pero recorre
+// todos los saltos de linea del texto, no solo el primero. Exige minuscula
+// justo despues del salto (a diferencia de la apertura, que acepta ambos
+// casos) para no confundir un parrafo o un item de lista legitimo que
+// empieza con mayuscula sin punto previo.
+function hasBrokenWordMidText(text: string): boolean {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i] ?? "";
+    const nextLine = lines[i + 1] ?? "";
+    const brokenWord = /[a-zA-ZÀ-ÿ]$/.test(line) && /^[a-zà-ÿ]/.test(nextLine);
+    const hasSentenceEnd = /[.!?]/.test(line);
+    if (brokenWord && !hasSentenceEnd) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -556,6 +581,9 @@ export function checkOutputSanity(output: unknown): OutputSanityResult {
     }
     if (hasIncoherentOpening(trimmed)) {
       return { ok: false, reason: `${field}_con_apertura_incoherente` };
+    }
+    if (hasBrokenWordMidText(trimmed)) {
+      return { ok: false, reason: `${field}_con_texto_partido` };
     }
   }
 

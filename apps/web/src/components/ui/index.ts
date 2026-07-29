@@ -30,6 +30,7 @@ export { Link } from "./link";
 export { Heading } from "./heading";
 export type { TableColumnDef } from "./table";
 export { Table } from "./table";
+export { BellIcon, CloseIcon, IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronUp, MenuIcon, MoreIcon } from "./icons";
 
 // Re-exportados directos de HeroUI (sin API propia que preservar -- sin uso
 // existente que migrar hoy, se usan tal cual documenta HeroUI).

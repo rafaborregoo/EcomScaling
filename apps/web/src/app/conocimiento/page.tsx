@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -51,6 +51,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [content, setContent] = useState("");
   const [visibility, setVisibility] = useState<"organization" | "global">("organization");
   const [isSaving, setIsSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [matches, setMatches] = useState<KnowledgeMatch[] | null>(null);
@@ -190,22 +191,23 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <Heading level={3} size="lg">Añadir documento</Heading>
 
           <div className="mt-4 flex flex-wrap items-center gap-4">
-            <label className="button button--primary cursor-pointer">
+            <Button type="button" disabled={isSaving} onClick={() => fileInputRef.current?.click()}>
               {isSaving ? "Indexando..." : "Subir documento (.txt, .md)"}
-              <input
-                type="file"
-                accept=".txt,.md,.markdown,.csv,text/plain,text/markdown"
-                className="sr-only"
-                disabled={isSaving}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) {
-                    void handleFileUpload(file);
-                  }
-                  event.target.value = "";
-                }}
-              />
-            </label>
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.md,.markdown,.csv,text/plain,text/markdown"
+              className="sr-only"
+              disabled={isSaving}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  void handleFileUpload(file);
+                }
+                event.target.value = "";
+              }}
+            />
             {isPlatformAdmin ? (
               <div className="flex items-baseline gap-2 font-mono text-xs uppercase tracking-wide text-muted">
                 Destino

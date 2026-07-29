@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
@@ -8,17 +8,23 @@ import {
   Avatar,
   Badge,
   Button,
+  Card,
   Checkbox,
   Dropdown,
   EmptyState,
   ErrorBlock,
   Field,
   Heading,
+  IconChevronDown,
+  IconChevronUp,
   Input,
   Label,
   Link,
   LoadingBlock,
   Select,
+  Table,
+  toast,
+  type TableColumnDef,
 } from "@/components/ui";
 import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
 
@@ -155,7 +161,11 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
     );
   }
   if (!access) {
-    return <p className="mt-4 text-sm text-muted">Cargando acceso...</p>;
+    return (
+      <div className="mt-4">
+        <LoadingBlock label="Cargando acceso..." />
+      </div>
+    );
   }
 
   const consultantProfiles = access.available_profiles.filter(
@@ -176,7 +186,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
 
       <div className="mt-4 grid gap-5 lg:grid-cols-2">
         <div>
-          <h5 className="text-sm font-medium">Miembros</h5>
+          <h4 className="text-sm font-medium">Miembros</h4>
           {access.members.length === 0 ? (
             <p className="mt-2 text-sm text-muted">Sin miembros asignados.</p>
           ) : (
@@ -215,7 +225,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
         </div>
 
         <div>
-          <h5 className="text-sm font-medium">Consultores asignados</h5>
+          <h4 className="text-sm font-medium">Consultores asignados</h4>
           {access.assignments.length === 0 ? (
             <p className="mt-2 text-sm text-muted">Sin consultores asignados.</p>
           ) : (
@@ -295,6 +305,7 @@ function EditOrganizationForm({
     });
 
     if (response.ok) {
+      toast.success("Cliente actualizado.");
       onSaved();
     } else {
       setError(await readApiError(response));
@@ -437,7 +448,7 @@ function StoresPanel({
   }
 
   return (
-    <div className="border-t border-line bg-surface px-4 py-4">
+    <div>
       {error ? (
         <div className="mb-3">
           <ErrorBlock>{error}</ErrorBlock>
@@ -456,7 +467,7 @@ function StoresPanel({
       ) : null}
 
       {stores === null ? (
-        <p className="text-sm text-muted">Cargando tiendas...</p>
+        <LoadingBlock label="Cargando tiendas..." />
       ) : stores.length === 0 ? (
         <p className="text-sm text-muted">Sin tiendas conectadas.</p>
       ) : (
@@ -571,6 +582,10 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // FE-07: sin buscador, encontrar un cliente concreto entre muchos exigia
+  // escanear la tabla entera a ojo -- filtro por nombre o slug, en el propio
+  // navegador sobre la lista ya cargada (no una request nueva).
+  const [searchQuery, setSearchQuery] = useState("");
 
   async function load() {
     const response = await apiFetch("/v1/consultant/organizations");
@@ -608,6 +623,117 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
   }
 
   const needsAttention = organizations.filter((organization) => organization.attention.score > 0);
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredOrganizations = normalizedQuery
+    ? organizations.filter(
+        (organization) =>
+          organization.display_name.toLowerCase().includes(normalizedQuery) ||
+          organization.slug.toLowerCase().includes(normalizedQuery),
+      )
+    : organizations;
+
+  const expandedOrganization = expandedId
+    ? filteredOrganizations.find((organization) => organization.id === expandedId)
+    : null;
+
+  // FE-07 (auditoria estructural 2026-07-29): antes esta lista era una tabla
+  // HTML a mano con una fila "detalle" anidada via colSpan -- el componente
+  // `Table` compartido (columnas estaticas, sin fila expandible) no admite
+  // ese patron. En vez de forzarlo dentro de la tabla, el detalle se muestra
+  // como una `Card` debajo, igual que el panel de detalle de Mi Camino
+  // (seleccionar un nodo del arbol -> panel debajo), mismo patron en toda la
+  // app en vez de dos formas distintas de "expandir" una fila.
+  const columns: TableColumnDef<ConsultantOrganization>[] = [
+    {
+      key: "name",
+      label: "Cliente",
+      render: (row) => (
+        <div className="flex items-center gap-3">
+          <Avatar name={row.display_name} size="sm" />
+          <div>
+            <Link href="/dashboard" onClick={() => setOrganizationId(row.id)}>
+              {row.display_name}
+            </Link>
+            <p className={row.status === "pending_deletion" ? "text-sm text-brand" : "text-sm text-muted"}>
+              {row.slug} - {row.status === "pending_deletion" ? "borrado en 30 dias" : row.status}
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "stores",
+      label: "Tiendas",
+      render: (row) => (
+        <Button size="sm" variant="ghost" onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}>
+          {row.store_count} {expandedId === row.id ? <IconChevronUp aria-hidden /> : <IconChevronDown aria-hidden />}
+        </Button>
+      ),
+    },
+    {
+      key: "attention",
+      label: "Atención",
+      render: (row) => {
+        const badge = attentionBadge(row.attention.score);
+        return (
+          <Badge tone={badge.tone} title={`Puntuacion: ${row.attention.score}`}>
+            {badge.label}
+          </Badge>
+        );
+      },
+    },
+    {
+      key: "alerts",
+      label: "Alertas vivas",
+      render: (row) =>
+        row.attention.open_alerts === 0 ? (
+          <span className="text-muted">Sin alertas</span>
+        ) : (
+          <>
+            <span className="font-mono">{row.attention.open_alerts}</span>
+            {row.attention.critical_alerts > 0 ? (
+              <span className="ml-2 font-mono text-xs text-brand">{row.attention.critical_alerts} criticas</span>
+            ) : null}
+            {row.attention.oldest_alert_days > 0 ? (
+              <p className="mt-1 text-xs text-muted">la más antigua lleva {row.attention.oldest_alert_days} días</p>
+            ) : null}
+          </>
+        ),
+    },
+    {
+      key: "tasks",
+      label: "Tareas",
+      render: (row) => (
+        <>
+          <span className="font-mono">{row.attention.open_tasks}</span> abiertas
+          {row.attention.overdue_tasks > 0 ? (
+            <p className="mt-1 text-xs text-brand">{row.attention.overdue_tasks} vencidas</p>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      key: "plan",
+      label: "Plan",
+      render: (row) => (
+        <span className="font-mono">{row.subscription ? `${row.subscription.plan_code}/${row.subscription.status}` : "sin_plan"}</span>
+      ),
+    },
+    {
+      key: "actions",
+      label: "Ir a",
+      render: (row) => (
+        <div className="flex flex-wrap gap-2">
+          <Link href="/dashboard" onClick={() => setOrganizationId(row.id)}>
+            Dashboard
+          </Link>
+          <Link href="/tareas" onClick={() => setOrganizationId(row.id)}>
+            Tareas
+          </Link>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -618,119 +744,40 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
         ) : null}
       </section>
 
-      <section className="border-t border-ink/20">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-line text-left text-xs font-medium uppercase text-muted">
-                <th className="px-4 py-3 font-medium">Cliente</th>
-                <th className="px-4 py-3 font-medium">Tiendas</th>
-                <th className="px-4 py-3 font-medium">Atención</th>
-                <th className="px-4 py-3 font-medium">Alertas vivas</th>
-                <th className="px-4 py-3 font-medium">Tareas</th>
-                <th className="px-4 py-3 font-medium">Plan</th>
-                <th className="px-4 py-3 font-medium">Ir a</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {organizations.map((organization) => {
-                const badge = attentionBadge(organization.attention.score);
-                const isExpanded = expandedId === organization.id;
-
-                return (
-                  <Fragment key={organization.id}>
-                    <tr className="align-top">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <Avatar name={organization.display_name} size="sm" />
-                          <div>
-                            <Link href="/dashboard" onClick={() => setOrganizationId(organization.id)}>
-                              {organization.display_name}
-                            </Link>
-                            <p className={organization.status === "pending_deletion" ? "text-sm text-brand" : "text-sm text-muted"}>
-                              {organization.slug} -{" "}
-                              {organization.status === "pending_deletion" ? "borrado en 30 dias" : organization.status}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setExpandedId(isExpanded ? null : organization.id)}
-                        >
-                          {organization.store_count} {isExpanded ? "▲" : "▼"}
-                        </Button>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge tone={badge.tone} title={`Puntuacion: ${organization.attention.score}`}>
-                          {badge.label}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        {organization.attention.open_alerts === 0 ? (
-                          <span className="text-muted">Sin alertas</span>
-                        ) : (
-                          <>
-                            <span className="font-mono">{organization.attention.open_alerts}</span>
-                            {organization.attention.critical_alerts > 0 ? (
-                              <span className="ml-2 font-mono text-xs text-brand">
-                                {organization.attention.critical_alerts} criticas
-                              </span>
-                            ) : null}
-                            {organization.attention.oldest_alert_days > 0 ? (
-                              <p className="mt-1 text-xs text-muted">
-                                la más antigua lleva {organization.attention.oldest_alert_days} días
-                              </p>
-                            ) : null}
-                          </>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-mono">{organization.attention.open_tasks}</span> abiertas
-                        {organization.attention.overdue_tasks > 0 ? (
-                          <p className="mt-1 text-xs text-brand">{organization.attention.overdue_tasks} vencidas</p>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 font-mono">
-                        {organization.subscription
-                          ? `${organization.subscription.plan_code}/${organization.subscription.status}`
-                          : "sin_plan"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
-                          <Link href="/dashboard" onClick={() => setOrganizationId(organization.id)}>
-                            Dashboard
-                          </Link>
-                          <Link href="/tareas" onClick={() => setOrganizationId(organization.id)}>
-                            Tareas
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                    {isExpanded ? (
-                      <tr>
-                        <td colSpan={7} className="p-0">
-                          <StoresPanel
-                            organization={organization}
-                            isPlatformAdmin={isPlatformAdmin}
-                            onOrganizationDeleted={() => {
-                              setExpandedId(null);
-                              void load();
-                            }}
-                            onOrganizationUpdated={() => void load()}
-                          />
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      <section className="border-t border-ink/20 pt-4">
+        <Field label="Buscar cliente">
+          <Input
+            type="search"
+            placeholder="Nombre o slug..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            className="max-w-sm"
+          />
+        </Field>
       </section>
+
+      <section className="border-t border-ink/20 pt-4">
+        <Table
+          ariaLabel="Clientes asignados"
+          columns={columns}
+          rows={filteredOrganizations}
+          emptyLabel={`Sin resultados para "${searchQuery}".`}
+        />
+      </section>
+
+      {expandedOrganization ? (
+        <Card kicker="Detalle del cliente" title={expandedOrganization.display_name}>
+          <StoresPanel
+            organization={expandedOrganization}
+            isPlatformAdmin={isPlatformAdmin}
+            onOrganizationDeleted={() => {
+              setExpandedId(null);
+              void load();
+            }}
+            onOrganizationUpdated={() => void load()}
+          />
+        </Card>
+      ) : null}
     </div>
   );
 }

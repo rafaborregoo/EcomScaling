@@ -24,11 +24,27 @@
     cambios necesarios -- se confirma que funciona en 375px sin romper el layout de la pagina.
   - Se quito una tarjeta de "Agentes IA: Bloqueado por datos" hardcodeada que contradecia el resto de la
     pagina (los agentes ya corren, ver `AiDiagnosticSection` en la misma vista).
+- **Cerrado 2026-07-29 (comparacion contra periodo anterior)**: `getShopifyMetrics`
+  (`apps/api/src/shopify-metrics.ts`) llama las mismas funciones SQL stable ya usadas
+  (`shopify_sales_summary`, `shopify_financial_summary`) para el rango inmediatamente anterior al periodo
+  seleccionado (mismo numero de dias) -- sin agregar nada en Node, respeta la regla del `CLAUDE.md` del
+  repo. No aplica a "Todo" (`previous_period: null`, no hay un "periodo anterior" bien definido para el
+  historico completo). Fallo no fatal: si la consulta del periodo anterior falla, se loguea y se omite,
+  sin tumbar el dashboard. En el frontend, `PeriodDeltaBadge` (`apps/web/src/app/dashboard/page.tsx`)
+  muestra un `Badge` verde/rojo ("+12,3%"/"-5,1%") junto a Facturacion neta, Pedidos, AOV y Beneficio neto
+  estimado; se omite (no "0%"/"n/a" enganoso) cuando no hay base valida para comparar (periodo "Todo" o
+  valor anterior 0, evitando division por cero). 2 tests reales de extremo a extremo
+  (`fe-02-period-comparison.test.ts`, servidor Fastify real, 5 pedidos sembrados en dos periodos distintos
+  contra Supabase real) confirman que distingue de verdad 3 pedidos del periodo actual de 2 del anterior, y
+  que `days=all` no devuelve `previous_period`. **Sin verificar visualmente en navegador** (este entorno no
+  tiene el dev server levantado con Supabase configurado para eso) -- typecheck/lint limpios, pendiente
+  confirmacion visual real.
 - **Gaps identificados que siguen abiertos:**
-  - Sin comparacion contra periodo anterior (solo el periodo actual).
   - Sin timezone/moneda explicitos en el propio dashboard (heredados de la organizacion, no mostrados).
   - Sin drill-down ni exportacion.
-- **Siguiente accion:** anadir comparacion contra el periodo anterior a los KPIs principales.
+- **Siguiente accion:** verificar visualmente en navegador real (Rafa o una sesion con el dev server
+  levantado) que los badges de comparacion se ven bien con datos reales, sobre todo casos extremos
+  (delta muy grande, delta negativo, sin periodo anterior).
 
 ## Objetivo
 

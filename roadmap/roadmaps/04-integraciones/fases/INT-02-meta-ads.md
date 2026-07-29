@@ -89,6 +89,27 @@ existente):
 - Si una misma cuenta publicitaria puede aparecer accesible por dos rutas a la vez (OAuth directo +
   compartida via BM) y como se evita duplicar la conexion en ese caso.
 
+## Nota: creacion de campanas (fuera de alcance de INT-02 hoy, 2026-07-28)
+
+Rafa compartio el sample oficial de Meta (`facebook-nodejs-business-sdk`, `AdAccount.createCampaign`) para
+crear campanas via Marketing API -- **no lo copiamos tal cual**: el sample hardcodea el access token en el
+archivo (compartido en el chat, ya revocado) y usa el SDK oficial de Node, que este repo no usa en ningun
+otro punto de la integracion Meta (`meta-client.ts` hace fetch directo a la Graph API con backoff propio,
+ver arriba). Si se implementa creacion de campanas mas adelante, seguir el mismo patron que el resto de
+INT-02, no el SDK:
+
+- Token: el ya obtenido via OAuth (`meta-oauth.ts`), nunca hardcodeado, nunca en un archivo suelto fuera de
+  `integration_credentials` (cifrado, ver DB-04).
+- Llamada: `POST https://graph.facebook.com/<version>/act_<ad_account_id>/campaigns` con
+  `fetchGraphJsonWithRetry` (mismo backoff/rate-limit ya implementado en `meta-client.ts`), no una llamada
+  fetch nueva sin retry.
+- Esto es una capacidad de **escritura** sobre la cuenta publicitaria del cliente (crear campana,
+  aunque sea en `status: PAUSED`) -- requiere su propia decision de aprobacion humana antes de escribir
+  (mismo criterio que el resto del producto: IA/automatismos no escriben directo, un humano aprueba), y
+  todavia no tiene endpoint ni UI. No iniciar sin decidir antes el flujo de aprobacion y sin que la app
+  tenga ya los permisos de escritura (`ads_management`) aprobados por Meta App Review -- hoy `META_SCOPES`
+  solo pide permisos de lectura (`ads_read,business_management,pages_show_list`).
+
 ## Pendiente antes de cerrar INT-02
 
 1. Decidir y documentar `canonical_purchase_action_type` por cuenta (o una prioridad fija) antes de

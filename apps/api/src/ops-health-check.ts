@@ -31,6 +31,13 @@ const COST_SPIKE_WINDOW_MS = 24 * 60 * 60 * 1000;
 // fallar en silencio (ver bug real corregido 2026-07-22 en
 // log_financial_change()/purgeExpiredDeletions).
 const PURGE_OVERDUE_MS = 2 * 24 * 60 * 60 * 1000;
+// RB-004 (Prevencion, gap real cerrado 2026-07-29): mismo umbral que la
+// consulta manual documentada en el runbook -- webhooks atascados en
+// `received` mas de 30 minutos no tenian ninguna alerta proactiva, solo se
+// detectaban corriendo la consulta a mano o porque el cliente reportaba
+// datos desactualizados.
+const WEBHOOK_BACKLOG_MS = 30 * 60 * 1000;
+const WEBHOOK_BACKLOG_ROW_LIMIT = 500;
 
 function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
@@ -46,7 +53,8 @@ export type OpsHealthFinding = {
     | "sync_repeated_failure"
     | "token_expiring_soon"
     | "ai_budget_exceeded"
-    | "purge_overdue";
+    | "purge_overdue"
+    | "webhook_backlog";
   summary: string;
   runbook: string;
   details: Record<string, unknown>;
@@ -185,6 +193,45 @@ export async function runOpsHealthCheck(env: ApiEnv): Promise<OpsHealthCheckResu
       summary: `Conexion ${connection.provider} (org ${connection.organization_id}) lleva mas de 2 dias pasada su fecha de purga sin borrarse`,
       runbook: "RB-008-purge-failed.md",
       details: connection,
+    });
+  }
+
+  const { data: stuckWebhooks, error: stuckWebhooksError } = await client
+    .schema("private")
+    .from("webhook_events")
+    .select("connection_id, organization_id, provider, received_at")
+    .eq("status", "received")
+    .lt("received_at", new Date(now - WEBHOOK_BACKLOG_MS).toISOString())
+    .order("received_at", { ascending: true })
+    .limit(WEBHOOK_BACKLOG_ROW_LIMIT);
+  if (stuckWebhooksError) {
+    throw new Error(`No se pudieron leer webhooks atascados: ${stuckWebhooksError.message}`);
+  }
+  const backlogByConnection = new Map<
+    string,
+    { connectionId: string | null; organizationId: string | null; provider: string; count: number; oldestReceivedAt: string }
+  >();
+  for (const row of stuckWebhooks ?? []) {
+    const key = row.connection_id ?? `no-connection:${row.organization_id}:${row.provider}`;
+    const existing = backlogByConnection.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      backlogByConnection.set(key, {
+        connectionId: row.connection_id,
+        organizationId: row.organization_id,
+        provider: row.provider,
+        count: 1,
+        oldestReceivedAt: row.received_at,
+      });
+    }
+  }
+  for (const backlog of backlogByConnection.values()) {
+    findings.push({
+      type: "webhook_backlog",
+      summary: `${backlog.count} webhook(s) de ${backlog.provider} atascados en 'received' desde hace mas de 30 min (conexion ${backlog.connectionId ?? "desconocida"})`,
+      runbook: "RB-004-webhook-duplicate-backlog.md",
+      details: backlog,
     });
   }
 

@@ -44,14 +44,20 @@ llamadas (A01), monitor de negocio (A02) en shadow mode, soporte.
       pospone a proposito hasta el final del programa, para no invertir tiempo en eso ahora -- ver RB-007.
       El resto del criterio ("backup configurado" con verificacion de integridad automatica) puede cerrarse
       en cuanto el secret este activo y el workflow corra una vez con exito, sin esperar al drill completo.
+      **RPO/RTO fijados 2026-07-29 (Q-015)**: RPO=24h (coherente con el backup diario, sin PITR en el plan
+      `free` de Supabase) y RTO=4h (restauracion manual siguiendo RB-007 contra un proyecto nuevo). No
+      cambia el estado del drill (sigue pospuesto a proposito), pero ya no falta definir "numeros concretos"
+      como pedia Q-015.
 - [x] Logs y alertas minimas — **cerrado 2026-07-22**: los logs estructurados ya existian (Fastify/pino +
       `createLogger`, con redaccion de secretos, ver SQO-02). Alertas operativas anadidas:
       `.github/workflows/ops-health-check.yml` corre cada 2h, agrega las senales de RB-001 (conexion en
       error o `syncing` atascada >2h), RB-001 (sync con 3+ reintentos fallidos en 24h), RB-002 (token
       OAuth expirado o expira en <24h) y RB-006 (run de agente cortado por presupuesto excedido), y
       crea/actualiza un issue de GitHub (label `ops-alert`) sin necesitar secrets nuevos. Sin plan de
-      Sentry/APM todavia (Q-014 sigue abierta para eso), pero ya no depende de que alguien revise Supabase
-      a mano para enterarse de un fallo. Metricas agregadas (paneles) siguen sin implementar.
+      Sentry/APM (**Q-014 resuelta 2026-07-29**: Rafa decidio seguir solo con pino por ahora, sin contratar
+      un proveedor nuevo mientras no haya cliente real; revisar al escalar), pero ya no depende de que
+      alguien revise Supabase a mano para enterarse de un fallo. Metricas agregadas (paneles) siguen sin
+      implementar.
 - [x] Runbook de sync fallido existe — **corregido 2026-07-22**: `RB-001-shopify-sync-failed.md` ya esta
       escrito (formato completo con diagnostico/acciones/rollback, ver OPS-02), no esta vacio.
 - [x] Staging operativo — **reevaluado 2026-07-22**: `apps/api` y `apps/web` ya estan desplegados en

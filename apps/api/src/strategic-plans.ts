@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 
@@ -66,7 +66,7 @@ export async function getStrategicPlan(
   const { data: plan, error } = await supabase
     .from("strategic_plans")
     .select(
-      "id, name, description, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, milestone_task_links(task_id)))",
+      "id, name, description, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, created_by, milestone_task_links(task_id, tasks(id, title, status, priority, due_at, category, source, created_by))))",
     )
     .eq("organization_id", organizationId)
     .neq("status", "archived")
@@ -78,7 +78,74 @@ export async function getStrategicPlan(
     return { ok: false as const, statusCode: 500, error: "plan_load_failed", detail: error.message };
   }
 
+  if (plan) {
+    await attachCreatorOrigin(supabase, plan as PlanWithPhases);
+  }
+
   return { ok: true as const, data: { organization_id: organizationId, plan: plan ?? null } };
+}
+
+type PlanWithPhases = {
+  strategic_plan_phases: Array<{
+    created_by: string | null;
+    created_by_origin?: "consultant" | "client" | null;
+    strategic_plan_milestones: Array<{
+      created_by: string | null;
+      created_by_origin?: "consultant" | "client" | null;
+      milestone_task_links: Array<{
+        tasks: { created_by: string | null; created_by_origin?: "consultant" | "client" | null } | null;
+      }>;
+    }>;
+  }>;
+};
+
+/** El consultor y el cliente pueden ambos crear fases/hitos/tareas en Mi
+ * Camino (assertCanManagePlan permite owner/manager ademas de
+ * consultor/admin) -- la UI necesita distinguir de que lado vino cada uno
+ * (peticion de Rafa 2026-07-29). Se deriva del `platform_role` del creador en
+ * vez de guardarlo aparte: siempre esta al dia con quien es hoy consultor. */
+async function attachCreatorOrigin(
+  supabase: ReturnType<typeof createUserScopedClient>,
+  plan: PlanWithPhases,
+) {
+  const creatorIds = new Set<string>();
+  for (const phase of plan.strategic_plan_phases) {
+    if (phase.created_by) creatorIds.add(phase.created_by);
+    for (const milestone of phase.strategic_plan_milestones) {
+      if (milestone.created_by) creatorIds.add(milestone.created_by);
+      for (const link of milestone.milestone_task_links) {
+        if (link.tasks?.created_by) creatorIds.add(link.tasks.created_by);
+      }
+    }
+  }
+
+  if (creatorIds.size === 0) {
+    return;
+  }
+
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, platform_role")
+    .in("id", Array.from(creatorIds));
+
+  const originById = new Map<string, "consultant" | "client">(
+    (profiles ?? []).map((profile) => [
+      profile.id,
+      ["consultant", "platform_admin"].includes(profile.platform_role) ? "consultant" : "client",
+    ]),
+  );
+
+  for (const phase of plan.strategic_plan_phases) {
+    phase.created_by_origin = phase.created_by ? (originById.get(phase.created_by) ?? null) : null;
+    for (const milestone of phase.strategic_plan_milestones) {
+      milestone.created_by_origin = milestone.created_by ? (originById.get(milestone.created_by) ?? null) : null;
+      for (const link of milestone.milestone_task_links) {
+        if (link.tasks) {
+          link.tasks.created_by_origin = link.tasks.created_by ? (originById.get(link.tasks.created_by) ?? null) : null;
+        }
+      }
+    }
+  }
 }
 
 type PlanInput = {
@@ -160,6 +227,7 @@ export async function createStrategicPlan(
         name: phase.name!.trim().slice(0, 255),
         description: phase.description ?? null,
         position: phaseIndex + 1,
+        created_by: context.user.id,
       })
       .select("id")
       .single();
@@ -180,6 +248,7 @@ export async function createStrategicPlan(
         description: milestone.description ?? null,
         position: milestoneIndex + 1,
         target_date: milestone.targetDate ?? null,
+        created_by: context.user.id,
       });
 
       if (milestoneError) {
@@ -359,6 +428,257 @@ export async function updateMilestoneStatus(
   return { ok: true as const, data: { id: milestone.id, status: statusInput } };
 }
 
+type PhaseCreateInput = { name?: string | undefined; description?: string | null | undefined };
+
+/** Anade una fase a un plan ya existente (a diferencia de createStrategicPlan,
+ * que crea el plan entero de una vez). Tanto el consultor como el cliente
+ * pueden proponer una fase nueva (assertCanManagePlan) -- se guarda quien la
+ * creo para que la UI la distinga por color (ver attachCreatorOrigin). */
+export async function createPhase(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  planId: string,
+  input: PhaseCreateInput,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const name = input.name?.trim() ?? "";
+  if (!name) {
+    return { ok: false as const, statusCode: 400, error: "missing_phase_name" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data: plan, error: planError } = await supabase
+    .from("strategic_plans")
+    .select("id")
+    .eq("id", planId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (planError || !plan) {
+    return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  }
+
+  const { data: lastPhase } = await supabase
+    .from("strategic_plan_phases")
+    .select("position")
+    .eq("plan_id", planId)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data: phase, error: phaseError } = await supabase
+    .from("strategic_plan_phases")
+    .insert({
+      organization_id: organizationId,
+      plan_id: planId,
+      name: name.slice(0, 255),
+      description: input.description ?? null,
+      position: (lastPhase?.position ?? 0) + 1,
+      status: "pending",
+      created_by: context.user.id,
+    })
+    .select("id")
+    .single();
+
+  if (phaseError || !phase) {
+    return { ok: false as const, statusCode: 500, error: "phase_create_failed", detail: phaseError?.message };
+  }
+
+  return { ok: true as const, data: { id: phase.id } };
+}
+
+type MilestoneCreateInput = {
+  name?: string | undefined;
+  description?: string | null | undefined;
+  targetDate?: string | null | undefined;
+};
+
+/** Igual que createPhase pero para un hito dentro de una fase existente --
+ * el gap real que motivo este endpoint (Rafa, 2026-07-29): antes de esta
+ * fecha un hito solo podia nacer con el plan completo, no se podia anadir
+ * uno nuevo despues (ni el consultor ni el cliente podian, sin importar el
+ * motivo -- una tarea nueva que no encajaba en ningun hito existente no tenia
+ * donde ir). */
+export async function createMilestone(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  phaseId: string,
+  input: MilestoneCreateInput,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const name = input.name?.trim() ?? "";
+  if (!name) {
+    return { ok: false as const, statusCode: 400, error: "missing_milestone_name" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data: phase, error: phaseError } = await supabase
+    .from("strategic_plan_phases")
+    .select("id, status")
+    .eq("id", phaseId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (phaseError || !phase) {
+    return { ok: false as const, statusCode: 404, error: "phase_not_found" };
+  }
+
+  const { data: lastMilestone } = await supabase
+    .from("strategic_plan_milestones")
+    .select("position")
+    .eq("phase_id", phaseId)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data: milestone, error: milestoneError } = await supabase
+    .from("strategic_plan_milestones")
+    .insert({
+      organization_id: organizationId,
+      phase_id: phaseId,
+      name: name.slice(0, 255),
+      description: input.description ?? null,
+      position: (lastMilestone?.position ?? 0) + 1,
+      target_date: input.targetDate ?? null,
+      status: phase.status === "locked" ? "locked" : "pending",
+      created_by: context.user.id,
+    })
+    .select("id")
+    .single();
+
+  if (milestoneError || !milestone) {
+    return { ok: false as const, statusCode: 500, error: "milestone_create_failed", detail: milestoneError?.message };
+  }
+
+  return { ok: true as const, data: { id: milestone.id } };
+}
+
+type PhaseUpdateInput = { name?: string | undefined; description?: string | null | undefined };
+
+export async function updatePhase(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  phaseId: string,
+  input: PhaseUpdateInput,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const patch: Record<string, unknown> = {};
+
+  if (input.name !== undefined) {
+    const trimmed = input.name.trim();
+    if (!trimmed) {
+      return { ok: false as const, statusCode: 400, error: "invalid_phase_name" };
+    }
+    patch.name = trimmed.slice(0, 255);
+  }
+
+  if (input.description !== undefined) {
+    patch.description = input.description;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return { ok: false as const, statusCode: 400, error: "empty_update" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data, error } = await supabase
+    .from("strategic_plan_phases")
+    .update(patch)
+    .eq("id", phaseId)
+    .eq("organization_id", organizationId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "phase_update_failed", detail: error.message };
+  }
+
+  if (!data) {
+    return { ok: false as const, statusCode: 404, error: "phase_not_found" };
+  }
+
+  return { ok: true as const, data: { id: data.id } };
+}
+
+type MilestoneUpdateInput = {
+  name?: string | undefined;
+  description?: string | null | undefined;
+  targetDate?: string | null | undefined;
+};
+
+export async function updateMilestone(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  milestoneId: string,
+  input: MilestoneUpdateInput,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const patch: Record<string, unknown> = {};
+
+  if (input.name !== undefined) {
+    const trimmed = input.name.trim();
+    if (!trimmed) {
+      return { ok: false as const, statusCode: 400, error: "invalid_milestone_name" };
+    }
+    patch.name = trimmed.slice(0, 255);
+  }
+
+  if (input.description !== undefined) {
+    patch.description = input.description;
+  }
+
+  if (input.targetDate !== undefined) {
+    patch.target_date = input.targetDate;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return { ok: false as const, statusCode: 400, error: "empty_update" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data, error } = await supabase
+    .from("strategic_plan_milestones")
+    .update(patch)
+    .eq("id", milestoneId)
+    .eq("organization_id", organizationId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "milestone_update_failed", detail: error.message };
+  }
+
+  if (!data) {
+    return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
+  }
+
+  return { ok: true as const, data: { id: data.id } };
+}
+
 export async function addMilestoneInternalNote(
   env: ApiEnv,
   context: AuthContext,
@@ -455,4 +775,132 @@ export async function linkTaskToMilestone(
   }
 
   return { ok: true as const, data: { id: data.id } };
+}
+
+/**
+ * Mejor hito de Mi Camino para enlazar una tarea generada automaticamente
+ * (agente IA o motor de alertas) cuando quien la crea no propuso un
+ * `milestone_id` explicito -- gap detectado en DB-07 2026-07-29: sin esto,
+ * las tareas automaticas y el plan estrategico eran dos sistemas
+ * desconectados. Heuristica: el plan activo de la organizacion, su fase
+ * activa, y dentro de ella el hito de menor `position` que todavia no esta
+ * completado/omitido -- el hito "en el que esta trabajando el cliente ahora
+ * mismo". Best-effort: devuelve null (nunca lanza) si no hay plan activo,
+ * fase activa o hito pendiente; llamar a esto nunca debe bloquear la
+ * creacion de la tarea en si.
+ */
+export async function findCurrentMilestoneId(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<string | null> {
+  try {
+    const { data: plan } = await supabase
+      .from("strategic_plans")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (!plan) return null;
+
+    const { data: phase } = await supabase
+      .from("strategic_plan_phases")
+      .select("id")
+      .eq("plan_id", plan.id)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (!phase) return null;
+
+    const { data: milestone } = await supabase
+      .from("strategic_plan_milestones")
+      .select("id")
+      .eq("phase_id", phase.id)
+      .in("status", ["pending", "in_progress"])
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    return milestone?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const MILESTONE_TASK_PRIORITIES = ["low", "medium", "high", "urgent"];
+
+type MilestoneTaskInput = {
+  title?: string | undefined;
+  description?: string | null | undefined;
+  priority?: string | undefined;
+  dueAt?: string | null | undefined;
+};
+
+/** Crea una tarea nueva con contexto de plan (source `strategic_plan`) y la
+ * enlaza al hito en el mismo paso -- tanto el consultor como la IA (via
+ * `proposed_writes` con `milestone_id`, ver ai-runtime.ts) necesitan crear una
+ * tarea que ya sabe a que hito pertenece, sin el paso intermedio de
+ * crear-y-luego-enlazar de linkTaskToMilestone. */
+export async function createMilestoneTask(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  milestoneId: string,
+  input: MilestoneTaskInput,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const title = input.title?.trim() ?? "";
+
+  if (!title) {
+    return { ok: false as const, statusCode: 400, error: "missing_task_title" };
+  }
+
+  const priority =
+    input.priority && MILESTONE_TASK_PRIORITIES.includes(input.priority) ? input.priority : "medium";
+
+  const supabase = createServiceClient(env);
+
+  const { data: milestone, error: milestoneError } = await supabase
+    .from("strategic_plan_milestones")
+    .select("id")
+    .eq("id", milestoneId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (milestoneError || !milestone) {
+    return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
+  }
+
+  const { data: task, error: taskError } = await supabase
+    .from("tasks")
+    .insert({
+      organization_id: organizationId,
+      source: "strategic_plan",
+      priority,
+      category: "general",
+      title: title.slice(0, 255),
+      description: input.description ?? null,
+      due_at: input.dueAt ?? null,
+      created_by: context.user.id,
+    })
+    .select("id, title, status, priority, due_at, category, source")
+    .single();
+
+  if (taskError || !task) {
+    return { ok: false as const, statusCode: 500, error: "task_create_failed", detail: taskError?.message };
+  }
+
+  const { error: linkError } = await supabase
+    .from("milestone_task_links")
+    .insert({ organization_id: organizationId, milestone_id: milestoneId, task_id: task.id });
+
+  if (linkError) {
+    return { ok: false as const, statusCode: 500, error: "milestone_task_link_failed", detail: linkError.message };
+  }
+
+  return { ok: true as const, data: task };
 }

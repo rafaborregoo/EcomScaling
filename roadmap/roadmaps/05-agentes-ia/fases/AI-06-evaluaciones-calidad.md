@@ -125,12 +125,26 @@
     promover una version de prompt -- los gates actuales corren manualmente, no bloquean un despliegue de
     `agent_versions.is_active` todavia.
   - Sin feedback estructurado del consultor (util/no util, prioridad correcta, edicion necesaria).
-- **Siguiente accion:** todos los agentes de diagnostico (A01, A02, A06, A08) tienen ya un dataset propio.
-  Candidatos para la siguiente ronda: implementar la deteccion de corrupcion parcial de texto en
-  `checkOutputSanity` (hallazgo real de A08 arriba), ampliar el de A01 con audio deficiente/varios
-  interlocutores, y decidir si los quality gates deben pasar a bloquear la activacion de una nueva
-  `agent_versions` (hoy son
-  solo un script manual).
+- **Resuelto 2026-07-28 (corrupcion parcial en mitad de texto)**: `hasIncoherentOpening` solo miraba el
+  primer salto de linea dentro de los primeros 60 caracteres del texto -- el mismo glitch de palabra
+  partida por un salto de linea, si aparecia mas adelante en un `answer`/`summary` largo, pasaba
+  `checkOutputSanity` sin deteccion. Anadida `hasBrokenWordMidText` (`packages/ai/src/index.ts`) con la
+  misma heuristica (palabra rota entre lineas, sin puntuacion de cierre de frase antes del salto) pero
+  recorriendo todos los saltos de linea del texto, no solo el primero; exige minuscula justo despues del
+  salto (mas estricto que la apertura, que acepta ambos casos) para no confundir un parrafo o un item de
+  lista legitimo que arranca con mayuscula sin punto previo. Nueva razon de rechazo:
+  `${field}_con_texto_partido`. 4 tests nuevos en `packages/ai/src/index.test.ts` (el caso real de palabra
+  partida a mitad de texto, mas 3 de no-regresion: parrafos multiples con punto de cierre, lista con
+  guiones, y el caso de apertura original que ya cubria `hasIncoherentOpening`). 29/29 tests de
+  `packages/ai` pasan, `@ecomscaling/ai` reconstruido y typecheck de `apps/api` limpio (sin correr los
+  tests de integracion de `apps/api` en esta sesion -- este entorno no tiene Supabase configurado, ver nota
+  equivalente en FE-00).
+- **Siguiente accion:** todos los agentes de diagnostico (A01, A02, A06, A08) tienen ya un dataset propio,
+  incluidos los 2 escenarios de A01 (audio deficiente, varios interlocutores) que esta misma seccion
+  listaba antes como pendientes -- ya resueltos arriba el 2026-07-23, texto desactualizado corregido
+  2026-07-28. Unico candidato real pendiente: decidir si los quality gates deben pasar a bloquear la
+  activacion de una nueva `agent_versions` (hoy son solo un script manual sin efecto en `is_active`) --
+  decision de proceso, no de codigo.
 
 ## Objetivo
 

@@ -52,15 +52,23 @@ sin ver antes la fila), pero era una capacidad de backend sin decision de produc
 Alineado al mismo criterio que `decideSummary`: ahora ambos flujos de aprobacion exigen
 consultor/`platform_admin`, sin excepcion para owner/manager.
 
+- **Cerrado 2026-07-29 (busqueda)**: `consultor/page.tsx` no tenia forma de filtrar la tabla de clientes --
+  con muchos clientes habia que escanear la tabla entera a ojo. Anadido un campo de busqueda (filtro por
+  nombre o slug, en el propio navegador sobre la lista ya cargada, sin request nueva); mensaje explicito
+  "Sin resultados" cuando el filtro no matchea nada. El resumen "Qué cliente necesita atención hoy" sigue
+  usando la lista completa sin filtrar (es una senal global de salud, no algo que deba ocultar la
+  busqueda). Build de produccion limpio; sin verificar visualmente en navegador (sin Playwright/Chromium
+  en este entorno). Saved views y acciones masivas siguen sin hacer -- necesitan mas decision de producto
+  sobre que significa "accion masiva" aqui, no son un pick limpio como la busqueda.
 - **Gaps identificados que siguen abiertos:**
-  - Sin busqueda, saved views, ni acciones masivas.
+  - Sin saved views ni acciones masivas (necesitan decision de producto sobre su alcance).
   - Sin registro explicito de "impersonation"/cambio de contexto (cambiar de cliente activo no queda
     auditado, solo el borrado si).
   - Organizacion/tienda activas se muestran en la mini barra de contexto del shell, pero no hay
     confirmacion contextual adicional en acciones sensibles mas alla del dialogo de borrado (p. ej. crear
     una tarea o aprobar un resumen no re-confirma "estas operando sobre X").
-- **Siguiente accion:** anadir busqueda/saved views/acciones masivas y registro de cambio de contexto si
-  se vuelve necesario para auditoria mas alla del borrado.
+- **Siguiente accion:** decidir el alcance de saved views/acciones masivas antes de construirlas; evaluar
+  si el registro de cambio de contexto se vuelve necesario para auditoria mas alla del borrado.
 
 ## Objetivo
 

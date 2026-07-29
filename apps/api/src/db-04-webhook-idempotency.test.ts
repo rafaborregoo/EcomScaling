@@ -130,3 +130,43 @@ test("dos webhooks identicos concurrentes solo se procesan una vez (idempotencia
   assert.equal(events?.length, 1, "debe existir exactamente una fila de webhook_events para el mismo fingerprint");
   assert.equal(events?.[0]?.status, "processed");
 });
+
+// SQO-04 (gap real cerrado 2026-07-29, fila 4 de la matriz de amenazas): la
+// idempotencia de recepcion ya estaba probada arriba, pero nada confirmaba
+// que un HMAC incorrecto (firma manipulada o secret equivocado) se rechazara
+// antes de tocar la base de datos -- la unica barrera real entre "cualquiera
+// que sepa la URL del webhook" y "un payload arbitrario procesado como si
+// viniera de Shopify".
+test("rechaza un webhook con HMAC invalido antes de tocar la base de datos", async () => {
+  const payload = JSON.stringify({
+    shop_id: 1,
+    shop_domain: SHOP_DOMAIN,
+    orders_requested: [],
+    customer: { id: 888888, email: "invalid-hmac@example.com" },
+  });
+  const rawBody = Buffer.from(payload, "utf8");
+  const wrongHmac = crypto.createHmac("sha256", "clave-que-no-es-el-secret-real").update(rawBody).digest("base64");
+
+  const headers = {
+    "x-shopify-hmac-sha256": wrongHmac,
+    "x-shopify-shop-domain": SHOP_DOMAIN,
+    "x-shopify-topic": "customers/data_request",
+    "x-shopify-webhook-id": `db04-invalid-hmac-${RUN_TAG}`,
+  };
+
+  const result = await handleShopifyWebhookRequest(env, headers, rawBody);
+
+  assert.equal(result.statusCode, 401);
+  assert.equal(result.body.error, "invalid_hmac");
+
+  const fingerprint = crypto.createHash("sha256").update(rawBody.toString("utf8")).digest("hex");
+  const { data: events, error: eventsError } = await admin
+    .schema("private")
+    .from("webhook_events")
+    .select("id")
+    .eq("fingerprint", fingerprint)
+    .eq("provider", "shopify");
+
+  assert.equal(eventsError, null);
+  assert.equal(events?.length, 0, "un HMAC invalido no debe insertar fila alguna en webhook_events");
+});

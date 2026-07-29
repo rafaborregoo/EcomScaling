@@ -84,9 +84,15 @@
     con el resto del backend.
   - **Resto de archivos auditados: sin gaps encontrados** -- todos ya usaban `requireMembership`/
     `assertCanManage*`/`context.memberships.some(...)` correctamente antes de esta ronda.
-- **Siguiente accion:** ninguna pendiente critica; quedan ~15-20 endpoints de escritura menores (PATCH
-  status de tareas/alertas/hitos, comentarios) sin test dedicado de cross-tenant, aunque su codigo ya usa
-  el patron correcto (auditado por lectura, no por test de integracion todavia).
+- **Cerrado 2026-07-28**: los endpoints de escritura menores que quedaban sin test dedicado (PATCH
+  status de tarea/alerta/hito, comentarios de tarea) ya lo tienen --
+  `be-01-cross-tenant-write-endpoints.test.ts`, mismo patron (servidor Fastify real, usuario de org A
+  forzando el organizationId de org B en el path, con un UUID de recurso inexistente ya que las 4
+  funciones -- `updateTaskStatus`, `addTaskComment`, `updateAlertStatus`, `updateMilestoneStatus` --
+  cortan por organizacion antes de buscar el recurso). 4/4 pasan contra Supabase remoto real.
+- **Siguiente accion:** ninguna pendiente. Auditoria de BE-01 completa: todos los endpoints de negocio
+  (lectura y escritura) tienen ahora verificacion de organizacion probada con tests reales de
+  integracion, no solo auditados por lectura.
 
 ## Objetivo
 

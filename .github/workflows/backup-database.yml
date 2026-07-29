@@ -23,15 +23,21 @@ jobs:
         # El pg_dump de Ubuntu (postgresql-client, 16.x) rechaza volcar un
         # servidor mas nuevo que el (Supabase corre Postgres 17.6). Se instala
         # el cliente 17 desde el repositorio oficial de PGDG en vez del que
-        # trae Ubuntu por defecto.
+        # trae Ubuntu por defecto. Instalar el paquete no basta: /usr/bin/pg_dump
+        # sigue siendo el 16.x de Ubuntu (bug real que tumbaba este workflow en
+        # el 100% de sus corridas, ver runbook), asi que se antepone
+        # /usr/lib/postgresql/17/bin al PATH del resto de pasos via GITHUB_PATH
+        # en vez de confiar en que apt lo haga automatico.
         run: |
           sudo apt-get install -y postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Dump database
         run: |
           set -euo pipefail
+          echo "pg_dump resuelto: $(command -v pg_dump) ($(pg_dump --version))"
           if [ -z "${SUPABASE_DB_URL:-}" ]; then
             echo "::error::SUPABASE_DB_URL secret is not set. See RB-007 for setup." >&2
             exit 1

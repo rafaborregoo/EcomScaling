@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
+import { findCurrentMilestoneId } from "./strategic-plans.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -132,27 +133,45 @@ async function upsertAlertWithTask(
   await notifyAlertCreated(supabase, organizationId, alert.id, template, detection);
 
   if (template.task_title_template) {
-    const { error: taskError } = await supabase.from("tasks").insert({
-      organization_id: organizationId,
-      alert_id: alert.id,
-      source: "alert",
-      priority:
-        template.default_severity === "critical" || template.default_severity === "high"
-          ? "high"
-          : "medium",
-      title: interpolate(template.task_title_template, detection.templateValues).slice(0, 255),
-      description: template.task_description_template
-        ? interpolate(template.task_description_template, detection.templateValues)
-        : null,
-      category:
-        template.code === "integration_sync_failed" && typeof detection.contextData?.provider === "string"
-          ? normalizeProviderCategory(detection.contextData.provider)
-          : template.category,
-    });
+    const { data: createdTask, error: taskError } = await supabase
+      .from("tasks")
+      .insert({
+        organization_id: organizationId,
+        alert_id: alert.id,
+        source: "alert",
+        priority:
+          template.default_severity === "critical" || template.default_severity === "high"
+            ? "high"
+            : "medium",
+        title: interpolate(template.task_title_template, detection.templateValues).slice(0, 255),
+        description: template.task_description_template
+          ? interpolate(template.task_description_template, detection.templateValues)
+          : null,
+        category:
+          template.code === "integration_sync_failed" && typeof detection.contextData?.provider === "string"
+            ? normalizeProviderCategory(detection.contextData.provider)
+            : template.category,
+      })
+      .select("id")
+      .single();
 
     // El indice unico tasks_unique_alert hace la creacion idempotente.
     if (taskError && !taskError.message.includes("tasks_unique_alert")) {
       throw new Error(`alert_task_insert_failed: ${taskError.message}`);
+    }
+
+    // Enlace best-effort al hito activo de Mi Camino (DB-07 2026-07-29, mismo
+    // criterio que ai-runtime.ts): las tareas generadas por el motor de
+    // alertas no tenian ninguna conexion con el plan estrategico.
+    if (createdTask) {
+      const milestoneId = await findCurrentMilestoneId(supabase, organizationId);
+      if (milestoneId) {
+        await supabase.from("milestone_task_links").insert({
+          organization_id: organizationId,
+          milestone_id: milestoneId,
+          task_id: createdTask.id,
+        });
+      }
     }
   }
 

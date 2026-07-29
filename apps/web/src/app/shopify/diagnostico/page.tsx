@@ -5,9 +5,9 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { type BootstrapResponse } from "@/lib/bootstrap";
-import { useShopifyOverview } from "@/hooks/use-shopify-overview";
+import { useShopifyOverview, type ShopifyOverview } from "@/hooks/use-shopify-overview";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
-import { Banner, ErrorBlock, Heading, Link, LoadingBlock, Pagination, Tabs } from "@/components/ui";
+import { Banner, EmptyState, ErrorBlock, Heading, IconChevronLeft, Link, LoadingBlock, Pagination, Table, Tabs, type TableColumnDef } from "@/components/ui";
 
 const syncBlockLabels: Record<"catalog" | "inventory" | "orders" | "refunds" | "customers", string> = {
   catalog: "Catalogo",
@@ -56,6 +56,130 @@ function formatMoney(value: number | null | undefined, currency = "EUR") {
 
 const PAGE_SIZE = 10;
 
+type SummaryRow = { id: string; field: string; value: string; detail: string };
+
+const summaryColumns: TableColumnDef<SummaryRow>[] = [
+  { key: "field", label: "Campo", render: (row) => <span className="font-mono text-xs uppercase tracking-wide text-muted">{row.field}</span> },
+  { key: "value", label: "Valor", render: (row) => <span className="font-medium">{row.value}</span> },
+  { key: "detail", label: "Detalle", render: (row) => <span className="text-muted">{row.detail}</span> },
+];
+
+type SyncBlockRow = {
+  id: string;
+  label: string;
+  block: ShopifyOverview["sync_blocks"][keyof ShopifyOverview["sync_blocks"]];
+};
+
+const syncBlockColumns: TableColumnDef<SyncBlockRow>[] = [
+  { key: "label", label: "Bloque" },
+  {
+    key: "status",
+    label: "Estado",
+    render: (row) => (
+      <span className={["font-mono text-xs uppercase", blockStatusClass(row.block?.status)].join(" ")}>
+        {blockStatusLabel(row.block?.status)}
+      </span>
+    ),
+  },
+  { key: "records_written", label: "Registros", render: (row) => <span className="font-mono">{row.block?.records_written ?? 0}</span> },
+  { key: "finished_at", label: "Ultima corrida", render: (row) => formatDate(row.block?.finished_at) },
+  {
+    key: "error_message",
+    label: "Error",
+    render: (row) => <span className="font-mono text-xs break-words text-brand-deep">{row.block?.error_message ?? "—"}</span>,
+  },
+];
+
+type ScopeRow = ShopifyOverview["scope_catalog"][number] & { id: string };
+
+function scopeColumns(authorizedScopes: Set<string>): TableColumnDef<ScopeRow>[] {
+  return [
+    { key: "scope", label: "Scope", render: (row) => <span className="font-mono text-xs">{row.scope}</span> },
+    { key: "area", label: "Area" },
+    {
+      key: "authorized",
+      label: "Estado",
+      render: (row) => (
+        <span className={["font-mono text-xs uppercase", authorizedScopes.has(row.scope) ? "text-black" : "text-brand"].join(" ")}>
+          {authorizedScopes.has(row.scope) ? "autorizado" : "no concedido"}
+        </span>
+      ),
+    },
+    { key: "enables", label: "Permite calcular", render: (row) => <span className="text-muted">{row.enables.join(", ")}</span> },
+  ];
+}
+
+type DatasetRow = ShopifyOverview["datasets"][number] & { id: string };
+
+const datasetColumns: TableColumnDef<DatasetRow>[] = [
+  { key: "label", label: "Bloque de datos", render: (row) => <span className="font-medium">{row.label}</span> },
+  { key: "table", label: "Tabla", render: (row) => <span className="font-mono text-xs text-brand">{row.table ?? "pendiente_modelo"}</span> },
+  {
+    key: "status",
+    label: "Estado",
+    render: (row) => (
+      <span className="font-mono text-xs uppercase text-muted">
+        {row.status === "active" ? "guardando datos" : "pendiente de modelo"}
+      </span>
+    ),
+  },
+  { key: "count", label: "Registros", render: (row) => <span className="font-mono">{row.count}</span> },
+];
+
+type ProductRow = ShopifyOverview["samples"]["products"][number];
+
+const productColumns: TableColumnDef<ProductRow>[] = [
+  {
+    key: "title",
+    label: "Producto",
+    render: (row) => (
+      <div>
+        <p className="font-medium">{row.title}</p>
+        <p className="font-mono text-xs text-muted">{row.handle ?? "sin_handle"}</p>
+      </div>
+    ),
+  },
+  { key: "vendor", label: "Vendor", render: (row) => row.vendor ?? "n/a" },
+  { key: "product_type", label: "Tipo", render: (row) => row.product_type ?? "n/a" },
+  { key: "status", label: "Estado", render: (row) => <span className="font-mono text-xs text-brand">{row.status ?? "n/a"}</span> },
+  { key: "external_updated_at", label: "Actualizado", render: (row) => formatDate(row.external_updated_at) },
+];
+
+type OrderRow = ShopifyOverview["samples"]["orders"][number];
+
+function orderColumns(currency: string): TableColumnDef<OrderRow>[] {
+  return [
+    { key: "order_name", label: "Pedido", render: (row) => <span className="font-medium">{row.order_name ?? "Pedido sin nombre"}</span> },
+    {
+      key: "status",
+      label: "Estado",
+      render: (row) => <span className="text-muted">{row.financial_status ?? "n/a"} / {row.fulfillment_status ?? "n/a"}</span>,
+    },
+    { key: "processed_at", label: "Fecha", render: (row) => <span className="text-muted">{formatDate(row.processed_at)}</span> },
+    { key: "current_total_price", label: "Total", render: (row) => <span className="font-mono">{formatMoney(row.current_total_price, currency)}</span> },
+    { key: "net_sales", label: "Neto", render: (row) => <span className="font-mono text-brand">{formatMoney(row.net_sales, currency)}</span> },
+  ];
+}
+
+type InventoryRow = ShopifyOverview["samples"]["inventory"][number];
+
+function inventoryColumns(currency: string): TableColumnDef<InventoryRow>[] {
+  return [
+    { key: "sku", label: "SKU", render: (row) => <span className="font-mono">{row.sku ?? "sin_sku"}</span> },
+    { key: "tracked", label: "Tracked", render: (row) => <span className="text-muted">{String(row.tracked)}</span> },
+    { key: "requires_shipping", label: "Shipping", render: (row) => <span className="text-muted">{String(row.requires_shipping)}</span> },
+    {
+      key: "current_unit_cost",
+      label: "Coste unitario",
+      render: (row) => (
+        <span className="font-mono">
+          {row.current_unit_cost ? formatMoney(row.current_unit_cost, row.cost_currency_code ?? currency) : "sin_coste"}
+        </span>
+      ),
+    },
+  ];
+}
+
 const tabs = [
   { value: "resumen", label: "Resumen" },
   { value: "sincronizacion", label: "Sincronización" },
@@ -68,15 +192,37 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
   const { connectionId: selectedConnectionId } = useActiveConnection();
   const [tab, setTab] = useState("resumen");
 
+  // Auditoria estructural 2026-07-29 (peticion de Rafa, "tiene que estar
+  // masticado para cliente"): esta pagina es un panel tecnico (scopes de
+  // API, estado interno de sincronizacion por bloque, muestras crudas de
+  // filas) sin ningun filtro de rol -- cualquier cliente que siguiera el
+  // enlace "Diagnostico tecnico" desde /shopify caia aqui. Mismo patron que
+  // ya usa /agentes (`canView`): solo consultor/platform_admin.
+  const canView = ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role);
+
   const organization =
     bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
       ?.organization ?? bootstrap.memberships[0]?.organization ?? null;
 
-  const { overview, isLoading, error } = useShopifyOverview(organization?.id, selectedConnectionId);
+  const { overview, isLoading, error } = useShopifyOverview(canView ? organization?.id : undefined, selectedConnectionId);
 
   const products = usePaginatedUrl(overview?.samples.products ?? [], PAGE_SIZE, "page_productos");
   const orders = usePaginatedUrl(overview?.samples.orders ?? [], PAGE_SIZE, "page_pedidos");
   const inventory = usePaginatedUrl(overview?.samples.inventory ?? [], PAGE_SIZE, "page_inventario");
+
+  if (!canView) {
+    return (
+      <EmptyState
+        title="Sin acceso"
+        hint="El diagnóstico técnico de Shopify es un panel para consultor/platform admin. Para ver el resumen de tu tienda, vuelve a Shopify."
+        action={
+          <Link className="inline-flex items-center gap-1" href="/shopify">
+            <IconChevronLeft aria-hidden /> Volver a Shopify
+          </Link>
+        }
+      />
+    );
+  }
 
   if (isLoading) {
     return (
@@ -109,7 +255,9 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between border-t border-ink/20 pt-5">
-        <Link href="/shopify">← Volver a Shopify</Link>
+        <Link className="inline-flex items-center gap-1" href="/shopify">
+          <IconChevronLeft aria-hidden /> Volver a Shopify
+        </Link>
       </div>
 
       <Tabs items={tabs} value={tab} onChange={setTab} />
@@ -123,32 +271,36 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
             </Banner>
           ) : null}
 
-          <section className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <tbody className="divide-y divide-line">
-                <tr>
-                  <td className="py-3 pr-4 font-mono text-xs uppercase tracking-wide text-muted">Conexion</td>
-                  <td className="py-3 font-medium">{overview.connection?.status ?? "sin_conexion"}</td>
-                  <td className="py-3 text-muted">{overview.connection?.provider_account_id ?? "Tienda pendiente"}</td>
-                </tr>
-                <tr>
-                  <td className="py-3 pr-4 font-mono text-xs uppercase tracking-wide text-muted">Tienda</td>
-                  <td className="py-3 font-medium">{overview.store?.shop_name ?? "Sin tienda"}</td>
-                  <td className="py-3 text-muted">{overview.store?.primary_domain ?? "sin dominio primario"}</td>
-                </tr>
-                <tr>
-                  <td className="py-3 pr-4 font-mono text-xs uppercase tracking-wide text-muted">Ultimo sync</td>
-                  <td className="py-3 font-medium">{overview.sync_runs[0]?.status ?? "sin_sync"}</td>
-                  <td className="py-3 text-muted">{formatDate(overview.sync_runs[0]?.finished_at)}</td>
-                </tr>
-                <tr>
-                  <td className="py-3 pr-4 font-mono text-xs uppercase tracking-wide text-muted">Registros escritos</td>
-                  <td className="py-3 font-mono font-medium">{overview.sync_runs[0]?.records_written ?? 0}</td>
-                  <td className="py-3 text-muted">en el último sync</td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
+          <Table
+            ariaLabel="Resumen de la conexion Shopify"
+            columns={summaryColumns}
+            rows={[
+              {
+                id: "conexion",
+                field: "Conexion",
+                value: overview.connection?.status ?? "sin_conexion",
+                detail: overview.connection?.provider_account_id ?? "Tienda pendiente",
+              },
+              {
+                id: "tienda",
+                field: "Tienda",
+                value: overview.store?.shop_name ?? "Sin tienda",
+                detail: overview.store?.primary_domain ?? "sin dominio primario",
+              },
+              {
+                id: "ultimo-sync",
+                field: "Ultimo sync",
+                value: overview.sync_runs[0]?.status ?? "sin_sync",
+                detail: formatDate(overview.sync_runs[0]?.finished_at),
+              },
+              {
+                id: "registros",
+                field: "Registros escritos",
+                value: String(overview.sync_runs[0]?.records_written ?? 0),
+                detail: "en el último sync",
+              },
+            ]}
+          />
         </div>
       ) : null}
 
@@ -174,94 +326,31 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
             </article>
           </section>
 
-          <section className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="py-2 pr-4 font-medium">Bloque</th>
-                  <th className="py-2 pr-4 font-medium">Estado</th>
-                  <th className="py-2 pr-4 font-medium">Registros</th>
-                  <th className="py-2 pr-4 font-medium">Ultima corrida</th>
-                  <th className="py-2 font-medium">Error</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {(Object.keys(syncBlockLabels) as Array<keyof typeof syncBlockLabels>).map((blockKey) => {
-                  const block = overview.sync_blocks?.[blockKey] ?? null;
-                  return (
-                    <tr key={blockKey}>
-                      <td className="py-2.5 pr-4 font-medium">{syncBlockLabels[blockKey]}</td>
-                      <td className={["py-2.5 pr-4 font-mono text-xs uppercase", blockStatusClass(block?.status)].join(" ")}>
-                        {blockStatusLabel(block?.status)}
-                      </td>
-                      <td className="py-2.5 pr-4 font-mono">{block?.records_written ?? 0}</td>
-                      <td className="py-2.5 pr-4 text-muted">{formatDate(block?.finished_at)}</td>
-                      <td className="py-2.5 font-mono text-xs break-words text-brand-deep">
-                        {block?.error_message ?? "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </section>
+          <Table
+            ariaLabel="Estado de sincronizacion por bloque"
+            columns={syncBlockColumns}
+            rows={(Object.keys(syncBlockLabels) as Array<keyof typeof syncBlockLabels>).map((blockKey) => ({
+              id: blockKey,
+              label: syncBlockLabels[blockKey],
+              block: overview.sync_blocks?.[blockKey] ?? null,
+            }))}
+          />
         </div>
       ) : null}
 
       {tab === "permisos" ? (
         <div className="space-y-5">
-          <section className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
-              <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="py-2 pr-4 font-medium">Scope</th>
-                  <th className="py-2 pr-4 font-medium">Area</th>
-                  <th className="py-2 pr-4 font-medium">Estado</th>
-                  <th className="py-2 font-medium">Permite calcular</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {overview.scope_catalog.map((item) => {
-                  const isAuthorized = authorizedScopes.has(item.scope);
-                  return (
-                    <tr key={item.scope}>
-                      <td className="py-2.5 pr-4 font-mono text-xs">{item.scope}</td>
-                      <td className="py-2.5 pr-4">{item.area}</td>
-                      <td className={["py-2.5 pr-4 font-mono text-xs uppercase", isAuthorized ? "text-black" : "text-brand"].join(" ")}>
-                        {isAuthorized ? "autorizado" : "no concedido"}
-                      </td>
-                      <td className="py-2.5 text-muted">{item.enables.join(", ")}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </section>
+          <Table
+            ariaLabel="Permisos de Shopify concedidos"
+            columns={scopeColumns(authorizedScopes)}
+            rows={overview.scope_catalog.map((item) => ({ id: item.scope, ...item }))}
+          />
 
-          <section className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="py-2 pr-4 font-medium">Bloque de datos</th>
-                  <th className="py-2 pr-4 font-medium">Tabla</th>
-                  <th className="py-2 pr-4 font-medium">Estado</th>
-                  <th className="py-2 font-medium">Registros</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {overview.datasets.map((dataset) => (
-                  <tr key={dataset.key}>
-                    <td className="py-2.5 pr-4 font-medium">{dataset.label}</td>
-                    <td className="py-2.5 pr-4 font-mono text-xs text-brand">{dataset.table ?? "pendiente_modelo"}</td>
-                    <td className="py-2.5 pr-4 font-mono text-xs uppercase text-muted">
-                      {dataset.status === "active" ? "guardando datos" : "pendiente de modelo"}
-                    </td>
-                    <td className="py-2.5 font-mono">{dataset.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
+          <Table
+            ariaLabel="Datasets de Shopify"
+            columns={datasetColumns}
+            rows={overview.datasets.map((dataset) => ({ id: dataset.key, ...dataset }))}
+          />
         </div>
       ) : null}
 
@@ -269,95 +358,37 @@ function ShopifyDiagnosticoView({ bootstrap }: { bootstrap: BootstrapResponse })
         <div className="space-y-8">
           <section>
             <Heading size="md">Productos ({overview.samples.products.length})</Heading>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[680px] text-left text-sm">
-                <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">Producto</th>
-                    <th className="py-2 pr-4 font-medium">Vendor</th>
-                    <th className="py-2 pr-4 font-medium">Tipo</th>
-                    <th className="py-2 pr-4 font-medium">Estado</th>
-                    <th className="py-2 font-medium">Actualizado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {products.pageItems.map((product) => (
-                    <tr key={product.id}>
-                      <td className="py-2.5 pr-4">
-                        <p className="font-medium">{product.title}</p>
-                        <p className="font-mono text-xs text-muted">{product.handle ?? "sin_handle"}</p>
-                      </td>
-                      <td className="py-2.5 pr-4">{product.vendor ?? "n/a"}</td>
-                      <td className="py-2.5 pr-4">{product.product_type ?? "n/a"}</td>
-                      <td className="py-2.5 pr-4 font-mono text-xs text-brand">{product.status ?? "n/a"}</td>
-                      <td className="py-2.5">{formatDate(product.external_updated_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table
+              className="mt-3"
+              ariaLabel="Muestra de productos"
+              columns={productColumns}
+              rows={products.pageItems}
+              emptyLabel="Sin productos sincronizados todavia."
+            />
             <Pagination className="mt-3" page={products.page} pageCount={products.pageCount} onChange={products.setPage} />
           </section>
 
           <section>
             <Heading size="md">Pedidos ({overview.samples.orders.length})</Heading>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[680px] text-left text-sm">
-                <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">Pedido</th>
-                    <th className="py-2 pr-4 font-medium">Estado</th>
-                    <th className="py-2 pr-4 font-medium">Fecha</th>
-                    <th className="py-2 pr-4 font-medium">Total</th>
-                    <th className="py-2 font-medium">Neto</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {orders.pageItems.map((order) => (
-                    <tr key={order.id}>
-                      <td className="py-2.5 pr-4 font-medium">{order.order_name ?? "Pedido sin nombre"}</td>
-                      <td className="py-2.5 pr-4 text-muted">
-                        {order.financial_status ?? "n/a"} / {order.fulfillment_status ?? "n/a"}
-                      </td>
-                      <td className="py-2.5 pr-4 text-muted">{formatDate(order.processed_at)}</td>
-                      <td className="py-2.5 pr-4 font-mono">{formatMoney(order.current_total_price, currency)}</td>
-                      <td className="py-2.5 font-mono text-brand">{formatMoney(order.net_sales, currency)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table
+              className="mt-3"
+              ariaLabel="Muestra de pedidos"
+              columns={orderColumns(currency)}
+              rows={orders.pageItems}
+              emptyLabel="Sin pedidos sincronizados todavia."
+            />
             <Pagination className="mt-3" page={orders.page} pageCount={orders.pageCount} onChange={orders.setPage} />
           </section>
 
           <section>
             <Heading size="md">Inventory items ({overview.samples.inventory.length})</Heading>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[560px] text-left text-sm">
-                <thead className="border-b border-line font-mono text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">SKU</th>
-                    <th className="py-2 pr-4 font-medium">Tracked</th>
-                    <th className="py-2 pr-4 font-medium">Shipping</th>
-                    <th className="py-2 font-medium">Coste unitario</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {inventory.pageItems.map((item) => (
-                    <tr key={item.id}>
-                      <td className="py-2.5 pr-4 font-mono">{item.sku ?? "sin_sku"}</td>
-                      <td className="py-2.5 pr-4 text-muted">{String(item.tracked)}</td>
-                      <td className="py-2.5 pr-4 text-muted">{String(item.requires_shipping)}</td>
-                      <td className="py-2.5 font-mono">
-                        {item.current_unit_cost
-                          ? formatMoney(item.current_unit_cost, item.cost_currency_code ?? currency)
-                          : "sin_coste"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table
+              className="mt-3"
+              ariaLabel="Muestra de inventario"
+              columns={inventoryColumns(currency)}
+              rows={inventory.pageItems}
+              emptyLabel="Sin items de inventario sincronizados todavia."
+            />
             <Pagination className="mt-3" page={inventory.page} pageCount={inventory.pageCount} onChange={inventory.setPage} />
           </section>
         </div>

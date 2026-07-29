@@ -6,7 +6,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
-import { Heading, Banner, Button, ErrorBlock, Input, Link, LoadingBlock } from "@/components/ui";
+import { Heading, Banner, Button, ErrorBlock, IconChevronRight, Input, Link, LoadingBlock } from "@/components/ui";
 
 type ShopifyMetrics = {
   organization_id: string;
@@ -80,6 +80,7 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
   const organization =
     bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
       ?.organization ?? bootstrap.memberships[0]?.organization ?? null;
+  const isConsultant = ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role);
 
   const { overview, isLoading, isRefreshing, error, reload, isSyncing, syncError, triggerSync } =
     useShopifyOverview(organization?.id, selectedConnectionId);
@@ -369,7 +370,11 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
 
       <section className="flex items-center justify-between border-t border-ink/20 pt-5 text-sm text-muted">
         <span>Último sync: {formatDate(overview.sync_runs[0]?.finished_at)}</span>
-        <Link href="/shopify/diagnostico">Diagnóstico técnico →</Link>
+        {isConsultant ? (
+          <Link className="inline-flex items-center gap-1" href="/shopify/diagnostico">
+            Diagnóstico técnico <IconChevronRight aria-hidden />
+          </Link>
+        ) : null}
       </section>
     </div>
   );

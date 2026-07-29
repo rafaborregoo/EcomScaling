@@ -21,17 +21,24 @@
     ninguna explicacion — `organization` resolvia a `null` pero nada lo comunicaba. Anadido un
     `EmptyState` explicito ("Sin organización asignada... contacta con tu consultor") en
     `apps/web/src/app/dashboard/page.tsx`.
+- **Cerrado 2026-07-29 (sesion expirada con mensaje explicito)**: antes `!accessToken` en `portal-shell.tsx`
+  redirigia a `/login` en silencio sin distinguir "nunca hubo sesion" (primera visita, sign-out) de "habia
+  una sesion pero expiro/no se pudo refrescar" (el caso que realmente confunde al usuario, incluida la
+  suspension en caliente de un consultor). Ahora se comprueba `supabase.auth.getSession()` antes de intentar
+  refrescar: si existia una sesion guardada, redirige a `/login?reason=session_expired`, y `login/page.tsx`
+  (dividido en `LoginPageContent` + wrapper con `Suspense`, mismo patron que `PortalShell`, para poder usar
+  `useSearchParams`) muestra "Tu sesión expiró. Vuelve a iniciar sesión para continuar." Build de
+  produccion limpio; sin verificar visualmente en navegador (sin Playwright/Chromium en este entorno).
 - **Gaps que siguen sin resolver (confirmados, no solo listados):**
   - No hay pantalla de recuperacion de contrasena ("olvidé mi contraseña") ni de invitacion/signup — la
     unica via de acceso es email/password ya provisionado. Puede ser intencional (B2B, cuentas creadas por
     Rafa), pero no esta declarado como decision de producto en ningun sitio.
   - Sin maquina de estados de onboarding documentada para el flujo completo (conectar Shopify -> configurar
     financiero -> dashboard listo). Sigue siendo la recomendacion correcta antes de anadir mas pantallas.
-  - Sin contrato de UX para: sesion expirada mostrando mensaje explicito (hoy solo redirige silenciosamente
-    a `/login`), correo no verificado, organizacion suspendida vista desde el cliente (existe el badge de
-    estado en el header, no una pantalla explicativa), suscripcion suspendida, consultor sin asignaciones
-    (el panel de consultor con 0 clientes no se audito esta vuelta), token de Shopify caducado durante el
-    proceso de conexion.
+  - Sin contrato de UX para: correo no verificado, organizacion suspendida vista desde el cliente (existe el
+    badge de estado en el header, no una pantalla explicativa), suscripcion suspendida, consultor sin
+    asignaciones (el panel de consultor con 0 clientes no se audito esta vuelta), token de Shopify caducado
+    durante el proceso de conexion.
   - Selector de organizacion para clientes con varias organizaciones: existe para consultor/admin
     (`bootstrap.memberships.length > 1` en `portal-shell.tsx`), no confirmado si un cliente real puede
     tener membership en mas de una organizacion en este modelo de producto.
