@@ -13,3 +13,6 @@ supabase/.env
 npm-debug.log*
 .DS_Store
 ops-health-findings.json
+
+# Artefactos de runtime del dev server (no versionar)
+.codex-runtime/
