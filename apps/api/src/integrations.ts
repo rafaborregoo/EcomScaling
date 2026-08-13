@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
-import { deriveIntegrationHealth, INTEGRATION_CATALOG, type IntegrationHealth } from "@ecomscaling/integrations";
+import {
+  deriveIntegrationHealth,
+  INTEGRATION_CATALOG,
+  isIntegrationFeatureEnabled,
+  type IntegrationHealth,
+} from "@ecomscaling/integrations";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -12,14 +17,18 @@ type ApiEnv = {
   META_APP_ID?: string;
   META_APP_SECRET?: string;
   META_REDIRECT_URI?: string;
+  KLAVIYO_CLIENT_ID?: string;
+  KLAVIYO_CLIENT_SECRET?: string;
+  KLAVIYO_REDIRECT_URI?: string;
+  INTEGRATION_FEATURE_FLAGS?: string;
 };
 
 function isCustomShopifyAppAvailable(env: ApiEnv) {
   return Boolean(
     env.SHOPIFY_CUSTOM_API_KEY &&
-      env.SHOPIFY_CUSTOM_API_SECRET &&
-      env.SHOPIFY_CUSTOM_SCOPES &&
-      env.SHOPIFY_CUSTOM_REDIRECT_URI,
+    env.SHOPIFY_CUSTOM_API_SECRET &&
+    env.SHOPIFY_CUSTOM_SCOPES &&
+    env.SHOPIFY_CUSTOM_REDIRECT_URI,
   );
 }
 
@@ -63,11 +72,20 @@ type SyncRunRow = {
   created_at: string;
 };
 
-const providers: Provider[] = INTEGRATION_CATALOG.map((provider) => ({
-  ...provider,
-  feature_flag: provider.featureFlag,
-  health: deriveIntegrationHealth({ available: provider.available }),
-}));
+function buildProviders(env: ApiEnv): Provider[] {
+  return INTEGRATION_CATALOG.map((provider) => {
+    const available = isIntegrationFeatureEnabled(
+      provider.id,
+      env.INTEGRATION_FEATURE_FLAGS,
+    );
+    return {
+      ...provider,
+      available,
+      feature_flag: provider.featureFlag,
+      health: deriveIntegrationHealth({ available }),
+    };
+  });
+}
 
 function isMissingSchemaError(message: string) {
   return (
@@ -77,7 +95,10 @@ function isMissingSchemaError(message: string) {
   );
 }
 
-async function loadConnections(supabase: SupabaseClient, organizationId: string) {
+async function loadConnections(
+  supabase: SupabaseClient,
+  organizationId: string,
+) {
   const { data, error } = await supabase
     .from("integration_connections")
     .select(
@@ -103,7 +124,10 @@ async function loadConnections(supabase: SupabaseClient, organizationId: string)
     return { ok: false as const, error: error.message };
   }
 
-  return { ok: true as const, data: (data ?? []) as unknown as ConnectionRow[] };
+  return {
+    ok: true as const,
+    data: (data ?? []) as unknown as ConnectionRow[],
+  };
 }
 
 function rankConnectionStatus(status: string) {
@@ -122,27 +146,37 @@ function rankConnectionStatus(status: string) {
 }
 
 function pickBestConnection(connections: ConnectionRow[], providerId: string) {
-  const providerConnections = connections.filter((connection) => connection.provider === providerId);
+  const providerConnections = connections.filter(
+    (connection) => connection.provider === providerId,
+  );
 
   if (!providerConnections.length) {
     return null;
   }
 
-  return [...providerConnections].sort((left, right) => {
-    const statusDiff = rankConnectionStatus(right.status) - rankConnectionStatus(left.status);
+  return (
+    [...providerConnections].sort((left, right) => {
+      const statusDiff =
+        rankConnectionStatus(right.status) - rankConnectionStatus(left.status);
 
-    if (statusDiff !== 0) {
-      return statusDiff;
-    }
+      if (statusDiff !== 0) {
+        return statusDiff;
+      }
 
-    const leftDate = new Date(left.connected_at ?? left.created_at).getTime();
-    const rightDate = new Date(right.connected_at ?? right.created_at).getTime();
+      const leftDate = new Date(left.connected_at ?? left.created_at).getTime();
+      const rightDate = new Date(
+        right.connected_at ?? right.created_at,
+      ).getTime();
 
-    return rightDate - leftDate;
-  })[0] ?? null;
+      return rightDate - leftDate;
+    })[0] ?? null
+  );
 }
 
-async function loadLatestRuns(supabase: SupabaseClient, connectionIds: string[]) {
+async function loadLatestRuns(
+  supabase: SupabaseClient,
+  connectionIds: string[],
+) {
   if (connectionIds.length === 0) {
     return { ok: true as const, data: [] as SyncRunRow[] };
   }
@@ -181,7 +215,13 @@ export async function listIntegrations(
   context: AuthContext,
   organizationId: string,
 ) {
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
+  const providers = buildProviders(env);
+
+  if (
+    !context.memberships.some(
+      (membership) => membership.organization_id === organizationId,
+    )
+  ) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -202,7 +242,12 @@ export async function listIntegrations(
           organization_id: organizationId,
           schema_ready: false,
           shopify_custom_app_available: isCustomShopifyAppAvailable(env),
-          meta_app_available: Boolean(env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI),
+          meta_app_available: Boolean(
+            env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI,
+          ),
+          klaviyo_app_available: Boolean(
+            env.KLAVIYO_CLIENT_ID && env.KLAVIYO_CLIENT_SECRET && env.KLAVIYO_REDIRECT_URI,
+          ),
           providers: providers.map((provider) => ({
             ...provider,
             connection: null,
@@ -241,11 +286,21 @@ export async function listIntegrations(
       organization_id: organizationId,
       schema_ready: true,
       shopify_custom_app_available: isCustomShopifyAppAvailable(env),
-          meta_app_available: Boolean(env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI),
+      meta_app_available: Boolean(
+        env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI,
+      ),
+      klaviyo_app_available: Boolean(
+        env.KLAVIYO_CLIENT_ID && env.KLAVIYO_CLIENT_SECRET && env.KLAVIYO_REDIRECT_URI,
+      ),
       providers: providers.map((provider) => {
-        const connection = pickBestConnection(connectionsResult.data, provider.id);
+        const connection = pickBestConnection(
+          connectionsResult.data,
+          provider.id,
+        );
         const latestSync = connection
-          ? latestRunsResult.data.find((item) => item.connection_id === connection.id) ?? null
+          ? (latestRunsResult.data.find(
+              (item) => item.connection_id === connection.id,
+            ) ?? null)
           : null;
 
         return {

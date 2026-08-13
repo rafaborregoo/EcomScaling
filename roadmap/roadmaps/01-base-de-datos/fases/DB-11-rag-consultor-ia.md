@@ -72,3 +72,13 @@ Activar conocimiento, conversaciones y recuperacion semantica para el Consultor 
 - RAG cita fuentes.
 - No mezcla conocimiento privado de una organizacion con conocimiento global.
 - Tests de retrieval, permisos y prompt injection.
+
+## Corrección 2026-08-01 — función híbrida aditiva
+
+Se preparó `20260801100000_ai_04_knowledge_hybrid_search.sql`. Añade un índice GIN para texto y el RPC
+`knowledge_search_hybrid`, manteniendo la función `knowledge_search` existente para compatibilidad durante
+el rollout. La API detecta la ausencia temporal del nuevo RPC y usa el anterior; ambos aplican aislamiento
+por organización, audiencia y tienda. Falta aplicar la migración en el próximo despliegue controlado y
+ampliar el eval con documentos largos/estructurados y consultas de terminología exacta.
+La frontera de API y su fallback tienen 3 pruebas aisladas; queda pendiente la validación contra el RPC
+híbrido una vez aplicada la migración en el entorno de despliegue.

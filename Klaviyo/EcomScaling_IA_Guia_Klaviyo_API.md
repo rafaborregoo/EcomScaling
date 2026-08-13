@@ -1,4 +1,17 @@
 # EcomScaling IA
+
+> **Alineación de producto (2026-08-02):** además de sincronizar reporting cuando
+> exista OAuth, EcomScaling preparará generación de emails y plantillas con IA como
+> borradores auditables. La IA no envía ni publica sin aprobación humana y conexión
+> Klaviyo saludable. El contrato transversal está en
+> [`../roadmap/roadmaps/04-integraciones/CONTRATO_PREPARACION_CONECTORES.md`](../roadmap/roadmaps/04-integraciones/CONTRATO_PREPARACION_CONECTORES.md).
+
+## Aplicación en EcomScaling
+
+Esta guía debe leerse junto con el [objetivo global del SaaS y sus criterios de terminado](../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md):
+Klaviyo debe quedar preparado mediante contratos, adaptadores, feature flags y estados honestos para que la
+conexión futura sea una activación del conector, no un rediseño. Sin credenciales reales, no se muestran
+campañas, flows, perfiles ni métricas como si existieran.
 Guía técnica de integración  
 Klaviyo API
 

@@ -2,8 +2,13 @@ name: Alert Rules
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "43 */6 * * *"
+  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
+  # automaticos. Para reactivar, descomentar el bloque de abajo.
+  # schedule:
+  #   - cron: "43 */6 * * *"
+
+permissions:
+  contents: read
 
 concurrency:
   group: alert-rules

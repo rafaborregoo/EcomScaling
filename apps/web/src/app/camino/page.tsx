@@ -4,11 +4,13 @@ import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Button,
   Card,
   Dropdown,
+  EmptyState,
   ErrorBlock,
   Input,
   Label,
@@ -138,13 +140,6 @@ function OriginDot({ origin }: { origin: CreatorOrigin }) {
   );
 }
 
-async function readApiError(response: Response) {
-  const body = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string; detail?: string }
-    | null;
-  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
-}
-
 // --- Lista numerada (peticion explicita de Rafa 2026-07-29: sin burbujas ni
 // flechas de diagrama, todo en vertical, fases y hitos numerados) ----------
 
@@ -160,13 +155,23 @@ function RowMenu({
   if (items.length === 0) return null;
   return (
     <Dropdown>
-      <Button variant="ghost" size="sm" aria-label={ariaLabel} className="shrink-0 px-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label={ariaLabel}
+        className="shrink-0 px-2"
+      >
         <MoreIcon aria-hidden />
       </Button>
       <Dropdown.Popover>
         <Dropdown.Menu onAction={(key) => onAction(String(key))}>
           {items.map((item) => (
-            <Dropdown.Item key={item.id} id={item.id} textValue={item.label} variant={item.danger ? "danger" : undefined}>
+            <Dropdown.Item
+              key={item.id}
+              id={item.id}
+              textValue={item.label}
+              variant={item.danger ? "danger" : undefined}
+            >
               <Label>{item.label}</Label>
             </Dropdown.Item>
           ))}
@@ -189,9 +194,17 @@ function PhaseListItem({
   isAddingMilestone: boolean;
   onAction: (action: "edit" | "add-milestone") => void;
 }) {
-  const tone = phase.status === "completed" ? "var(--color-success)" : phase.status === "active" ? "var(--color-brand)" : "var(--color-edge-strong)";
+  const tone =
+    phase.status === "completed"
+      ? "var(--color-success)"
+      : phase.status === "active"
+        ? "var(--color-brand)"
+        : "var(--color-edge-strong)";
   return (
-    <div className="flex w-full items-center gap-3 rounded-lg border-2 bg-white px-3 py-2.5 shadow-sm" style={{ borderColor: tone }}>
+    <div
+      className="flex w-full items-center gap-3 rounded-lg border-2 bg-white px-3 py-2.5 shadow-sm"
+      style={{ borderColor: tone }}
+    >
       <span
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold text-white"
         style={{ background: tone }}
@@ -204,7 +217,15 @@ function PhaseListItem({
           <p className="truncate text-sm font-semibold">{phase.name}</p>
         </div>
       </div>
-      <Badge tone={phase.status === "completed" ? "success" : phase.status === "active" ? "brand" : "neutral"}>
+      <Badge
+        tone={
+          phase.status === "completed"
+            ? "success"
+            : phase.status === "active"
+              ? "brand"
+              : "neutral"
+        }
+      >
         {PHASE_STATUS_LABELS[phase.status] ?? phase.status}
       </Badge>
       {canManage ? (
@@ -213,7 +234,10 @@ function PhaseListItem({
           onAction={(key) => onAction(key as "edit" | "add-milestone")}
           items={[
             { id: "edit", label: isEditing ? "Cerrar edición" : "Editar fase" },
-            { id: "add-milestone", label: isAddingMilestone ? "Cerrar" : "+ Hito" },
+            {
+              id: "add-milestone",
+              label: isAddingMilestone ? "Cerrar" : "+ Hito",
+            },
           ]}
         />
       ) : null}
@@ -240,24 +264,54 @@ function MilestoneListItem({
   isAddingTask: boolean;
   onAction: (action: "start" | "complete" | "edit" | "add-task") => void;
 }) {
-  const tone = milestone.status === "completed" ? "var(--color-success)" : milestone.status === "in_progress" ? "var(--color-brand)" : "var(--color-edge-strong)";
+  const tone =
+    milestone.status === "completed"
+      ? "var(--color-success)"
+      : milestone.status === "in_progress"
+        ? "var(--color-brand)"
+        : "var(--color-edge-strong)";
   const taskCount = milestone.milestone_task_links.length;
 
   const menuItems: Array<{ id: string; label: string }> = [];
-  if (milestone.status === "pending") menuItems.push({ id: "start", label: "Empezar" });
-  if (["pending", "in_progress"].includes(milestone.status)) menuItems.push({ id: "complete", label: "Completar" });
-  menuItems.push({ id: "edit", label: isEditing ? "Cerrar edición" : "Editar hito" });
-  menuItems.push({ id: "add-task", label: isAddingTask ? "Cerrar" : "+ Tarea" });
+  if (milestone.status === "pending")
+    menuItems.push({ id: "start", label: "Empezar" });
+  if (["pending", "in_progress"].includes(milestone.status))
+    menuItems.push({ id: "complete", label: "Completar" });
+  menuItems.push({
+    id: "edit",
+    label: isEditing ? "Cerrar edición" : "Editar hito",
+  });
+  menuItems.push({
+    id: "add-task",
+    label: isAddingTask ? "Cerrar" : "+ Tarea",
+  });
 
   return (
-    <div className="flex w-full items-center gap-2.5 rounded-md border-2 bg-white px-2.5 py-1.5 shadow-sm" style={{ borderColor: tone }}>
-      <button type="button" onClick={onToggleExpand} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left">
-        <span className="shrink-0 font-mono text-[0.65rem] text-muted">{numberLabel}</span>
+    <div
+      className="flex w-full items-center gap-2.5 rounded-md border-2 bg-white px-2.5 py-1.5 shadow-sm"
+      style={{ borderColor: tone }}
+    >
+      <Button
+        type="button"
+        onClick={onToggleExpand}
+        aria-expanded={isExpanded}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left"
+      >
+        <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+          {numberLabel}
+        </span>
         <OriginDot origin={milestone.created_by_origin ?? null} />
-        <p className={["min-w-0 flex-1 truncate text-xs font-medium", ["completed", "skipped"].includes(milestone.status) ? "text-muted line-through" : ""].join(" ")}>
+        <p
+          className={[
+            "min-w-0 flex-1 truncate text-xs font-medium",
+            ["completed", "skipped"].includes(milestone.status)
+              ? "text-muted line-through"
+              : "",
+          ].join(" ")}
+        >
           {milestone.name}
         </p>
-      </button>
+      </Button>
       <span className="shrink-0 font-mono text-[0.6rem] text-muted">
         {MILESTONE_STATUS_LABELS[milestone.status] ?? milestone.status}
         {taskCount ? ` · ${taskCount} tareas` : ""}
@@ -265,7 +319,9 @@ function MilestoneListItem({
       {canManage ? (
         <RowMenu
           ariaLabel={`Acciones del hito ${milestone.name}`}
-          onAction={(key) => onAction(key as "start" | "complete" | "edit" | "add-task")}
+          onAction={(key) =>
+            onAction(key as "start" | "complete" | "edit" | "add-task")
+          }
           items={menuItems}
         />
       ) : null}
@@ -280,7 +336,12 @@ function AddTaskForm({
   onSubmit,
 }: {
   onCancel: () => void;
-  onSubmit: (payload: { title: string; description: string; priority: string; dueAt: string }) => Promise<void>;
+  onSubmit: (payload: {
+    title: string;
+    description: string;
+    priority: string;
+    dueAt: string;
+  }) => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -292,14 +353,34 @@ function AddTaskForm({
     event.preventDefault();
     if (!title.trim()) return;
     setIsSubmitting(true);
-    await onSubmit({ title: title.trim(), description: description.trim(), priority, dueAt });
+    await onSubmit({
+      title: title.trim(),
+      description: description.trim(),
+      priority,
+      dueAt,
+    });
     setIsSubmitting(false);
   }
 
   return (
-    <form className="mt-3 space-y-2 rounded-md border border-line bg-surface/40 p-3" onSubmit={handleSubmit}>
-      <Input aria-label="Titulo de la tarea" placeholder="Titulo de la tarea" value={title} onChange={(event) => setTitle(event.target.value)} required />
-      <Textarea aria-label="Descripcion de la tarea" placeholder="Descripcion (opcional)" className="h-20" value={description} onChange={(event) => setDescription(event.target.value)} />
+    <form
+      className="mt-3 space-y-2 rounded-md border border-line bg-surface/40 p-3"
+      onSubmit={handleSubmit}
+    >
+      <Input
+        aria-label="Titulo de la tarea"
+        placeholder="Titulo de la tarea"
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        required
+      />
+      <Textarea
+        aria-label="Descripcion de la tarea"
+        placeholder="Descripcion (opcional)"
+        className="h-20"
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+      />
       <div className="flex flex-wrap gap-2">
         <Select
           aria-label="Prioridad"
@@ -312,10 +393,20 @@ function AddTaskForm({
             { value: "urgent", label: "Urgente" },
           ]}
         />
-        <Input type="date" aria-label="Fecha limite" value={dueAt} onChange={(event) => setDueAt(event.target.value)} className="w-40" />
+        <Input
+          type="date"
+          aria-label="Fecha limite"
+          value={dueAt}
+          onChange={(event) => setDueAt(event.target.value)}
+          className="w-40"
+        />
       </div>
       <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={isSubmitting || !title.trim()}>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={isSubmitting || !title.trim()}
+        >
           {isSubmitting ? "Creando..." : "Crear tarea"}
         </Button>
         <Button type="button" size="sm" variant="secondary" onClick={onCancel}>
@@ -341,7 +432,11 @@ function NameDescriptionForm({
   showTargetDate?: boolean;
   submitLabel: string;
   onCancel: () => void;
-  onSubmit: (payload: { name: string; description: string; targetDate: string }) => Promise<void>;
+  onSubmit: (payload: {
+    name: string;
+    description: string;
+    targetDate: string;
+  }) => Promise<void>;
 }) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
@@ -352,16 +447,40 @@ function NameDescriptionForm({
     event.preventDefault();
     if (!name.trim()) return;
     setIsSubmitting(true);
-    await onSubmit({ name: name.trim(), description: description.trim(), targetDate });
+    await onSubmit({
+      name: name.trim(),
+      description: description.trim(),
+      targetDate,
+    });
     setIsSubmitting(false);
   }
 
   return (
-    <form className="mt-2 space-y-2 rounded-md border border-line bg-surface/40 p-3" onSubmit={handleSubmit}>
-      <Input aria-label="Nombre" value={name} onChange={(event) => setName(event.target.value)} required />
-      <Textarea aria-label="Descripcion" className="h-20" placeholder="Descripcion (opcional)" value={description} onChange={(event) => setDescription(event.target.value)} />
+    <form
+      className="mt-2 space-y-2 rounded-md border border-line bg-surface/40 p-3"
+      onSubmit={handleSubmit}
+    >
+      <Input
+        aria-label="Nombre"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        required
+      />
+      <Textarea
+        aria-label="Descripcion"
+        className="h-20"
+        placeholder="Descripcion (opcional)"
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+      />
       {showTargetDate ? (
-        <Input type="date" aria-label="Fecha objetivo" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} className="w-40" />
+        <Input
+          type="date"
+          aria-label="Fecha objetivo"
+          value={targetDate}
+          onChange={(event) => setTargetDate(event.target.value)}
+          className="w-40"
+        />
       ) : null}
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={isSubmitting || !name.trim()}>
@@ -375,19 +494,38 @@ function NameDescriptionForm({
   );
 }
 
-function TaskListItem({ numberLabel, task }: { numberLabel: string; task: MilestoneTask }) {
+function TaskListItem({
+  numberLabel,
+  task,
+}: {
+  numberLabel: string;
+  task: MilestoneTask;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface/30 px-2.5 py-1.5 text-sm">
-      <span className="shrink-0 font-mono text-[0.65rem] text-muted">{numberLabel}</span>
+      <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+        {numberLabel}
+      </span>
       <OriginDot origin={task.created_by_origin ?? null} />
       <span
-        className={["min-w-0 flex-1 truncate", ["completed", "ignored", "cancelled"].includes(task.status) ? "text-muted line-through" : ""].join(" ")}
+        className={[
+          "min-w-0 flex-1 truncate",
+          ["completed", "ignored", "cancelled"].includes(task.status)
+            ? "text-muted line-through"
+            : "",
+        ].join(" ")}
       >
         {task.title}
       </span>
-      <Badge tone="neutral">{TASK_PRIORITY_LABELS[task.priority] ?? task.priority}</Badge>
-      <Badge tone="neutral">{TASK_STATUS_LABELS[task.status] ?? task.status}</Badge>
-      {TASK_SOURCE_LABELS[task.source] ? <Badge tone="brand">{TASK_SOURCE_LABELS[task.source]}</Badge> : null}
+      <Badge tone="neutral">
+        {TASK_PRIORITY_LABELS[task.priority] ?? task.priority}
+      </Badge>
+      <Badge tone="neutral">
+        {TASK_STATUS_LABELS[task.status] ?? task.status}
+      </Badge>
+      {TASK_SOURCE_LABELS[task.source] ? (
+        <Badge tone="brand">{TASK_SOURCE_LABELS[task.source]}</Badge>
+      ) : null}
     </div>
   );
 }
@@ -397,12 +535,18 @@ function TaskListItem({ numberLabel, task }: { numberLabel: string; task: Milest
 function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const organization =
-    bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
-      ?.organization ?? bootstrap.memberships[0]?.organization ?? null;
-  const membership = bootstrap.memberships.find((item) => item.organization_id === (organization?.id ?? ""));
+    bootstrap.memberships.find(
+      (membership) => membership.organization_id === selectedOrganizationId,
+    )?.organization ??
+    bootstrap.memberships[0]?.organization ??
+    null;
+  const membership = bootstrap.memberships.find(
+    (item) => item.organization_id === (organization?.id ?? ""),
+  );
   const canManage =
-    ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role) ||
-    ["owner", "manager"].includes(membership?.role ?? "");
+    ["platform_admin", "consultant"].includes(
+      bootstrap.profile.platform_role,
+    ) || ["owner", "manager"].includes(membership?.role ?? "");
 
   const [payload, setPayload] = useState<PlanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -410,17 +554,28 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [planName, setPlanName] = useState("");
   const [planOutline, setPlanOutline] = useState("");
-  const [expandedMilestoneId, setExpandedMilestoneId] = useState<string | null>(null);
+  const [expandedMilestoneId, setExpandedMilestoneId] = useState<string | null>(
+    null,
+  );
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
-  const [addingMilestonePhaseId, setAddingMilestonePhaseId] = useState<string | null>(null);
-  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
-  const [addingTaskMilestoneId, setAddingTaskMilestoneId] = useState<string | null>(null);
+  const [addingMilestonePhaseId, setAddingMilestonePhaseId] = useState<
+    string | null
+  >(null);
+  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(
+    null,
+  );
+  const [addingTaskMilestoneId, setAddingTaskMilestoneId] = useState<
+    string | null
+  >(null);
   const [isAddingPhase, setIsAddingPhase] = useState(false);
+  const organizationId = organization?.id ?? null;
 
   const loadPlan = useCallback(async () => {
-    if (!organization) return;
+    if (!organizationId) return;
     setIsLoading(true);
-    const response = await apiFetch(`/v1/organizations/${organization.id}/strategic-plan`);
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/strategic-plan`,
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       setIsLoading(false);
@@ -429,7 +584,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setPayload((await response.json()) as PlanResponse);
     setError(null);
     setIsLoading(false);
-  }, [organization?.id]);
+  }, [organizationId]);
 
   useEffect(() => {
     void loadPlan();
@@ -439,24 +594,33 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     event.preventDefault();
     if (!organization) return;
 
-    const phases: Array<{ name: string; milestones: Array<{ name: string }> }> = [];
+    const phases: Array<{ name: string; milestones: Array<{ name: string }> }> =
+      [];
     for (const rawLine of planOutline.split("\n")) {
       const line = rawLine.trim();
       if (!line) continue;
       if (/^fase\s*:/i.test(line)) {
-        phases.push({ name: line.replace(/^fase\s*:/i, "").trim(), milestones: [] });
+        phases.push({
+          name: line.replace(/^fase\s*:/i, "").trim(),
+          milestones: [],
+        });
       } else if (phases.length > 0) {
-        phases[phases.length - 1].milestones.push({ name: line.replace(/^[-*]\s*/, "") });
+        phases[phases.length - 1].milestones.push({
+          name: line.replace(/^[-*]\s*/, ""),
+        });
       }
     }
 
     setIsSubmitting(true);
     setError(null);
-    const response = await apiFetch(`/v1/organizations/${organization.id}/strategic-plan`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: planName, phases }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/strategic-plan`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: planName, phases }),
+      },
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       setIsSubmitting(false);
@@ -471,7 +635,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   async function activatePlan(planId: string) {
     if (!organization) return;
-    const response = await apiFetch(`/v1/organizations/${organization.id}/strategic-plan/${planId}/activate`, { method: "POST" });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/strategic-plan/${planId}/activate`,
+      { method: "POST" },
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       return;
@@ -482,11 +649,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   async function changeMilestoneStatus(milestoneId: string, status: string) {
     if (!organization) return;
-    const response = await apiFetch(`/v1/organizations/${organization.id}/milestones/${milestoneId}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/milestones/${milestoneId}/status`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      },
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       return;
@@ -495,13 +665,23 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void loadPlan();
   }
 
-  async function editMilestone(milestoneId: string, payload2: { name: string; description: string; targetDate: string }) {
+  async function editMilestone(
+    milestoneId: string,
+    payload2: { name: string; description: string; targetDate: string },
+  ) {
     if (!organization) return;
-    const response = await apiFetch(`/v1/organizations/${organization.id}/milestones/${milestoneId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: payload2.name, description: payload2.description || null, targetDate: payload2.targetDate || null }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/milestones/${milestoneId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: payload2.name,
+          description: payload2.description || null,
+          targetDate: payload2.targetDate || null,
+        }),
+      },
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       return;
@@ -510,13 +690,22 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void loadPlan();
   }
 
-  async function editPhase(phaseId: string, payload2: { name: string; description: string }) {
+  async function editPhase(
+    phaseId: string,
+    payload2: { name: string; description: string },
+  ) {
     if (!organization) return;
-    const response = await apiFetch(`/v1/organizations/${organization.id}/strategic-plan/phases/${phaseId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: payload2.name, description: payload2.description || null }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/strategic-plan/phases/${phaseId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: payload2.name,
+          description: payload2.description || null,
+        }),
+      },
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       return;
@@ -525,13 +714,29 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void loadPlan();
   }
 
-  async function addMilestoneTask(milestoneId: string, payload2: { title: string; description: string; priority: string; dueAt: string }) {
+  async function addMilestoneTask(
+    milestoneId: string,
+    payload2: {
+      title: string;
+      description: string;
+      priority: string;
+      dueAt: string;
+    },
+  ) {
     if (!organization) return;
-    const response = await apiFetch(`/v1/organizations/${organization.id}/milestones/${milestoneId}/tasks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: payload2.title, description: payload2.description || null, priority: payload2.priority, dueAt: payload2.dueAt || null }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/milestones/${milestoneId}/tasks`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: payload2.title,
+          description: payload2.description || null,
+          priority: payload2.priority,
+          dueAt: payload2.dueAt || null,
+        }),
+      },
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       return;
@@ -540,13 +745,23 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void loadPlan();
   }
 
-  async function addMilestone(phaseId: string, payload2: { name: string; description: string; targetDate: string }) {
+  async function addMilestone(
+    phaseId: string,
+    payload2: { name: string; description: string; targetDate: string },
+  ) {
     if (!organization) return;
-    const response = await apiFetch(`/v1/organizations/${organization.id}/strategic-plan/phases/${phaseId}/milestones`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: payload2.name, description: payload2.description || null, targetDate: payload2.targetDate || null }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/strategic-plan/phases/${phaseId}/milestones`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: payload2.name,
+          description: payload2.description || null,
+          targetDate: payload2.targetDate || null,
+        }),
+      },
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       return;
@@ -557,11 +772,17 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   async function addPhase(payload2: { name: string; description: string }) {
     if (!organization || !plan) return;
-    const response = await apiFetch(`/v1/organizations/${organization.id}/strategic-plan/${plan.id}/phases`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: payload2.name, description: payload2.description || null }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/strategic-plan/${plan.id}/phases`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: payload2.name,
+          description: payload2.description || null,
+        }),
+      },
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       return;
@@ -572,10 +793,19 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   const plan = payload?.plan ?? null;
-  const phases = (plan?.strategic_plan_phases ?? []).slice().sort((a, b) => a.position - b.position);
-  const totalMilestones = phases.reduce((sum, phase) => sum + phase.strategic_plan_milestones.length, 0);
+  const phases = (plan?.strategic_plan_phases ?? [])
+    .slice()
+    .sort((a, b) => a.position - b.position);
+  const totalMilestones = phases.reduce(
+    (sum, phase) => sum + phase.strategic_plan_milestones.length,
+    0,
+  );
   const doneMilestones = phases.reduce(
-    (sum, phase) => sum + phase.strategic_plan_milestones.filter((m) => ["completed", "skipped"].includes(m.status)).length,
+    (sum, phase) =>
+      sum +
+      phase.strategic_plan_milestones.filter((m) =>
+        ["completed", "skipped"].includes(m.status),
+      ).length,
     0,
   );
 
@@ -595,12 +825,19 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             actions={
               <div className="flex items-center gap-2">
                 {plan.status === "draft" && canManage ? (
-                  <Button type="button" onClick={() => void activatePlan(plan.id)}>
+                  <Button
+                    type="button"
+                    onClick={() => void activatePlan(plan.id)}
+                  >
                     Activar plan
                   </Button>
                 ) : null}
                 {canManage ? (
-                  <Button variant="secondary" type="button" onClick={() => setIsAddingPhase((value) => !value)}>
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={() => setIsAddingPhase((value) => !value)}
+                  >
                     {isAddingPhase ? "Cerrar" : "+ Fase"}
                   </Button>
                 ) : null}
@@ -608,7 +845,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             }
           >
             {totalMilestones > 0 ? (
-              <ProgressBar value={(doneMilestones / totalMilestones) * 100} aria-label="Progreso del plan">
+              <ProgressBar
+                value={(doneMilestones / totalMilestones) * 100}
+                aria-label="Progreso del plan"
+              >
                 <div className="flex justify-between text-xs text-muted">
                   <span>Progreso</span>
                   <span className="font-mono">
@@ -639,146 +879,209 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ) : null}
           </Card>
 
-          <ol className="space-y-2">
-            {phases.map((phase) => {
-              const milestones = phase.strategic_plan_milestones.slice().sort((a, b) => a.position - b.position);
-              const isEditingPhase = editingPhaseId === phase.id;
-              const isAddingMilestone = addingMilestonePhaseId === phase.id;
-              return (
-                <li key={phase.id}>
-                  <PhaseListItem
-                    phase={phase}
-                    canManage={canManage}
-                    isEditing={isEditingPhase}
-                    isAddingMilestone={isAddingMilestone}
-                    onAction={(action) => {
-                      if (action === "edit") {
-                        setEditingPhaseId(isEditingPhase ? null : phase.id);
-                      } else {
-                        setAddingMilestonePhaseId(isAddingMilestone ? null : phase.id);
-                      }
-                    }}
-                  />
+          {phases.length === 0 ? (
+            <EmptyState
+              title="Este plan todavía no tiene fases"
+              hint={
+                canManage
+                  ? "Añade la primera fase desde el botón «+ Fase»."
+                  : "Tu consultor todavía está preparando las fases del plan."
+              }
+            />
+          ) : null}
 
-                  {phase.description ? <p className="ml-11 mt-1 text-xs text-muted">{phase.description}</p> : null}
+          {phases.length > 0 ? (
+            <ol className="space-y-2">
+              {phases.map((phase) => {
+                const milestones = phase.strategic_plan_milestones
+                  .slice()
+                  .sort((a, b) => a.position - b.position);
+                const isEditingPhase = editingPhaseId === phase.id;
+                const isAddingMilestone = addingMilestonePhaseId === phase.id;
+                return (
+                  <li key={phase.id}>
+                    <PhaseListItem
+                      phase={phase}
+                      canManage={canManage}
+                      isEditing={isEditingPhase}
+                      isAddingMilestone={isAddingMilestone}
+                      onAction={(action) => {
+                        if (action === "edit") {
+                          setEditingPhaseId(isEditingPhase ? null : phase.id);
+                        } else {
+                          setAddingMilestonePhaseId(
+                            isAddingMilestone ? null : phase.id,
+                          );
+                        }
+                      }}
+                    />
 
-                  {isEditingPhase ? (
-                    <div className="ml-11 mt-1.5">
-                      <NameDescriptionForm
-                        initialName={phase.name}
-                        initialDescription={phase.description ?? ""}
-                        submitLabel="Guardar"
-                        onCancel={() => setEditingPhaseId(null)}
-                        onSubmit={async (payload) => {
-                          await editPhase(phase.id, payload);
-                          setEditingPhaseId(null);
-                        }}
-                      />
-                    </div>
-                  ) : null}
+                    {phase.description ? (
+                      <p className="ml-11 mt-1 text-xs text-muted">
+                        {phase.description}
+                      </p>
+                    ) : null}
 
-                  {isAddingMilestone ? (
-                    <div className="ml-11 mt-1.5">
-                      <NameDescriptionForm
-                        initialName=""
-                        initialDescription=""
-                        initialTargetDate=""
-                        showTargetDate
-                        submitLabel="Crear hito"
-                        onCancel={() => setAddingMilestonePhaseId(null)}
-                        onSubmit={async (payload) => {
-                          await addMilestone(phase.id, payload);
-                          setAddingMilestonePhaseId(null);
-                        }}
-                      />
-                    </div>
-                  ) : null}
+                    {isEditingPhase ? (
+                      <div className="ml-11 mt-1.5">
+                        <NameDescriptionForm
+                          initialName={phase.name}
+                          initialDescription={phase.description ?? ""}
+                          submitLabel="Guardar"
+                          onCancel={() => setEditingPhaseId(null)}
+                          onSubmit={async (payload) => {
+                            await editPhase(phase.id, payload);
+                            setEditingPhaseId(null);
+                          }}
+                        />
+                      </div>
+                    ) : null}
 
-                  {milestones.length > 0 ? (
-                    <ol className="ml-4 mt-1.5 space-y-1 border-l-2 border-line pl-3">
-                      {milestones.map((milestone, milestoneIndex) => {
-                        const isMilestoneExpanded = expandedMilestoneId === milestone.id;
-                        const isEditingMilestone = editingMilestoneId === milestone.id;
-                        const isAddingTask = addingTaskMilestoneId === milestone.id;
-                        const tasks = milestone.milestone_task_links
-                          .map((link) => link.tasks)
-                          .filter((task): task is MilestoneTask => Boolean(task));
-                        return (
-                          <li key={milestone.id}>
-                            <MilestoneListItem
-                              numberLabel={`${phase.position}.${milestoneIndex + 1}`}
-                              milestone={milestone}
-                              canManage={canManage}
-                              isExpanded={isMilestoneExpanded}
-                              onToggleExpand={() => setExpandedMilestoneId(isMilestoneExpanded ? null : milestone.id)}
-                              isEditing={isEditingMilestone}
-                              isAddingTask={isAddingTask}
-                              onAction={(action) => {
-                                if (action === "start") {
-                                  void changeMilestoneStatus(milestone.id, "in_progress");
-                                } else if (action === "complete") {
-                                  void changeMilestoneStatus(milestone.id, "completed");
-                                } else if (action === "edit") {
-                                  setEditingMilestoneId(isEditingMilestone ? null : milestone.id);
-                                } else {
-                                  setAddingTaskMilestoneId(isAddingTask ? null : milestone.id);
+                    {isAddingMilestone ? (
+                      <div className="ml-11 mt-1.5">
+                        <NameDescriptionForm
+                          initialName=""
+                          initialDescription=""
+                          initialTargetDate=""
+                          showTargetDate
+                          submitLabel="Crear hito"
+                          onCancel={() => setAddingMilestonePhaseId(null)}
+                          onSubmit={async (payload) => {
+                            await addMilestone(phase.id, payload);
+                            setAddingMilestonePhaseId(null);
+                          }}
+                        />
+                      </div>
+                    ) : null}
+
+                    {milestones.length > 0 ? (
+                      <ol className="ml-4 mt-1.5 space-y-1 border-l-2 border-line pl-3">
+                        {milestones.map((milestone, milestoneIndex) => {
+                          const isMilestoneExpanded =
+                            expandedMilestoneId === milestone.id;
+                          const isEditingMilestone =
+                            editingMilestoneId === milestone.id;
+                          const isAddingTask =
+                            addingTaskMilestoneId === milestone.id;
+                          const tasks = milestone.milestone_task_links
+                            .map((link) => link.tasks)
+                            .filter((task): task is MilestoneTask =>
+                              Boolean(task),
+                            );
+                          return (
+                            <li key={milestone.id}>
+                              <MilestoneListItem
+                                numberLabel={`${phase.position}.${milestoneIndex + 1}`}
+                                milestone={milestone}
+                                canManage={canManage}
+                                isExpanded={isMilestoneExpanded}
+                                onToggleExpand={() =>
+                                  setExpandedMilestoneId(
+                                    isMilestoneExpanded ? null : milestone.id,
+                                  )
                                 }
-                              }}
-                            />
+                                isEditing={isEditingMilestone}
+                                isAddingTask={isAddingTask}
+                                onAction={(action) => {
+                                  if (action === "start") {
+                                    void changeMilestoneStatus(
+                                      milestone.id,
+                                      "in_progress",
+                                    );
+                                  } else if (action === "complete") {
+                                    void changeMilestoneStatus(
+                                      milestone.id,
+                                      "completed",
+                                    );
+                                  } else if (action === "edit") {
+                                    setEditingMilestoneId(
+                                      isEditingMilestone ? null : milestone.id,
+                                    );
+                                  } else {
+                                    setAddingTaskMilestoneId(
+                                      isAddingTask ? null : milestone.id,
+                                    );
+                                  }
+                                }}
+                              />
 
-                            {isEditingMilestone ? (
-                              <div className="ml-4 mt-1.5">
-                                <NameDescriptionForm
-                                  initialName={milestone.name}
-                                  initialDescription={milestone.description ?? ""}
-                                  initialTargetDate={milestone.target_date ?? ""}
-                                  showTargetDate
-                                  submitLabel="Guardar"
-                                  onCancel={() => setEditingMilestoneId(null)}
-                                  onSubmit={async (payload) => {
-                                    await editMilestone(milestone.id, payload);
-                                    setEditingMilestoneId(null);
-                                  }}
-                                />
-                              </div>
-                            ) : null}
+                              {isEditingMilestone ? (
+                                <div className="ml-4 mt-1.5">
+                                  <NameDescriptionForm
+                                    initialName={milestone.name}
+                                    initialDescription={
+                                      milestone.description ?? ""
+                                    }
+                                    initialTargetDate={
+                                      milestone.target_date ?? ""
+                                    }
+                                    showTargetDate
+                                    submitLabel="Guardar"
+                                    onCancel={() => setEditingMilestoneId(null)}
+                                    onSubmit={async (payload) => {
+                                      await editMilestone(
+                                        milestone.id,
+                                        payload,
+                                      );
+                                      setEditingMilestoneId(null);
+                                    }}
+                                  />
+                                </div>
+                              ) : null}
 
-                            {isAddingTask ? (
-                              <div className="ml-4 mt-1.5">
-                                <AddTaskForm
-                                  onCancel={() => setAddingTaskMilestoneId(null)}
-                                  onSubmit={async (payload) => {
-                                    await addMilestoneTask(milestone.id, payload);
-                                    setAddingTaskMilestoneId(null);
-                                  }}
-                                />
-                              </div>
-                            ) : null}
+                              {isAddingTask ? (
+                                <div className="ml-4 mt-1.5">
+                                  <AddTaskForm
+                                    onCancel={() =>
+                                      setAddingTaskMilestoneId(null)
+                                    }
+                                    onSubmit={async (payload) => {
+                                      await addMilestoneTask(
+                                        milestone.id,
+                                        payload,
+                                      );
+                                      setAddingTaskMilestoneId(null);
+                                    }}
+                                  />
+                                </div>
+                              ) : null}
 
-                            {isMilestoneExpanded ? (
-                              <div className="ml-4 mt-1.5 space-y-1">
-                                {milestone.description ? <p className="text-xs text-muted">{milestone.description}</p> : null}
-                                {milestone.target_date ? <p className="font-mono text-xs text-muted">objetivo {milestone.target_date}</p> : null}
-                                {tasks.length > 0 ? (
-                                  <ol className="space-y-1 border-l-2 border-line pl-3">
-                                    {tasks.map((task, taskIndex) => (
-                                      <li key={task.id}>
-                                        <TaskListItem numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`} task={task} />
-                                      </li>
-                                    ))}
-                                  </ol>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ol>
+                              {isMilestoneExpanded ? (
+                                <div className="ml-4 mt-1.5 space-y-1">
+                                  {milestone.description ? (
+                                    <p className="text-xs text-muted">
+                                      {milestone.description}
+                                    </p>
+                                  ) : null}
+                                  {milestone.target_date ? (
+                                    <p className="font-mono text-xs text-muted">
+                                      objetivo {milestone.target_date}
+                                    </p>
+                                  ) : null}
+                                  {tasks.length > 0 ? (
+                                    <ol className="space-y-1 border-l-2 border-line pl-3">
+                                      {tasks.map((task, taskIndex) => (
+                                        <li key={task.id}>
+                                          <TaskListItem
+                                            numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`}
+                                            task={task}
+                                          />
+                                        </li>
+                                      ))}
+                                    </ol>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          ) : null}
         </>
       ) : (
         <Card title="Sin plan estrategico" className="border-t border-ink/20">
@@ -801,11 +1104,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 aria-label="Esquema de fases e hitos"
                 value={planOutline}
                 onChange={(event) => setPlanOutline(event.target.value)}
-                placeholder={"Fase: Fundamentos\n- Configurar costes y gastos fijos\n- Cargar costes de producto\nFase: Adquisicion\n- Conectar Meta Ads\n- Definir presupuesto inicial"}
+                placeholder={
+                  "Fase: Fundamentos\n- Configurar costes y gastos fijos\n- Cargar costes de producto\nFase: Adquisicion\n- Conectar Meta Ads\n- Definir presupuesto inicial"
+                }
                 required
               />
               <p className="text-xs text-muted">
-                Formato: cada linea &quot;Fase: nombre&quot; abre una fase; las lineas siguientes son sus hitos.
+                Formato: cada linea &quot;Fase: nombre&quot; abre una fase; las
+                lineas siguientes son sus hitos.
               </p>
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Creando..." : "Crear plan en borrador"}

@@ -1,9 +1,15 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
+  # automaticos. Para reactivar, descomentar el bloque de abajo.
+  # push:
+  #   branches: [main]
+  # pull_request:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -28,6 +34,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # BE-00: escaneo de dependencias, gap declarado de la fase. No es
+      # `npm audit --audit-level=high` directo porque hoy fallaria siempre por
+      # 3 vulnerabilidades del arbol de Next sin version parcheada, y un paso
+      # que siempre falla se termina ignorando. El guard falla solo si la
+      # situacion empeora (ver scripts/audit-guard.mjs).
+      - name: Dependency audit
+        run: node scripts/audit-guard.mjs
+
       - name: Typecheck (packages, api, web, worker)
         run: npm run typecheck
 
@@ -46,6 +60,12 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
 
+      # SQO-01: `portal-state-contract.test.ts` existia desde FE-08 pero no lo
+      # ejecutaba nadie. Ambos son puros (leen fuentes o construyen Response en
+      # memoria), no necesitan navegador ni secrets.
+      - name: Web contract tests
+        run: npm run test -w web
+
       # AI-06: guarda de calidad de salidas de agentes (checkOutputSanity),
       # pura y sin I/O -- no necesita secrets de Supabase.
       - name: AI output sanity guard tests
@@ -63,21 +83,34 @@ jobs:
       - name: Config env validation tests
         run: npm run test -w @ecomscaling/config
 
-      # SQO-00: "tests A/B de tenant pasan". Corre contra el Supabase remoto
-      # real (no hay entorno de test separado): crea organizaciones/usuarios
-      # efimeros y los borra al terminar (ver apps/api/src/rls-tenant-isolation.test.ts).
-      - name: RLS tenant isolation tests
-        run: npm run test -w @ecomscaling/api
+      # INT-00: contrato común, estados honestos y feature flags de Shopify,
+      # Meta, Klaviyo e Instagram.
+      - name: Integration contract tests
+        run: npm run test -w @ecomscaling/integrations
+
+      # SQO-02: redacción de secretos y métricas process-local.
+      - name: Observability tests
+        run: npm run test -w @ecomscaling/observability
+
+      # SQO-00: el pipeline normal no escribe en ninguna base de datos.
+      # Los tests RLS con fixtures requieren un entorno aislado y quedan como
+      # validacion manual hasta provisionar staging.
+      # test:unit no carga .env.local. El test de feature flags construye Fastify
+      # y necesita pasar la validacion estructural de env; estos valores dummy
+      # no se usan para conectarse ni contienen secretos.
+      - name: API unit and contract tests
+        run: npm run test:unit -w @ecomscaling/api
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
-          WEB_ORIGIN: ${{ secrets.WEB_ORIGIN }}
-          SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
-          SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
-          SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
-          SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+          API_HOST: "127.0.0.1"
+          API_PORT: "4000"
+          WEB_ORIGIN: "http://localhost:3000"
+          SUPABASE_URL: "https://example.supabase.co"
+          SUPABASE_PUBLISHABLE_KEY: "ci-publishable-key"
+          SHOPIFY_API_KEY: "ci-shopify-key"
+          SHOPIFY_API_SECRET: "ci-shopify-secret"
+          SHOPIFY_SCOPES: "read_products"
+          SHOPIFY_REDIRECT_URI: "https://example.com/shopify/callback"
+          INTEGRATION_FEATURE_FLAGS: "shopify"
 
   secret-scan:
     name: Secret scanning
@@ -94,3 +127,20 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # El job `dependency-scan` que habia aqui corria `npm audit --omit=dev
+  # --audit-level=high` y por tanto fallaba en cada ejecucion por las 3
+  # vulnerabilidades del arbol de Next que no tienen version parcheada.
+  # Sustituido 2026-08-03 por el paso `Dependency audit` de `checks`, que usa
+  # scripts/audit-guard.mjs y solo falla si la situacion empeora.
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4

@@ -1,0 +1,61 @@
+name: Klaviyo Reconcile
+
+on:
+  workflow_dispatch:
+  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
+  # automaticos. Para reactivar, descomentar el bloque de abajo.
+  # schedule:
+  #   - cron: "43 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: klaviyo-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Run Klaviyo reconciliation
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      # loadApiEnv exige las credenciales de Shopify siempre, aunque este cron
+      # no toque Shopify: sin ellas el worker aborta al arrancar antes de leer
+      # una sola conexion de Klaviyo.
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+      SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+      SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+      KLAVIYO_CLIENT_ID: ${{ secrets.KLAVIYO_CLIENT_ID }}
+      KLAVIYO_CLIENT_SECRET: ${{ secrets.KLAVIYO_CLIENT_SECRET }}
+      KLAVIYO_REDIRECT_URI: ${{ secrets.KLAVIYO_REDIRECT_URI }}
+      KLAVIYO_SCOPES: ${{ secrets.KLAVIYO_SCOPES }}
+      # Sin esta variable el allowlist queda vacio y el cron habilita Klaviyo
+      # aunque la API desplegada lo tenga restringido: los dos entornos tienen
+      # que compartir el mismo gate.
+      INTEGRATION_FEATURE_FLAGS: ${{ secrets.INTEGRATION_FEATURE_FLAGS }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build API and worker
+        run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
+
+      - name: Reconcile Klaviyo connections
+        run: npm run start:klaviyo-reconcile -w @ecomscaling/worker

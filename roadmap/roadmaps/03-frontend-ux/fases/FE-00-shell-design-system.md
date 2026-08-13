@@ -1,5 +1,14 @@
 # FE-00 - Shell y design system
 
+> Correccion vigente 2026-08-02: la unica evidencia actual del design system es
+> `apps/web/src/components/ui/` sobre HeroUI v3, segun ADR-0015. Cualquier referencia posterior
+> en este documento a `packages/ui/src/...` describe el sistema historico y no una ruta existente;
+> no debe usarse para validar el estado actual.
+
+> Verificacion adicional 2026-08-02: `Drawer`, `RouterProvider`, `Alert`, `Modal` y `Toast` quedan
+> exportados por el barrel del catalogo; no hay imports directos de HeroUI fuera de `components/ui`.
+> `npx tsc -p apps/web/tsconfig.json --noEmit` pasa.
+
 ## Estado
 
 - **Estado real:** `current` — **reescrito 2026-07-22** para describir el sistema v2 real en vez de la
@@ -10,6 +19,9 @@
 - **Ultima validacion:** 2026-07-23
 - **Dependencias:** ninguna
 - **Bloqueador:** ninguno
+- **Corrección documental 2026-08-01:** las referencias a `packages/ui` que aparecen en el historial de
+  auditoría de esta fase describen el design system anterior y no rutas actuales. La evidencia vigente es
+  `apps/web/src/components/ui/` sobre HeroUI v3, conforme a ADR-0015; no existe ni se importa `packages/ui`.
 - **Evidencia:** `apps/web/src/components/portal-shell.tsx` (shell actual, con mini barra de contexto,
   navegacion por rol, cache de bootstrap en memoria anadida esta semana); `packages/ui/src/index.tsx`
   (Button, Card, Badge, Banner, Field/Input/Select/Textarea, LoadingBlock/ErrorBlock/EmptyState,

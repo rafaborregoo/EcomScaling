@@ -8,14 +8,21 @@ export function Checkbox({
   onChange,
   children,
   className,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   children: ReactNode;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
-    <HeroCheckbox isSelected={checked} onChange={onChange} className={className}>
+    <HeroCheckbox
+      isSelected={checked}
+      isDisabled={disabled}
+      onChange={onChange}
+      className={className}
+    >
       <HeroCheckbox.Content>
         <HeroCheckbox.Control>
           <HeroCheckbox.Indicator />

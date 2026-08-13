@@ -1,13 +1,20 @@
 # FE-05 - Planificacion y retencion
 
+> Corrección de estado 2026-08-02: FE-05 está en `implemented_partial`. Integraciones muestra el estado
+> real de Klaviyo y su métrica de conversión, y `/marketing` permite generar, editar, versionar y revisar
+> borradores. El calendario/reporting visual completo, stock, lead time, safety stock y forecast siguen
+> pendientes; no se presentan como implementados.
+
 ## Estado
 
-- **Estado real:** `planned` (no iniciado — depende de BE-06/DB-09, ninguno de los dos existe todavia).
+- **Estado real:** `implemented_partial` (hay superficies de integración y contenido revisable; el plan
+  de retención, reporting visual y stock/forecast permanecen incompletos).
 - **Responsable:** sin asignar
 - **Ultima validacion:** 2026-07-20
 - **Dependencias:** BE-06, DB-09
 - **Bloqueador:** ninguno tecnico; sin empezar.
-- **Evidencia:** ninguna — sin codigo.
+- **Evidencia vigente:** `apps/web/src/app/integraciones/page.tsx` y `apps/web/src/app/marketing/page.tsx`;
+  la ausencia de calendario/forecast no debe confundirse con ausencia total de código.
 - **Gaps identificados:**
   - Agrupa Klaviyo + campanas + stock, tres subdominios sin relacion visual/tecnica directa; dividir en
     FE-05A-klaviyo.md, FE-05B-campaign-calendar.md, FE-05C-stock-planning.md antes de disenar pantallas.
@@ -32,4 +39,3 @@ Cubrir Klaviyo, campanas mensuales y planificacion de stock.
 - Las recomendaciones de stock muestran supuestos.
 - Campanas pueden cruzarse con productos y stock.
 - Klaviyo muestra periodo, fuente y freshness.
-

@@ -544,15 +544,75 @@ export async function handleShopifyWebhookRequest(
 
   if (eventInsertError) {
     if (eventInsertError.code === "23505") {
-      return { statusCode: 200, body: { status: "duplicate" } };
+      // Un webhook concurrente ya reclamado debe ser idempotente, pero un
+      // evento que fallo necesita poder reintentarse: Shopify reenvia el
+      // mismo webhook usando el mismo id/fingerprint. Sin esta rama, la
+      // unicidad convertia cualquier fallo transitorio en un falso 200 y el
+      // pedido/inventario quedaba sin aplicar para siempre.
+      const { data: existingEvent, error: existingEventError } = await supabase
+        .schema("private")
+        .from("webhook_events")
+        .select("id, status, received_at")
+        .eq("provider", "shopify")
+        .eq("connection_id", ctx.connectionId)
+        .eq("fingerprint", fingerprint)
+        .maybeSingle();
+
+      if (existingEventError || !existingEvent) {
+        logger.error("Shopify webhook duplicate lookup failed", {
+          shop_domain: shopDomain,
+          organization_id: ctx.organizationId,
+          topic,
+          error: existingEventError?.message ?? "event_not_found_after_unique_conflict",
+        });
+        return { statusCode: 500, body: { error: "webhook_duplicate_lookup_failed" } };
+      }
+
+      const receivedAt = new Date(existingEvent.received_at).getTime();
+      const staleReceived =
+        existingEvent.status === "received" &&
+        Number.isFinite(receivedAt) &&
+        Date.now() - receivedAt >= 5 * 60 * 1000;
+      const retryable = existingEvent.status === "failed" || staleReceived;
+
+      if (!retryable) {
+        return { statusCode: 200, body: { status: "duplicate" } };
+      }
+
+      const expectedStatus = existingEvent.status;
+      const { data: claimedEvent, error: claimError } = await supabase
+        .schema("private")
+        .from("webhook_events")
+        .update({ status: "received", processed_at: null, error_message: null })
+        .eq("id", existingEvent.id)
+        .eq("status", expectedStatus)
+        .select("id")
+        .maybeSingle();
+
+      // Otro reintento pudo reclamarlo entre el lookup y el update.
+      if (claimError) {
+        logger.error("Shopify webhook retry claim failed", {
+          shop_domain: shopDomain,
+          organization_id: ctx.organizationId,
+          topic,
+          error: claimError.message,
+        });
+        return { statusCode: 500, body: { error: "webhook_retry_claim_failed" } };
+      }
+
+      if (!claimedEvent) {
+        return { statusCode: 200, body: { status: "duplicate" } };
+      }
     }
-    logger.error("Shopify webhook event insert failed", {
-      shop_domain: shopDomain,
-      organization_id: ctx.organizationId,
-      topic,
-      error: eventInsertError.message,
-    });
-    return { statusCode: 500, body: { error: "webhook_event_insert_failed" } };
+    else {
+      logger.error("Shopify webhook event insert failed", {
+        shop_domain: shopDomain,
+        organization_id: ctx.organizationId,
+        topic,
+        error: eventInsertError.message,
+      });
+      return { statusCode: 500, body: { error: "webhook_event_insert_failed" } };
+    }
   }
 
   const payload = JSON.parse(rawBody.toString("utf8")) as Record<string, unknown>;
@@ -564,6 +624,7 @@ export async function handleShopifyWebhookRequest(
       .schema("private")
       .from("webhook_events")
       .update({ status: "processed", processed_at: new Date().toISOString() })
+      .eq("connection_id", ctx.connectionId)
       .eq("fingerprint", fingerprint)
       .eq("provider", "shopify");
 
@@ -579,6 +640,7 @@ export async function handleShopifyWebhookRequest(
       .schema("private")
       .from("webhook_events")
       .update({ status: "failed", processed_at: new Date().toISOString(), error_message: message })
+      .eq("connection_id", ctx.connectionId)
       .eq("fingerprint", fingerprint)
       .eq("provider", "shopify");
 

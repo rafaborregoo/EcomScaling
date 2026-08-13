@@ -1,6 +1,7 @@
 import { IntegrationError } from "@ecomscaling/integrations";
 
-const META_GRAPH_VERSION = "v23.0";
+/** Single source of truth for every Graph API request in the Meta adapter. */
+export const META_GRAPH_VERSION = "v23.0";
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
 const MAX_RETRIES = 5;
@@ -19,12 +20,24 @@ export class MetaGraphError extends IntegrationError {
     public readonly fbtraceId: string | null,
   ) {
     super(
-      httpStatus === 429 || code === 4 || code === 17 || code === 32 || code === 613 || code === 80000 || code === 80004
+      httpStatus === 429 ||
+        code === 4 ||
+        code === 17 ||
+        code === 32 ||
+        code === 613 ||
+        code === 80000 ||
+        code === 80004
         ? "RATE_LIMITED"
         : "EXTERNAL_API_UNAVAILABLE",
       "meta_ads",
       message,
-      httpStatus === 429 || code === 4 || code === 17 || code === 32 || code === 613 || code === 80000 || code === 80004,
+      httpStatus === 429 ||
+        code === 4 ||
+        code === 17 ||
+        code === 32 ||
+        code === 613 ||
+        code === 80000 ||
+        code === 80004,
       false,
       httpStatus,
       code == null ? undefined : String(code),
@@ -51,7 +64,9 @@ function sleep(ms: number) {
 // paginacion (metaGraphGetAll, URL opaca que Meta devuelve en paging.next) --
 // antes solo la primera reintentaba, y una pagina intermedia con rate limit
 // tumbaba el import completo en vez de reintentarse igual que el resto.
-async function fetchGraphJsonWithRetry<T>(url: string): Promise<T & GraphErrorBody> {
+async function fetchGraphJsonWithRetry<T>(
+  url: string,
+): Promise<T & GraphErrorBody> {
   let lastError: MetaGraphError | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
@@ -60,7 +75,8 @@ async function fetchGraphJsonWithRetry<T>(url: string): Promise<T & GraphErrorBo
     }
 
     const response = await fetch(url);
-    const body = (await response.json().catch(() => null)) as (T & GraphErrorBody) | null;
+    const body = (await response.json().catch(() => null)) as
+      (T & GraphErrorBody) | null;
 
     if (response.ok && body) {
       return body;
@@ -75,14 +91,18 @@ async function fetchGraphJsonWithRetry<T>(url: string): Promise<T & GraphErrorBo
     );
 
     const isRateLimited =
-      response.status === 429 || (graphError?.code != null && RATE_LIMIT_CODES.has(graphError.code));
+      response.status === 429 ||
+      (graphError?.code != null && RATE_LIMIT_CODES.has(graphError.code));
 
     if (!isRateLimited) {
       throw lastError;
     }
   }
 
-  throw lastError ?? new MetaGraphError("meta_graph_retries_exhausted", null, 0, null);
+  throw (
+    lastError ??
+    new MetaGraphError("meta_graph_retries_exhausted", null, 0, null)
+  );
 }
 
 export async function metaGraphGet<T>(
@@ -109,18 +129,18 @@ export async function metaGraphGetAll<TNode>(
   params: Record<string, string> = {},
 ): Promise<TNode[]> {
   const nodes: TNode[] = [];
-  let response = await metaGraphGet<{ data?: TNode[]; paging?: { next?: string } }>(
-    path,
-    accessToken,
-    { limit: "100", ...params },
-  );
+  let response = await metaGraphGet<{
+    data?: TNode[];
+    paging?: { next?: string };
+  }>(path, accessToken, { limit: "100", ...params });
 
   nodes.push(...(response.data ?? []));
 
   while (response.paging?.next) {
-    const body = await fetchGraphJsonWithRetry<{ data?: TNode[]; paging?: { next?: string } }>(
-      response.paging.next,
-    );
+    const body = await fetchGraphJsonWithRetry<{
+      data?: TNode[];
+      paging?: { next?: string };
+    }>(response.paging.next);
 
     nodes.push(...(body.data ?? []));
     response = body;

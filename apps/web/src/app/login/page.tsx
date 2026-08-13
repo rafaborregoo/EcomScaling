@@ -2,7 +2,7 @@
 
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseClient } from "@/lib/supabase";
 import { fetchBootstrap, getAccessToken } from "@/lib/bootstrap";
 import { Button, ErrorBlock, Field, Input, LoadingBlock } from "@/components/ui";
 
@@ -29,10 +29,18 @@ function LoginPageContent() {
     setError(null);
     setIsSubmitting(true);
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    let signInError: { message: string } | null = null;
+    try {
+      const result = await getSupabaseClient().auth.signInWithPassword({
+        email,
+        password,
+      });
+      signInError = result.error;
+    } catch (signInFailure) {
+      setIsSubmitting(false);
+      setError(signInFailure instanceof Error ? signInFailure.message : "No se pudo iniciar sesión.");
+      return;
+    }
 
     if (signInError) {
       setIsSubmitting(false);

@@ -4,7 +4,22 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Heading, Accordion, Alert, Button, ErrorBlock, Field, Input, Link, LoadingBlock, Select, Textarea, toast } from "@/components/ui";
+import { readApiError } from "@/lib/api-error";
+import {
+  Heading,
+  Accordion,
+  Alert,
+  Button,
+  EmptyState,
+  ErrorBlock,
+  Field,
+  Input,
+  Link,
+  LoadingBlock,
+  Select,
+  Textarea,
+  toast,
+} from "@/components/ui";
 
 type CallTranscript = {
   id: string;
@@ -20,16 +35,26 @@ type CallTranscript = {
 // este objeto. El render distingue ambos casos.
 type CallSummaryDetail = {
   facts?: string[];
-  recommendations?: Array<{ action: string; priority: string; rationale: string }>;
+  recommendations?: Array<{
+    action: string;
+    priority: string;
+    rationale: string;
+  }>;
   risks?: string[];
   key_quotes?: string[];
-  proposed_tasks?: Array<{ title: string; description: string; priority: string; owner: string }>;
+  proposed_tasks?: Array<{
+    title: string;
+    description: string;
+    priority: string;
+    owner: string;
+  }>;
   confidence?: string;
   warnings?: string[];
 };
 
 type CallSummary = {
   id: string;
+  transcript_id: string | null;
   summary: string;
   key_points: string[] | CallSummaryDetail | null;
   agreed_actions: string[] | null;
@@ -41,7 +66,9 @@ type CallSummary = {
   created_at: string;
 };
 
-function isCallSummaryDetail(value: CallSummary["key_points"]): value is CallSummaryDetail {
+function isCallSummaryDetail(
+  value: CallSummary["key_points"],
+): value is CallSummaryDetail {
   return value !== null && !Array.isArray(value) && typeof value === "object";
 }
 
@@ -53,8 +80,12 @@ const priorityLabels: Record<string, string> = {
 };
 
 function StructuredSummary({ summary }: { summary: CallSummary }) {
-  const detail = isCallSummaryDetail(summary.key_points) ? summary.key_points : null;
-  const decisions = Array.isArray(summary.agreed_actions) ? summary.agreed_actions : [];
+  const detail = isCallSummaryDetail(summary.key_points)
+    ? summary.key_points
+    : null;
+  const decisions = Array.isArray(summary.agreed_actions)
+    ? summary.agreed_actions
+    : [];
 
   if (!detail && decisions.length === 0) {
     return null;
@@ -64,7 +95,9 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
     <div className="mt-3 space-y-3 text-sm">
       {detail?.facts?.length ? (
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Hechos</p>
+          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            Hechos
+          </p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {detail.facts.map((fact, index) => (
               <li key={index}>{fact}</li>
@@ -75,7 +108,9 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
 
       {decisions.length ? (
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Decisiones</p>
+          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            Decisiones
+          </p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {decisions.map((decision, index) => (
               <li key={index}>{decision}</li>
@@ -96,7 +131,9 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
                 <span className="font-mono text-xs text-muted">
                   ({priorityLabels[rec.priority] ?? rec.priority})
                 </span>
-                {rec.rationale ? <span className="text-muted"> — {rec.rationale}</span> : null}
+                {rec.rationale ? (
+                  <span className="text-muted"> — {rec.rationale}</span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -105,7 +142,9 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
 
       {detail?.risks?.length ? (
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Riesgos</p>
+          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            Riesgos
+          </p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {detail.risks.map((risk, index) => (
               <li key={index}>{risk}</li>
@@ -124,7 +163,8 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
               <li key={index} className="flex flex-wrap items-baseline gap-2">
                 <span>{task.title}</span>
                 <span className="font-mono text-xs text-muted">
-                  {priorityLabels[task.priority] ?? task.priority} · {task.owner}
+                  {priorityLabels[task.priority] ?? task.priority} ·{" "}
+                  {task.owner}
                 </span>
               </li>
             ))}
@@ -134,7 +174,9 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
 
       {detail?.warnings?.length ? (
         <div className="border-l-2 border-warn pl-3">
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-warn-deep">Avisos</p>
+          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-warn-deep">
+            Avisos
+          </p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted">
             {detail.warnings.map((warning, index) => (
               <li key={index}>{warning}</li>
@@ -197,17 +239,13 @@ const summaryStatusLabels: Record<string, string> = {
   rejected: "Rechazado",
 };
 
-async function readApiError(response: Response) {
-  const body = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string; detail?: string }
-    | null;
-  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-    .filter(Boolean)
-    .join(" - ");
-}
-
 function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" }) : "-";
+  return value
+    ? new Date(value).toLocaleString("es-ES", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "-";
 }
 
 function CallDetail({
@@ -233,9 +271,17 @@ function CallDetail({
   const [taskTitleDraft, setTaskTitleDraft] = useState("");
 
   const currentTranscript = call.call_transcripts[0] ?? null;
-  const publishedSummary = call.call_ai_summaries.find((summary) => summary.status === "published");
+  const publishedSummary = call.call_ai_summaries.find(
+    (summary) =>
+      summary.status === "published" &&
+      (!currentTranscript ||
+        summary.transcript_id === currentTranscript.id ||
+        (summary.transcript_id === null && currentTranscript.version === 1)),
+  );
   const pendingSummaries = call.call_ai_summaries.filter(
-    (summary) => summary.status === "pending_approval",
+    (summary) =>
+      summary.status === "pending_approval" &&
+      (!currentTranscript || summary.transcript_id === currentTranscript.id),
   );
 
   async function run(action: () => Promise<Response>, successMessage?: string) {
@@ -270,11 +316,14 @@ function CallDetail({
   async function submitTranscript(event: FormEvent) {
     event.preventDefault();
     const saved = await run(() =>
-      apiFetch(`/v1/organizations/${organizationId}/calls/${call.id}/transcript`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: transcriptDraft, source: "manual" }),
-      }),
+      apiFetch(
+        `/v1/organizations/${organizationId}/calls/${call.id}/transcript`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: transcriptDraft, source: "manual" }),
+        },
+      ),
     );
     if (saved) {
       setTranscriptDraft("");
@@ -307,26 +356,37 @@ function CallDetail({
     );
   }
 
-  async function decideSummary(summaryId: string, decision: "approved" | "rejected") {
+  async function decideSummary(
+    summaryId: string,
+    decision: "approved" | "rejected",
+  ) {
     await run(
       () =>
-        apiFetch(`/v1/organizations/${organizationId}/call-summaries/${summaryId}/decision`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decision }),
-        }),
-      decision === "approved" ? "Resumen aprobado y publicado." : "Resumen rechazado.",
+        apiFetch(
+          `/v1/organizations/${organizationId}/call-summaries/${summaryId}/decision`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ decision }),
+          },
+        ),
+      decision === "approved"
+        ? "Resumen aprobado y publicado."
+        : "Resumen rechazado.",
     );
   }
 
   async function submitNote(event: FormEvent) {
     event.preventDefault();
     const saved = await run(() =>
-      apiFetch(`/v1/organizations/${organizationId}/calls/${call.id}/internal-notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: noteDraft }),
-      }),
+      apiFetch(
+        `/v1/organizations/${organizationId}/calls/${call.id}/internal-notes`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: noteDraft }),
+        },
+      ),
     );
     if (saved) {
       setNoteDraft("");
@@ -353,7 +413,8 @@ function CallDetail({
         <div>
           <p className="font-medium">{call.title}</p>
           <p className="mt-1 text-sm text-muted">
-            {callTypeLabels[call.call_type] ?? call.call_type} - {formatDate(call.held_at ?? call.scheduled_at)}
+            {callTypeLabels[call.call_type] ?? call.call_type} -{" "}
+            {formatDate(call.held_at ?? call.scheduled_at)}
             {call.duration_minutes ? ` - ${call.duration_minutes} min` : ""}
           </p>
         </div>
@@ -368,11 +429,17 @@ function CallDetail({
           ) : null}
           {call.recording_url ? (
             <Link href={call.recording_url} target="_blank" rel="noreferrer">
-              Ver grabacion{call.recording_provider ? ` (${call.recording_provider})` : ""}
+              Ver grabacion
+              {call.recording_provider ? ` (${call.recording_provider})` : ""}
             </Link>
           ) : null}
           {isConsultant && call.status === "scheduled" ? (
-            <Button size="sm" type="button" disabled={isBusy} onClick={markHeld}>
+            <Button
+              size="sm"
+              type="button"
+              disabled={isBusy}
+              onClick={markHeld}
+            >
               Marcar realizada
             </Button>
           ) : null}
@@ -384,31 +451,48 @@ function CallDetail({
 
         {publishedSummary ? (
           <section className="border border-line bg-surface p-3">
-            <p className="text-xs font-medium uppercase text-muted">Resumen de la llamada</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{publishedSummary.summary}</p>
+            <p className="text-xs font-medium uppercase text-muted">
+              Resumen de la llamada
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
+              {publishedSummary.summary}
+            </p>
             <StructuredSummary summary={publishedSummary} />
             <p className="mt-2 text-xs text-muted">
               Publicado el {formatDate(publishedSummary.published_at)}
             </p>
           </section>
         ) : !isConsultant ? (
-          <p className="text-sm text-muted">El resumen estara disponible cuando se publique.</p>
+          <p className="text-sm text-muted">
+            El resumen estara disponible cuando se publique.
+          </p>
         ) : null}
 
         {isConsultant ? (
           <>
             {pendingSummaries.map((summary) => (
-              <Alert key={summary.id} status="warning" className="items-start p-3">
+              <Alert
+                key={summary.id}
+                status="warning"
+                className="items-start p-3"
+              >
                 <Alert.Indicator />
                 <Alert.Content className="gap-1">
                   <Alert.Title className="text-xs uppercase">
                     {summaryStatusLabels[summary.status]}
                     {summary.run_id ? " · generado por IA (A01)" : ""}
                   </Alert.Title>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-black">{summary.summary}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-black">
+                    {summary.summary}
+                  </p>
                   <StructuredSummary summary={summary} />
                   <div className="mt-3 flex gap-2">
-                    <Button size="sm" type="button" disabled={isBusy} onClick={() => decideSummary(summary.id, "approved")}>
+                    <Button
+                      size="sm"
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => decideSummary(summary.id, "approved")}
+                    >
                       Aprobar y publicar
                     </Button>
                     <Button
@@ -439,8 +523,8 @@ function CallDetail({
                         </p>
                       ) : (
                         <p className="text-sm text-muted">
-                          Pega la transcripcion de Loom/Fathom para que el resumen (y el futuro agente A01)
-                          tenga contexto.
+                          Pega la transcripcion de Loom/Fathom para que el
+                          resumen (y el futuro agente A01) tenga contexto.
                         </p>
                       )}
                       {showTranscriptForm ? (
@@ -449,10 +533,16 @@ function CallDetail({
                             className="h-40"
                             aria-label="Transcripcion de la llamada"
                             value={transcriptDraft}
-                            onChange={(event) => setTranscriptDraft(event.target.value)}
+                            onChange={(event) =>
+                              setTranscriptDraft(event.target.value)
+                            }
                             placeholder="Pega aquí la transcripcion completa..."
                           />
-                          <Button size="sm" type="submit" disabled={isBusy || !transcriptDraft.trim()}>
+                          <Button
+                            size="sm"
+                            type="submit"
+                            disabled={isBusy || !transcriptDraft.trim()}
+                          >
                             Guardar nueva version
                           </Button>
                         </form>
@@ -463,7 +553,9 @@ function CallDetail({
                           type="button"
                           onClick={() => setShowTranscriptForm(true)}
                         >
-                          {currentTranscript ? "Reemplazar transcripcion" : "Añadir transcripcion"}
+                          {currentTranscript
+                            ? "Reemplazar transcripcion"
+                            : "Añadir transcripcion"}
                         </Button>
                       )}
                     </div>
@@ -473,8 +565,13 @@ function CallDetail({
             />
 
             {showSummaryForm ? (
-              <form className="space-y-2 border-t border-line pt-3" onSubmit={submitSummary}>
-                <p className="text-sm font-medium">Nuevo resumen (quedara pendiente de aprobación)</p>
+              <form
+                className="space-y-2 border-t border-line pt-3"
+                onSubmit={submitSummary}
+              >
+                <p className="text-sm font-medium">
+                  Nuevo resumen (quedara pendiente de aprobación)
+                </p>
                 <Textarea
                   className="h-32"
                   aria-label="Nuevo resumen de la llamada"
@@ -482,7 +579,11 @@ function CallDetail({
                   onChange={(event) => setSummaryDraft(event.target.value)}
                   placeholder="Puntos tratados, decisiones y próximos pasos..."
                 />
-                <Button size="sm" type="submit" disabled={isBusy || !summaryDraft.trim()}>
+                <Button
+                  size="sm"
+                  type="submit"
+                  disabled={isBusy || !summaryDraft.trim()}
+                >
                   Guardar resumen
                 </Button>
               </form>
@@ -500,7 +601,11 @@ function CallDetail({
                 >
                   {isBusy ? "Generando..." : "Generar resumen con IA"}
                 </Button>
-                <Button variant="secondary" type="button" onClick={() => setShowSummaryForm(true)}>
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={() => setShowSummaryForm(true)}
+                >
                   Redactar a mano
                 </Button>
               </div>
@@ -510,11 +615,15 @@ function CallDetail({
 
         {call.call_task_links.length > 0 ? (
           <section>
-            <p className="text-xs font-medium uppercase text-muted">Tareas de esta llamada</p>
+            <p className="text-xs font-medium uppercase text-muted">
+              Tareas de esta llamada
+            </p>
             <ul className="mt-2 space-y-1">
               {call.call_task_links.map((link) => (
                 <li key={link.id} className="flex items-center gap-2 text-sm">
-                  <span className="font-mono text-xs text-muted">{link.tasks?.status ?? "?"}</span>
+                  <span className="font-mono text-xs text-muted">
+                    {link.tasks?.status ?? "?"}
+                  </span>
                   <span>{link.tasks?.title ?? link.task_id}</span>
                 </li>
               ))}
@@ -532,7 +641,11 @@ function CallDetail({
                 onChange={(event) => setTaskTitleDraft(event.target.value)}
                 placeholder="Nueva tarea acordada en la llamada..."
               />
-              <Button size="sm" type="submit" disabled={isBusy || !taskTitleDraft.trim()}>
+              <Button
+                size="sm"
+                type="submit"
+                disabled={isBusy || !taskTitleDraft.trim()}
+              >
                 Crear
               </Button>
             </form>
@@ -544,7 +657,12 @@ function CallDetail({
                 onChange={(event) => setNoteDraft(event.target.value)}
                 placeholder="Nota interna (solo consultores)..."
               />
-              <Button variant="secondary" size="sm" type="submit" disabled={isBusy || !noteDraft.trim()}>
+              <Button
+                variant="secondary"
+                size="sm"
+                type="submit"
+                disabled={isBusy || !noteDraft.trim()}
+              >
                 Anotar
               </Button>
             </form>
@@ -553,7 +671,9 @@ function CallDetail({
 
         {isConsultant && call.call_internal_notes.length > 0 ? (
           <section className="border-l-2 border-edge py-0.5 pl-3">
-            <p className="text-xs font-medium uppercase text-muted">Notas internas</p>
+            <p className="text-xs font-medium uppercase text-muted">
+              Notas internas
+            </p>
             <ul className="mt-2 space-y-2">
               {call.call_internal_notes.map((note) => (
                 <li key={note.id} className="text-sm">
@@ -573,7 +693,9 @@ function CallDetail({
 
 function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
-  const isConsultant = ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role);
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
 
   const [calls, setCalls] = useState<ConsultingCall[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -591,7 +713,9 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
-    const response = await apiFetch(`/v1/organizations/${organizationId}/calls`);
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/calls`,
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -615,20 +739,23 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setIsCreating(true);
     setCreateError(null);
 
-    const response = await apiFetch(`/v1/organizations/${organizationId}/calls`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: newTitle.trim(),
-        call_type: newType,
-        recording_url: newRecordingUrl.trim() || undefined,
-        recording_provider: newRecordingUrl.includes("loom.com")
-          ? "loom"
-          : newRecordingUrl.includes("fathom")
-            ? "fathom"
-            : undefined,
-      }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/calls`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          call_type: newType,
+          recording_url: newRecordingUrl.trim() || undefined,
+          recording_provider: newRecordingUrl.includes("loom.com")
+            ? "loom"
+            : newRecordingUrl.includes("fathom")
+              ? "fathom"
+              : undefined,
+        }),
+      },
+    );
 
     if (!response.ok) {
       setCreateError(await readApiError(response));
@@ -648,14 +775,20 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <section className="flex flex-wrap items-baseline justify-between gap-3 border-t border-ink/20 pt-5">
         <Heading size="lg">Llamadas de consultoría</Heading>
         {isConsultant ? (
-          <Button type="button" onClick={() => setShowCreateForm((value) => !value)}>
+          <Button
+            type="button"
+            onClick={() => setShowCreateForm((value) => !value)}
+          >
             {showCreateForm ? "Cerrar" : "Registrar llamada"}
           </Button>
         ) : null}
       </section>
 
       {showCreateForm && isConsultant ? (
-        <form className="space-y-3 border-t border-ink/20 pt-5" onSubmit={submitCreate}>
+        <form
+          className="space-y-3 border-t border-ink/20 pt-5"
+          onSubmit={submitCreate}
+        >
           <div className="grid gap-3 md:grid-cols-[1fr_200px_1fr]">
             <Field label="Titulo">
               <Input
@@ -669,7 +802,9 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 aria-label="Tipo"
                 value={newType}
                 onChange={setNewType}
-                options={Object.entries(callTypeLabels).map(([value, label]) => ({ value, label }))}
+                options={Object.entries(callTypeLabels).map(
+                  ([value, label]) => ({ value, label }),
+                )}
               />
             </Field>
             <Field label="Enlace grabacion (Loom/Fathom, opcional)">
@@ -692,14 +827,22 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {isLoading ? (
         <LoadingBlock label="Cargando llamadas..." />
       ) : calls.length === 0 ? (
-        <div className="border-t border-ink/20 pt-5 text-sm text-muted">
-          {isConsultant
-            ? "Aún no hay llamadas registradas para esta organización."
-            : "Aún no hay llamadas registradas."}
-        </div>
+        <EmptyState
+          title="Aún no hay llamadas registradas"
+          hint={
+            isConsultant
+              ? "Esta organización todavía no tiene llamadas para revisar."
+              : "Cuando registres una llamada, aparecerá aquí."
+          }
+        />
       ) : (
         calls.map((call) => (
-          <CallDetail key={call.id} call={call} isConsultant={isConsultant} onChanged={loadCalls} />
+          <CallDetail
+            key={call.id}
+            call={call}
+            isConsultant={isConsultant}
+            onChanged={loadCalls}
+          />
         ))
       )}
     </div>

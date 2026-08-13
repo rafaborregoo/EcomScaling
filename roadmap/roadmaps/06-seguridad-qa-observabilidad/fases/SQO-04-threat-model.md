@@ -1,5 +1,32 @@
 # SQO-04 - Threat model
 
+> Correccion cross-tenant 2026-08-02: `upsertProductCost` verifica ahora el
+> `inventoryItemId` explícito con `organization_id` antes de insertar. Un ID de
+> inventario de otra organización devuelve `404 inventory_item_not_found` y no
+> puede quedar enlazado a un coste del tenant actual. Este patrón debe aplicarse
+> a cualquier futura escritura que reciba IDs de recursos relacionados.
+
+> Correccion 2026-08-02: esta matriz es un inventario vivo. Ya existen pruebas
+> Fastify reales de aislamiento de rutas y privilegios (`be-01-cross-tenant-
+> route-manipulation.test.ts`, `be-01-cross-tenant-write-endpoints.test.ts`,
+> `be-01-consultant-cross-tenant-write.test.ts` y
+> `sqo-04-platform-admin-privilege-escalation.test.ts`). Tambien existe el
+> limite diario de IA por organizacion con bloqueo fail-closed. Las filas que
+> siguen marcadas como riesgo abierto no deben interpretarse como resueltas por
+> esta nota.
+
+> Correccion de borrado 2026-08-02: `purgeExpiredDeletions` solo selecciona
+> filas `pending_deletion` cuyo `scheduled_purge_at` ya vencio. La suite
+> `db-08-purge-cascade.test.ts` verifica tanto la purga real con configuracion
+> financiera como la conservacion de una organizacion cuya gracia aun no ha
+> expirado. La purga de backups externos sigue fuera del alcance del worker.
+
+> Correccion SSRF 2026-08-02: la descarga de resultados Shopify Bulk ya valida
+> HTTPS, elimina credenciales embebidas y permite solo `storage.googleapis.com`
+> (`apps/api/src/shopify-bulk.ts`, `shopify-bulk-url.test.ts`). Esto cubre la
+> superficie concreta de resultados Bulk; otras futuras descargas de URLs deben
+> reutilizar el mismo criterio y no llamar a `fetch` directamente.
+
 ## Estado
 
 - **Estado real:** `planned` (no iniciado como documento — el roadmap ya lo preveia en el README de este
@@ -33,7 +60,7 @@ porque no se les ha ocurrido.
 | 7 | SQL generado malicioso via SQL Gateway (A03) | Base de datos completa | Validador AST (`sql-gateway.ts`): allowlist de tipos top-level, `FORBIDDEN_FUNCTIONS`, bloqueo de `pg_*`, filtro de tenant a nivel de RPC (`agent_sql_gateway`) | `sql-gateway.test.ts` (32 casos, incluye el nuevo test de `generate_series`/`regexp_split_to_table`/`jsonb_path_query`) + `be-07-sql-gateway-tenant-isolation.test.ts` (aislamiento end-to-end) | **Resuelto 2026-07-29**: la parte de `FORBIDDEN_FUNCTIONS` del gap ya esta cerrada. La otra mitad del gap citado el 2026-07-22 (`TOP_LEVEL_ALLOWED_TYPES` incluyendo `"with recursive"`) resulto ser **una lectura obsoleta al revisar el codigo actual** — `TOP_LEVEL_ALLOWED_TYPES` solo tiene `select`/`union`/`union all`/`with`/`values`; `"with recursive"` esta en `FORBIDDEN_NODE_TYPES` (rechazado siempre), no en la allowlist. No hay accion pendiente ahi. |
 | 8 | Exposicion de transcripciones/resumenes a quien no debe | `call_transcripts`, `call_ai_summaries`, `call_internal_notes` | RLS: cliente ve solo `published`, notas internas solo consultor/admin (DB-08) | Cubierto en `rls-tenant-isolation.test.ts` (draft vs. published) | Verificado el acceso; **sin politica de retencion/redaccion de PII en transcripciones** (SQO-03) |
 | 9 | IDOR en rutas organizacionales (organizationId manipulado en URL/body/query) | Cualquier endpoint de negocio | `AuthContext` + verificacion en bootstrap/listado consultor | **Sin test de integracion contra el servidor Fastify real con `organizationId` manipulado** (gap ya reconocido en BE-01) | Sin test — es el riesgo P0 mas citado y menos probado de todo el sistema |
-| 10 | Elevacion de privilegios (consultor actuando como `platform_admin`) | Operaciones de administracion (borrar/restaurar/editar organizacion) | `requirePlatformAdmin` en 5 puntos de `consultant.ts` (verificado en FE-07, 2026-07-22) | Verificado por lectura de codigo, **sin test automatizado que lo confirme** | Sin test — el control existe, la prueba no |
+| 10 | Elevacion de privilegios (consultor actuando como `platform_admin`) | Operaciones de administracion (borrar/restaurar/editar organizacion) | `requirePlatformAdmin` en 8 puntos de `consultant.ts` (recontado 2026-07-29, no 5 como decia la nota anterior) | `sqo-04-platform-admin-privilege-escalation.test.ts` (2026-07-29): servidor Fastify real, usuario con `platform_role = 'user'` (el default) que es *owner* de su propia organizacion, las 8 rutas devuelven 403 `platform_admin_required` | **Resuelto 2026-07-29**. Nota de proceso: el primer intento de este test fallaba con 409 `membership_missing` en las 8 rutas -- `private.can_access_org()` exige `is_active_org_member()` **y** `has_valid_subscription()`, asi que sin una fila real en `service_subscriptions` la RLS deja la membership invisible antes de llegar siquiera a `requirePlatformAdmin`. Verificado contra Supabase remoto real. |
 | 11 | Borrado destructivo irreversible | Organizaciones, tiendas | Soft-delete + `pending_deletion` + rutas de restore (R-008) | Existencia de las rutas confirmada (FE-07); **sin test de que el periodo de gracia se respete o de que el borrado fisico posterior sea correcto** | Parcial |
 | 12 | Supply-chain (dependencia comprometida) | Todo el monorepo | `gitleaks` en CI (secret scanning de git, no de dependencias) | `ci.yml` job `secret-scan` | **Sin `npm audit`/Dependabot/Renovate, sin SBOM, sin escaneo de imagenes Docker** |
 | 13 | Secretos en artefactos de build | Imagenes Docker, bundles de `apps/web` | Ninguno mas alla de gitleaks sobre el repo Git | Ninguno | Sin control — los Dockerfiles de BE-00 nunca se han construido de verdad (ver BE-00) |

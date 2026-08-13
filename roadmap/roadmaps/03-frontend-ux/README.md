@@ -4,6 +4,10 @@
 
 Construir una app usable para cliente y consultor sin presentar datos falsos como reales. Cada pantalla debe tener loading, empty, error, permisos, estados de sync y responsive.
 
+El criterio de terminado común está en el [objetivo global del SaaS](../../../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md):
+la UI debe estar lista para Shopify hoy y para activar Meta Ads, Klaviyo e Instagram mañana con los mismos
+componentes y contratos, cambiando solo capacidades, estado de conexión y datos disponibles.
+
 ## Contrato global
 
 Antes de tocar cualquier `fases/FE-XX-*.md` o codigo en `apps/web/src`, aplica

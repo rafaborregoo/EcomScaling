@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { RouterProvider } from "@heroui/react";
+import { RouterProvider } from "@/components/ui";
 
 // Sin esto, el Link real de HeroUI (React Aria) no sabe nada del router de
 // Next.js y hace recarga completa de pagina en cada navegacion. Este

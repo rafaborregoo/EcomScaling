@@ -1,6 +1,18 @@
 # INT-00 - Nucleo comun de integraciones
 
+> Corrección de evidencia 2026-08-02: `INTEGRATION_FEATURE_FLAGS` ya se aplica en el hook HTTP
+> compartido de `apps/api/src/server.ts`, no solo en el catálogo/UI. Las rutas OAuth, sync, assets,
+> métricas y reporting de Meta/Klaviyo responden `integration_feature_disabled` cuando el proveedor
+> está fuera del allowlist; Shopify permanece operativo según su configuración.
+
 ## Estado
+
+> **Estado actualizado 2026-08-01:** la interfaz `IntegrationAdapter` ya está implementada en
+> `apps/api/src/integration-adapters.ts` para Shopify y Meta Ads, incluyendo OAuth, refresh/health,
+> sync y webhooks de Shopify. Klaviyo e Instagram exponen adapters de contrato no disponibles:
+> devuelven `CREDENTIALS_MISSING` y health `unknown` sin crear datos ficticios. Las notas históricas
+> posteriores que describen este contrato como "todavía no implementado" quedan superseded por esta
+> actualización; se conservan para explicar la decisión y evolución.
 
 - **Estado real:** `in_progress`
 - **Responsable:** sin asignar
@@ -14,6 +26,13 @@
   `apps/api/src/integration-adapters.ts` (`IntegrationSyncAdapter` usado por los runners de Shopify y Meta),
   `apps/api/src/shopify-client.ts` y `apps/api/src/meta-client.ts` (clasificación compartida de errores HTTP/rate limit).
 - **Que existe:**
+
+> **Corrección documental 2026-08-02:** las notas históricas que describen el
+> `IntegrationAdapter`, el catálogo o los adapters de Klaviyo/Instagram como
+> inexistentes quedan superseded por el estado actual del código. La referencia de
+> preparación y activación es [`../CONTRATO_PREPARACION_CONECTORES.md`](../CONTRATO_PREPARACION_CONECTORES.md).
+> Shopify es operativo; Meta está preparado con validación externa pendiente; Klaviyo e
+> Instagram conservan un adapter contractual no disponible y no generan datos ficticios.
   - `integration_connections.status`: `pending | connected | syncing | error | disconnected | revoked`
     (constraint real en la migracion). No incluye `reauthorization_required` ni `degraded` como estados de
     DB — Shopify resuelve "reautorizacion necesaria" comparando scopes requeridos vs concedidos en tiempo
@@ -183,3 +202,9 @@ completa de OAuth, health operativo y webhooks sigue pendiente de cablearse sobr
 usan estos adapters; Shopify expone verificacion/procesamiento de webhooks y ambos exponen OAuth, refresh
 y health derivado. El descubrimiento Meta aun persiste activos directamente y el contrato devuelve una
 lista vacia porque la seleccion de activos no existe como funcionalidad de producto; no se fabrican assets.
+## Actualizacion 2026-08-01
+
+- `createIntegrationAdapters` expone el ciclo de vida comun para Shopify y Meta Ads, y tambien adapters de contrato para Klaviyo e Instagram.
+- Klaviyo e Instagram permanecen honestamente no disponibles: sus adapters devuelven `CREDENTIALS_MISSING` al intentar autorizar o sincronizar y derivan health `unknown` con `integration_not_available`; no crean conexiones, assets ni metricas ficticias.
+- Se anadio test contractual para ambos conectores futuros en `apps/api/src/integration-adapters.test.ts`. Activarlos requerira sustituir el adapter no disponible por un runner real, sin cambiar el dominio ni la UI.
+- `INTEGRATION_FEATURE_FLAGS` es un allowlist opcional reutilizable desde `@ecomscaling/integrations`; API y rutas de conexión/sync lo respetan. Si no se define, se conserva el catálogo actual (Shopify y Meta habilitados en código; Meta sigue necesitando credenciales). Un flag no puede activar un conector futuro que todavía no tenga implementación real.

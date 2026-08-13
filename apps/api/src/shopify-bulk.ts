@@ -1,6 +1,13 @@
 import { shopifyGraphql } from "./shopify-client.js";
 
-type BulkOperationStatus = "CREATED" | "RUNNING" | "COMPLETED" | "CANCELING" | "CANCELED" | "FAILED" | "EXPIRED";
+type BulkOperationStatus =
+  | "CREATED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "CANCELING"
+  | "CANCELED"
+  | "FAILED"
+  | "EXPIRED";
 
 type BulkOperationNode = {
   id: string;
@@ -10,9 +17,45 @@ type BulkOperationNode = {
   objectCount: string;
 };
 
-export type BulkLine = { id: string; __parentId?: string; [key: string]: unknown };
+export type BulkLine = {
+  id: string;
+  __parentId?: string;
+  [key: string]: unknown;
+};
 
-async function pollBulkOperation(shopDomain: string, accessToken: string, operationId: string) {
+const SHOPIFY_BULK_RESULT_HOST = "storage.googleapis.com";
+
+/**
+ * Shopify returns signed bulk JSONL files from Google Cloud Storage. Keep the
+ * destination allowlisted because the URL is returned by an external system
+ * and is later fetched by our server (SSRF boundary).
+ */
+export function validateBulkResultUrl(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("bulk_result_url_invalid");
+  }
+
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== SHOPIFY_BULK_RESULT_HOST ||
+    parsed.username ||
+    parsed.password ||
+    (parsed.port && parsed.port !== "443")
+  ) {
+    throw new Error("bulk_result_url_host_not_allowed");
+  }
+
+  return parsed.toString();
+}
+
+async function pollBulkOperation(
+  shopDomain: string,
+  accessToken: string,
+  operationId: string,
+) {
   const maxAttempts = 180;
   const intervalMs = 5000;
 
@@ -43,10 +86,17 @@ async function pollBulkOperation(shopDomain: string, accessToken: string, operat
     }
 
     if (operation.status === "COMPLETED") {
-      return { url: operation.url, objectCount: Number(operation.objectCount ?? 0) };
+      return {
+        url: operation.url,
+        objectCount: Number(operation.objectCount ?? 0),
+      };
     }
 
-    if (operation.status === "FAILED" || operation.status === "CANCELED" || operation.status === "EXPIRED") {
+    if (
+      operation.status === "FAILED" ||
+      operation.status === "CANCELED" ||
+      operation.status === "EXPIRED"
+    ) {
       throw new Error(
         `bulk_operation_${operation.status.toLowerCase()}${operation.errorCode ? `: ${operation.errorCode}` : ""}`,
       );
@@ -58,16 +108,29 @@ async function pollBulkOperation(shopDomain: string, accessToken: string, operat
   throw new Error("bulk_operation_timeout");
 }
 
-export async function runBulkOperation(shopDomain: string, accessToken: string, bulkQuery: string) {
-  const current = await shopifyGraphql<{ currentBulkOperation: BulkOperationNode | null }>(
+export async function runBulkOperation(
+  shopDomain: string,
+  accessToken: string,
+  bulkQuery: string,
+) {
+  const current = await shopifyGraphql<{
+    currentBulkOperation: BulkOperationNode | null;
+  }>(
     shopDomain,
     accessToken,
     `query { currentBulkOperation { id status errorCode url objectCount } }`,
     {},
   );
 
-  if (current.currentBulkOperation && ["CREATED", "RUNNING"].includes(current.currentBulkOperation.status)) {
-    await pollBulkOperation(shopDomain, accessToken, current.currentBulkOperation.id);
+  if (
+    current.currentBulkOperation &&
+    ["CREATED", "RUNNING"].includes(current.currentBulkOperation.status)
+  ) {
+    await pollBulkOperation(
+      shopDomain,
+      accessToken,
+      current.currentBulkOperation.id,
+    );
   }
 
   const started = await shopifyGraphql<{
@@ -92,7 +155,9 @@ export async function runBulkOperation(shopDomain: string, accessToken: string, 
   const userErrors = started.bulkOperationRunQuery.userErrors;
 
   if (userErrors?.length) {
-    throw new Error(`bulk_operation_start_failed: ${userErrors.map((item) => item.message).join("; ")}`);
+    throw new Error(
+      `bulk_operation_start_failed: ${userErrors.map((item) => item.message).join("; ")}`,
+    );
   }
 
   const operationId = started.bulkOperationRunQuery.bulkOperation?.id;
@@ -109,7 +174,7 @@ export async function fetchBulkResult(url: string | null): Promise<BulkLine[]> {
     return [];
   }
 
-  const response = await fetch(url);
+  const response = await fetch(validateBulkResultUrl(url));
 
   if (!response.ok) {
     throw new Error(`bulk_result_download_failed_${response.status}`);

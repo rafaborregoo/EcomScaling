@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Modal } from "@heroui/react";
-import { Button, Input } from "@/components/ui";
+import { Button, Input, Modal } from "@/components/ui";
 
 /**
  * Confirmacion para acciones de riesgo (borrar cliente, borrar tienda): exige

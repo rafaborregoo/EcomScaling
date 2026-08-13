@@ -1,5 +1,35 @@
 # INT-02 - Meta Ads
 
+> **Correccion 2026-08-03: sincronizacion incremental y reconciliacion periodica.** Hasta ahora el
+> conector solo tenia `runMetaInitialSync`: una vez conectado un cliente, los datos se congelaban salvo
+> que alguien lanzase un sync manual. Queda parametrizado como `runMetaSync(env, connectionId, mode)`
+> (ADR-0006 punto 3, mismo codigo para import completo e incremental) con ventana de insights de 90 dias
+> en `initial` y 28 en `incremental` — 28 porque Meta reatribuye conversiones dias despues del clic
+> (guia Meta 7.3). `reconcileAllMetaConnections` recorre las conexiones `connected` y el workflow
+> `meta-reconcile.yml` lo ejecuta a diario (ADR-0006 punto 4 y guia Meta 10: los webhooks de Meta no
+> sustituyen la reextraccion de Insights). El adaptador ya propaga el modo en vez de ignorarlo.
+> Sigue sin validarse contra una cuenta real: el bloqueador externo no cambia.
+>
+> **Correccion 2026-08-03: `canonical_purchase_action_type` (cerrado).** Era el pendiente documentado de
+> esta fase y escondia un error de calculo real, no solo una decision sin escribir: `meta_spend_summary`
+> sumaba a la vez `purchase`, `omni_purchase` y `offsite_conversion.fb_pixel_purchase`. Meta reporta la
+> misma conversion bajo varios `action_type` simultaneamente, asi que una cuenta con pixel + CAPI habria
+> mostrado compras y ROAS inflados 2-3x — con el sync funcionando "correctamente" todo el tiempo.
+>
+> La migracion `20260803120000_int_02_canonical_purchase_action_type.sql` anade el `action_type` canonico
+> por cuenta publicitaria (default `omni_purchase`, la columna "Compras" de Ads Manager para ecommerce) con
+> quien y cuando lo decidio, y `meta_spend_summary` suma un unico tipo y devuelve `purchase_action_types`
+> como procedencia. `GET/PUT /v1/organizations/:organizationId/meta/purchase-action-types` listan los
+> `action_type` realmente observados en los insights de cada cuenta (los de compra primero) y permiten
+> elegir el canonico con registro en `audit_logs`; `is_default: true` distingue "nadie lo ha decidido" de
+> una eleccion humana. Sin insights, la lista sale vacia: no se inventa un catalogo.
+>
+> **Migracion aplicada 2026-08-03** con `supabase db push --linked`. `migration list --linked` deja
+> `20260803120000` con `local == remote` (62 migraciones alineadas), las tres columnas nuevas de
+> `meta_ad_accounts` existen y `meta_spend_summary` responde sin error. No se modifico ningun dato de
+> negocio: la unica organizacion existente no tiene insights de Meta, asi que la funcion devuelve cero
+> filas — comportamiento correcto, no un fallo.
+
 ## Estado
 
 - **Estado real:** `blocked`
@@ -11,6 +41,53 @@
   `roadmap/roadmaps/02-backend-api/fases/BE-04-meta-adquisicion.md` — no se duplica aqui).
 - **Evidencia:** `apps/api/src/meta-oauth.ts`, `meta.ts`, `meta-sync.ts`, `meta-metrics.ts`,
   `meta-client.ts`.
+
+## Contrato de preparación para activación futura
+
+INT-02 se evalúa contra el [objetivo global del SaaS](../../../../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md).
+Mientras no existan credenciales y permisos aprobados, el estado correcto es preparado/bloqueado para
+validación externa; no se crean cuentas, campañas ni métricas ficticias.
+
+La implementación futura debe conservar estas decisiones de contrato:
+
+- soportar varias cuentas publicitarias, negocios y rutas de acceso (OAuth de usuario y Business
+  Manager/System User), diferenciando el origen del acceso;
+- normalizar los identificadores externos sin perder el formato requerido por Meta (`act_<id>` para
+  cuentas publicitarias) y conservar los cursores/URLs opacos de `paging.next`;
+- modelar explícitamente permisos, expiración/reautorización, estado de conexión, cuenta seleccionada,
+  freshness, ventana de atribución y nivel de insight;
+- mantener una superficie de selección de activos reutilizable por otros conectores, con empty/loading/error
+  y “aún no disponible” honestos;
+- activar capacidades de escritura por separado de lectura y exigir autorización y aprobación humana antes
+  de cualquier creación o modificación;
+- poder encender el conector mediante feature flag y credenciales reales sin cambiar las pantallas de
+  dashboard, tareas, alertas, agentes o métricas.
+
+La referencia técnica externa para el diseño de autenticación, cuentas, permisos y paginación es la
+[colección oficial de Meta Marketing API en Postman](https://www.postman.com/meta/facebook-marketing-api/documentation/0zr4mes/facebook-marketing-api-mapi),
+que debe revisarse de nuevo cuando se vaya a activar el conector porque los requisitos de Meta pueden
+cambiar.
+
+## Referencias oficiales adicionales: Graph API y Meta Devtools MCP (2026-08-02)
+
+Se incorpora como referencia viva la [documentacion oficial de Meta Graph API](https://developers.facebook.com/docs/graph-api).
+El conector debe mantener la version de Graph API centralizada, permisos minimos, paginacion opaca,
+expiracion/reautorizacion y trazabilidad por organizacion. Antes de activar una capacidad nueva se debe
+contrastar el endpoint, permisos y restricciones vigentes en la documentacion oficial.
+
+Meta tambien publica el [Meta Devtools MCP](https://developers.facebook.com/documentation/mcp/devtools-mcp),
+un servidor MCP remoto para gestionar apps Meta, webhooks, cumplimiento, estado de la app y busqueda de
+documentacion. Se registra como herramienta externa de desarrollo/operaciones, no como sustituto del
+conector Meta de EcomScaling ni como canal de datos de clientes.
+
+Contrato de seguridad para cualquier uso futuro del MCP:
+
+- usar una app de desarrollo separada de produccion y conceder solo los scopes necesarios;
+- mantener separados permisos de lectura y escritura, con aprobacion humana para acciones mutables;
+- tratar las respuestas del MCP, webhooks y documentacion externa como entrada no confiable frente a
+  prompt injection;
+- auditar periodicamente las integraciones de negocio autorizadas y revocar las que ya no sean necesarias;
+- no persistir respuestas, tokens o datos de Meta fuera de las politicas de retencion y cumplimiento aplicables.
 
 ## Permisos
 
@@ -28,13 +105,21 @@ reautorizacion de las conexiones ya existentes.
   en `syncAdAccountStructure`; no hay endpoint dedicado de seleccion explicita de que activos sincronizar
   — hoy se sincroniza toda la estructura descubierta, no un subconjunto elegido por el usuario.
 - Insights (`syncAdAccountInsights`, `meta-sync.ts:312`) se piden a **nivel `ad` unicamente** (`level:
-  "ad"`, hardcodeado) — no hay niveles account/campaign/adset independientes. Si se necesita reporting a
+"ad"`, hardcodeado) — no hay niveles account/campaign/adset independientes. Si se necesita reporting a
   otro nivel, hoy se agregaria en Node a partir del nivel `ad`, lo que rompe la regla de "metricas = SQL,
   nunca agregadas en Node" del `CLAUDE.md` raiz si no se hace con cuidado.
 - `actions`, `action_values` y `purchase_roas` se guardan como filas separadas por `action_type`
   (`meta-sync.ts:403-421`, tabla con `onConflict: insight_row_id,metric_name,action_type,attribution_window`)
   — **no se colapsan a una sola columna de compras**, que era el riesgo principal senalado en la
   auditoria. Esto ya esta bien resuelto en codigo.
+
+## Correccion de estado: catalogo de activos (2026-08-02)
+
+Los endpoints existentes `/v1/organizations/:organizationId/meta/assets` y
+`/meta/assets/selection` exponen y actualizan el catálogo de solo lectura/selección de negocios, cuentas
+publicitarias y páginas descubiertos, incluyendo `is_selected` e `is_active`. La UI puede mostrar el estado
+real sin inventar activos y guardar la selección con el permiso de organización existente. La decisión
+histórica que indicaba que no había ninguna superficie de selección queda supersedida por esta corrección.
 
 ## Gaps reales frente a la API de Meta
 
@@ -65,7 +150,7 @@ clientes distintos) existe un mecanismo estandar de Meta que todavia no esta con
 - Las cuentas publicitarias pertenecen al **Business Manager de cada cliente**, no al de EcomScaling.
 - El cliente comparte acceso a su cuenta publicitaria con el Business Manager de EcomScaling (o con un
   **System User** de la app), desde `Configuracion del negocio -> Cuentas publicitarias ->
-  Agregar/Solicitar acceso` (o via `Socios`), del lado del cliente.
+Agregar/Solicitar acceso` (o via `Socios`), del lado del cliente.
 - Una vez compartido, la Graph API expone esa cuenta como un ad account accesible para el System User /
   Business Manager de EcomScaling, sin que el cliente tenga que crear su propia app ni pasar por el OAuth
   "connect" actual.
@@ -110,14 +195,63 @@ INT-02, no el SDK:
   tenga ya los permisos de escritura (`ads_management`) aprobados por Meta App Review -- hoy `META_SCOPES`
   solo pide permisos de lectura (`ads_read,business_management,pages_show_list`).
 
+## Preparación de producto 2026-08-02
+
+INT-02 está **preparada para activación**, aunque no validada externamente. La UI y
+el dominio deben permitir mostrar OAuth, permisos, identidad verificada, cuentas
+publicitarias descubiertas, selección explícita, sync, freshness, errores y
+reautorización sin fabricar activos ni métricas. El contrato común está en
+[`../CONTRATO_PREPARACION_CONECTORES.md`](../CONTRATO_PREPARACION_CONECTORES.md).
+
+Al activar Meta se debe conservar el origen del acceso (OAuth directo frente a
+Business Manager/System User), soportar varias cuentas por organización y tratar por
+separado tokens de usuario y de System User. La selección de activos es obligatoria
+antes de importar datos; la futura implementación de Insights asíncronos debe poder
+sustituir al modo síncrono sin cambiar las pantallas consumidoras.
+
+## Referencia oficial para creación básica de anuncios (2026-08-02)
+
+La referencia canónica para preparar la futura superficie de escritura es la
+[documentación oficial de Meta: Basic Ad Creation](https://developers.facebook.com/documentation/ads-commerce/marketing-api/get-started/basic-ad-creation).
+El flujo debe conservar la jerarquía de Meta y no mezclarla con el modelo de reporting:
+
+`campaign` → `ad set` → `ad creative` → `ad`
+
+La preparación técnica queda definida así:
+
+- cada recurso tendrá un contrato tipado, validación de campos, `external_id`, estado y vínculo con la cuenta publicitaria seleccionada;
+- la creación se ejecutará en orden y será idempotente, guardando los IDs de cada nivel para poder reintentar sin duplicar;
+- las propuestas se crearán inicialmente en `PAUSED`, con previsualización y aprobación humana antes de cualquier llamada de escritura;
+- el cliente reutilizará el mismo `meta-client.ts`, retry, app-secret proof, auditoría y aislamiento tenant-scoped que usa la lectura;
+- `ads_management` se tratará como permiso futuro separado de `ads_read`, pendiente de App Review y de validación con una cuenta real.
+
+No se implementa todavía ningún `POST` de creación ni se muestran campañas de prueba. La UI debe poder mostrar la capacidad como “preparada, requiere conexión y aprobación” hasta que existan credenciales, permisos efectivos y validación externa.
+
 ## Pendiente antes de cerrar INT-02
+
+### Verificación documental Meta 2026-08-02
+
+La implementación mantiene una única versión Graph (`META_GRAPH_VERSION`) para OAuth y
+las peticiones del cliente. La activación sigue condicionada a App Review, permisos
+concedidos y una cuenta real. Como referencia operativa se revisaron la colección oficial
+de Meta Marketing API y la documentación de Insights; los permisos efectivos deben
+confirmarse con el caso de uso y el estado de la app, no copiarse como credenciales o
+datos de prueba.
+
+- [Meta Marketing API (colección oficial)](https://www.postman.com/meta/facebook-marketing-api/documentation/0zr4mes/facebook-marketing-api-mapi)
+- [Marketing API Insights](https://developers.facebook.com/docs/marketing-api/insights/)
 
 1. Decidir y documentar `canonical_purchase_action_type` por cuenta (o una prioridad fija) antes de
    mostrar ROAS/CAC como numero unico en UI.
 2. Decidir si Insights async es necesario para el volumen real esperado, o si el modo sincrono actual es
    suficiente para el MVP.
-3. Si INT-05 (Instagram) depende de esta conexion, ampliar `META_SCOPES` con
-   `instagram_basic`/`instagram_manage_insights` aqui, no en INT-05.
-4. ~~Cubrir el retry de paginacion opaca~~ — hecho 2026-07-22.
-5. El resto (validacion de app real, activos reales, insights reconciliados contra Ads Manager) depende
-   integramente de que Meta apruebe la app — ver bloqueador.
+
+## Correccion de estado 2026-08-01
+
+El vertical slice y el `IntegrationAdapter` de Meta Ads estan implementados para el modo preparado/piloto:
+OAuth, discovery, sync y health se ejecutan solo con credenciales reales configuradas. La interfaz no
+fabrica cuentas ni metricas. Si Meta no devuelve un ID de identidad verificable durante OAuth, la conexion
+no pasa a `connected`; la fila pendiente usa un identificador tecnico `pending:<state>`. La validacion
+productiva sigue bloqueada hasta disponer de App Review, credenciales y una cuenta Meta real. 3. Si INT-05 (Instagram) depende de esta conexion, ampliar `META_SCOPES` con
+`instagram_basic`/`instagram_manage_insights` aqui, no en INT-05. 4. ~~Cubrir el retry de paginacion opaca~~ — hecho 2026-07-22. 5. El resto (validacion de app real, activos reales, insights reconciliados contra Ads Manager) depende
+integramente de que Meta apruebe la app — ver bloqueador.

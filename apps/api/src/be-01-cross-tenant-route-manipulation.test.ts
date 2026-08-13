@@ -127,6 +127,7 @@ const CROSS_TENANT_ROUTES: Array<{ method: "GET"; path: (organizationId: string)
   { method: "GET", path: (id) => `/v1/organizations/${id}/meta/metrics`, label: "meta/metrics" },
   { method: "GET", path: (id) => `/v1/organizations/${id}/strategic-plan`, label: "strategic-plan" },
   { method: "GET", path: (id) => `/v1/organizations/${id}/ai/runs`, label: "ai/runs" },
+  { method: "GET", path: (id) => `/v1/organizations/${id}/ai/budget`, label: "ai/budget" },
   { method: "GET", path: (id) => `/v1/organizations/${id}/knowledge/documents`, label: "knowledge/documents" },
   { method: "GET", path: (id) => `/v1/organizations/${id}/calls`, label: "calls" },
   {

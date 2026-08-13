@@ -39,6 +39,15 @@
 
 Traer inversion, ROAS, estructura publicitaria y creatividades para comparar adquisicion con break-even.
 
+## Contrato de preparación 2026-08-02
+
+El backend queda preparado para activación futura aunque la validación externa esté
+bloqueada: OAuth, descubrimiento, selección explícita de activos, sync, salud,
+freshness y errores deben exponer contratos normalizados al portal. No se permiten
+tokens en frontend ni datos simulados. El flujo de varias cuentas y de acceso directo
+o Business Manager/System User se documenta en
+[`../../../04-integraciones/CONTRATO_PREPARACION_CONECTORES.md`](../../../04-integraciones/CONTRATO_PREPARACION_CONECTORES.md).
+
 ## Entregables
 
 - OAuth Meta.
@@ -52,4 +61,3 @@ Traer inversion, ROAS, estructura publicitaria y creatividades para comparar adq
 - Rate limits controlados.
 - Acciones arrays normalizadas.
 - Datos muestran periodo, fuente y freshness.
-

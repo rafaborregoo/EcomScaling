@@ -1,6 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -16,13 +17,22 @@ function createServiceClient(env: ApiEnv) {
 }
 
 function assertCanManage(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find((item) => item.organization_id === organizationId);
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
 
   if (!membership) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
-  if (context.profile.platform_role !== "platform_admin" && !["owner", "manager"].includes(membership.role)) {
+  if (
+    context.profile.platform_role !== "platform_admin" &&
+    !["owner", "manager"].includes(membership.role)
+  ) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -34,9 +44,22 @@ function assertCanManage(context: AuthContext, organizationId: string) {
   return { ok: true as const };
 }
 
-export async function listProductCosts(env: ApiEnv, authorization: string, context: AuthContext, organizationId: string) {
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+export async function listProductCosts(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+) {
+  if (
+    !context.memberships.some(
+      (membership) => membership.organization_id === organizationId,
+    )
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
   const token = authorization.slice("Bearer ".length);
@@ -52,7 +75,12 @@ export async function listProductCosts(env: ApiEnv, authorization: string, conte
     .limit(200);
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "product_costs_load_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "product_costs_load_failed",
+      detail: error.message,
+    };
   }
 
   return { ok: true as const, data: data ?? [] };
@@ -65,6 +93,44 @@ type UpsertCostInput = {
   currencyCode?: string;
   validFrom?: string;
 };
+
+export async function findOwnedInventoryItem(
+  supabase: SupabaseClient,
+  organizationId: string,
+  input: Pick<UpsertCostInput, "sku" | "inventoryItemId">,
+) {
+  const inventoryItemId = input.inventoryItemId ?? null;
+  const lookup = supabase
+    .from("shopify_inventory_items")
+    .select("id")
+    .eq("organization_id", organizationId);
+
+  const scopedLookup = inventoryItemId
+    ? lookup.eq("id", inventoryItemId)
+    : lookup.eq("sku", input.sku!);
+  const { data, error } = await scopedLookup.maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: inventoryItemId
+        ? "inventory_item_lookup_failed"
+        : "sku_lookup_failed",
+      detail: error.message,
+    };
+  }
+
+  if (!data) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: inventoryItemId ? "inventory_item_not_found" : "sku_not_found",
+    };
+  }
+
+  return { ok: true as const, data: { id: data.id as string } };
+}
 
 export async function upsertProductCost(
   env: ApiEnv,
@@ -82,30 +148,27 @@ export async function upsertProductCost(
   }
 
   if (!input.sku && !input.inventoryItemId) {
-    return { ok: false as const, statusCode: 400, error: "missing_sku_or_inventory_item_id" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "missing_sku_or_inventory_item_id",
+    };
   }
 
   const supabase = createServiceClient(env);
 
   let inventoryItemId = input.inventoryItemId ?? null;
 
-  if (!inventoryItemId && input.sku) {
-    const { data: inventoryItem, error: lookupError } = await supabase
-      .from("shopify_inventory_items")
-      .select("id")
-      .eq("organization_id", organizationId)
-      .eq("sku", input.sku)
-      .maybeSingle();
-
-    if (lookupError) {
-      return { ok: false as const, statusCode: 500, error: "sku_lookup_failed", detail: lookupError.message };
+  if (inventoryItemId || input.sku) {
+    const inventoryLookup = await findOwnedInventoryItem(
+      supabase,
+      organizationId,
+      input,
+    );
+    if (inventoryLookup.ok === false) {
+      return inventoryLookup;
     }
-
-    if (!inventoryItem) {
-      return { ok: false as const, statusCode: 404, error: "sku_not_found" };
-    }
-
-    inventoryItemId = inventoryItem.id;
+    inventoryItemId = inventoryLookup.data.id;
   }
 
   const { data, error } = await supabase
@@ -124,8 +187,25 @@ export async function upsertProductCost(
     .single();
 
   if (error || !data) {
-    return { ok: false as const, statusCode: 500, error: "product_cost_create_failed", detail: error?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "product_cost_create_failed",
+      detail: error?.message,
+    };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "shopify_product_costs.create_manual_cost",
+    entityType: "product_cost",
+    entityId: data.id,
+    newData: {
+      inventory_item_id: inventoryItemId,
+      unit_cost: input.unitCost,
+      currency_code: input.currencyCode ?? "EUR",
+    },
+  });
   return { ok: true as const, data: { id: data.id } };
 }

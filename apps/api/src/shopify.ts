@@ -11,20 +11,43 @@ import {
   type ShopifyOAuthEnv,
   verifyShopifyHmac,
 } from "./shopify-oauth.js";
-import { createIntegrationAdapters, toIntegrationConnection } from "./integration-adapters.js";
-import { resolveCredentialSecret, saveShopifyTokens } from "./shopify-token-store.js";
-import { registerShopifyWebhooks, shopifyWebhookCallbackUrl } from "./shopify-webhooks.js";
+import {
+  createIntegrationAdapters,
+  toIntegrationConnection,
+} from "./integration-adapters.js";
+import {
+  resolveCredentialSecret,
+  saveShopifyTokens,
+} from "./shopify-token-store.js";
+import {
+  registerShopifyWebhooks,
+  shopifyWebhookCallbackUrl,
+} from "./shopify-webhooks.js";
 import type { LoadedApiEnv } from "@ecomscaling/config";
+import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = LoadedApiEnv & ShopifyMultiAppEnv;
 
 type Result =
   | { ok: true; data: { redirectUrl: string } }
-  | { ok: false; statusCode: number; error: string; message?: string; detail?: string };
+  | {
+      ok: false;
+      statusCode: number;
+      error: string;
+      message?: string;
+      detail?: string;
+    };
 
 type SyncTriggerResult =
   | { ok: true; data: { status: string; connectionId: string } }
-  | { ok: false; statusCode: number; error: string; message?: string; detail?: string };
+  | {
+      ok: false;
+      statusCode: number;
+      error: string;
+      message?: string;
+      detail?: string;
+    };
 
 export const STALE_SYNCING_MS = 10 * 60 * 1000;
 
@@ -45,11 +68,19 @@ function createServiceClient(env: ApiEnv) {
 }
 
 function normalizeShopDomain(input: string) {
-  return input.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "");
 }
 
 function parseState(metadata: unknown) {
-  if (typeof metadata === "object" && metadata !== null && "state" in metadata) {
+  if (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    "state" in metadata
+  ) {
     const value = (metadata as Record<string, unknown>).state;
     return typeof value === "string" ? value : null;
   }
@@ -58,7 +89,11 @@ function parseState(metadata: unknown) {
 }
 
 function parseAppMode(metadata: unknown): ShopifyAppMode {
-  if (typeof metadata === "object" && metadata !== null && "app_mode" in metadata) {
+  if (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    "app_mode" in metadata
+  ) {
     const value = (metadata as Record<string, unknown>).app_mode;
     if (value === "custom") {
       return "custom";
@@ -75,6 +110,15 @@ export async function createShopifyConnectionAuthUrl(
   shopDomainInput: string,
   appMode: ShopifyAppMode = "public",
 ): Promise<Result> {
+  if (!isIntegrationFeatureEnabled("shopify", env.INTEGRATION_FEATURE_FLAGS)) {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "integration_disabled",
+      message: "La integracion Shopify esta desactivada por feature flag.",
+    };
+  }
+
   const shopDomain = normalizeShopDomain(shopDomainInput);
 
   let appEnv: ShopifyOAuthEnv;
@@ -85,7 +129,8 @@ export async function createShopifyConnectionAuthUrl(
       ok: false,
       statusCode: 400,
       error: "shopify_custom_app_not_configured",
-      message: "La app Shopify de distribucion personalizada no esta configurada todavia.",
+      message:
+        "La app Shopify de distribucion personalizada no esta configurada todavia.",
     };
   }
 
@@ -119,7 +164,10 @@ export async function createShopifyConnectionAuthUrl(
     };
   }
 
-  if (authContext.profile.platform_role !== "platform_admin" && !["owner", "manager"].includes(membership.role)) {
+  if (
+    authContext.profile.platform_role !== "platform_admin" &&
+    !["owner", "manager"].includes(membership.role)
+  ) {
     return {
       ok: false,
       statusCode: 403,
@@ -157,7 +205,21 @@ export async function createShopifyConnectionAuthUrl(
     };
   }
 
-  const authorization = await createIntegrationAdapters(env).shopify.buildAuthorizationUrl({
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: authContext.user.id,
+    action: "shopify.oauth_started",
+    entityType: "integration_connection",
+    newData: {
+      provider: "shopify",
+      shop_domain: shopDomain,
+      app_mode: appMode,
+    },
+  });
+
+  const authorization = await createIntegrationAdapters(
+    env,
+  ).shopify.buildAuthorizationUrl({
     organizationId,
     shopDomain,
     appMode,
@@ -179,6 +241,15 @@ export async function triggerShopifySync(
   organizationId: string,
   connectionId?: string,
 ): Promise<SyncTriggerResult> {
+  if (!isIntegrationFeatureEnabled("shopify", env.INTEGRATION_FEATURE_FLAGS)) {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "integration_disabled",
+      message: "La integracion Shopify esta desactivada por feature flag.",
+    };
+  }
+
   if (!authContext.profile.is_active) {
     return {
       ok: false,
@@ -200,12 +271,16 @@ export async function triggerShopifySync(
     };
   }
 
-  if (authContext.profile.platform_role !== "platform_admin" && !["owner", "manager"].includes(membership.role)) {
+  if (
+    authContext.profile.platform_role !== "platform_admin" &&
+    !["owner", "manager"].includes(membership.role)
+  ) {
     return {
       ok: false,
       statusCode: 403,
       error: "organization_manage_denied",
-      message: "Solo owner, manager o platform admin pueden sincronizar Shopify.",
+      message:
+        "Solo owner, manager o platform admin pueden sincronizar Shopify.",
     };
   }
 
@@ -244,7 +319,9 @@ export async function triggerShopifySync(
   }
 
   if (connection.status === "syncing") {
-    const updatedAt = connection.updated_at ? new Date(connection.updated_at).getTime() : Date.now();
+    const updatedAt = connection.updated_at
+      ? new Date(connection.updated_at).getTime()
+      : Date.now();
     const isStale = Date.now() - updatedAt > STALE_SYNCING_MS;
 
     if (!isStale) {
@@ -252,7 +329,8 @@ export async function triggerShopifySync(
         ok: false,
         statusCode: 409,
         error: "shopify_sync_already_running",
-        message: "Ya hay una sincronizacion de Shopify en curso para esta organizacion.",
+        message:
+          "Ya hay una sincronizacion de Shopify en curso para esta organizacion.",
       };
     }
 
@@ -272,7 +350,8 @@ export async function triggerShopifySync(
       ok: false,
       statusCode: 409,
       error: "shopify_connection_not_ready",
-      message: "La conexion Shopify debe estar conectada antes de poder sincronizar.",
+      message:
+        "La conexion Shopify debe estar conectada antes de poder sincronizar.",
     };
   }
 
@@ -302,21 +381,24 @@ export async function triggerShopifySync(
       }),
     })
     .catch(async (error: unknown) => {
-    const message = error instanceof Error ? error.message : "shopify_manual_sync_background_failed";
-    await supabase
-      .from("integration_connections")
-      .update({
-        status: "error",
-        last_error_at: new Date().toISOString(),
-        last_error_message: message,
-      })
-      .eq("id", connection.id);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "shopify_manual_sync_background_failed";
+      await supabase
+        .from("integration_connections")
+        .update({
+          status: "error",
+          last_error_at: new Date().toISOString(),
+          last_error_message: message,
+        })
+        .eq("id", connection.id);
 
-    console.error("Shopify manual sync failed", {
-      connection_id: connection.id,
-      organization_id: organizationId,
-      error: message,
-    });
+      console.error("Shopify manual sync failed", {
+        connection_id: connection.id,
+        organization_id: organizationId,
+        error: message,
+      });
     });
 
   return {
@@ -332,7 +414,8 @@ export async function handleShopifyOAuthCallback(
   env: ApiEnv,
   query: Record<string, string | string[] | undefined>,
 ): Promise<Result> {
-  const shop = typeof query.shop === "string" ? normalizeShopDomain(query.shop) : null;
+  const shop =
+    typeof query.shop === "string" ? normalizeShopDomain(query.shop) : null;
   const code = typeof query.code === "string" ? query.code : null;
   // Instalaciones gestionadas por Shopify (enlace de custom distribution del Dev
   // Dashboard) llegan sin nuestro state; en ese caso la garantia de autenticidad es el
@@ -350,7 +433,9 @@ export async function handleShopifyOAuthCallback(
   const supabase = createServiceClient(env);
   const { data: connections, error: lookupError } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, provider, provider_account_id, provider_account_name, status, metadata")
+    .select(
+      "id, organization_id, provider, provider_account_id, provider_account_name, status, metadata",
+    )
     .eq("provider", "shopify")
     .eq("provider_account_id", shop)
     .order("updated_at", { ascending: false })
@@ -365,8 +450,10 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
-  const pending = (connections ?? []).find((connection) => parseState(connection.metadata) === state) ??
-    (connections ?? [])[0];
+  const pending =
+    (connections ?? []).find(
+      (connection) => parseState(connection.metadata) === state,
+    ) ?? (connections ?? [])[0];
 
   const pendingConnection = pending as
     | {
@@ -413,7 +500,8 @@ export async function handleShopifyOAuthCallback(
       ok: false,
       statusCode: 500,
       error: "shopify_custom_app_not_configured",
-      message: "La app Shopify de distribucion personalizada no esta configurada en el servidor.",
+      message:
+        "La app Shopify de distribucion personalizada no esta configurada en el servidor.",
     };
   }
 
@@ -453,7 +541,8 @@ export async function handleShopifyOAuthCallback(
       connected_at: now,
       last_sync_at: now,
       metadata: {
-        ...(typeof pendingConnection.metadata === "object" && pendingConnection.metadata !== null
+        ...(typeof pendingConnection.metadata === "object" &&
+        pendingConnection.metadata !== null
           ? (pendingConnection.metadata as Record<string, unknown>)
           : {}),
         state: state ?? storedState,
@@ -473,7 +562,13 @@ export async function handleShopifyOAuthCallback(
   }
 
   try {
-    await saveShopifyTokens(supabase, pendingConnection.id, shop, resolveCredentialSecret(env), tokenResult);
+    await saveShopifyTokens(
+      supabase,
+      pendingConnection.id,
+      shop,
+      resolveCredentialSecret(env),
+      tokenResult,
+    );
   } catch (error) {
     // Sin fallback a metadata: el token expiring necesita access+refresh+ambas fechas
     // de forma consistente para poder renovarse despues, asi que una escritura parcial
@@ -515,20 +610,34 @@ export async function handleShopifyOAuthCallback(
     };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId: pendingConnection.organization_id,
+    actorUserId: null,
+    action: "shopify.oauth_connected",
+    entityType: "integration_connection",
+    entityId: pendingConnection.id,
+    newData: {
+      provider: "shopify",
+      shop_domain: shop,
+      scopes: tokenResult.scope
+        .split(",")
+        .map((scope) => scope.trim())
+        .filter(Boolean),
+    },
+  });
+
   void registerShopifyWebhooks(
     shop,
     tokenResult.accessToken,
     shopifyWebhookCallbackUrl(env.SHOPIFY_REDIRECT_URI),
     pendingConnection.organization_id,
-  ).catch(
-    (error: unknown) => {
-      console.error("Shopify webhook registration failed", {
-        connection_id: pendingConnection.id,
-        organization_id: pendingConnection.organization_id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    },
-  );
+  ).catch((error: unknown) => {
+    console.error("Shopify webhook registration failed", {
+      connection_id: pendingConnection.id,
+      organization_id: pendingConnection.organization_id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 
   const shopifySyncAdapter = createIntegrationAdapters(env).shopify;
   void shopifySyncAdapter
@@ -542,12 +651,15 @@ export async function handleShopifyOAuthCallback(
       }),
     })
     .catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : "shopify_initial_sync_background_failed";
-    console.error("Shopify initial sync failed", {
-      connection_id: pendingConnection.id,
-      organization_id: pendingConnection.organization_id,
-      error: message,
-    });
+      const message =
+        error instanceof Error
+          ? error.message
+          : "shopify_initial_sync_background_failed";
+      console.error("Shopify initial sync failed", {
+        connection_id: pendingConnection.id,
+        organization_id: pendingConnection.organization_id,
+        error: message,
+      });
     });
 
   return {

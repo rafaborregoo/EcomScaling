@@ -1,5 +1,24 @@
 # INT-01 - Shopify
 
+> Correccion de aislamiento 2026-08-02: la unicidad del fingerprint se aplica por proveedor y
+> conexion (`20260802153000_db_04_webhook_fingerprint_connection_scope.sql`), evitando colisiones
+> entre tiendas Shopify con payloads identicos. La migracion esta aplicada y validada con lint remoto.
+
+> Correccion de seguridad 2026-08-02: las URLs firmadas de resultados Shopify
+> Bulk se validan antes de descargarse y solo se acepta `https://storage.googleapis.com`.
+> La decisión sigue el contrato oficial de Bulk Operations y evita convertir la
+> URL devuelta por Shopify en una salida SSRF del backend.
+
+> Verificacion adicional 2026-08-02: la idempotencia de webhooks conserva la deduplicacion
+> concurrente y ahora permite reintentar de forma atomica eventos `failed` (ademas de recuperar un
+> `received` estancado durante mas de cinco minutos). `db-04-webhook-idempotency.test.ts` pasa 3/3
+> contra Supabase real. Esto cierra el caso de reintento transitorio sin duplicar efectos.
+
+> Verificación operativa adicional 2026-08-02: producción tiene 1 conexión Shopify `connected`,
+> una tienda con datos persistidos y las últimas 5 ejecuciones incrementales `succeeded` sin
+> registros fallidos. Los edge cases restantes se mantienen explícitos y no rebajan el estado
+> `pilot_ready`.
+
 ## Estado
 
 - **Estado real:** `pilot_ready` (**actualizado 2026-07-22** — los 5 items del checklist "Cierre real" ya
@@ -11,7 +30,7 @@
 - **Dependencias:** INT-00, DB-05, BE-03
 - **Bloqueador:** Shopify aun no ha aprobado la distribucion publica de la app
   (`docs/decisions/ADR-0005-shopify-distribution.md`); en produccion se usa temporalmente `Custom
-  distribution` (commit `bf54847`, 2026-07-17) hasta esa aprobacion. La instalacion via un link de
+distribution` (commit `bf54847`, 2026-07-17) hasta esa aprobacion. La instalacion via un link de
   distribucion custom llega sin el `state` que el backend sembraria en el flujo OAuth propio — ya se
   acepta HMAC + coincidencia de shop-domain como alternativa (commit `f74fcc0`, 2026-07-20).
 - **Evidencia:** `apps/api/src/shopify-oauth.ts`, `shopify.ts`, `shopify-sync.ts`, `shopify-bulk.ts`,
@@ -47,13 +66,13 @@ Bulk Operations (`shopify-bulk.ts`) para importacion inicial y consultas grandes
 implementa import completo e incremental (`updated_at >= last_sync_at`) como el mismo codigo
 parametrizado, por bloque:
 
-| Bloque | Metodo inicial | Incremental | Reconciliacion |
-| --- | --- | --- | --- |
-| Catalog (productos/variantes) | Bulk | Webhook (`products/update`) + query | `shopify-reconcile.ts` |
-| Inventory | Bulk | Webhook (`inventory_levels/update`) + query | `shopify-reconcile.ts` |
-| Orders | Bulk | Webhook (`orders/create`, `orders/updated`) + watermark | `shopify-reconcile.ts` |
-| Refunds | Bulk | **Sin webhook dedicado** (ver gap abajo) | `shopify-reconcile.ts` |
-| Customers | Bulk minimo (referencia pseudonimizada) | Order sync | `shopify-reconcile.ts` |
+| Bloque                        | Metodo inicial                          | Incremental                                             | Reconciliacion         |
+| ----------------------------- | --------------------------------------- | ------------------------------------------------------- | ---------------------- |
+| Catalog (productos/variantes) | Bulk                                    | Webhook (`products/update`) + query                     | `shopify-reconcile.ts` |
+| Inventory                     | Bulk                                    | Webhook (`inventory_levels/update`) + query             | `shopify-reconcile.ts` |
+| Orders                        | Bulk                                    | Webhook (`orders/create`, `orders/updated`) + watermark | `shopify-reconcile.ts` |
+| Refunds                       | Bulk                                    | **Sin webhook dedicado** (ver gap abajo)                | `shopify-reconcile.ts` |
+| Customers                     | Bulk minimo (referencia pseudonimizada) | Order sync                                              | `shopify-reconcile.ts` |
 
 ## Webhooks
 

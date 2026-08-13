@@ -14,7 +14,6 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/domain/package.json packages/domain/package.json
 COPY packages/integrations/package.json packages/integrations/package.json
 COPY packages/observability/package.json packages/observability/package.json
-COPY packages/ui/package.json packages/ui/package.json
 COPY apps/api/package.json apps/api/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY apps/web/package.json apps/web/package.json

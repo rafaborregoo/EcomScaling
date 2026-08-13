@@ -8,5 +8,8 @@ export function isStaleShopifyReconcileRepeatable(
   repeatable: { name: string; pattern?: string | null },
   currentCronPattern: string,
 ): boolean {
-  return repeatable.name === "shopify-reconcile" && repeatable.pattern !== currentCronPattern;
+  return (
+    repeatable.name === "shopify-reconcile" &&
+    repeatable.pattern !== currentCronPattern
+  );
 }

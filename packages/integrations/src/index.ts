@@ -59,11 +59,11 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = [
     name: "Klaviyo",
     phase: "INT-03",
     description: "Listas, segmentos, flows, campañas y revenue email.",
-    available: false,
+    available: true,
     featureFlag: "integration.klaviyo",
     capabilities: {
       oauth: true,
-      tokenRefresh: false,
+      tokenRefresh: true,
       webhooks: false,
       initialSync: true,
       incrementalSync: true,
@@ -84,9 +84,35 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = [
       initialSync: true,
       incrementalSync: true,
       assetSelection: true,
+      authStrategies: ["instagram_login", "facebook_login"],
     },
   },
 ];
+
+/**
+ * Optional runtime allowlist. An unset value preserves catalog defaults;
+ * when set, only listed catalog entries remain enabled. A future provider
+ * still cannot become available by flag alone: it needs a real implementation.
+ */
+export function isIntegrationFeatureEnabled(
+  provider: IntegrationProvider,
+  configuredFlags?: string,
+): boolean {
+  const catalogEntry = INTEGRATION_CATALOG.find((item) => item.id === provider);
+  if (!catalogEntry?.available) return false;
+  if (!configuredFlags?.trim()) return true;
+
+  const enabled = new Set(
+    configuredFlags
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  // Accept the short env form (`meta_ads`) and the canonical catalog form
+  // (`integration.meta_ads`) so the public contract cannot disagree with the
+  // runtime allowlist parser.
+  return enabled.has(provider) || enabled.has(catalogEntry.featureFlag);
+}
 
 export type IntegrationCapabilities = {
   oauth: boolean;
@@ -95,6 +121,7 @@ export type IntegrationCapabilities = {
   initialSync: boolean;
   incrementalSync: boolean;
   assetSelection: boolean;
+  authStrategies?: Array<"instagram_login" | "facebook_login">;
 };
 
 export type IntegrationConnection = {
@@ -102,7 +129,10 @@ export type IntegrationConnection = {
   organizationId: string;
   storeId?: string | null;
   provider: IntegrationProvider;
-  status: "pending" | "connected" | "syncing" | "error" | "disconnected" | "revoked";
+  /** Instagram may be authorized through either official Meta login route. */
+  authStrategy?: "instagram_login" | "facebook_login" | null;
+  status:
+    "pending" | "connected" | "syncing" | "error" | "disconnected" | "revoked";
   lastSyncAt?: string | null;
   lastErrorAt?: string | null;
   latestSyncStatus?: string | null;
@@ -115,18 +145,42 @@ export type IntegrationAuthorizationContext = {
   appMode?: "public" | "custom";
   redirectUri: string;
   state: string;
+  codeChallenge?: string;
+  authStrategy?: "instagram_login" | "facebook_login";
 };
 
 export type AuthorizationUrlResult = { url: string };
 export type AuthorizationCallbackInput = {
   code: string;
   state: string;
+  codeVerifier?: string;
   shopDomain?: string;
   appMode?: "public" | "custom";
 };
 export type CredentialRefreshResult = { expiresAt?: string | null };
 export type DiscoveredAsset = { id: string; name: string; type: string };
-export type RawWebhookRequest = { headers: Record<string, string | undefined>; body: string };
+
+export type IntegrationAssetKind = "business" | "ad_account" | "page";
+export type IntegrationAsset = {
+  id: string;
+  externalId: string;
+  name: string;
+  kind: IntegrationAssetKind;
+  selected: boolean;
+  active: boolean;
+  parentId?: string | null;
+};
+export type IntegrationAssetSelection = {
+  status: "unavailable" | "not_connected" | "empty" | "ready" | "degraded";
+  source: "live" | "none";
+  assets: IntegrationAsset[];
+  selectedCount: number;
+  message?: string;
+};
+export type RawWebhookRequest = {
+  headers: Record<string, string | undefined>;
+  body: string;
+};
 export type VerifiedWebhook = {
   provider: IntegrationProvider;
   topic: string;
@@ -134,7 +188,10 @@ export type VerifiedWebhook = {
   rawBody?: string;
   headers?: Record<string, string | undefined>;
 };
-export type WebhookProcessingResult = { processed: boolean; duplicate?: boolean };
+export type WebhookProcessingResult = {
+  processed: boolean;
+  duplicate?: boolean;
+};
 export type IntegrationSyncInput = {
   connection: IntegrationConnection;
   mode: "initial" | "incremental";
@@ -176,34 +233,54 @@ export type IntegrationHealthInput = {
 };
 
 /** Derives a truthful product state from persisted connection/sync facts. */
-export function deriveIntegrationHealth(input: IntegrationHealthInput): IntegrationHealth {
+export function deriveIntegrationHealth(
+  input: IntegrationHealthInput,
+): IntegrationHealth {
   const lastSyncAt = input.lastSyncAt ?? null;
   const base = { lastSyncAt };
 
-  if (!input.available) return { ...base, status: "unknown", reason: "integration_not_available" };
-  if (!input.connectionStatus) return { ...base, status: "unknown", reason: "not_connected" };
+  if (!input.available)
+    return { ...base, status: "unknown", reason: "integration_not_available" };
+  if (!input.connectionStatus)
+    return { ...base, status: "unknown", reason: "not_connected" };
   if (input.connectionStatus === "revoked") {
-    return { ...base, status: "reauthorization_required", reason: "authorization_revoked" };
+    return {
+      ...base,
+      status: "reauthorization_required",
+      reason: "authorization_revoked",
+    };
   }
-  if (input.connectionStatus === "syncing" || input.latestSyncStatus === "running") {
+  if (
+    input.connectionStatus === "syncing" ||
+    input.latestSyncStatus === "running"
+  ) {
     return { ...base, status: "syncing" };
   }
-  if (input.connectionStatus === "error") return { ...base, status: "degraded", reason: "connection_error" };
+  if (input.connectionStatus === "error")
+    return { ...base, status: "degraded", reason: "connection_error" };
   if (input.connectionStatus === "pending") {
     return { ...base, status: "unknown", reason: "authorization_pending" };
   }
-  if (input.connectionStatus === "disconnected") return { ...base, status: "unknown", reason: "disconnected" };
-  if (input.latestSyncStatus === "failed" || input.latestSyncStatus === "partial") {
+  if (input.connectionStatus === "disconnected")
+    return { ...base, status: "unknown", reason: "disconnected" };
+  if (
+    input.latestSyncStatus === "failed" ||
+    input.latestSyncStatus === "partial"
+  ) {
     return { ...base, status: "degraded", reason: "last_sync_failed" };
   }
-  if (!lastSyncAt) return { ...base, status: "unknown", reason: "never_synced" };
+  if (!lastSyncAt)
+    return { ...base, status: "unknown", reason: "never_synced" };
 
   const lastSyncTime = new Date(lastSyncAt).getTime();
   const now = (input.now ?? new Date()).getTime();
   if (!Number.isFinite(lastSyncTime) || !Number.isFinite(now)) {
     return { ...base, status: "unknown", reason: "invalid_sync_timestamp" };
   }
-  if (input.lastErrorAt && new Date(input.lastErrorAt).getTime() > lastSyncTime) {
+  if (
+    input.lastErrorAt &&
+    new Date(input.lastErrorAt).getTime() > lastSyncTime
+  ) {
     return { ...base, status: "degraded", reason: "recent_sync_error" };
   }
   if (now - lastSyncTime > (input.staleAfterMs ?? DEFAULT_STALE_AFTER_MS)) {
@@ -256,17 +333,29 @@ export type IntegrationSyncAdapter = {
   readonly provider: IntegrationProvider;
   readonly capabilities: IntegrationCapabilities;
   runInitialSync(input: IntegrationSyncInput): Promise<IntegrationSyncResult>;
-  runIncrementalSync(input: IntegrationSyncInput): Promise<IntegrationSyncResult>;
+  runIncrementalSync(
+    input: IntegrationSyncInput,
+  ): Promise<IntegrationSyncResult>;
 };
 
 export type IntegrationAdapter = IntegrationSyncAdapter & {
-  buildAuthorizationUrl(context: IntegrationAuthorizationContext): Promise<AuthorizationUrlResult>;
-  exchangeAuthorizationCode(input: AuthorizationCallbackInput): Promise<CredentialExchangeResult>;
-  refreshCredentials?(connection: IntegrationConnection): Promise<CredentialRefreshResult>;
-  discoverAssets?(connection: IntegrationConnection): Promise<DiscoveredAsset[]>;
+  buildAuthorizationUrl(
+    context: IntegrationAuthorizationContext,
+  ): Promise<AuthorizationUrlResult>;
+  exchangeAuthorizationCode(
+    input: AuthorizationCallbackInput,
+  ): Promise<CredentialExchangeResult>;
+  refreshCredentials?(
+    connection: IntegrationConnection,
+  ): Promise<CredentialRefreshResult>;
+  discoverAssets?(
+    connection: IntegrationConnection,
+  ): Promise<DiscoveredAsset[]>;
   verifyWebhook?(request: RawWebhookRequest): Promise<VerifiedWebhook>;
   processWebhook?(webhook: VerifiedWebhook): Promise<WebhookProcessingResult>;
-  getConnectionHealth(connection: IntegrationConnection): Promise<IntegrationHealth>;
+  getConnectionHealth(
+    connection: IntegrationConnection,
+  ): Promise<IntegrationHealth>;
 };
 
 export const integrationsPackage = "ecomscaling-integrations";

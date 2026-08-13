@@ -4,7 +4,21 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Badge, Banner, Button, Card, Field, Input, LoadingBlock, Select, Table, Tabs, type TableColumnDef } from "@/components/ui";
+import { readApiError } from "@/lib/api-error";
+import {
+  Badge,
+  Banner,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  LoadingBlock,
+  Select,
+  Table,
+  Tabs,
+  type TableColumnDef,
+} from "@/components/ui";
 
 type ShopifyOverviewLite = {
   authorized_scopes: string[];
@@ -19,11 +33,17 @@ type ShopifyOverviewLite = {
 };
 
 async function readShopifyOverviewError(response: Response) {
-  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  const body = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
   return body?.error ?? `HTTP ${response.status}`;
 }
 
-function ShopifyCoverageSection({ organizationId }: { organizationId: string }) {
+function ShopifyCoverageSection({
+  organizationId,
+}: {
+  organizationId: string;
+}) {
   const [overview, setOverview] = useState<ShopifyOverviewLite | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,7 +53,9 @@ function ShopifyCoverageSection({ organizationId }: { organizationId: string }) 
 
     async function load() {
       setIsLoading(true);
-      const response = await apiFetch(`/v1/organizations/${organizationId}/shopify/overview`);
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/shopify/overview`,
+      );
 
       if (cancelled) {
         return;
@@ -65,22 +87,42 @@ function ShopifyCoverageSection({ organizationId }: { organizationId: string }) 
   }
 
   if (!overview) {
-    return <Banner tone="warn">Conecta una tienda Shopify para ver la cobertura de datos.</Banner>;
+    return (
+      <Banner tone="warn">
+        Conecta una tienda Shopify para ver la cobertura de datos.
+      </Banner>
+    );
   }
 
   const statusLabel = (dataset: ShopifyOverviewLite["datasets"][number]) => {
     if (dataset.status === "active") {
       return { label: "se vuelca", tone: "success" as const };
     }
-    const hasScope = dataset.scopes.some((scope) => overview.authorized_scopes.includes(scope));
+    const hasScope = dataset.scopes.some((scope) =>
+      overview.authorized_scopes.includes(scope),
+    );
     return hasScope
       ? { label: "autorizado pendiente", tone: "brand" as const }
       : { label: "requiere permiso", tone: "neutral" as const };
   };
 
-  const columns: TableColumnDef<ShopifyOverviewLite["datasets"][number] & { id: string }>[] = [
-    { key: "label", label: "Dataset", render: (row) => <span className="font-medium">{row.label}</span> },
-    { key: "table", label: "Tabla", render: (row) => <span className="font-mono text-xs text-muted">{row.table ?? "pendiente_modelo"}</span> },
+  const columns: TableColumnDef<
+    ShopifyOverviewLite["datasets"][number] & { id: string }
+  >[] = [
+    {
+      key: "label",
+      label: "Dataset",
+      render: (row) => <span className="font-medium">{row.label}</span>,
+    },
+    {
+      key: "table",
+      label: "Tabla",
+      render: (row) => (
+        <span className="font-mono text-xs text-muted">
+          {row.table ?? "pendiente_modelo"}
+        </span>
+      ),
+    },
     {
       key: "status",
       label: "Estado",
@@ -89,14 +131,21 @@ function ShopifyCoverageSection({ organizationId }: { organizationId: string }) 
         return <Badge tone={status.tone}>{status.label}</Badge>;
       },
     },
-    { key: "count", label: "Registros", render: (row) => <span className="font-mono">{row.count}</span> },
+    {
+      key: "count",
+      label: "Registros",
+      render: (row) => <span className="font-mono">{row.count}</span>,
+    },
   ];
 
   return (
     <Table
       ariaLabel="Cobertura de datos de Shopify"
       columns={columns}
-      rows={overview.datasets.map((dataset) => ({ id: dataset.key, ...dataset }))}
+      rows={overview.datasets.map((dataset) => ({
+        id: dataset.key,
+        ...dataset,
+      }))}
     />
   );
 }
@@ -131,13 +180,6 @@ type FinancialConfigResponse = {
   metric_targets: unknown[];
 };
 
-async function readApiError(response: Response) {
-  const body = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string; detail?: string }
-    | null;
-  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
-}
-
 function FinancialConfigSection({
   bootstrap,
   organizationId,
@@ -145,7 +187,9 @@ function FinancialConfigSection({
   bootstrap: BootstrapResponse;
   organizationId: string;
 }) {
-  const membership = bootstrap.memberships.find((item) => item.organization_id === organizationId);
+  const membership = bootstrap.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
   const canManage =
     bootstrap.profile.platform_role === "platform_admin" ||
     ["owner", "manager"].includes(membership?.role ?? "");
@@ -162,11 +206,15 @@ function FinancialConfigSection({
 
   const [expenseName, setExpenseName] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
-  const [expensePeriod, setExpensePeriod] = useState<"monthly" | "yearly">("monthly");
+  const [expensePeriod, setExpensePeriod] = useState<"monthly" | "yearly">(
+    "monthly",
+  );
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
-    const response = await apiFetch(`/v1/organizations/${organizationId}/financial-config`);
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/financial-config`,
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -192,15 +240,19 @@ function FinancialConfigSection({
     setIsSaving(true);
     setError(null);
 
-    const response = await apiFetch(`/v1/organizations/${organizationId}/financial-config/settings`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        paymentFeePct: paymentFeePct === "" ? 0 : Number(paymentFeePct),
-        paymentFeeFixed: paymentFeeFixed === "" ? 0 : Number(paymentFeeFixed),
-        defaultShippingCost: defaultShippingCost === "" ? 0 : Number(defaultShippingCost),
-      }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/financial-config/settings`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentFeePct: paymentFeePct === "" ? 0 : Number(paymentFeePct),
+          paymentFeeFixed: paymentFeeFixed === "" ? 0 : Number(paymentFeeFixed),
+          defaultShippingCost:
+            defaultShippingCost === "" ? 0 : Number(defaultShippingCost),
+        }),
+      },
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -217,15 +269,18 @@ function FinancialConfigSection({
     event.preventDefault();
     setError(null);
 
-    const response = await apiFetch(`/v1/organizations/${organizationId}/financial-config/fixed-expenses`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: expenseName,
-        amount: Number(expenseAmount),
-        billingPeriod: expensePeriod,
-      }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/financial-config/fixed-expenses`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: expenseName,
+          amount: Number(expenseAmount),
+          billingPeriod: expensePeriod,
+        }),
+      },
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -258,7 +313,11 @@ function FinancialConfigSection({
   }
 
   const monthlyFixedTotal = (config?.fixed_expenses ?? []).reduce(
-    (total, expense) => total + (expense.billing_period === "yearly" ? expense.amount / 12 : expense.amount),
+    (total, expense) =>
+      total +
+      (expense.billing_period === "yearly"
+        ? expense.amount / 12
+        : expense.amount),
     0,
   );
 
@@ -268,7 +327,8 @@ function FinancialConfigSection({
 
       {!canManage ? (
         <Banner tone="warn">
-          Solo lectura: necesitas rol owner o manager para editar la configuración financiera.
+          Solo lectura: necesitas rol owner o manager para editar la
+          configuración financiera.
         </Banner>
       ) : null}
 
@@ -314,7 +374,9 @@ function FinancialConfigSection({
             </Button>
           </div>
         </form>
-        {savedAt ? <p className="mt-2 text-xs text-muted">Guardado a las {savedAt}.</p> : null}
+        {savedAt ? (
+          <p className="mt-2 text-xs text-muted">Guardado a las {savedAt}.</p>
+        ) : null}
       </Card>
 
       <Card
@@ -348,7 +410,9 @@ function FinancialConfigSection({
               <Select
                 aria-label="Periodicidad del gasto"
                 value={expensePeriod}
-                onChange={(value) => setExpensePeriod(value === "yearly" ? "yearly" : "monthly")}
+                onChange={(value) =>
+                  setExpensePeriod(value === "yearly" ? "yearly" : "monthly")
+                }
                 options={[
                   { value: "monthly", label: "al mes" },
                   { value: "yearly", label: "al año" },
@@ -361,12 +425,16 @@ function FinancialConfigSection({
 
         <div className="mt-4 divide-y divide-line border-t border-line">
           {(config?.fixed_expenses ?? []).length === 0 ? (
-            <p className="py-3 text-sm text-muted">
-              Sin gastos fijos configurados. Sin ellos el break-even del dashboard no es fiable.
-            </p>
+            <EmptyState
+              title="Sin gastos fijos configurados"
+              hint="Sin ellos el break-even del dashboard no es fiable."
+            />
           ) : (
             (config?.fixed_expenses ?? []).map((expense) => (
-              <div key={expense.id} className="flex items-center justify-between gap-4 py-3">
+              <div
+                key={expense.id}
+                className="flex items-center justify-between gap-4 py-3"
+              >
                 <div>
                   <p className="text-sm font-medium">{expense.name}</p>
                   <p className="font-mono text-xs text-muted">
@@ -376,7 +444,8 @@ function FinancialConfigSection({
                 </div>
                 <div className="flex items-center gap-3">
                   <p className="font-mono text-sm">
-                    {Number(expense.amount).toFixed(2)} {expense.billing_period === "yearly" ? "/año" : "/mes"}
+                    {Number(expense.amount).toFixed(2)}{" "}
+                    {expense.billing_period === "yearly" ? "/año" : "/mes"}
                   </p>
                   {canManage ? (
                     <Button
@@ -398,7 +467,13 @@ function FinancialConfigSection({
   );
 }
 
-function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
+function InfoRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex justify-between gap-4">
       <dt className="text-muted">{label}</dt>
@@ -410,10 +485,15 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const organization =
-    bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
-      ?.organization ?? bootstrap.memberships[0]?.organization ?? null;
+    bootstrap.memberships.find(
+      (membership) => membership.organization_id === selectedOrganizationId,
+    )?.organization ??
+    bootstrap.memberships[0]?.organization ??
+    null;
   const subscription = organization
-    ? bootstrap.subscriptions.find((item) => item.organization_id === organization.id)
+    ? bootstrap.subscriptions.find(
+        (item) => item.organization_id === organization.id,
+      )
     : null;
   const [tab, setTab] = useState<"general" | "shopify">("general");
 
@@ -433,26 +513,40 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <div className="grid gap-4 lg:grid-cols-2">
             <Card title="Perfil">
               <dl className="space-y-3 text-sm">
-                <InfoRow label="Nombre">{bootstrap.profile.full_name ?? "Sin nombre"}</InfoRow>
-                <InfoRow label="Email">{bootstrap.user.email ?? "Sin email"}</InfoRow>
+                <InfoRow label="Nombre">
+                  {bootstrap.profile.full_name ?? "Sin nombre"}
+                </InfoRow>
+                <InfoRow label="Email">
+                  {bootstrap.user.email ?? "Sin email"}
+                </InfoRow>
                 <InfoRow label="Rol plataforma">
-                  <span className="font-mono text-brand">{bootstrap.profile.platform_role}</span>
+                  <span className="font-mono text-brand">
+                    {bootstrap.profile.platform_role}
+                  </span>
                 </InfoRow>
               </dl>
             </Card>
 
             <Card title="Organización activa">
               <dl className="space-y-3 text-sm">
-                <InfoRow label="Nombre">{organization?.display_name ?? "Sin organización"}</InfoRow>
+                <InfoRow label="Nombre">
+                  {organization?.display_name ?? "Sin organización"}
+                </InfoRow>
                 <InfoRow label="Zona horaria">
-                  <span className="font-mono">{organization?.timezone ?? "n/a"}</span>
+                  <span className="font-mono">
+                    {organization?.timezone ?? "n/a"}
+                  </span>
                 </InfoRow>
                 <InfoRow label="Moneda">
-                  <span className="font-mono">{organization?.currency_code ?? "n/a"}</span>
+                  <span className="font-mono">
+                    {organization?.currency_code ?? "n/a"}
+                  </span>
                 </InfoRow>
                 <InfoRow label="Plan">
                   <span className="font-mono text-brand">
-                    {subscription ? `${subscription.plan_code}/${subscription.status}` : "sin_plan"}
+                    {subscription
+                      ? `${subscription.plan_code}/${subscription.status}`
+                      : "sin_plan"}
                   </span>
                 </InfoRow>
               </dl>
@@ -460,7 +554,10 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
 
           {organization ? (
-            <FinancialConfigSection bootstrap={bootstrap} organizationId={organization.id} />
+            <FinancialConfigSection
+              bootstrap={bootstrap}
+              organizationId={organization.id}
+            />
           ) : null}
         </div>
       ) : organization ? (

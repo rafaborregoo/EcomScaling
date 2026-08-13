@@ -1,5 +1,10 @@
 # AI-03 - SQL Gateway
 
+> Correccion vigente 2026-08-02: el supuesto gap de `pg_sleep`/`generate_series` queda cerrado.
+> `FORBIDDEN_FUNCTIONS` bloquea `generate_series`, `regexp_split_to_table` y `jsonb_path_query`,
+> mientras que cualquier funcion `pg_*` (incluido `pg_sleep`) se rechaza por prefijo; los casos estan
+> cubiertos por `sql-gateway.test.ts`.
+
 ## Estado
 
 - **Estado real:** `verification_pending` (los 2 gaps de seguridad concretos -- `WITH RECURSIVE` y el
@@ -55,4 +60,3 @@ Dar libertad analitica controlada a los agentes.
 - Intentos DDL/DML se rechazan.
 - Consultas cross-tenant no devuelven datos.
 - Cada query queda registrada con tablas, filas y duracion.
-

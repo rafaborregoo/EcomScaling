@@ -10,9 +10,13 @@ import {
   type IntegrationSyncResult,
 } from "@ecomscaling/integrations";
 import type { LoadedApiEnv } from "@ecomscaling/config";
-import { buildMetaAuthUrl, exchangeMetaCodeForLongLivedToken, resolveMetaAppEnv } from "./meta-oauth.js";
+import {
+  buildMetaAuthUrl,
+  exchangeMetaCodeForLongLivedToken,
+  resolveMetaAppEnv,
+} from "./meta-oauth.js";
 import { discoverMetaAssets, getValidMetaAccessToken } from "./meta.js";
-import { runMetaInitialSync } from "./meta-sync.js";
+import { runMetaSync } from "./meta-sync.js";
 import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
 import { verifyShopifyWebhookHmac } from "./shopify-webhooks.js";
 import {
@@ -23,10 +27,22 @@ import {
 } from "./shopify-oauth.js";
 import { getValidShopifyAccessToken } from "./shopify-token-store.js";
 import { runShopifyInitialSync } from "./shopify-sync.js";
+import {
+  buildKlaviyoAuthorizeUrl,
+  exchangeKlaviyoCodeForTokens,
+  resolveKlaviyoOAuthEnv,
+} from "./klaviyo-oauth.js";
+import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
+import { runKlaviyoSync } from "./klaviyo-sync.js";
 
-type SyncRunner = (connectionId: string, mode: IntegrationSyncInput["mode"]) => Promise<void>;
+type SyncRunner = (
+  connectionId: string,
+  mode: IntegrationSyncInput["mode"],
+) => Promise<void>;
 
-function result(status: IntegrationSyncResult["status"]): IntegrationSyncResult {
+function result(
+  status: IntegrationSyncResult["status"],
+): IntegrationSyncResult {
   // Los runners existentes persisten métricas por bloque en integration_sync_runs.
   // No inventamos contadores aquí: el adaptador solo normaliza el resultado global.
   return { status };
@@ -64,9 +80,19 @@ function createAdapter(
 export function createIntegrationSyncAdapters(env: LoadedApiEnv) {
   return {
     shopify: createAdapter("shopify", (connectionId, mode) =>
-      runShopifyInitialSync(env, connectionId, mode === "incremental" ? "incremental" : "manual"),
+      runShopifyInitialSync(
+        env,
+        connectionId,
+        mode === "incremental" ? "incremental" : "manual",
+      ),
     ),
-    meta_ads: createAdapter("meta_ads", (connectionId) => runMetaInitialSync(env, connectionId)),
+    meta_ads: createAdapter("meta_ads", (connectionId, mode) =>
+      runMetaSync(
+        env,
+        connectionId,
+        mode === "incremental" ? "incremental" : "initial",
+      ),
+    ),
   } satisfies Record<"shopify" | "meta_ads", IntegrationSyncAdapter>;
 }
 
@@ -86,20 +112,75 @@ function integrationFailure(
   message: string,
   userActionRequired = false,
 ) {
-  return new IntegrationError(code, provider, message, false, userActionRequired);
+  return new IntegrationError(
+    code,
+    provider,
+    message,
+    false,
+    userActionRequired,
+  );
+}
+
+/**
+ * Adapter de contrato para conectores que todavía no tienen credenciales ni
+ * runner real. Mantiene el mismo ciclo de vida y permite que API/UI expresen
+ * `not_available` sin aparentar que se ha conectado o sincronizado nada.
+ */
+function createUnavailableAdapter(
+  provider: Extract<IntegrationProvider, "instagram">,
+): IntegrationAdapter {
+  const catalogEntry = INTEGRATION_CATALOG.find((item) => item.id === provider);
+  if (!catalogEntry) {
+    throw new Error(`integration_catalog_entry_missing:${provider}`);
+  }
+
+  const unavailable = async (): Promise<never> => {
+    throw integrationFailure(
+      "CREDENTIALS_MISSING",
+      provider,
+      `${provider}_connector_not_enabled`,
+      true,
+    );
+  };
+
+  return {
+    provider,
+    capabilities: catalogEntry.capabilities,
+    buildAuthorizationUrl: unavailable,
+    exchangeAuthorizationCode: unavailable,
+    refreshCredentials: unavailable,
+    runInitialSync: unavailable,
+    runIncrementalSync: unavailable,
+    getConnectionHealth: async (connection) =>
+      deriveIntegrationHealth({
+        available: false,
+        connectionStatus: connection.status,
+        lastSyncAt: connection.lastSyncAt ?? null,
+        lastErrorAt: connection.lastErrorAt ?? null,
+        latestSyncStatus: connection.latestSyncStatus ?? null,
+      }),
+  };
 }
 
 /** Full lifecycle adapters over the existing provider implementations. */
 export function createIntegrationAdapters(env: LoadedApiEnv): {
   shopify: IntegrationAdapter;
   meta_ads: IntegrationAdapter;
+  klaviyo: IntegrationAdapter;
+  instagram: IntegrationAdapter;
 } {
   const shopify: IntegrationAdapter = {
     provider: "shopify",
-    capabilities: INTEGRATION_CATALOG.find((item) => item.id === "shopify")!.capabilities,
+    capabilities: INTEGRATION_CATALOG.find((item) => item.id === "shopify")!
+      .capabilities,
     buildAuthorizationUrl: async (context) => {
       if (!context.shopDomain) {
-        throw integrationFailure("EXTERNAL_RESOURCE_NOT_FOUND", "shopify", "shopify_shop_domain_required", true);
+        throw integrationFailure(
+          "EXTERNAL_RESOURCE_NOT_FOUND",
+          "shopify",
+          "shopify_shop_domain_required",
+          true,
+        );
       }
       const appMode: ShopifyAppMode = context.appMode ?? "public";
       const appEnv = resolveShopifyAppEnv(env, appMode);
@@ -112,7 +193,12 @@ export function createIntegrationAdapters(env: LoadedApiEnv): {
     },
     exchangeAuthorizationCode: async (input) => {
       if (!input.shopDomain) {
-        throw integrationFailure("EXTERNAL_RESOURCE_NOT_FOUND", "shopify", "shopify_shop_domain_required", true);
+        throw integrationFailure(
+          "EXTERNAL_RESOURCE_NOT_FOUND",
+          "shopify",
+          "shopify_shop_domain_required",
+          true,
+        );
       }
       const appEnv = resolveShopifyAppEnv(env, input.appMode ?? "public");
       await exchangeShopifyCodeForToken(appEnv, input.shopDomain, input.code);
@@ -122,22 +208,36 @@ export function createIntegrationAdapters(env: LoadedApiEnv): {
       await getValidShopifyAccessToken(env, connection.id);
       return {};
     },
-    runInitialSync: (input) => createIntegrationSyncAdapters(env).shopify.runInitialSync(input),
-    runIncrementalSync: (input) => createIntegrationSyncAdapters(env).shopify.runIncrementalSync(input),
+    runInitialSync: (input) =>
+      createIntegrationSyncAdapters(env).shopify.runInitialSync(input),
+    runIncrementalSync: (input) =>
+      createIntegrationSyncAdapters(env).shopify.runIncrementalSync(input),
     verifyWebhook: async (request) => {
       const hmac = request.headers["x-shopify-hmac-sha256"];
-      const secrets = [env.SHOPIFY_API_SECRET, env.SHOPIFY_CUSTOM_API_SECRET].filter(
-        (secret): secret is string => Boolean(secret),
+      const secrets = [
+        env.SHOPIFY_API_SECRET,
+        env.SHOPIFY_CUSTOM_API_SECRET,
+      ].filter((secret): secret is string => Boolean(secret));
+      const valid = secrets.some((secret) =>
+        verifyShopifyWebhookHmac(Buffer.from(request.body), hmac, secret),
       );
-      const valid = secrets.some((secret) => verifyShopifyWebhookHmac(Buffer.from(request.body), hmac, secret));
       if (!valid) {
-        throw integrationFailure("INVALID_WEBHOOK_SIGNATURE", "shopify", "shopify_webhook_signature_invalid", true);
+        throw integrationFailure(
+          "INVALID_WEBHOOK_SIGNATURE",
+          "shopify",
+          "shopify_webhook_signature_invalid",
+          true,
+        );
       }
       let payload: unknown;
       try {
         payload = JSON.parse(request.body);
       } catch {
-        throw integrationFailure("INVALID_WEBHOOK_SIGNATURE", "shopify", "shopify_webhook_payload_invalid");
+        throw integrationFailure(
+          "INVALID_WEBHOOK_SIGNATURE",
+          "shopify",
+          "shopify_webhook_payload_invalid",
+        );
       }
       return {
         provider: "shopify",
@@ -149,14 +249,26 @@ export function createIntegrationAdapters(env: LoadedApiEnv): {
     },
     processWebhook: async (webhook) => {
       if (!webhook.rawBody || !webhook.headers) {
-        throw integrationFailure("INVALID_WEBHOOK_SIGNATURE", "shopify", "shopify_webhook_context_missing");
+        throw integrationFailure(
+          "INVALID_WEBHOOK_SIGNATURE",
+          "shopify",
+          "shopify_webhook_context_missing",
+        );
       }
-      const result = await handleShopifyWebhookRequest(env, webhook.headers, Buffer.from(webhook.rawBody));
+      const result = await handleShopifyWebhookRequest(
+        env,
+        webhook.headers,
+        Buffer.from(webhook.rawBody),
+      );
       if (result.statusCode >= 400) {
         throw integrationFailure(
-          result.statusCode === 401 ? "INVALID_WEBHOOK_SIGNATURE" : "SYNC_PERMANENT_FAILURE",
+          result.statusCode === 401
+            ? "INVALID_WEBHOOK_SIGNATURE"
+            : "SYNC_PERMANENT_FAILURE",
           "shopify",
-          typeof result.body.error === "string" ? result.body.error : "shopify_webhook_failed",
+          typeof result.body.error === "string"
+            ? result.body.error
+            : "shopify_webhook_failed",
           result.statusCode === 401,
         );
       }
@@ -170,20 +282,34 @@ export function createIntegrationAdapters(env: LoadedApiEnv): {
 
   const meta: IntegrationAdapter = {
     provider: "meta_ads",
-    capabilities: INTEGRATION_CATALOG.find((item) => item.id === "meta_ads")!.capabilities,
+    capabilities: INTEGRATION_CATALOG.find((item) => item.id === "meta_ads")!
+      .capabilities,
     buildAuthorizationUrl: async (context) => {
       const appEnv = resolveMetaAppEnv(env);
       if (!appEnv) {
-        throw integrationFailure("CREDENTIALS_MISSING", "meta_ads", "meta_app_not_configured", true);
+        throw integrationFailure(
+          "CREDENTIALS_MISSING",
+          "meta_ads",
+          "meta_app_not_configured",
+          true,
+        );
       }
       return {
-        url: buildMetaAuthUrl({ ...appEnv, META_REDIRECT_URI: context.redirectUri }, context.state),
+        url: buildMetaAuthUrl(
+          { ...appEnv, META_REDIRECT_URI: context.redirectUri },
+          context.state,
+        ),
       };
     },
     exchangeAuthorizationCode: async (input) => {
       const appEnv = resolveMetaAppEnv(env);
       if (!appEnv) {
-        throw integrationFailure("CREDENTIALS_MISSING", "meta_ads", "meta_app_not_configured", true);
+        throw integrationFailure(
+          "CREDENTIALS_MISSING",
+          "meta_ads",
+          "meta_app_not_configured",
+          true,
+        );
       }
       await exchangeMetaCodeForLongLivedToken(appEnv, input.code);
       return { provider: "meta_ads" };
@@ -191,24 +317,115 @@ export function createIntegrationAdapters(env: LoadedApiEnv): {
     refreshCredentials: async (connection) => {
       const token = await getValidMetaAccessToken(env, connection.id);
       if (!token) {
-        throw integrationFailure("REAUTHORIZATION_REQUIRED", "meta_ads", "meta_token_expired_reauth_required", true);
+        throw integrationFailure(
+          "REAUTHORIZATION_REQUIRED",
+          "meta_ads",
+          "meta_token_expired_reauth_required",
+          true,
+        );
       }
       return {};
     },
     discoverAssets: async (connection) => {
       const token = await getValidMetaAccessToken(env, connection.id);
       if (!token) {
-        throw integrationFailure("REAUTHORIZATION_REQUIRED", "meta_ads", "meta_token_unavailable", true);
+        throw integrationFailure(
+          "REAUTHORIZATION_REQUIRED",
+          "meta_ads",
+          "meta_token_unavailable",
+          true,
+        );
       }
-      const discovery = await discoverMetaAssets(env, connection.id, connection.organizationId, token);
+      const discovery = await discoverMetaAssets(
+        env,
+        connection.id,
+        connection.organizationId,
+        token,
+      );
       return discovery.assets;
     },
-    runInitialSync: (input) => createIntegrationSyncAdapters(env).meta_ads.runInitialSync(input),
-    runIncrementalSync: (input) => createIntegrationSyncAdapters(env).meta_ads.runIncrementalSync(input),
+    runInitialSync: (input) =>
+      createIntegrationSyncAdapters(env).meta_ads.runInitialSync(input),
+    runIncrementalSync: (input) =>
+      createIntegrationSyncAdapters(env).meta_ads.runIncrementalSync(input),
     getConnectionHealth: async (connection) => connectionHealth(connection),
   };
 
-  return { shopify, meta_ads: meta };
+  const klaviyoEnv = resolveKlaviyoOAuthEnv(env);
+  const klaviyo: IntegrationAdapter = {
+    provider: "klaviyo",
+    capabilities: INTEGRATION_CATALOG.find((item) => item.id === "klaviyo")!
+      .capabilities,
+    buildAuthorizationUrl: async (context) => {
+      if (!klaviyoEnv)
+        throw integrationFailure(
+          "CREDENTIALS_MISSING",
+          "klaviyo",
+          "klaviyo_app_not_configured",
+          true,
+        );
+      if (!context.codeChallenge)
+        throw integrationFailure(
+          "INVALID_AUTHORIZATION_STATE",
+          "klaviyo",
+          "klaviyo_pkce_challenge_required",
+          true,
+        );
+      return {
+        url: buildKlaviyoAuthorizeUrl(
+          klaviyoEnv,
+          context.state,
+          context.codeChallenge,
+        ),
+      };
+    },
+    exchangeAuthorizationCode: async (input) => {
+      if (!klaviyoEnv)
+        throw integrationFailure(
+          "CREDENTIALS_MISSING",
+          "klaviyo",
+          "klaviyo_app_not_configured",
+          true,
+        );
+      if (!input.codeVerifier)
+        throw integrationFailure(
+          "INVALID_AUTHORIZATION_STATE",
+          "klaviyo",
+          "klaviyo_pkce_verifier_required",
+          true,
+        );
+      const tokens = await exchangeKlaviyoCodeForTokens(
+        klaviyoEnv,
+        input.code,
+        input.codeVerifier,
+      );
+      return { provider: "klaviyo" };
+    },
+    refreshCredentials: async (connection) => {
+      await getValidKlaviyoAccessToken(env, connection.id);
+      return {};
+    },
+    runInitialSync: (input) =>
+      runKlaviyoSync(env, input.connection.id, "initial").then((sync) => ({
+        status: sync.status,
+        recordsRead: sync.recordsRead,
+        recordsWritten: sync.recordsWritten,
+      })),
+    runIncrementalSync: (input) =>
+      runKlaviyoSync(env, input.connection.id, "incremental").then((sync) => ({
+        status: sync.status,
+        recordsRead: sync.recordsRead,
+        recordsWritten: sync.recordsWritten,
+      })),
+    getConnectionHealth: async (connection) => connectionHealth(connection),
+  };
+
+  return {
+    shopify,
+    meta_ads: meta,
+    klaviyo,
+    instagram: createUnavailableAdapter("instagram"),
+  };
 }
 
 export function toIntegrationConnection(row: {
@@ -221,7 +438,14 @@ export function toIntegrationConnection(row: {
   last_error_at?: string | null;
   latest_sync_status?: string | null;
 }): IntegrationConnection {
-  const status = ["pending", "connected", "syncing", "error", "disconnected", "revoked"].includes(row.status)
+  const status = [
+    "pending",
+    "connected",
+    "syncing",
+    "error",
+    "disconnected",
+    "revoked",
+  ].includes(row.status)
     ? row.status
     : "error";
 
@@ -236,8 +460,10 @@ export function toIntegrationConnection(row: {
     connection.storeId = row.store_id;
   }
   if (row.last_sync_at !== undefined) connection.lastSyncAt = row.last_sync_at;
-  if (row.last_error_at !== undefined) connection.lastErrorAt = row.last_error_at;
-  if (row.latest_sync_status !== undefined) connection.latestSyncStatus = row.latest_sync_status;
+  if (row.last_error_at !== undefined)
+    connection.lastErrorAt = row.last_error_at;
+  if (row.latest_sync_status !== undefined)
+    connection.latestSyncStatus = row.latest_sync_status;
 
   return connection;
 }

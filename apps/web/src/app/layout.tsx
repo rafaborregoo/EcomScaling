@@ -1,14 +1,7 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import { Toast } from "@heroui/react";
 import { AriaRouterProvider } from "@/components/aria-router-provider";
+import { Toast } from "@/components/ui";
 import "./globals.css";
-
-// Una sola fuente estandar para todo el portal (titulares, cuerpo y cifras).
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "EcomScaling IA",
@@ -21,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="es" className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <AriaRouterProvider>
           {children}

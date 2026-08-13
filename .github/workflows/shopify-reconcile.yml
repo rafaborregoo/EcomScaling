@@ -2,8 +2,13 @@ name: Shopify Reconcile
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 * * * *"
+  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
+  # automaticos. Para reactivar, descomentar el bloque de abajo.
+  # schedule:
+  #   - cron: "17 * * * *"
+
+permissions:
+  contents: read
 
 concurrency:
   group: shopify-reconcile

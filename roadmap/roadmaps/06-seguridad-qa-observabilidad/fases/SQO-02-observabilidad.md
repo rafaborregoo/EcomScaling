@@ -16,6 +16,15 @@
   completed" con method/url/statusCode/responseTime), verificado en vivo con `app.inject`. Ademas existe
   `createLogger` en `packages/observability` (JSON estructurado por `service`), usado en 9 archivos de
   `apps/api`/`apps/worker` (workers de cron, sync de Shopify/Meta, webhooks).
+- **Correlacion end-to-end cerrada 2026-08-03**: el `x-request-id` existia en la respuesta desde
+  2026-08-02, pero **no llegaba a nadie**. Dos fallos encadenados: (1) el CORS del API no lo declaraba en
+  `exposedHeaders`, asi que el navegador se lo oculta al codigo de `apps/web` en cualquier respuesta
+  cross-origin — la cabecera solo servia si ya estabas leyendo los logs del servidor, que es justo lo que
+  no tienes cuando un cliente reporta un error; y (2) `readApiError`, por donde pasan los errores de las
+  12 pantallas autenticadas, lo descartaba. Corregidos los dos: el mensaje que ve la persona termina en
+  `(ref: <request id>)` y con eso soporte encuentra el log estructurado exacto. Sin cabecera no se anade
+  ruido. 4 tests en `apps/web/src/lib/api-error.test.ts` + 1 en
+  `apps/api/src/observability-metrics-endpoint.test.ts` que falla si alguien quita el `exposedHeaders`.
 - **Redaccion de secretos anadida 2026-07-20 (cierra el gap correspondiente de SQO-00)**: configuracion
   `redact` explicita en el logger de Fastify (`req.headers.authorization`, `req.headers.cookie`,
   `*.access_token`, `*.refresh_token`, `*.client_secret`, `*.api_key`, `*.service_role_key`), verificada en
@@ -116,3 +125,9 @@ configuracion financiera, health score determinista (reutilizando la formula ya 
 - Hay alertas para colas bloqueadas, tokens expirados y datos desactualizados.
 - Se puede seguir un request extremo a extremo con la cadena de correlacion.
 - Logs verificados sin secretos ni PII (compartido con SQO-00).
+## Corrección 2026-08-01 — métricas agregables mínimas
+
+El API registra `http_requests_total` por método, ruta y código de estado mediante el registro común de
+`@ecomscaling/observability`. `/health/metrics` está protegido por `INTERNAL_API_SECRET` y devuelve formato
+Prometheus; no incluye identificadores de organización/usuario. El registro es process-local y no sustituye
+un backend de métricas compartido para varias instancias.

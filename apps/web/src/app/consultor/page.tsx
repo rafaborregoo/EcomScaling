@@ -1,9 +1,10 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
 import {
   Avatar,
   Badge,
@@ -28,7 +29,12 @@ import {
 } from "@/components/ui";
 import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
 
-const ORGANIZATION_STATUSES = ["onboarding", "active", "suspended", "cancelled"] as const;
+const ORGANIZATION_STATUSES = [
+  "onboarding",
+  "active",
+  "suspended",
+  "cancelled",
+] as const;
 
 type ConsultantOrganization = {
   id: string;
@@ -111,29 +117,34 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
   const [isPrimary, setIsPrimary] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  async function loadAccess() {
-    const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/access`);
+  const loadAccess = useCallback(async () => {
+    const response = await apiFetch(
+      `/v1/consultant/organizations/${organizationId}/access`,
+    );
     if (!response.ok) {
       setError(await readApiError(response));
       return;
     }
     setAccess((await response.json()) as OrganizationAccess);
     setError(null);
-  }
+  }, [organizationId]);
 
   useEffect(() => {
     void loadAccess();
-  }, [organizationId]);
+  }, [loadAccess]);
 
   async function saveMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!memberUserId) return;
     setIsSaving(true);
-    const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/members`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: memberUserId, role: memberRole }),
-    });
+    const response = await apiFetch(
+      `/v1/consultant/organizations/${organizationId}/members`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: memberUserId, role: memberRole }),
+      },
+    );
     if (!response.ok) setError(await readApiError(response));
     else await loadAccess();
     setIsSaving(false);
@@ -143,11 +154,17 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
     event.preventDefault();
     if (!consultantUserId) return;
     setIsSaving(true);
-    const response = await apiFetch(`/v1/consultant/organizations/${organizationId}/assignments`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ consultant_user_id: consultantUserId, is_primary: isPrimary }),
-    });
+    const response = await apiFetch(
+      `/v1/consultant/organizations/${organizationId}/assignments`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          consultant_user_id: consultantUserId,
+          is_primary: isPrimary,
+        }),
+      },
+    );
     if (!response.ok) setError(await readApiError(response));
     else await loadAccess();
     setIsSaving(false);
@@ -169,18 +186,34 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
   }
 
   const consultantProfiles = access.available_profiles.filter(
-    (profile) => profile.platform_role === "consultant" || profile.platform_role === "platform_admin",
+    (profile) =>
+      profile.platform_role === "consultant" ||
+      profile.platform_role === "platform_admin",
   );
 
   return (
-    <section className="mt-5 border-t border-line pt-4" aria-labelledby={`access-title-${organizationId}`}>
+    <section
+      className="mt-5 border-t border-line pt-4"
+      aria-labelledby={`access-title-${organizationId}`}
+    >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <Heading level={3} size="md" id={`access-title-${organizationId}`}>Acceso al cliente</Heading>
-          <p className="mt-1 text-xs text-muted">Solo perfiles existentes. Las invitaciones de autenticacion se gestionan fuera de este flujo.</p>
+          <Heading level={3} size="md" id={`access-title-${organizationId}`}>
+            Acceso al cliente
+          </Heading>
+          <p className="mt-1 text-xs text-muted">
+            Solo perfiles existentes. Las invitaciones de autenticacion se
+            gestionan fuera de este flujo.
+          </p>
         </div>
         <span className="font-mono text-xs uppercase tracking-wide text-muted">
-          {access.members.filter((member) => member.is_active).length} miembros · {access.assignments.filter((assignment) => assignment.is_active).length} consultores
+          {access.members.filter((member) => member.is_active).length} miembros
+          ·{" "}
+          {
+            access.assignments.filter((assignment) => assignment.is_active)
+              .length
+          }{" "}
+          consultores
         </span>
       </div>
 
@@ -192,14 +225,22 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
           ) : (
             <ul className="mt-2 divide-y divide-line border-y border-line">
               {access.members.map((member) => (
-                <li key={member.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <li
+                  key={member.id}
+                  className="flex items-center justify-between gap-3 py-2 text-sm"
+                >
                   <span>{member.profile?.full_name ?? member.user_id}</span>
-                  <span className="font-mono text-xs uppercase text-muted">{member.role} · {member.is_active ? "activo" : "inactivo"}</span>
+                  <span className="font-mono text-xs uppercase text-muted">
+                    {member.role} · {member.is_active ? "activo" : "inactivo"}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
-          <form onSubmit={saveMember} className="mt-3 grid gap-2 sm:grid-cols-[1fr_130px_auto] sm:items-end">
+          <form
+            onSubmit={saveMember}
+            className="mt-3 grid gap-2 sm:grid-cols-[1fr_130px_auto] sm:items-end"
+          >
             <Field label="Perfil existente">
               <Select
                 aria-label="Perfil existente"
@@ -217,28 +258,46 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
                 aria-label="Rol"
                 value={memberRole}
                 onChange={setMemberRole}
-                options={["owner", "manager", "member", "readonly"].map((role) => ({ value: role, label: role }))}
+                options={["owner", "manager", "member", "readonly"].map(
+                  (role) => ({ value: role, label: role }),
+                )}
               />
             </Field>
-            <Button type="submit" disabled={isSaving || !memberUserId}>Guardar</Button>
+            <Button type="submit" disabled={isSaving || !memberUserId}>
+              Guardar
+            </Button>
           </form>
         </div>
 
         <div>
           <h4 className="text-sm font-medium">Consultores asignados</h4>
           {access.assignments.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">Sin consultores asignados.</p>
+            <p className="mt-2 text-sm text-muted">
+              Sin consultores asignados.
+            </p>
           ) : (
             <ul className="mt-2 divide-y divide-line border-y border-line">
               {access.assignments.map((assignment) => (
-                <li key={assignment.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                  <span>{assignment.profile?.full_name ?? assignment.consultant_user_id}</span>
-                  <span className="font-mono text-xs uppercase text-muted">{assignment.is_primary ? "principal · " : ""}{assignment.is_active ? "activo" : "inactivo"}</span>
+                <li
+                  key={assignment.id}
+                  className="flex items-center justify-between gap-3 py-2 text-sm"
+                >
+                  <span>
+                    {assignment.profile?.full_name ??
+                      assignment.consultant_user_id}
+                  </span>
+                  <span className="font-mono text-xs uppercase text-muted">
+                    {assignment.is_primary ? "principal · " : ""}
+                    {assignment.is_active ? "activo" : "inactivo"}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
-          <form onSubmit={saveAssignment} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+          <form
+            onSubmit={saveAssignment}
+            className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end"
+          >
             <Field label="Consultor existente">
               <Select
                 aria-label="Consultor existente"
@@ -256,20 +315,20 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
                 Principal
               </Checkbox>
             </div>
-            <Button type="submit" disabled={isSaving || !consultantUserId}>Guardar</Button>
+            <Button type="submit" disabled={isSaving || !consultantUserId}>
+              Guardar
+            </Button>
           </form>
-          {consultantProfiles.length === 0 ? <p className="mt-2 text-xs text-muted">No hay perfiles activos con rol de consultor.</p> : null}
+          {consultantProfiles.length === 0 ? (
+            <EmptyState
+              title="No hay consultores disponibles"
+              hint="Crea o activa un perfil con rol de consultor para poder asignarlo a esta organización."
+            />
+          ) : null}
         </div>
       </div>
     </section>
   );
-}
-
-async function readApiError(response: Response) {
-  const body = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string; detail?: string }
-    | null;
-  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
 }
 
 function EditOrganizationForm({
@@ -293,16 +352,19 @@ function EditOrganizationForm({
     setIsSaving(true);
     setError(null);
 
-    const response = await apiFetch(`/v1/consultant/organizations/${organization.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        display_name: displayName,
-        status,
-        timezone,
-        currency_code: currencyCode,
-      }),
-    });
+    const response = await apiFetch(
+      `/v1/consultant/organizations/${organization.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          display_name: displayName,
+          status,
+          timezone,
+          currency_code: currencyCode,
+        }),
+      },
+    );
 
     if (response.ok) {
       toast.success("Cliente actualizado.");
@@ -314,26 +376,42 @@ function EditOrganizationForm({
   }
 
   return (
-    <form onSubmit={save} className="grid gap-3 border-b border-line pb-4 md:grid-cols-4 md:items-end">
+    <form
+      onSubmit={save}
+      className="grid gap-3 border-b border-line pb-4 md:grid-cols-4 md:items-end"
+    >
       <Field label="Nombre">
-        <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
+        <Input
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          required
+        />
       </Field>
       <Field label="Estado">
         <Select
           aria-label="Estado"
           value={status}
           onChange={setStatus}
-          options={ORGANIZATION_STATUSES.map((value) => ({ value, label: value }))}
+          options={ORGANIZATION_STATUSES.map((value) => ({
+            value,
+            label: value,
+          }))}
         />
       </Field>
       <Field label="Zona horaria">
-        <Input value={timezone} onChange={(event) => setTimezone(event.target.value)} required />
+        <Input
+          value={timezone}
+          onChange={(event) => setTimezone(event.target.value)}
+          required
+        />
       </Field>
       <Field label="Moneda">
         <Input
           value={currencyCode}
           maxLength={3}
-          onChange={(event) => setCurrencyCode(event.target.value.toUpperCase())}
+          onChange={(event) =>
+            setCurrencyCode(event.target.value.toUpperCase())
+          }
           required
         />
       </Field>
@@ -369,7 +447,8 @@ function StoresPanel({
   const [error, setError] = useState<string | null>(null);
   const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
   const [restoringStoreId, setRestoringStoreId] = useState<string | null>(null);
-  const [confirmDeleteStore, setConfirmDeleteStore] = useState<OrganizationStore | null>(null);
+  const [confirmDeleteStore, setConfirmDeleteStore] =
+    useState<OrganizationStore | null>(null);
   const [confirmDeleteOrg, setConfirmDeleteOrg] = useState(false);
   const [isDeletingOrg, setIsDeletingOrg] = useState(false);
   const [isRestoringOrg, setIsRestoringOrg] = useState(false);
@@ -377,12 +456,16 @@ function StoresPanel({
 
   useEffect(() => {
     async function load() {
-      const response = await apiFetch(`/v1/consultant/organizations/${organization.id}/stores`);
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/stores`,
+      );
       if (!response.ok) {
         setError(await readApiError(response));
         return;
       }
-      const payload = (await response.json()) as { stores: OrganizationStore[] };
+      const payload = (await response.json()) as {
+        stores: OrganizationStore[];
+      };
       setStores(payload.stores);
     }
     void load();
@@ -398,7 +481,9 @@ function StoresPanel({
       { method: "DELETE" },
     );
     if (response.ok) {
-      setStores((current) => (current ?? []).filter((store) => store.id !== confirmDeleteStore.id));
+      setStores((current) =>
+        (current ?? []).filter((store) => store.id !== confirmDeleteStore.id),
+      );
       setConfirmDeleteStore(null);
     } else {
       setError(await readApiError(response));
@@ -408,7 +493,10 @@ function StoresPanel({
 
   async function confirmOrgDeletion() {
     setIsDeletingOrg(true);
-    const response = await apiFetch(`/v1/consultant/organizations/${organization.id}`, { method: "DELETE" });
+    const response = await apiFetch(
+      `/v1/consultant/organizations/${organization.id}`,
+      { method: "DELETE" },
+    );
     if (response.ok) {
       onOrganizationDeleted();
     } else {
@@ -426,7 +514,9 @@ function StoresPanel({
     );
     if (response.ok) {
       setStores((current) =>
-        (current ?? []).map((store) => (store.id === storeId ? { ...store, status: "connected" } : store)),
+        (current ?? []).map((store) =>
+          store.id === storeId ? { ...store, status: "connected" } : store,
+        ),
       );
     } else {
       setError(await readApiError(response));
@@ -436,9 +526,12 @@ function StoresPanel({
 
   async function restoreOrganization() {
     setIsRestoringOrg(true);
-    const response = await apiFetch(`/v1/consultant/organizations/${organization.id}/restore`, {
-      method: "POST",
-    });
+    const response = await apiFetch(
+      `/v1/consultant/organizations/${organization.id}/restore`,
+      {
+        method: "POST",
+      },
+    );
     if (response.ok) {
       onOrganizationUpdated();
     } else {
@@ -473,18 +566,31 @@ function StoresPanel({
       ) : (
         <div className="divide-y divide-line">
           {stores.map((store) => (
-            <div key={store.id} className="grid gap-2 py-2.5 text-sm md:grid-cols-[1fr_120px_140px_auto] md:items-center">
-              <span className="font-medium">{store.provider_account_id ?? store.provider_account_name ?? store.id}</span>
+            <div
+              key={store.id}
+              className="grid gap-2 py-2.5 text-sm md:grid-cols-[1fr_120px_140px_auto] md:items-center"
+            >
+              <span className="font-medium">
+                {store.provider_account_id ??
+                  store.provider_account_name ??
+                  store.id}
+              </span>
               <span
                 className={[
                   "font-mono text-xs uppercase",
-                  store.status === "pending_deletion" ? "text-brand" : "text-muted",
+                  store.status === "pending_deletion"
+                    ? "text-brand"
+                    : "text-muted",
                 ].join(" ")}
               >
-                {store.status === "pending_deletion" ? "borrado en 30 dias" : store.status}
+                {store.status === "pending_deletion"
+                  ? "borrado en 30 dias"
+                  : store.status}
               </span>
               <span className="text-xs text-muted">
-                {store.last_sync_at ? new Date(store.last_sync_at).toLocaleDateString("es-ES") : "sin sync"}
+                {store.last_sync_at
+                  ? new Date(store.last_sync_at).toLocaleDateString("es-ES")
+                  : "sin sync"}
               </span>
               {isPlatformAdmin ? (
                 store.status === "pending_deletion" ? (
@@ -494,7 +600,9 @@ function StoresPanel({
                     disabled={restoringStoreId === store.id}
                     onClick={() => void restoreStore(store.id)}
                   >
-                    {restoringStoreId === store.id ? "Restaurando..." : "Restaurar tienda"}
+                    {restoringStoreId === store.id
+                      ? "Restaurando..."
+                      : "Restaurar tienda"}
                   </Button>
                 ) : (
                   <Button
@@ -512,13 +620,22 @@ function StoresPanel({
         </div>
       )}
 
-      {isPlatformAdmin ? <AccessPanel organizationId={organization.id} /> : null}
+      {isPlatformAdmin ? (
+        <AccessPanel organizationId={organization.id} />
+      ) : null}
 
       <div className="mt-4 flex flex-wrap gap-4 border-t border-line pt-3">
-        <Link href={`/integraciones?organizationId=${organization.id}`}>Añadir tienda</Link>
+        <Link href={`/integraciones?organizationId=${organization.id}`}>
+          Añadir tienda
+        </Link>
         {isPlatformAdmin ? (
           organization.status === "pending_deletion" ? (
-            <Button size="sm" variant="ghost" disabled={isRestoringOrg} onClick={() => void restoreOrganization()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={isRestoringOrg}
+              onClick={() => void restoreOrganization()}
+            >
               {isRestoringOrg ? "Restaurando..." : "Restaurar cliente"}
             </Button>
           ) : (
@@ -536,10 +653,19 @@ function StoresPanel({
                     }
                   }}
                 >
-                  <Dropdown.Item id="edit" textValue={isEditing ? "Cerrar edición" : "Editar cliente"}>
-                    <Label>{isEditing ? "Cerrar edición" : "Editar cliente"}</Label>
+                  <Dropdown.Item
+                    id="edit"
+                    textValue={isEditing ? "Cerrar edición" : "Editar cliente"}
+                  >
+                    <Label>
+                      {isEditing ? "Cerrar edición" : "Editar cliente"}
+                    </Label>
                   </Dropdown.Item>
-                  <Dropdown.Item id="delete" textValue="Borrar cliente entero" variant="danger">
+                  <Dropdown.Item
+                    id="delete"
+                    textValue="Borrar cliente entero"
+                    variant="danger"
+                  >
                     <Label>Borrar cliente entero</Label>
                   </Dropdown.Item>
                 </Dropdown.Menu>
@@ -553,7 +679,11 @@ function StoresPanel({
         <ConfirmDangerDialog
           title={`Borrar tienda "${confirmDeleteStore.provider_account_id ?? confirmDeleteStore.provider_account_name}"`}
           note="30 dias para restaurarla antes del borrado definitivo"
-          confirmPhrase={confirmDeleteStore.provider_account_id ?? confirmDeleteStore.provider_account_name ?? confirmDeleteStore.id}
+          confirmPhrase={
+            confirmDeleteStore.provider_account_id ??
+            confirmDeleteStore.provider_account_name ??
+            confirmDeleteStore.id
+          }
           actionLabel="Borrar tienda"
           isBusy={deletingStoreId === confirmDeleteStore.id}
           onConfirm={confirmStoreDeletion}
@@ -576,9 +706,17 @@ function StoresPanel({
   );
 }
 
-function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatformAdmin: boolean }) {
+function ConsultantPanel({
+  token,
+  isPlatformAdmin,
+}: {
+  token: string;
+  isPlatformAdmin: boolean;
+}) {
   const { setOrganizationId } = useActiveOrganization();
-  const [organizations, setOrganizations] = useState<ConsultantOrganization[]>([]);
+  const [organizations, setOrganizations] = useState<ConsultantOrganization[]>(
+    [],
+  );
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -596,7 +734,9 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
       return;
     }
 
-    const payload = (await response.json()) as { organizations: ConsultantOrganization[] };
+    const payload = (await response.json()) as {
+      organizations: ConsultantOrganization[];
+    };
     setOrganizations(payload.organizations);
     setIsLoading(false);
   }
@@ -622,7 +762,9 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
     );
   }
 
-  const needsAttention = organizations.filter((organization) => organization.attention.score > 0);
+  const needsAttention = organizations.filter(
+    (organization) => organization.attention.score > 0,
+  );
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredOrganizations = normalizedQuery
     ? organizations.filter(
@@ -633,7 +775,9 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
     : organizations;
 
   const expandedOrganization = expandedId
-    ? filteredOrganizations.find((organization) => organization.id === expandedId)
+    ? filteredOrganizations.find(
+        (organization) => organization.id === expandedId,
+      )
     : null;
 
   // FE-07 (auditoria estructural 2026-07-29): antes esta lista era una tabla
@@ -654,8 +798,17 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
             <Link href="/dashboard" onClick={() => setOrganizationId(row.id)}>
               {row.display_name}
             </Link>
-            <p className={row.status === "pending_deletion" ? "text-sm text-brand" : "text-sm text-muted"}>
-              {row.slug} - {row.status === "pending_deletion" ? "borrado en 30 dias" : row.status}
+            <p
+              className={
+                row.status === "pending_deletion"
+                  ? "text-sm text-brand"
+                  : "text-sm text-muted"
+              }
+            >
+              {row.slug} -{" "}
+              {row.status === "pending_deletion"
+                ? "borrado en 30 dias"
+                : row.status}
             </p>
           </div>
         </div>
@@ -665,8 +818,17 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
       key: "stores",
       label: "Tiendas",
       render: (row) => (
-        <Button size="sm" variant="ghost" onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}>
-          {row.store_count} {expandedId === row.id ? <IconChevronUp aria-hidden /> : <IconChevronDown aria-hidden />}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
+        >
+          {row.store_count}{" "}
+          {expandedId === row.id ? (
+            <IconChevronUp aria-hidden />
+          ) : (
+            <IconChevronDown aria-hidden />
+          )}
         </Button>
       ),
     },
@@ -692,10 +854,14 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
           <>
             <span className="font-mono">{row.attention.open_alerts}</span>
             {row.attention.critical_alerts > 0 ? (
-              <span className="ml-2 font-mono text-xs text-brand">{row.attention.critical_alerts} criticas</span>
+              <span className="ml-2 font-mono text-xs text-brand">
+                {row.attention.critical_alerts} criticas
+              </span>
             ) : null}
             {row.attention.oldest_alert_days > 0 ? (
-              <p className="mt-1 text-xs text-muted">la más antigua lleva {row.attention.oldest_alert_days} días</p>
+              <p className="mt-1 text-xs text-muted">
+                la más antigua lleva {row.attention.oldest_alert_days} días
+              </p>
             ) : null}
           </>
         ),
@@ -707,7 +873,9 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
         <>
           <span className="font-mono">{row.attention.open_tasks}</span> abiertas
           {row.attention.overdue_tasks > 0 ? (
-            <p className="mt-1 text-xs text-brand">{row.attention.overdue_tasks} vencidas</p>
+            <p className="mt-1 text-xs text-brand">
+              {row.attention.overdue_tasks} vencidas
+            </p>
           ) : null}
         </>
       ),
@@ -716,7 +884,11 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
       key: "plan",
       label: "Plan",
       render: (row) => (
-        <span className="font-mono">{row.subscription ? `${row.subscription.plan_code}/${row.subscription.status}` : "sin_plan"}</span>
+        <span className="font-mono">
+          {row.subscription
+            ? `${row.subscription.plan_code}/${row.subscription.status}`
+            : "sin_plan"}
+        </span>
       ),
     },
     {
@@ -740,7 +912,9 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
       <section className="border-t border-ink/20 pt-5">
         <Heading size="lg">Qué cliente necesita atención hoy</Heading>
         {needsAttention.length === 0 ? (
-          <p className="mt-1 font-mono text-xs uppercase tracking-wide text-success">Todos al día</p>
+          <p className="mt-1 font-mono text-xs uppercase tracking-wide text-success">
+            Todos al día
+          </p>
         ) : null}
       </section>
 
@@ -766,7 +940,10 @@ function ConsultantPanel({ token, isPlatformAdmin }: { token: string; isPlatform
       </section>
 
       {expandedOrganization ? (
-        <Card kicker="Detalle del cliente" title={expandedOrganization.display_name}>
+        <Card
+          kicker="Detalle del cliente"
+          title={expandedOrganization.display_name}
+        >
           <StoresPanel
             organization={expandedOrganization}
             isPlatformAdmin={isPlatformAdmin}
@@ -786,7 +963,10 @@ export default function ConsultantPage() {
   return (
     <PortalShell title="Clientes">
       {(bootstrap, token) => (
-        <ConsultantPanel token={token} isPlatformAdmin={bootstrap.profile.platform_role === "platform_admin"} />
+        <ConsultantPanel
+          token={token}
+          isPlatformAdmin={bootstrap.profile.platform_role === "platform_admin"}
+        />
       )}
     </PortalShell>
   );

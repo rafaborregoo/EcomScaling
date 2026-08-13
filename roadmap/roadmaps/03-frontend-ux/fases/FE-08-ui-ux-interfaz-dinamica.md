@@ -2,9 +2,13 @@
 
 ## Estado
 
+> **Corrección de accesibilidad 2026-08-02:** el shell compartido ya incluye skip link al contenido
+> principal, destino enfocable, foco visible global, idioma de documento y reducción de movimiento.
+> La fase continúa `in_progress` porque la verificación visual manual en navegador real sigue pendiente.
+
 - **Estado real:** `in_progress`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-22
+- **Ultima validacion:** 2026-08-02
 - **Dependencias:** AI-00, AI-02 (Bloque B); FE-02..FE-04 (superficies a rediseñar, ya completadas)
 - **Bloqueador:** ninguno
 - **Historial completo:** [`../CHANGELOG-UX.md`](../CHANGELOG-UX.md). Decisiones estructurales con
@@ -47,7 +51,7 @@ negocio y a los objetivos de cada organizacion, con la IA integrada en la superf
 | Bloque | Estado | Evidencia | Pendiente |
 | --- | --- | --- | --- |
 | Tokens de diseño | `done` | `globals.css`, 12+ pantallas migradas | — |
-| Componentes base (`packages/ui`) | `done` | Button/Card/Badge/Banner/Field/Tabs/Pagination/Combobox; 28 usos ad-hoc de esquinas redondeadas en 11 paginas migrados a los componentes reales 2026-07-22. **Correccion 2026-07-29**: `Modal` y `Toast` no faltaban -- `Modal` ya estaba en uso real (`tareas/page.tsx`, `confirm-danger-dialog.tsx`) y `Toast.Provider` ya estaba montado en `layout.tsx`, pero con **cero llamadas a `toast(...)` en toda la app** -- ninguna accion (cambiar estado de tarea/alerta, comentar, editar cliente, aprobar/rechazar resumen de llamada) daba confirmacion positiva, solo fallos inline o exito silencioso. Anadidas llamadas `toast.success(...)` en los puntos de mutacion reales de las tres vistas: tareas/alertas (cliente y consultor, `tareas/page.tsx`), edicion de cliente (admin, `consultor/page.tsx`) y aprobacion/rechazo de resumenes de llamada (consultor, `llamadas/page.tsx`). No se toco el manejo de errores existente (`ErrorBlock` inline), solo se anadio la confirmacion de exito que faltaba. | — |
+| Componentes base (`apps/web/src/components/ui`) | `done` | Catalogo HeroUI v3 con wrappers Button/Card/Badge/Banner/Field/Tabs/Pagination/Combobox; 28 usos ad-hoc de esquinas redondeadas en 11 paginas migrados a los componentes reales 2026-07-22. **Correccion 2026-07-29**: `Modal` y `Toast` no faltaban -- `Modal` ya estaba en uso real (`tareas/page.tsx`, `confirm-danger-dialog.tsx`) y `Toast.Provider` ya estaba montado en `layout.tsx`, pero con **cero llamadas a `toast(...)` en toda la app** -- ninguna accion (cambiar estado de tarea/alerta, comentar, editar cliente, aprobar/rechazar resumen de llamada) daba confirmacion positiva, solo fallos inline o exito silencioso. Anadidas llamadas `toast.success(...)` en los puntos de mutacion reales de las tres vistas: tareas/alertas (cliente y consultor, `tareas/page.tsx`), edicion de cliente (admin, `consultor/page.tsx`) y aprobacion/rechazo de resumenes de llamada (consultor, `llamadas/page.tsx`). No se toco el manejo de errores existente (`ErrorBlock` inline), solo se anadio la confirmacion de exito que faltaba. | — |
 | Navegacion por rol | `done` (ADR-0009) | `portal-shell.tsx` | — |
 | Contexto global cliente/tienda | `done` (ADR-0010) | `ActiveOrganizationContext`/`ActiveConnectionContext`, URL como fuente primaria desde 2026-07-21 | — |
 | CRUD de clientes/tiendas (Consultoria) | `done` | `consultor/page.tsx`, soft-delete con periodo de gracia desde 2026-07-21, UI de restauracion conectada 2026-07-22 (ver FE-07) | — |

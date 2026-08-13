@@ -1,8 +1,10 @@
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
+  INTEGRATION_FEATURE_FLAGS?: string;
 };
 
 const DEFAULT_PERIOD_DAYS = 30;
@@ -15,8 +17,25 @@ export async function getMetaMetrics(
   organizationId: string,
   daysInput: string | undefined,
 ) {
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+  if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "integration_disabled",
+      message: "La integracion Meta Ads esta desactivada por feature flag.",
+    };
+  }
+
+  if (
+    !context.memberships.some(
+      (membership) => membership.organization_id === organizationId,
+    )
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
   let periodDays: number | "all" = DEFAULT_PERIOD_DAYS;
@@ -31,7 +50,9 @@ export async function getMetaMetrics(
 
   const periodEnd = new Date();
   const periodStart =
-    periodDays === "all" ? null : new Date(periodEnd.getTime() - periodDays * 24 * 60 * 60 * 1000);
+    periodDays === "all"
+      ? null
+      : new Date(periodEnd.getTime() - periodDays * 24 * 60 * 60 * 1000);
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -43,7 +64,12 @@ export async function getMetaMetrics(
   });
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "meta_metrics_load_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_metrics_load_failed",
+      detail: error.message,
+    };
   }
 
   const summary = data?.[0] ?? {
@@ -55,6 +81,9 @@ export async function getMetaMetrics(
     roas: null,
     cac: null,
     days_with_data: 0,
+    // Sin filas no hay procedencia que declarar: lista vacia, no el default
+    // del sistema, para no aparentar que se midio algo.
+    purchase_action_types: [],
   };
 
   return {

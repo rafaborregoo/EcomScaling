@@ -2,8 +2,10 @@ name: Ops Health Check
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 */2 * * *"
+  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
+  # automaticos. Para reactivar, descomentar el bloque de abajo.
+  # schedule:
+  #   - cron: "0 */2 * * *"
 
 concurrency:
   group: ops-health-check

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -15,11 +16,36 @@ function createServiceClient(env: ApiEnv) {
   });
 }
 
+async function auditStrategicChange(
+  supabase: SupabaseClient,
+  organizationId: string,
+  context: AuthContext,
+  action: string,
+  entityType: string,
+  entityId: string,
+  newData?: unknown,
+) {
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action,
+    entityType,
+    entityId,
+    newData,
+  });
+}
+
 function requireMembership(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find((item) => item.organization_id === organizationId);
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
 
   if (!membership) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
   return { ok: true as const, membership };
@@ -40,7 +66,8 @@ function assertCanManagePlan(context: AuthContext, organizationId: string) {
       ok: false as const,
       statusCode: 403,
       error: "plan_manage_denied",
-      message: "Solo owner, manager, consultor o platform admin pueden gestionar el plan.",
+      message:
+        "Solo owner, manager, consultor o platform admin pueden gestionar el plan.",
     };
   }
 
@@ -75,14 +102,22 @@ export async function getStrategicPlan(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "plan_load_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "plan_load_failed",
+      detail: error.message,
+    };
   }
 
   if (plan) {
     await attachCreatorOrigin(supabase, plan as PlanWithPhases);
   }
 
-  return { ok: true as const, data: { organization_id: organizationId, plan: plan ?? null } };
+  return {
+    ok: true as const,
+    data: { organization_id: organizationId, plan: plan ?? null },
+  };
 }
 
 type PlanWithPhases = {
@@ -93,7 +128,10 @@ type PlanWithPhases = {
       created_by: string | null;
       created_by_origin?: "consultant" | "client" | null;
       milestone_task_links: Array<{
-        tasks: { created_by: string | null; created_by_origin?: "consultant" | "client" | null } | null;
+        tasks: {
+          created_by: string | null;
+          created_by_origin?: "consultant" | "client" | null;
+        } | null;
       }>;
     }>;
   }>;
@@ -131,17 +169,25 @@ async function attachCreatorOrigin(
   const originById = new Map<string, "consultant" | "client">(
     (profiles ?? []).map((profile) => [
       profile.id,
-      ["consultant", "platform_admin"].includes(profile.platform_role) ? "consultant" : "client",
+      ["consultant", "platform_admin"].includes(profile.platform_role)
+        ? "consultant"
+        : "client",
     ]),
   );
 
   for (const phase of plan.strategic_plan_phases) {
-    phase.created_by_origin = phase.created_by ? (originById.get(phase.created_by) ?? null) : null;
+    phase.created_by_origin = phase.created_by
+      ? (originById.get(phase.created_by) ?? null)
+      : null;
     for (const milestone of phase.strategic_plan_milestones) {
-      milestone.created_by_origin = milestone.created_by ? (originById.get(milestone.created_by) ?? null) : null;
+      milestone.created_by_origin = milestone.created_by
+        ? (originById.get(milestone.created_by) ?? null)
+        : null;
       for (const link of milestone.milestone_task_links) {
         if (link.tasks) {
-          link.tasks.created_by_origin = link.tasks.created_by ? (originById.get(link.tasks.created_by) ?? null) : null;
+          link.tasks.created_by_origin = link.tasks.created_by
+            ? (originById.get(link.tasks.created_by) ?? null)
+            : null;
         }
       }
     }
@@ -154,7 +200,11 @@ type PlanInput = {
   phases?: Array<{
     name?: string;
     description?: string | null;
-    milestones?: Array<{ name?: string; description?: string | null; targetDate?: string | null }>;
+    milestones?: Array<{
+      name?: string;
+      description?: string | null;
+      targetDate?: string | null;
+    }>;
   }>;
 };
 
@@ -173,10 +223,16 @@ export async function createStrategicPlan(
     return { ok: false as const, statusCode: 400, error: "missing_plan_name" };
   }
 
-  const phases = (input.phases ?? []).filter((phase) => phase.name && phase.name.trim().length > 0);
+  const phases = (input.phases ?? []).filter(
+    (phase) => phase.name && phase.name.trim().length > 0,
+  );
 
   if (phases.length === 0) {
-    return { ok: false as const, statusCode: 400, error: "missing_plan_phases" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "missing_plan_phases",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -190,7 +246,12 @@ export async function createStrategicPlan(
     .maybeSingle();
 
   if (latestError) {
-    return { ok: false as const, statusCode: 500, error: "plan_version_lookup_failed", detail: latestError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "plan_version_lookup_failed",
+      detail: latestError.message,
+    };
   }
 
   if (latest && ["draft", "active"].includes(latest.status)) {
@@ -198,7 +259,8 @@ export async function createStrategicPlan(
       ok: false as const,
       statusCode: 409,
       error: "plan_already_open",
-      message: "Ya existe un plan en borrador o activo. Archivalo o completalo antes de crear otro.",
+      message:
+        "Ya existe un plan en borrador o activo. Archivalo o completalo antes de crear otro.",
     };
   }
 
@@ -215,7 +277,12 @@ export async function createStrategicPlan(
     .single();
 
   if (planError || !plan) {
-    return { ok: false as const, statusCode: 500, error: "plan_create_failed", detail: planError?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "plan_create_failed",
+      detail: planError?.message,
+    };
   }
 
   for (const [phaseIndex, phase] of phases.entries()) {
@@ -233,7 +300,12 @@ export async function createStrategicPlan(
       .single();
 
     if (phaseError || !phaseRow) {
-      return { ok: false as const, statusCode: 500, error: "plan_phase_create_failed", detail: phaseError?.message };
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "plan_phase_create_failed",
+        detail: phaseError?.message,
+      };
     }
 
     const milestones = (phase.milestones ?? []).filter(
@@ -241,15 +313,17 @@ export async function createStrategicPlan(
     );
 
     for (const [milestoneIndex, milestone] of milestones.entries()) {
-      const { error: milestoneError } = await supabase.from("strategic_plan_milestones").insert({
-        organization_id: organizationId,
-        phase_id: phaseRow.id,
-        name: milestone.name!.trim().slice(0, 255),
-        description: milestone.description ?? null,
-        position: milestoneIndex + 1,
-        target_date: milestone.targetDate ?? null,
-        created_by: context.user.id,
-      });
+      const { error: milestoneError } = await supabase
+        .from("strategic_plan_milestones")
+        .insert({
+          organization_id: organizationId,
+          phase_id: phaseRow.id,
+          name: milestone.name!.trim().slice(0, 255),
+          description: milestone.description ?? null,
+          position: milestoneIndex + 1,
+          target_date: milestone.targetDate ?? null,
+          created_by: context.user.id,
+        });
 
       if (milestoneError) {
         return {
@@ -262,6 +336,18 @@ export async function createStrategicPlan(
     }
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.create",
+    "strategic_plan",
+    plan.id,
+    {
+      name: input.name,
+      phases: phases.length,
+    },
+  );
   return { ok: true as const, data: { id: plan.id } };
 }
 
@@ -294,11 +380,20 @@ export async function activateStrategicPlan(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "plan_activate_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "plan_activate_failed",
+      detail: error.message,
+    };
   }
 
   if (!plan) {
-    return { ok: false as const, statusCode: 404, error: "draft_plan_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "draft_plan_not_found",
+    };
   }
 
   // La primera fase se activa; el resto queda pendiente en orden.
@@ -309,7 +404,12 @@ export async function activateStrategicPlan(
     .order("position", { ascending: true });
 
   if (phasesError) {
-    return { ok: false as const, statusCode: 500, error: "plan_phases_load_failed", detail: phasesError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "plan_phases_load_failed",
+      detail: phasesError.message,
+    };
   }
 
   for (const [index, phase] of (phases ?? []).entries()) {
@@ -317,7 +417,11 @@ export async function activateStrategicPlan(
       .from("strategic_plan_phases")
       .update(
         index === 0
-          ? { status: "active", activated_at: now, activated_by: context.user.id }
+          ? {
+              status: "active",
+              activated_at: now,
+              activated_by: context.user.id,
+            }
           : { status: "pending" },
       )
       .eq("id", phase.id);
@@ -328,6 +432,17 @@ export async function activateStrategicPlan(
       .eq("phase_id", phase.id);
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.activate",
+    "strategic_plan",
+    planId,
+    {
+      status: "active",
+    },
+  );
   return { ok: true as const, data: { id: planId, status: "active" } };
 }
 
@@ -345,8 +460,17 @@ export async function updateMilestoneStatus(
     return authz;
   }
 
-  if (!statusInput || !MILESTONE_ACTIONS.includes(statusInput as (typeof MILESTONE_ACTIONS)[number])) {
-    return { ok: false as const, statusCode: 400, error: "invalid_milestone_status" };
+  if (
+    !statusInput ||
+    !MILESTONE_ACTIONS.includes(
+      statusInput as (typeof MILESTONE_ACTIONS)[number],
+    )
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_milestone_status",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -356,7 +480,9 @@ export async function updateMilestoneStatus(
     .from("strategic_plan_milestones")
     .update({
       status: statusInput,
-      ...(statusInput === "completed" ? { completed_at: now, completed_by: context.user.id } : {}),
+      ...(statusInput === "completed"
+        ? { completed_at: now, completed_by: context.user.id }
+        : {}),
     })
     .eq("id", milestoneId)
     .eq("organization_id", organizationId)
@@ -365,15 +491,36 @@ export async function updateMilestoneStatus(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "milestone_update_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "milestone_update_failed",
+      detail: error.message,
+    };
   }
 
   if (!milestone) {
-    return { ok: false as const, statusCode: 404, error: "milestone_not_found_or_locked" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "milestone_not_found_or_locked",
+    };
   }
 
   if (statusInput !== "completed" && statusInput !== "skipped") {
-    return { ok: true as const, data: { id: milestone.id, status: statusInput } };
+    await auditStrategicChange(
+      supabase,
+      organizationId,
+      context,
+      "strategic_plan.update_milestone_status",
+      "strategic_plan_milestone",
+      milestone.id,
+      { status: statusInput },
+    );
+    return {
+      ok: true as const,
+      data: { id: milestone.id, status: statusInput },
+    };
   }
 
   // Si la fase quedo sin hitos abiertos, se completa y se desbloquea la siguiente.
@@ -385,7 +532,19 @@ export async function updateMilestoneStatus(
     .limit(1);
 
   if (remainingError || (remaining ?? []).length > 0) {
-    return { ok: true as const, data: { id: milestone.id, status: statusInput } };
+    await auditStrategicChange(
+      supabase,
+      organizationId,
+      context,
+      "strategic_plan.update_milestone_status",
+      "strategic_plan_milestone",
+      milestone.id,
+      { status: statusInput },
+    );
+    return {
+      ok: true as const,
+      data: { id: milestone.id, status: statusInput },
+    };
   }
 
   const { data: phase } = await supabase
@@ -408,7 +567,11 @@ export async function updateMilestoneStatus(
     if (nextPhase) {
       await supabase
         .from("strategic_plan_phases")
-        .update({ status: "active", activated_at: now, activated_by: context.user.id })
+        .update({
+          status: "active",
+          activated_at: now,
+          activated_by: context.user.id,
+        })
         .eq("id", nextPhase.id);
       await supabase
         .from("strategic_plan_milestones")
@@ -419,16 +582,31 @@ export async function updateMilestoneStatus(
       // Sin fases pendientes: el plan esta completo.
       await supabase
         .from("strategic_plans")
-        .update({ status: "completed", completed_on: new Date().toISOString().slice(0, 10) })
+        .update({
+          status: "completed",
+          completed_on: new Date().toISOString().slice(0, 10),
+        })
         .eq("id", phase.plan_id)
         .eq("status", "active");
     }
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.update_milestone_status",
+    "strategic_plan_milestone",
+    milestone.id,
+    { status: statusInput },
+  );
   return { ok: true as const, data: { id: milestone.id, status: statusInput } };
 }
 
-type PhaseCreateInput = { name?: string | undefined; description?: string | null | undefined };
+type PhaseCreateInput = {
+  name?: string | undefined;
+  description?: string | null | undefined;
+};
 
 /** Anade una fase a un plan ya existente (a diferencia de createStrategicPlan,
  * que crea el plan entero de una vez). Tanto el consultor como el cliente
@@ -487,9 +665,26 @@ export async function createPhase(
     .single();
 
   if (phaseError || !phase) {
-    return { ok: false as const, statusCode: 500, error: "phase_create_failed", detail: phaseError?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "phase_create_failed",
+      detail: phaseError?.message,
+    };
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.create_phase",
+    "strategic_plan_phase",
+    phase.id,
+    {
+      plan_id: planId,
+      name,
+    },
+  );
   return { ok: true as const, data: { id: phase.id } };
 }
 
@@ -519,7 +714,11 @@ export async function createMilestone(
 
   const name = input.name?.trim() ?? "";
   if (!name) {
-    return { ok: false as const, statusCode: 400, error: "missing_milestone_name" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "missing_milestone_name",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -559,13 +758,30 @@ export async function createMilestone(
     .single();
 
   if (milestoneError || !milestone) {
-    return { ok: false as const, statusCode: 500, error: "milestone_create_failed", detail: milestoneError?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "milestone_create_failed",
+      detail: milestoneError?.message,
+    };
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.create_milestone",
+    "strategic_plan_milestone",
+    milestone.id,
+    { phase_id: phaseId, name },
+  );
   return { ok: true as const, data: { id: milestone.id } };
 }
 
-type PhaseUpdateInput = { name?: string | undefined; description?: string | null | undefined };
+type PhaseUpdateInput = {
+  name?: string | undefined;
+  description?: string | null | undefined;
+};
 
 export async function updatePhase(
   env: ApiEnv,
@@ -584,7 +800,11 @@ export async function updatePhase(
   if (input.name !== undefined) {
     const trimmed = input.name.trim();
     if (!trimmed) {
-      return { ok: false as const, statusCode: 400, error: "invalid_phase_name" };
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_phase_name",
+      };
     }
     patch.name = trimmed.slice(0, 255);
   }
@@ -608,13 +828,27 @@ export async function updatePhase(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "phase_update_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "phase_update_failed",
+      detail: error.message,
+    };
   }
 
   if (!data) {
     return { ok: false as const, statusCode: 404, error: "phase_not_found" };
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.update_phase",
+    "strategic_plan_phase",
+    data.id,
+    patch,
+  );
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -641,7 +875,11 @@ export async function updateMilestone(
   if (input.name !== undefined) {
     const trimmed = input.name.trim();
     if (!trimmed) {
-      return { ok: false as const, statusCode: 400, error: "invalid_milestone_name" };
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_milestone_name",
+      };
     }
     patch.name = trimmed.slice(0, 255);
   }
@@ -669,13 +907,31 @@ export async function updateMilestone(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "milestone_update_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "milestone_update_failed",
+      detail: error.message,
+    };
   }
 
   if (!data) {
-    return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "milestone_not_found",
+    };
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.update_milestone",
+    "strategic_plan_milestone",
+    data.id,
+    patch,
+  );
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -686,12 +942,15 @@ export async function addMilestoneInternalNote(
   milestoneId: string,
   body: string | undefined,
 ) {
-  if (!["consultant", "platform_admin"].includes(context.profile.platform_role)) {
+  if (
+    !["consultant", "platform_admin"].includes(context.profile.platform_role)
+  ) {
     return {
       ok: false as const,
       statusCode: 403,
       error: "internal_note_denied",
-      message: "Solo consultores o administradores pueden crear notas internas.",
+      message:
+        "Solo consultores o administradores pueden crear notas internas.",
     };
   }
 
@@ -703,8 +962,16 @@ export async function addMilestoneInternalNote(
   // conocer un `milestoneId` ajeno. `context.memberships` ya incluye las
   // organizaciones virtuales del consultor (auth-context.ts) exactamente para
   // esto -- mismo patron que `requireMembership` en el resto del backend.
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+  if (
+    !context.memberships.some(
+      (membership) => membership.organization_id === organizationId,
+    )
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
   if (!body || body.trim().length === 0) {
@@ -721,7 +988,11 @@ export async function addMilestoneInternalNote(
     .maybeSingle();
 
   if (milestoneError || !milestone) {
-    return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "milestone_not_found",
+    };
   }
 
   const { data, error } = await supabase
@@ -736,9 +1007,25 @@ export async function addMilestoneInternalNote(
     .single();
 
   if (error || !data) {
-    return { ok: false as const, statusCode: 500, error: "internal_note_failed", detail: error?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "internal_note_failed",
+      detail: error?.message,
+    };
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.add_internal_note",
+    "milestone_internal_note",
+    data.id,
+    {
+      milestone_id: milestoneId,
+    },
+  );
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -763,7 +1050,11 @@ export async function linkTaskToMilestone(
   const { data, error } = await supabase
     .from("milestone_task_links")
     .upsert(
-      { organization_id: organizationId, milestone_id: milestoneId, task_id: taskId },
+      {
+        organization_id: organizationId,
+        milestone_id: milestoneId,
+        task_id: taskId,
+      },
       { onConflict: "milestone_id,task_id" },
     )
     .select("id")
@@ -771,9 +1062,26 @@ export async function linkTaskToMilestone(
 
   if (error || !data) {
     // El trigger de integridad cross-org convierte enlaces invalidos en excepcion.
-    return { ok: false as const, statusCode: 400, error: "milestone_task_link_failed", detail: error?.message };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "milestone_task_link_failed",
+      detail: error?.message,
+    };
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.link_task",
+    "milestone_task_link",
+    data.id,
+    {
+      milestone_id: milestoneId,
+      task_id: taskId,
+    },
+  );
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -860,7 +1168,9 @@ export async function createMilestoneTask(
   }
 
   const priority =
-    input.priority && MILESTONE_TASK_PRIORITIES.includes(input.priority) ? input.priority : "medium";
+    input.priority && MILESTONE_TASK_PRIORITIES.includes(input.priority)
+      ? input.priority
+      : "medium";
 
   const supabase = createServiceClient(env);
 
@@ -872,7 +1182,11 @@ export async function createMilestoneTask(
     .maybeSingle();
 
   if (milestoneError || !milestone) {
-    return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "milestone_not_found",
+    };
   }
 
   const { data: task, error: taskError } = await supabase
@@ -891,16 +1205,42 @@ export async function createMilestoneTask(
     .single();
 
   if (taskError || !task) {
-    return { ok: false as const, statusCode: 500, error: "task_create_failed", detail: taskError?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "task_create_failed",
+      detail: taskError?.message,
+    };
   }
 
   const { error: linkError } = await supabase
     .from("milestone_task_links")
-    .insert({ organization_id: organizationId, milestone_id: milestoneId, task_id: task.id });
+    .insert({
+      organization_id: organizationId,
+      milestone_id: milestoneId,
+      task_id: task.id,
+    });
 
   if (linkError) {
-    return { ok: false as const, statusCode: 500, error: "milestone_task_link_failed", detail: linkError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "milestone_task_link_failed",
+      detail: linkError.message,
+    };
   }
 
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.create_task",
+    "task",
+    task.id,
+    {
+      milestone_id: milestoneId,
+      source: "strategic_plan",
+    },
+  );
   return { ok: true as const, data: task };
 }

@@ -1,0 +1,38 @@
+▲ Next.js 16.2.10 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.130:3000
+✓ Ready in 816ms
+Creating turbopack project {
+  dir: 'C:\\Users\\borre\\Desktop\\EcomScaling\\apps\\web',
+  testMode: true
+}
+
+ GET /configuracion 200 in 874ms (next.js: 230ms, application-code: 644ms)
+ GET /login 200 in 89ms (next.js: 40ms, application-code: 49ms)
+ GET / 200 in 276ms (next.js: 94ms, application-code: 183ms)
+ GET /login 200 in 41ms (next.js: 5ms, application-code: 36ms)
+ GET /dashboard 200 in 193ms (next.js: 74ms, application-code: 118ms)
+ GET /login 200 in 34ms (next.js: 6ms, application-code: 28ms)
+ GET /tareas 200 in 187ms (next.js: 58ms, application-code: 129ms)
+ GET /login 200 in 67ms (next.js: 24ms, application-code: 44ms)
+ GET /llamadas 200 in 113ms (next.js: 47ms, application-code: 65ms)
+ GET /login 200 in 32ms (next.js: 6ms, application-code: 26ms)
+ GET /camino 200 in 152ms (next.js: 66ms, application-code: 86ms)
+ GET /login 200 in 23ms (next.js: 5ms, application-code: 18ms)
+ GET /integraciones 200 in 336ms (next.js: 86ms, application-code: 249ms)
+ GET /login 200 in 35ms (next.js: 6ms, application-code: 28ms)
+ GET /conocimiento 200 in 145ms (next.js: 65ms, application-code: 80ms)
+ GET /login 200 in 32ms (next.js: 5ms, application-code: 27ms)
+ GET /consultor 200 in 329ms (next.js: 87ms, application-code: 242ms)
+ GET /login 200 in 34ms (next.js: 6ms, application-code: 28ms)
+ GET /agentes 200 in 162ms (next.js: 78ms, application-code: 83ms)
+ GET /login 200 in 45ms (next.js: 11ms, application-code: 34ms)
+ GET /marketing 200 in 132ms (next.js: 40ms, application-code: 93ms)
+ GET /login 200 in 25ms (next.js: 5ms, application-code: 20ms)
+ GET /shopify 200 in 171ms (next.js: 45ms, application-code: 126ms)
+ GET /login 200 in 24ms (next.js: 7ms, application-code: 16ms)
+ GET /shopify/diagnostico 200 in 104ms (next.js: 37ms, application-code: 67ms)
+ GET /login 200 in 25ms (next.js: 6ms, application-code: 19ms)
+ GET /configuracion 200 in 56ms (next.js: 4ms, application-code: 52ms)
+ GET /login 200 in 26ms (next.js: 4ms, application-code: 22ms)
+[?25h

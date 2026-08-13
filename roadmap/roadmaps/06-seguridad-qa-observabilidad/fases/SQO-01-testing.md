@@ -64,3 +64,14 @@
 - CI bloquea lint, tipos, tests y build — **cumplido 2026-07-22** (`ci.yml`: typecheck, lint, tests de
   `@ecomscaling/ai`/`@ecomscaling/api`, build de web).
 - Cada fase tiene pruebas proporcionales al riesgo.
+
+## Actualizacion 2026-08-01
+
+- CI incorpora `dependency-scan` con `npm audit --omit=dev --audit-level=high` y `dependency-review` para pull requests.
+- Sigue pendiente el escaneo de imagenes Docker y un entorno Supabase/Postgres aislado por PR; ninguno se simula como cerrado.
+
+## Correccion de estado 2026-08-02
+
+El pipeline normal ya no ejecuta tests RLS con fixtures: ejecuta tests unitarios/contractuales del API sin
+escribir en ninguna base de datos. Los tests RLS siguen disponibles en el suite completo, pero requieren un
+entorno aislado y deben ejecutarse manualmente cuando exista staging; nunca contra produccion.

@@ -1,4 +1,10 @@
 # EcomScaling IA
+
+## Aplicación en EcomScaling
+
+Esta guía debe leerse junto con el [objetivo global del SaaS y sus criterios de terminado](../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md):
+Shopify es la integración operativa del piloto y debe seguir siendo la referencia para validar conexión,
+sincronización, métricas, webhooks, reconciliación, diagnósticos y uso semanal con una cuenta real.
 Guía técnica de integración  
 Shopify GraphQL Admin API
 

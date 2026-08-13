@@ -1,5 +1,10 @@
 # ECOMSCALING IA
 
+> **Objetivo global vigente:** este roadmap ejecuta el contrato de
+> [`docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md`](../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md).
+> Shopify es la integración operativa del piloto; Meta Ads, Klaviyo e Instagram deben quedar activables
+> posteriormente mediante contratos, adaptadores, feature flags y estados honestos, sin rediseños.
+
 ## Roadmap Técnico Maestro de Implementación
 
 **Ámbitos:** Base de datos · Backend · Frontend · Integraciones · Agentes IA · Seguridad · QA · Despliegue

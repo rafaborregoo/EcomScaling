@@ -2,6 +2,11 @@
 
 ## Estado
 
+> Correccion 2026-08-02: el gap de asociar un resumen a la transcripcion exacta queda cerrado con la
+> migracion `20260802100000_be_05_call_summary_transcript_binding.sql`. Los flujos manual y A01 guardan
+> `call_ai_summaries.transcript_id`; la UI no presenta como vigente un resumen publicado de una version
+> posterior. Las filas históricas conservan `NULL` y no se sobrescriben.
+
 - **Estado real:** `functionally_complete_verification_pending` (funciona, pero el documento no
   demuestra cobertura integral — "validado con datos reales" sin organizacion/entorno/caso concretos no
   es evidencia verificable).
@@ -11,17 +16,17 @@
 - **Bloqueador:** ninguno
 - **Endpoints reales de llamadas** (`apps/api/src/server.ts`, prefijo `/v1/organizations/:organizationId`):
 
-  | Metodo | Ruta | Efecto |
-  | --- | --- | --- |
-  | GET | `/calls` | Lista llamadas (RLS recorta resumenes `published`-only y notas internas para el cliente). |
-  | POST | `/calls` | Crea llamada. |
-  | PATCH | `/calls/:callId` | Actualiza llamada. |
-  | PUT | `/calls/:callId/transcript` | Nueva version de transcripcion (indice unico parcial = una sola actual). |
-  | POST | `/calls/:callId/summary` | Crea resumen manual (`draft`). |
-  | POST | `/calls/:callId/analyze` | Genera resumen via agente A01 (`pending_approval`, igual que el manual). |
-  | POST | `/call-summaries/:summaryId/decision` | Aprueba o rechaza — **aprobar y publicar son la misma accion**: el update pasa `status` directo a `published` en un solo paso (`decideSummary`, `apps/api/src/calls.ts`). |
-  | POST | `/calls/:callId/internal-notes` | Nota interna, solo consultor. |
-  | POST | `/calls/:callId/tasks` | Tarea enlazada a la llamada. |
+  | Metodo | Ruta                                  | Efecto                                                                                                                                                                    |
+  | ------ | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | GET    | `/calls`                              | Lista llamadas (RLS recorta resumenes `published`-only y notas internas para el cliente).                                                                                 |
+  | POST   | `/calls`                              | Crea llamada.                                                                                                                                                             |
+  | PATCH  | `/calls/:callId`                      | Actualiza llamada.                                                                                                                                                        |
+  | PUT    | `/calls/:callId/transcript`           | Nueva version de transcripcion (indice unico parcial = una sola actual).                                                                                                  |
+  | POST   | `/calls/:callId/summary`              | Crea resumen manual (`draft`).                                                                                                                                            |
+  | POST   | `/calls/:callId/analyze`              | Genera resumen via agente A01 (`pending_approval`, igual que el manual).                                                                                                  |
+  | POST   | `/call-summaries/:summaryId/decision` | Aprueba o rechaza — **aprobar y publicar son la misma accion**: el update pasa `status` directo a `published` en un solo paso (`decideSummary`, `apps/api/src/calls.ts`). |
+  | POST   | `/calls/:callId/internal-notes`       | Nota interna, solo consultor.                                                                                                                                             |
+  | POST   | `/calls/:callId/tasks`                | Tarea enlazada a la llamada.                                                                                                                                              |
 
 - **Evidencia verificada en codigo (no solo afirmada):**
   - `decideSummary` solo permite decidir resumenes en estado `draft`/`pending_approval`
@@ -60,4 +65,3 @@ Convertir metricas en ejecucion diaria para cliente y consultor.
 - Tarea creada por alerta no se duplica.
 - Cambios de estado quedan auditados.
 - Resumen de llamada no se publica sin aprobacion.
-

@@ -32,17 +32,37 @@ test("los adapters completos construyen OAuth con el contrato comun", async () =
     redirectUri: "https://api.example.com/v1/meta/callback",
     state: "state-2",
   });
+  const klaviyo = createIntegrationAdapters({
+    ...env,
+    KLAVIYO_CLIENT_ID: "klaviyo-id",
+    KLAVIYO_CLIENT_SECRET: "klaviyo-secret",
+    KLAVIYO_REDIRECT_URI: "https://api.example.com/v1/klaviyo/oauth/callback",
+  }).klaviyo;
+  const klaviyoUrl = await klaviyo.buildAuthorizationUrl({
+    organizationId: "org-1",
+    redirectUri: "https://api.example.com/v1/klaviyo/oauth/callback",
+    state: "state-3",
+    codeChallenge: "challenge-3",
+  });
 
-  assert.match(shopifyUrl.url, /store\.myshopify\.com\/admin\/oauth\/authorize/);
+  assert.match(
+    shopifyUrl.url,
+    /store\.myshopify\.com\/admin\/oauth\/authorize/,
+  );
   assert.match(shopifyUrl.url, /state=state-1/);
   assert.match(metaUrl.url, /facebook\.com\/v23\.0\/dialog\/oauth/);
   assert.match(metaUrl.url, /state=state-2/);
+  assert.match(klaviyoUrl.url, /www\.klaviyo\.com\/oauth\/authorize/);
+  assert.match(klaviyoUrl.url, /code_challenge=challenge-3/);
 });
 
 test("el adapter Shopify verifica firma y conserva el contexto para procesar el webhook", async () => {
   const adapter = createIntegrationAdapters(env).shopify;
   const body = JSON.stringify({ id: 42 });
-  const signature = crypto.createHmac("sha256", env.SHOPIFY_API_SECRET).update(body).digest("base64");
+  const signature = crypto
+    .createHmac("sha256", env.SHOPIFY_API_SECRET)
+    .update(body)
+    .digest("base64");
   const verified = await adapter.verifyWebhook!({
     body,
     headers: {
@@ -57,13 +77,21 @@ test("el adapter Shopify verifica firma y conserva el contexto para procesar el 
   assert.equal(verified.rawBody, body);
 
   await assert.rejects(
-    () => adapter.verifyWebhook!({ body, headers: { "x-shopify-hmac-sha256": "invalid" } }),
-    (error: unknown) => error instanceof Error && error.message === "shopify_webhook_signature_invalid",
+    () =>
+      adapter.verifyWebhook!({
+        body,
+        headers: { "x-shopify-hmac-sha256": "invalid" },
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message === "shopify_webhook_signature_invalid",
   );
 });
 
 test("el health del adapter reutiliza el estado derivado sin leer ni escribir produccion", async () => {
-  const health = await createIntegrationAdapters(env).shopify.getConnectionHealth({
+  const health = await createIntegrationAdapters(
+    env,
+  ).shopify.getConnectionHealth({
     id: "connection-1",
     organizationId: "org-1",
     provider: "shopify",
@@ -72,4 +100,38 @@ test("el health del adapter reutiliza el estado derivado sin leer ni escribir pr
   });
 
   assert.equal(health.status, "healthy");
+});
+
+test("los conectores futuros exponen el contrato comun y fallan de forma honesta sin credenciales", async () => {
+  const adapters = createIntegrationAdapters(env);
+
+  for (const provider of ["klaviyo", "instagram"] as const) {
+    const adapter = adapters[provider];
+    assert.equal(adapter.provider, provider);
+    assert.equal(
+      (
+        await adapter.getConnectionHealth({
+          id: `${provider}-connection`,
+          organizationId: "org-1",
+          provider,
+          status: "pending",
+        })
+      ).status,
+      "unknown",
+    );
+    const expectedError =
+      provider === "klaviyo"
+        ? "klaviyo_app_not_configured"
+        : "instagram_connector_not_enabled";
+    await assert.rejects(
+      () =>
+        adapter.buildAuthorizationUrl({
+          organizationId: "org-1",
+          redirectUri: "https://api.example.com/callback",
+          state: "future-state",
+        }),
+      (error: unknown) =>
+        error instanceof Error && error.message === expectedError,
+    );
+  }
 });

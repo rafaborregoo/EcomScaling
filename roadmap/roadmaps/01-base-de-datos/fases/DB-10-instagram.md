@@ -21,6 +21,13 @@
 
 Soportar analisis de contenido organico con las metricas disponibles por API y entrada manual de ganadores de seguidores.
 
+## Preparacion de esquema 2026-08-02
+
+El modelo se implementará cuando exista acceso real a una cuenta profesional. La UI y
+los agentes toleran desde ahora la ausencia de estas tablas sin datos simulados. Cuando
+se active, las métricas serán filas por medio, nombre y periodo; la procedencia manual
+de ganadores de seguidores quedará separada de los datos de API.
+
 ## Tablas
 
 - `instagram_accounts`
@@ -35,4 +42,3 @@ Soportar analisis de contenido organico con las metricas disponibles por API y e
 - No afirmar seguidores ganados por post salvo dato manual/API disponible.
 - Media URLs y snapshots tienen politica de refresco.
 - Ranking por alcance, engagement y visitas al perfil disponible.
-

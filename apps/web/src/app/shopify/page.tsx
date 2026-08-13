@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
-import { Heading, Banner, Button, ErrorBlock, IconChevronRight, Input, Link, LoadingBlock } from "@/components/ui";
+import {
+  Banner,
+  Button,
+  EmptyState,
+  ErrorBlock,
+  Heading,
+  IconChevronRight,
+  Input,
+  Link,
+  LoadingBlock,
+} from "@/components/ui";
 
 type ShopifyMetrics = {
   organization_id: string;
@@ -54,20 +64,30 @@ const periodOptions: Array<{ days: number | "all"; label: string }> = [
 ];
 
 function formatMoney(value: number | null | undefined, currency = "EUR") {
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(Number(value ?? 0));
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(
+    Number(value ?? 0),
+  );
 }
 
 function formatDate(value: string | null | undefined) {
   if (!value) {
     return "n/a";
   }
-  return new Intl.DateTimeFormat("es-ES", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat("es-ES", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
-function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapResponse; token: string }) {
-  const { organizationId: selectedOrganizationId, setOrganizationId: setSelectedOrganizationId } =
-    useActiveOrganization();
-  const { connectionId: selectedConnectionId, setConnectionId: setSelectedConnectionId } = useActiveConnection();
+function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const {
+    organizationId: selectedOrganizationId,
+    setOrganizationId: setSelectedOrganizationId,
+  } = useActiveOrganization();
+  const {
+    connectionId: selectedConnectionId,
+    setConnectionId: setSelectedConnectionId,
+  } = useActiveConnection();
   const [hasAppliedUrlSelection, setHasAppliedUrlSelection] = useState(false);
   const [metrics, setMetrics] = useState<ShopifyMetrics | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
@@ -78,14 +98,27 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
   const [costFeedback, setCostFeedback] = useState<string | null>(null);
 
   const organization =
-    bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
-      ?.organization ?? bootstrap.memberships[0]?.organization ?? null;
-  const isConsultant = ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role);
+    bootstrap.memberships.find(
+      (membership) => membership.organization_id === selectedOrganizationId,
+    )?.organization ??
+    bootstrap.memberships[0]?.organization ??
+    null;
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
 
-  const { overview, isLoading, isRefreshing, error, reload, isSyncing, syncError, triggerSync } =
-    useShopifyOverview(organization?.id, selectedConnectionId);
+  const {
+    overview,
+    isLoading,
+    isRefreshing,
+    error,
+    reload,
+    isSyncing,
+    syncError,
+    triggerSync,
+  } = useShopifyOverview(organization?.id, selectedConnectionId);
 
-  async function loadMetrics() {
+  const loadMetrics = useCallback(async () => {
     if (!organization) {
       return;
     }
@@ -97,18 +130,26 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
       params.set("connectionId", selectedConnectionId);
     }
 
-    const response = await apiFetch(`/v1/organizations/${organization.id}/shopify/metrics?${params.toString()}`);
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/shopify/metrics?${params.toString()}`,
+    );
 
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string; message?: string; detail?: string }
-        | null;
-      setMetricsError([body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - "));
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        message?: string;
+        detail?: string;
+      } | null;
+      setMetricsError(
+        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+          .filter(Boolean)
+          .join(" - "),
+      );
       return;
     }
 
     setMetrics((await response.json()) as ShopifyMetrics);
-  }
+  }, [organization, periodDays, selectedConnectionId]);
 
   async function saveCost(event: FormEvent) {
     event.preventDefault();
@@ -120,17 +161,29 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
     setIsSavingCost(true);
     setCostFeedback(null);
 
-    const response = await apiFetch(`/v1/organizations/${organization.id}/shopify/product-costs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sku: costSku.trim(), unitCost: Number(costUnitCost) }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/shopify/product-costs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sku: costSku.trim(),
+          unitCost: Number(costUnitCost),
+        }),
+      },
+    );
 
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string; message?: string; detail?: string }
-        | null;
-      setCostFeedback([body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - "));
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        message?: string;
+        detail?: string;
+      } | null;
+      setCostFeedback(
+        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+          .filter(Boolean)
+          .join(" - "),
+      );
       setIsSavingCost(false);
       return;
     }
@@ -151,7 +204,12 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
     const organizationId = params.get("organizationId");
     const connectionId = params.get("connectionId");
 
-    if (organizationId && bootstrap.memberships.some((membership) => membership.organization_id === organizationId)) {
+    if (
+      organizationId &&
+      bootstrap.memberships.some(
+        (membership) => membership.organization_id === organizationId,
+      )
+    ) {
       setSelectedOrganizationId(organizationId);
     }
     if (connectionId) {
@@ -159,7 +217,12 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
     }
 
     setHasAppliedUrlSelection(true);
-  }, [bootstrap.memberships, hasAppliedUrlSelection]);
+  }, [
+    bootstrap.memberships,
+    hasAppliedUrlSelection,
+    setSelectedConnectionId,
+    setSelectedOrganizationId,
+  ]);
 
   useEffect(() => {
     if (!overview?.selected_connection_id) {
@@ -168,11 +231,15 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
     if (!selectedConnectionId) {
       setSelectedConnectionId(overview.selected_connection_id);
     }
-  }, [overview?.selected_connection_id, selectedConnectionId]);
+  }, [
+    overview?.selected_connection_id,
+    selectedConnectionId,
+    setSelectedConnectionId,
+  ]);
 
   useEffect(() => {
     void loadMetrics();
-  }, [organization?.id, selectedConnectionId, token, periodDays]);
+  }, [loadMetrics]);
 
   if (isLoading) {
     return (
@@ -190,6 +257,16 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
     return null;
   }
 
+  if (!overview.connection) {
+    return (
+      <EmptyState
+        title="Shopify todavía no está conectado"
+        hint="Conecta una tienda para importar ventas, productos, stock y métricas reales. Meta Ads y Klaviyo no son necesarios para empezar."
+        action={<Link href="/integraciones">Ir a Integraciones</Link>}
+      />
+    );
+  }
+
   const currency = overview.store?.currency_code ?? "EUR";
 
   return (
@@ -197,22 +274,36 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
       <section className="border-t border-ink/20 pt-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <Heading size="lg">{overview.store?.shop_name ?? "Sin tienda conectada"}</Heading>
+            <Heading size="lg">
+              {overview.store?.shop_name ?? "Sin tienda conectada"}
+            </Heading>
             <p className="mt-1 font-mono text-xs text-muted">
-              {overview.store?.primary_domain ?? overview.store?.myshopify_domain ?? "sin dominio"}
+              {overview.store?.primary_domain ??
+                overview.store?.myshopify_domain ??
+                "sin dominio"}
             </p>
           </div>
           <div className="flex gap-3">
-            <Button type="button" disabled={isRefreshing} onClick={() => void reload()}>
+            <Button
+              type="button"
+              disabled={isRefreshing}
+              onClick={() => void reload()}
+            >
               {isRefreshing ? "Actualizando..." : "Actualizar"}
             </Button>
             <Button
               variant="danger"
               type="button"
-              disabled={isSyncing || !overview.connection || overview.connection.status === "syncing"}
+              disabled={
+                isSyncing ||
+                !overview.connection ||
+                overview.connection.status === "syncing"
+              }
               onClick={() => void triggerSync()}
             >
-              {isSyncing || overview.connection?.status === "syncing" ? "Sincronizando..." : "Sincronizar ahora"}
+              {isSyncing || overview.connection?.status === "syncing"
+                ? "Sincronizando..."
+                : "Sincronizar ahora"}
             </Button>
           </div>
         </div>
@@ -224,7 +315,9 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
         {overview.connection?.last_error_message ? (
           <div className="mt-3">
             <Banner tone="danger">
-              <span className="font-mono text-xs">{overview.connection.last_error_message}</span>
+              <span className="font-mono text-xs">
+                {overview.connection.last_error_message}
+              </span>
             </Banner>
           </div>
         ) : null}
@@ -260,86 +353,128 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
             <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-6">
               <article className="border-b border-line p-4 xl:border-r">
                 <p className="text-sm text-muted">Ventas brutas</p>
-                <p className="mt-2 font-mono text-xl">{formatMoney(metrics.sales.gross_sales, currency)}</p>
+                <p className="mt-2 font-mono text-xl">
+                  {formatMoney(metrics.sales.gross_sales, currency)}
+                </p>
               </article>
               <article className="border-b border-line p-4 xl:border-r">
                 <p className="text-sm text-muted">Ventas netas</p>
-                <p className="mt-2 font-mono text-xl">{formatMoney(metrics.sales.net_sales, currency)}</p>
+                <p className="mt-2 font-mono text-xl">
+                  {formatMoney(metrics.sales.net_sales, currency)}
+                </p>
               </article>
               <article className="border-b border-line p-4 xl:border-r">
                 <p className="text-sm text-muted">Pedidos</p>
-                <p className="mt-2 font-mono text-xl">{metrics.sales.orders_count}</p>
+                <p className="mt-2 font-mono text-xl">
+                  {metrics.sales.orders_count}
+                </p>
               </article>
               <article className="border-b border-line p-4 xl:border-r">
                 <p className="text-sm text-muted">Ticket medio (AOV)</p>
-                <p className="mt-2 font-mono text-xl">{formatMoney(metrics.sales.aov, currency)}</p>
+                <p className="mt-2 font-mono text-xl">
+                  {formatMoney(metrics.sales.aov, currency)}
+                </p>
               </article>
               <article className="border-b border-line p-4 xl:border-r">
                 <p className="text-sm text-muted">Unidades vendidas</p>
-                <p className="mt-2 font-mono text-xl">{metrics.sales.units_sold}</p>
+                <p className="mt-2 font-mono text-xl">
+                  {metrics.sales.units_sold}
+                </p>
               </article>
               <article className="border-b border-line p-4">
                 <p className="text-sm text-muted">Reembolsos</p>
-                <p className="mt-2 font-mono text-xl text-brand">{formatMoney(metrics.sales.refunds, currency)}</p>
+                <p className="mt-2 font-mono text-xl text-brand">
+                  {formatMoney(metrics.sales.refunds, currency)}
+                </p>
               </article>
             </div>
 
             <div className="grid gap-0 md:grid-cols-3">
               <div className="border-b border-line p-4 md:border-r">
-                <Heading level={3} size="md">Productos top</Heading>
+                <Heading level={3} size="md">
+                  Productos top
+                </Heading>
                 <div className="mt-3 divide-y divide-line">
                   {metrics.top_products.length ? (
                     metrics.top_products.map((product) => (
-                      <div key={product.product_id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                      <div
+                        key={product.product_id}
+                        className="flex items-center justify-between gap-3 py-2 text-sm"
+                      >
                         <span>{product.title}</span>
                         <span className="font-mono text-muted">
-                          {product.quantity_sold}u / {formatMoney(product.revenue, currency)}
+                          {product.quantity_sold}u /{" "}
+                          {formatMoney(product.revenue, currency)}
                         </span>
                       </div>
                     ))
                   ) : (
-                    <p className="py-2 text-sm text-muted">Sin ventas en el periodo seleccionado.</p>
+                    <p className="py-2 text-sm text-muted">
+                      Sin ventas en el periodo seleccionado.
+                    </p>
                   )}
                 </div>
               </div>
               <div className="border-b border-line p-4 md:border-r">
-                <Heading level={3} size="md">Stock</Heading>
+                <Heading level={3} size="md">
+                  Stock
+                </Heading>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-xs text-muted">SKUs con tracking</p>
-                    <p className="font-mono text-lg">{metrics.stock.tracked_items}</p>
+                    <p className="font-mono text-lg">
+                      {metrics.stock.tracked_items}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted">Unidades disponibles</p>
-                    <p className="font-mono text-lg">{metrics.stock.total_available}</p>
+                    <p className="font-mono text-lg">
+                      {metrics.stock.total_available}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted">Stock bajo (&le;5)</p>
-                    <p className="font-mono text-lg text-brand">{metrics.stock.low_stock_items}</p>
+                    <p className="font-mono text-lg text-brand">
+                      {metrics.stock.low_stock_items}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted">Sin stock</p>
-                    <p className="font-mono text-lg text-brand">{metrics.stock.out_of_stock_items}</p>
+                    <p className="font-mono text-lg text-brand">
+                      {metrics.stock.out_of_stock_items}
+                    </p>
                   </div>
                 </div>
               </div>
               <div className="p-4">
-                <Heading level={3} size="md">Margen</Heading>
+                <Heading level={3} size="md">
+                  Margen
+                </Heading>
                 <p className="mt-1 text-sm text-muted">
-                  {metrics.margin.items_with_cost} con coste, {metrics.margin.items_without_cost} sin coste.
+                  {metrics.margin.items_with_cost} con coste,{" "}
+                  {metrics.margin.items_without_cost} sin coste.
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-xs text-muted">Margen bruto</p>
-                    <p className="font-mono text-lg">{formatMoney(metrics.margin.gross_margin, currency)}</p>
+                    <p className="font-mono text-lg">
+                      {formatMoney(metrics.margin.gross_margin, currency)}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted">% margen</p>
-                    <p className="font-mono text-lg">{metrics.margin.margin_pct}%</p>
+                    <p className="font-mono text-lg">
+                      {metrics.margin.margin_pct}%
+                    </p>
                   </div>
                 </div>
-                <form onSubmit={(event) => void saveCost(event)} className="mt-4 space-y-2">
-                  <p className="text-xs font-medium uppercase text-muted">Cargar coste por SKU</p>
+                <form
+                  onSubmit={(event) => void saveCost(event)}
+                  className="mt-4 space-y-2"
+                >
+                  <p className="text-xs font-medium uppercase text-muted">
+                    Cargar coste por SKU
+                  </p>
                   <Input
                     type="text"
                     placeholder="SKU"
@@ -356,11 +491,19 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
                       value={costUnitCost}
                       onChange={(event) => setCostUnitCost(event.target.value)}
                     />
-                    <Button type="submit" className="whitespace-nowrap" disabled={isSavingCost || !costSku.trim() || !costUnitCost}>
+                    <Button
+                      type="submit"
+                      className="whitespace-nowrap"
+                      disabled={
+                        isSavingCost || !costSku.trim() || !costUnitCost
+                      }
+                    >
                       {isSavingCost ? "Guardando..." : "Guardar"}
                     </Button>
                   </div>
-                  {costFeedback ? <p className="text-xs text-muted">{costFeedback}</p> : null}
+                  {costFeedback ? (
+                    <p className="text-xs text-muted">{costFeedback}</p>
+                  ) : null}
                 </form>
               </div>
             </div>
@@ -369,9 +512,14 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
       </section>
 
       <section className="flex items-center justify-between border-t border-ink/20 pt-5 text-sm text-muted">
-        <span>Último sync: {formatDate(overview.sync_runs[0]?.finished_at)}</span>
+        <span>
+          Último sync: {formatDate(overview.sync_runs[0]?.finished_at)}
+        </span>
         {isConsultant ? (
-          <Link className="inline-flex items-center gap-1" href="/shopify/diagnostico">
+          <Link
+            className="inline-flex items-center gap-1"
+            href="/shopify/diagnostico"
+          >
             Diagnóstico técnico <IconChevronRight aria-hidden />
           </Link>
         ) : null}
@@ -383,7 +531,7 @@ function ShopifyBusinessView({ bootstrap, token }: { bootstrap: BootstrapRespons
 export default function ShopifyPage() {
   return (
     <PortalShell title="Shopify">
-      {(bootstrap, token) => <ShopifyBusinessView bootstrap={bootstrap} token={token} />}
+      {(bootstrap) => <ShopifyBusinessView bootstrap={bootstrap} />}
     </PortalShell>
   );
 }

@@ -14,6 +14,7 @@
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { loadApiEnv } from "@ecomscaling/config";
 import { decideAgentOutput } from "./ai-runtime.js";
@@ -168,4 +169,26 @@ test("no duplica una tarea cuando otro agente ya propuso el mismo titulo (normal
     .eq("organization_id", orgId)
     .eq("title", "Renegociar plazo con proveedor X");
   assert.equal(newTask?.length, 1, "la tarea genuinamente nueva si debe crearse");
+});
+
+test("un consultor no puede aprobar una salida de otra organizacion", async () => {
+  const consultantContext: AuthContext = {
+    ...context,
+    profile: { ...context.profile, platform_role: "consultant" },
+  };
+
+  const result = await decideAgentOutput(
+    env,
+    consultantContext,
+    randomUUID(),
+    randomUUID(),
+    "approved",
+    undefined,
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    statusCode: 403,
+    error: "organization_access_denied",
+  });
 });

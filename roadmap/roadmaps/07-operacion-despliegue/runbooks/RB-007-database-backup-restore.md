@@ -13,6 +13,12 @@ por ahora.
 
 ## Mecanismo de backup
 
+Los workflows de backup y CI declaran `permissions: contents: read` de forma
+explicita. El artifact sigue siendo un respaldo de produccion y su acceso debe
+limitarse a los administradores del repositorio; no se debe compartir ni
+descargar en equipos personales sin control. La configuracion del secret y el
+drill de restauracion siguen siendo gates operativos externos.
+
 `.github/workflows/backup-database.yml`, cron diario `30 2 * * *` UTC:
 
 1. Instala `postgresql-client` en el runner (`ubuntu-latest`).
@@ -20,7 +26,9 @@ por ahora.
    `pg_dump`, comprimido y restaurable con `pg_restore` (no un `.sql` plano).
 3. Verifica que el dump no esta corrupto con `pg_restore --list` antes de subirlo (falla el job si el
    archivo esta roto, en vez de descubrirlo el dia de una restauracion real).
-4. Sube el dump como artifact de GitHub Actions, `retention-days: 30`.
+4. Calcula un SHA-256 y sube el dump junto con su checksum como artifact de GitHub Actions,
+   `retention-days: 30`; `if-no-files-found: error` impide que un artifact vacío se marque como
+   correcto, y el checksum permite detectar corrupción o sustitución antes del drill.
 
 ## Configuracion pendiente (accion manual de Rafa, no automatizable por el agente)
 

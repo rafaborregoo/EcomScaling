@@ -2,10 +2,15 @@
 
 ## Estado
 
-- **Estado real:** `planned_contract_incomplete` (la parte de chat ya tiene una decision real distinta a
-  la que describe este documento; contenido/Instagram/creatividades siguen sin empezar).
+> **Estado vigente 2026-08-02:** `implemented_partial`. El copiloto lateral, el chat persistido,
+> las fuentes/citas, estados de error y las superficies de drafts/propuestas ya existen. El análisis
+> de creatividades Meta y el contenido orgánico de Instagram permanecen preparados pero bloqueados
+> por credenciales/permisos externos.
+
+- **Estado real:** `implemented_partial` (la parte de chat y el contenido revisable ya tienen implementación;
+  Instagram/creatividades siguen bloqueados por credenciales).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-02
 - **Dependencias:** BE-07, DB-11, DB-10 (Instagram, bloqueada)
 - **Bloqueador:** Instagram/creatividades Meta bloqueadas por credenciales (igual que DB-06/DB-10).
 - **Decision ya tomada (contradice a este documento, alinear):** la contradiccion que senalaba la
@@ -57,5 +62,12 @@ Activar chat contextual, fuentes, aprobaciones e insights de contenido.
 
 - La respuesta IA siempre muestra fuentes cuando usa datos.
 - No se muestran acciones ejecutadas si son solo propuestas.
-- Instagram respeta limitaciones de API.
 
+## Correccion de estado 2026-08-01
+
+El Consultor IA actual es un copiloto lateral con conversaciones persistidas, fuentes/citas y estados
+de error diferenciados. Las salidas de agentes se muestran como propuestas con estado de revision humana;
+no se presentan como acciones ejecutadas. Ranking de Instagram y creatividades Meta continua bloqueado
+por credenciales y permisos de proveedor, mientras la UI mantiene estados vacio/no disponible sin datos
+simulados.
+- Instagram respeta limitaciones de API.

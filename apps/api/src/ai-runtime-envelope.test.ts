@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAgentOutputEnvelope } from "./ai-runtime.js";
+import { buildAgentOutputEnvelope, shouldRequireHumanApproval } from "./ai-runtime.js";
 
 test("la envolvente IA conserva alcance, fuentes y propuestas sin inventar referencias", () => {
   const envelope = buildAgentOutputEnvelope({
@@ -33,4 +33,11 @@ test("la envolvente IA conserva alcance, fuentes y propuestas sin inventar refer
   assert.equal(envelope.proposals[0]?.status, "pending_approval");
   assert.equal(envelope.proposals[0]?.idempotencyKey, "run-1:proposal:0");
   assert.equal(envelope.quality.groundedness, "partially_supported");
+});
+
+test("una propuesta materializable exige aprobacion aunque la version diga none", () => {
+  assert.equal(shouldRequireHumanApproval("none", { answer: "solo lectura" }), false);
+  assert.equal(shouldRequireHumanApproval("none", { proposed_writes: [{ kind: "task" }] }), true);
+  assert.equal(shouldRequireHumanApproval("none", { proposed_tasks: [{ title: "Revisar" }] }), true);
+  assert.equal(shouldRequireHumanApproval("required_before_publish", { answer: "ok" }), true);
 });

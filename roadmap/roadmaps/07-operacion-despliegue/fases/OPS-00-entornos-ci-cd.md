@@ -1,5 +1,10 @@
 # OPS-00 - Entornos y CI/CD
 
+> Correccion vigente 2026-08-02: el historial de drift de 10 migraciones pertenece a una auditoria
+> anterior. Tras los forward-fixes DB-09 y DB-04, hay 61 migraciones locales/remotas alineadas;
+> `supabase db push --linked --include-all --dry-run` indica al dia y `supabase db lint` no encuentra
+> errores. La falta de staging separado sigue siendo una decision operativa, no un fallo de migraciones.
+
 ## Estado
 
 - **Estado real:** `in_progress`
@@ -15,7 +20,9 @@
   explicitamente para que `npm ci` resuelva el workspace completo, ver nota en el propio Dockerfile).
 - **Lo que no existe, confirmado, no solo "por documentar"**: no hay staging (ni entorno ni proveedor
   decidido, ver Q-001), no hay politica de migraciones escrita (expansion/contraccion, quien aplica,
-  rollback), no hay matriz de secrets por entorno, y trabajar contra Supabase remoto directamente en
+  rollback), ~~no hay matriz de secrets por entorno~~ (**cerrado 2026-08-03**:
+  [`../MATRIZ_SECRETS.md`](../MATRIZ_SECRETS.md), extraida de `packages/config` y de los `env:` reales de
+  los workflows), y trabajar contra Supabase remoto directamente en
   local/tests tiene los riesgos ya documentados en SQO-01 (datos compartidos, migraciones accidentales,
   tests que interfieren entre si). Los Dockerfiles no se han probado corriendo un build real (`docker
   build`) en esta sesion, solo revisados por lectura.
@@ -37,6 +44,18 @@
 - **Siguiente accion real**: resolver Q-001 (proveedor de hosting API/worker) — sin eso no se puede crear
   un staging real, y sin staging no se puede cerrar ningun criterio de entrada al piloto (OPS-01). Aparte,
   autorizacion pendiente de Rafa para corregir el drift de version de las 10 migraciones (ver arriba).
+
+## Fallo real encontrado al escribir la matriz (2026-08-03)
+
+`loadApiEnv` exige `SHOPIFY_API_KEY`/`_API_SECRET`/`_SCOPES`/`_REDIRECT_URI` **siempre**, sin importar que
+hace el proceso. `klaviyo-reconcile.yml` (desde su creacion) y `meta-reconcile.yml` (creado el mismo dia)
+no las declaraban en su bloque `env:`, asi que ambos crones abortaban al arrancar antes de leer una sola
+conexion. GitHub Actions no hereda secretos entre workflows: lo que no declara el `env:` del job no existe.
+
+Corregido en los dos workflows y protegido por `apps/worker/src/cron-workflow-env.test.ts`, que construye
+un entorno falso con exactamente lo que cada workflow declara y se lo pasa a `loadApiEnv` real. No repite
+una lista de variables requeridas: si manana se anade un requisito nuevo al schema, el test dice que
+workflows se quedan cortos sin que nadie tenga que acordarse de actualizarlo. 9/9, ya en CI.
 
 ## Entregables
 

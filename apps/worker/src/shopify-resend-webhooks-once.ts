@@ -1,16 +1,24 @@
 import { loadApiEnv } from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
 import { resendShopifyWebhookRegistrations } from "@ecomscaling/api/shopify-webhooks";
+import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("shopify-resend-webhooks-once");
+const jobContext = createWorkerJobContext("shopify-resend-webhooks-cron");
 
 async function main() {
   const env = loadApiEnv(process.env);
-  logger.info("Resending Shopify webhook registrations to existing connections");
+  logger.info(
+    "Resending Shopify webhook registrations to existing connections",
+    workerJobMeta(jobContext),
+  );
 
   const result = await resendShopifyWebhookRegistrations(env);
 
-  logger.info("Shopify webhook resend completed", result);
+  logger.info(
+    "Shopify webhook resend completed",
+    workerJobMeta(jobContext, result),
+  );
 
   if (result.failed > 0) {
     process.exitCode = 1;
@@ -18,6 +26,9 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  logger.error("Shopify webhook resend crashed", error);
+  logger.error("Shopify webhook resend crashed", {
+    ...workerJobMeta(jobContext),
+    error,
+  });
   process.exit(1);
 });

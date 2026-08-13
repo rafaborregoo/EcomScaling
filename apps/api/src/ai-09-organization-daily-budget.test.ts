@@ -18,9 +18,13 @@ import { checkOrganizationDailyBudget } from "./ai-runtime.js";
 
 const env = loadApiEnv(process.env);
 
-const admin: SupabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin: SupabaseClient = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 
@@ -38,18 +42,26 @@ async function insertAgentRun(estimatedCostUsd: number, startedAt: Date) {
     started_at: startedAt.toISOString(),
   });
   if (error) {
-    throw new Error(`No se pudo sembrar el agent_run de prueba: ${error.message}`);
+    throw new Error(
+      `No se pudo sembrar el agent_run de prueba: ${error.message}`,
+    );
   }
 }
 
 before(async () => {
   const { data: org, error: orgError } = await admin
     .from("organizations")
-    .insert({ display_name: `AI-09 Daily Budget Test ${RUN_TAG}`, slug: `ai09-daily-budget-test-${RUN_TAG}`, status: "active" })
+    .insert({
+      display_name: `AI-09 Daily Budget Test ${RUN_TAG}`,
+      slug: `ai09-daily-budget-test-${RUN_TAG}`,
+      status: "active",
+    })
     .select("id")
     .single();
   if (orgError || !org) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${orgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${orgError?.message}`,
+    );
   }
   orgId = org.id;
 
@@ -60,7 +72,9 @@ before(async () => {
     .limit(1)
     .maybeSingle();
   if (agentVersionError || !agentVersion) {
-    throw new Error(`No se encontro una version de agente activa para el test: ${agentVersionError?.message}`);
+    throw new Error(
+      `No se encontro una version de agente activa para el test: ${agentVersionError?.message}`,
+    );
   }
   agentVersionId = agentVersion.id;
 });
@@ -95,11 +109,17 @@ test("runs de dias anteriores no cuentan para el tope de hoy", async () => {
   const freshOrgTag = `${RUN_TAG}-yesterday`;
   const { data: freshOrg, error: freshOrgError } = await admin
     .from("organizations")
-    .insert({ display_name: `AI-09 Daily Budget Yesterday ${freshOrgTag}`, slug: `ai09-daily-budget-yesterday-${freshOrgTag}`, status: "active" })
+    .insert({
+      display_name: `AI-09 Daily Budget Yesterday ${freshOrgTag}`,
+      slug: `ai09-daily-budget-yesterday-${freshOrgTag}`,
+      status: "active",
+    })
     .select("id")
     .single();
   if (freshOrgError || !freshOrg) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${freshOrgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${freshOrgError?.message}`,
+    );
   }
 
   try {
@@ -116,12 +136,44 @@ test("runs de dias anteriores no cuentan para el tope de hoy", async () => {
       started_at: yesterday.toISOString(),
     });
     if (error) {
-      throw new Error(`No se pudo sembrar el agent_run de ayer: ${error.message}`);
+      throw new Error(
+        `No se pudo sembrar el agent_run de ayer: ${error.message}`,
+      );
     }
 
     const result = await checkOrganizationDailyBudget(admin, freshOrg.id, 5);
     assert.equal(result.ok, true);
   } finally {
     await admin.from("organizations").delete().eq("id", freshOrg.id);
+  }
+});
+
+test("si falla la consulta del limite, el runtime bloquea en fail-closed", async () => {
+  const failingSupabase = {
+    from() {
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                async gte() {
+                  return {
+                    data: null,
+                    error: { message: "database unavailable" },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as SupabaseClient;
+
+  const result = await checkOrganizationDailyBudget(failingSupabase, orgId, 5);
+  assert.equal(result.ok, false);
+  if (result.ok === false) {
+    assert.equal(result.statusCode, 503);
+    assert.equal(result.error, "organization_daily_budget_unavailable");
   }
 });

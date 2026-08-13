@@ -1,5 +1,10 @@
 # BE-01 - Identidad, tenancy y bootstrap
 
+> Correccion 2026-08-02: el endpoint de costes de producto valida tambien los
+> IDs relacionados (`shopify_inventory_items`) con el `organization_id` del
+> contexto antes de escribir. La regresion esta cubierta en
+> `apps/api/src/shopify-product-costs-ownership.test.ts`.
+
 ## Estado
 
 - **Estado real:** `verification_pending` (el propio documento reconocia que faltan verificaciones en

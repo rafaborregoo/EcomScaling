@@ -1,5 +1,11 @@
 # EcomScaling IA - Indice de roadmaps operativos
 
+## Objetivo global vigente
+
+La referencia común de producto, preparación de conectores y criterio de terminado es
+[`OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md`](../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md).
+Todos los roadmaps de esta carpeta deben leerse y actualizarse conforme a ese contrato.
+
 > Capa operativa creada a partir del roadmap tecnico maestro, el contexto de base de datos, el briefing de producto y las guias de Shopify, Meta/Instagram, Klaviyo y agentes IA.
 
 ## Donde estamos hoy

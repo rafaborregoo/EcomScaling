@@ -1,17 +1,40 @@
 # AI-11 - Generador de contenido de marketing (email/flows/pop-ups) para Klaviyo
 
+> Aclaracion vigente 2026-08-02: INT-03/DB-09/BE-06 ya tienen el vertical slice de lectura
+> preparado y el reporting expuesto; las menciones historicas que los describen como inexistentes o
+> `planned` quedan supersedidas. La dependencia real de la Fase B es disponer de una cuenta Klaviyo
+> conectada y validar resultados externos, no rehacer la interfaz.
+
 ## Estado
 
-- **Estado real:** `planned` (no iniciado — ni agente, ni UI, ni esquema. Este documento fija el contrato
+> **Estado vigente 2026-08-02:** `implemented_partial`. La Fase A está implementada con agente A11,
+> persistencia de drafts, edición/versionado, aprobación humana, preview seguro y UI `/marketing`.
+> La Fase B continúa pendiente porque requiere credenciales, Reporting API y datos reales de Klaviyo.
+
+> **Correccion documental 2026-08-02:** el contrato de salida de la Fase A ya existe en
+> `packages/ai/src/index.ts` (`klaviyoEmailOutputSchema`, JSON Schema equivalente y
+> `sanitizeGeneratedEmailHtml`), con tests de validación y sanitización. La fase sigue
+> La nota histórica que declaraba `planned` y ausencia de agente, persistencia, aprobación, preview
+> y UI queda supersedida por la implementación de la Fase A descrita arriba.
+
+- **Estado real:** `implemented_partial` (la Fase A ya tiene agente, persistencia, edición/versionado, aprobación, preview y UI; el contrato de salida y sanitización ya existen. Este documento fija el contrato
   antes de escribir la primera linea, siguiendo la misma disciplina que INT-03/DB-09/BE-06, de los que esta
   fase depende para su mitad de aprendizaje).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-22
+
+> **Corrección de estado:** la descripción histórica inmediatamente anterior que habla de una fase
+> sin agente, persistencia ni UI queda supersedida. La Fase A vigente es `implemented_partial`; solo
+> la publicación/envío y el aprendizaje con resultados reales pertenecen a la Fase B pendiente.
+- **Ultima validacion:** 2026-08-02
 - **Dependencias:** AI-00 (runtime/contratos comunes), INT-03/DB-09/BE-06 (Klaviyo — solo para la Fase B,
   ver abajo), AI-10 (envolvente comun de salida, si ya existe cuando se implemente este agente)
 - **Bloqueador:** ninguno para la Fase A (generador). La Fase B (aprendizaje de resultados reales) esta
   bloqueada por que INT-03/DB-09/BE-06 no tienen ni una linea de codigo hoy (confirmado:
   `grep -rl klaviyo apps/api/src` no devuelve nada salvo referencias de categoria).
+
+> **Implementacion parcial 2026-08-02:** la Fase A ya incluye el agente A11, persistencia de
+> drafts, aprobacion, preview seguro y UI en `/marketing`. Sigue sin publicar ni enviar contenido
+> a Klaviyo; la Fase B depende de datos reales y Reporting API.
 
 ## Objetivo
 
@@ -99,6 +122,12 @@ explicitamente que son entregables independientes con una dependencia de una via
 - Aprobacion humana requerida antes de marcar un borrador como "listo para copiar".
 - Test de guarda de calidad estructural (mismo patron que `checkOutputSanity`, AI-00) que rechace HTML
   vacio, roto o sin las secciones minimas esperadas.
+
+## Dependencia de Tool Layer
+
+Antes de activar la infraestructura IA de este agente debe completarse [AI-00A — Fundación del Tool Layer](./AI-00A-tool-layer-foundation.md). El generador de Klaviyo utilizará `propose_content`, `knowledge_search`, `data_coverage`, `cite_source` y `report_confidence`.
+
+La generación de emails y plantillas debe persistir el borrador, HTML sanitizado, bloques reutilizables, asunto, preheader, tokens de personalización, variantes, fuentes, warnings y aprobación. `klaviyo_create_flow` y `klaviyo_send_campaign` quedan fuera del camino automático hasta tener conexión, scopes, dry-run, idempotencia, rollback y aprobación explícita.
 
 ## Criterios de cierre (Fase B)
 

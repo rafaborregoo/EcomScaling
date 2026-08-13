@@ -1,5 +1,16 @@
 # AI-00 - Contratos y runtime base
 
+> Verificacion adicional 2026-08-02: el endpoint de trazas de agentes pasa 3/3 pruebas con el
+> consultor autorizado, el rechazo para clientes y el 404 de runs inexistentes. El replay normaliza
+> timestamps historicos sin zona horaria en el limite de lectura (`packages/ai/src/index.ts`), evitando
+> que datos antiguos rompan el contrato ISO de la traza. Typecheck de API y paquete AI sin errores.
+
+> Verificacion 2026-08-02: los guards de `decideAgentOutput` tienen regresiones directas para rol de
+> consultor autorizado, owner de cliente y ausencia de membership
+> (`ai-agent-approval-guards.test.ts`).
+
+> AI-00 se complementa con [AI-00A — Fundación del Tool Layer](./AI-00A-tool-layer-foundation.md), que fija el catálogo operativo de tools, permisos runtime, costes, errores, provenance, paginación, idempotencia, dry-run, aprobación, rollback y observabilidad. Ningún agente nuevo debe añadir herramientas fuera de ese registro central.
+
 ## Estado
 
 - **Estado real:** `verification_pending`
@@ -110,3 +121,8 @@ Cerrar entrada, salida, herramientas, permisos y trazabilidad antes del primer a
 - Ningun agente puede ampliar organizaciones autorizadas.
 - No hay escritura SQL libre.
 - Toda salida puede validarse contra schema.
+
+## Actualizacion 2026-08-01
+
+- `shouldRequireHumanApproval` en `apps/api/src/ai-runtime.ts` añade una barrera independiente de la configuración de `agent_versions`: cualquier `proposed_writes` o `proposed_tasks` no vacío queda en `pending_approval`, incluso si la versión declara `approval_mode = 'none'`.
+- A09 sigue siendo de solo lectura y puede responder sin aprobación cuando no propone materializaciones; los agentes con tareas/escrituras siguen requiriendo decisión humana.

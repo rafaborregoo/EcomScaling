@@ -1,4 +1,17 @@
 # EcomScaling IA
+
+> **Alineación con el producto (2026-08-02):** esta guía describe la API de referencia;
+> el estado implementado y el criterio de activación de EcomScaling están en
+> [`../roadmap/roadmaps/04-integraciones/CONTRATO_PREPARACION_CONECTORES.md`](../roadmap/roadmaps/04-integraciones/CONTRATO_PREPARACION_CONECTORES.md).
+> Shopify sigue siendo la única integración operativa. Meta Ads e Instagram no deben
+> fabricar activos o métricas mientras falten credenciales, permisos o App Review.
+
+## Aplicación en EcomScaling
+
+Esta guía debe leerse junto con el [objetivo global del SaaS y sus criterios de terminado](../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md):
+Shopify es la integración operativa actual y Meta Ads/Instagram se preparan para activarse con credenciales
+reales sin rehacer la UI, los contratos de dominio ni los agentes. Los ejemplos de esta guía son contratos
+y casos de integración; no autorizan a inventar cuentas, métricas o resultados en producción.
 Guía técnica de Meta Ads  
 e Instagram Graph API
 

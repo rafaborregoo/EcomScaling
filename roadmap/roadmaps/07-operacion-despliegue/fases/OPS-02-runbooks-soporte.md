@@ -2,12 +2,12 @@
 
 ## Estado
 
-- **Estado real:** `in_progress` (8 runbooks reales + checklist semanal de salud por cliente; falta solo
+- **Estado real:** `in_progress` (9 runbooks reales + checklist semanal de salud por cliente; falta solo
   validar RB-007 con un drill de restauracion real, pospuesto a proposito al final del programa)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-03
 - **Dependencias:** SQO-02 (observabilidad, para poder diagnosticar mas alla de consultas SQL directas)
-- **8 runbooks reales** (formato Sintoma/Impacto/Severidad/Comprobaciones iniciales/Diagnostico/Acciones/
+- **9 runbooks reales** (formato Sintoma/Impacto/Severidad/Comprobaciones iniciales/Diagnostico/Acciones/
   Rollback/Validacion de recuperacion/Comunicacion al cliente/Escalado/Evidencias a conservar/Prevencion,
   con queries SQL y nombres de funcion reales, no genericos):
   [`RB-001-shopify-sync-failed.md`](../runbooks/RB-001-shopify-sync-failed.md) (2026-07-20),
@@ -31,7 +31,11 @@
   local no coincide con la version registrada en remoto, probablemente por haberse renombrado tras aplicar
   para reordenar migraciones del mismo dia. El schema en si esta correcto (confirmado con la suite completa
   de tests), es solo el metadato de versionado el que diverge; queda como accion pendiente concreta
-  corregirlo con `migration repair` antes de automatizar `supabase db push` en CI).
+  corregirlo con `migration repair` antes de automatizar `supabase db push` en CI),
+  [`RB-009-alta-cliente-conectores.md`](../runbooks/RB-009-alta-cliente-conectores.md) (2026-08-03 --
+  unico runbook proactivo del conjunto: secuencia de alta de un cliente real con Shopify obligatorio y
+  Meta/Klaviyo condicionados a App Review y scopes; deja explicito que el criterio de cierre de un alta
+  es la comparacion contra el panel nativo del proveedor, no que el sync no falle).
 
 ## Entregables
 

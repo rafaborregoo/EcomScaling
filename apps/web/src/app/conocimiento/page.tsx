@@ -1,11 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
-import { Heading, Accordion, Button, ErrorBlock, Field, Input, LoadingBlock, Select, Textarea, toast } from "@/components/ui";
+import {
+  Heading,
+  Accordion,
+  Button,
+  EmptyState,
+  ErrorBlock,
+  Field,
+  Input,
+  LoadingBlock,
+  Select,
+  Textarea,
+  toast,
+} from "@/components/ui";
 
 type KnowledgeDocument = {
   id: string;
@@ -30,15 +49,6 @@ type KnowledgeMatch = {
   similarity: number;
 };
 
-async function readApiError(response: Response) {
-  const body = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string; detail?: string }
-    | null;
-  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-    .filter(Boolean)
-    .join(" - ");
-}
-
 function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
   const isPlatformAdmin = bootstrap.profile.platform_role === "platform_admin";
@@ -49,7 +59,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [visibility, setVisibility] = useState<"organization" | "global">("organization");
+  const [visibility, setVisibility] = useState<"organization" | "global">(
+    "organization",
+  );
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,7 +76,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
 
     setIsLoading(true);
-    const response = await apiFetch(`/v1/organizations/${organizationId}/knowledge/documents`);
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/knowledge/documents`,
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -72,7 +86,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
-    const payload = (await response.json()) as { documents: KnowledgeDocument[] };
+    const payload = (await response.json()) as {
+      documents: KnowledgeDocument[];
+    };
     setDocuments(payload.documents);
     setError(null);
     setIsLoading(false);
@@ -82,7 +98,11 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void loadDocuments();
   }, [loadDocuments]);
 
-  async function ingestDocument(documentTitle: string, documentContent: string, sourceType: string) {
+  async function ingestDocument(
+    documentTitle: string,
+    documentContent: string,
+    sourceType: string,
+  ) {
     setIsSaving(true);
 
     const targetPath =
@@ -125,7 +145,11 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
-    const documentTitle = file.name.replace(/\.[^.]+$/, "").replaceAll(/[-_]/g, " ").trim() || file.name;
+    const documentTitle =
+      file.name
+        .replace(/\.[^.]+$/, "")
+        .replaceAll(/[-_]/g, " ")
+        .trim() || file.name;
     await ingestDocument(documentTitle, text.trim(), "upload");
   }
 
@@ -155,11 +179,14 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setIsSearching(true);
     setSearchError(null);
 
-    const response = await apiFetch(`/v1/organizations/${organizationId}/knowledge/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: searchQuery.trim() }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}/knowledge/search`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: searchQuery.trim() }),
+      },
+    );
 
     if (!response.ok) {
       setSearchError(await readApiError(response));
@@ -188,10 +215,16 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <div className="grid gap-8 lg:grid-cols-2">
         <section className="border-t border-ink/20 pt-5">
-          <Heading level={3} size="lg">Añadir documento</Heading>
+          <Heading level={3} size="lg">
+            Añadir documento
+          </Heading>
 
           <div className="mt-4 flex flex-wrap items-center gap-4">
-            <Button type="button" disabled={isSaving} onClick={() => fileInputRef.current?.click()}>
+            <Button
+              type="button"
+              disabled={isSaving}
+              onClick={() => fileInputRef.current?.click()}
+            >
               {isSaving ? "Indexando..." : "Subir documento (.txt, .md)"}
             </Button>
             <input
@@ -215,7 +248,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   aria-label="Destino"
                   className="font-sans normal-case tracking-normal text-black"
                   value={visibility}
-                  onChange={(value) => setVisibility(value as "organization" | "global")}
+                  onChange={(value) =>
+                    setVisibility(value as "organization" | "global")
+                  }
                   options={[
                     { value: "organization", label: "Esta organización" },
                     { value: "global", label: "Global (metodología)" },
@@ -224,7 +259,6 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
             ) : null}
           </div>
-
 
           <Accordion
             className="mt-5 border-t border-line pt-3"
@@ -260,7 +294,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </section>
 
         <section className="border-t border-ink/20 pt-5">
-          <Heading level={3} size="lg">Búsqueda semántica</Heading>
+          <Heading level={3} size="lg">
+            Búsqueda semántica
+          </Heading>
           <form className="mt-4 flex items-end gap-4" onSubmit={submitSearch}>
             <Input
               className="w-full"
@@ -284,18 +320,27 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <p className="text-sm text-muted">Sin resultados.</p>
               ) : (
                 matches.map((match) => (
-                  <article key={match.chunk_id} className="border-t border-line pt-3">
+                  <article
+                    key={match.chunk_id}
+                    className="border-t border-line pt-3"
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium">{match.document_title}</p>
+                      <p className="text-sm font-medium">
+                        {match.document_title}
+                      </p>
                       <span className="font-mono text-xs text-muted">
                         {(match.similarity * 100).toFixed(0)}%
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted">
-                      {match.visibility === "global" ? "Global" : "Organización"} - fragmento{" "}
-                      {match.chunk_index + 1}
+                      {match.visibility === "global"
+                        ? "Global"
+                        : "Organización"}{" "}
+                      - fragmento {match.chunk_index + 1}
                     </p>
-                    <p className="mt-2 text-sm leading-6">{match.content.slice(0, 400)}</p>
+                    <p className="mt-2 text-sm leading-6">
+                      {match.content.slice(0, 400)}
+                    </p>
                   </article>
                 ))
               )}
@@ -306,7 +351,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <section className="border-t border-ink/20">
         <div className="border-b border-line px-4 py-3">
-          <Heading level={3} size="md">Documentos ({documents.length})</Heading>
+          <Heading level={3} size="md">
+            Documentos ({documents.length})
+          </Heading>
         </div>
         {error ? (
           <div className="px-4 py-3">
@@ -317,13 +364,17 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <LoadingBlock label="Cargando documentos..." />
           </div>
         ) : documents.length === 0 ? (
-          <p className="px-4 py-3 text-sm text-muted">
-            Aún no hay documentos. Ingiere el primero con el formulario de arriba.
-          </p>
+          <EmptyState
+            title="Aún no hay documentos"
+            hint="Ingiere el primero con el formulario de arriba para activar el conocimiento del workspace."
+          />
         ) : (
           <div className="divide-y divide-line">
             {documents.map((document) => (
-              <div key={document.id} className="grid gap-2 px-4 py-3 md:grid-cols-[1fr_140px_110px_170px]">
+              <div
+                key={document.id}
+                className="grid gap-2 px-4 py-3 md:grid-cols-[1fr_140px_110px_170px]"
+              >
                 <div>
                   <p className="font-medium">{document.title}</p>
                   {document.description ? (
@@ -333,7 +384,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <span className="font-mono text-xs text-muted">
                   {document.visibility === "global" ? "global" : "organización"}
                 </span>
-                <span className="font-mono text-xs text-muted">{document.status}</span>
+                <span className="font-mono text-xs text-muted">
+                  {document.status}
+                </span>
                 <span className="font-mono text-xs text-muted">
                   {new Date(document.created_at).toLocaleDateString("es-ES")}
                 </span>

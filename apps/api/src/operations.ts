@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { recordAuditLog } from "./audit-log.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
 
@@ -18,20 +19,31 @@ function createServiceClient(env: ApiEnv) {
 }
 
 function requireMembership(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find((item) => item.organization_id === organizationId);
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
 
   if (!membership) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
   return { ok: true as const, membership };
 }
 
 function isConsultantOrAdmin(context: AuthContext) {
-  return ["consultant", "platform_admin"].includes(context.profile.platform_role);
+  return ["consultant", "platform_admin"].includes(
+    context.profile.platform_role,
+  );
 }
 
-function interpolate(template: string, values: Record<string, string | number | null | undefined>) {
+function interpolate(
+  template: string,
+  values: Record<string, string | number | null | undefined>,
+) {
   return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
     const value = values[key];
     return value != null ? String(value) : "";
@@ -40,8 +52,12 @@ function interpolate(template: string, values: Record<string, string | number | 
 
 const TASK_CATEGORIES = ["shopify", "meta", "klaviyo", "general"] as const;
 
-function normalizeProviderCategory(provider: string): (typeof TASK_CATEGORIES)[number] {
-  return (TASK_CATEGORIES as readonly string[]).includes(provider) ? (provider as (typeof TASK_CATEGORIES)[number]) : "general";
+function normalizeProviderCategory(
+  provider: string,
+): (typeof TASK_CATEGORIES)[number] {
+  return (TASK_CATEGORIES as readonly string[]).includes(provider)
+    ? (provider as (typeof TASK_CATEGORIES)[number])
+    : "general";
 }
 
 type TemplateRow = {
@@ -111,8 +127,14 @@ async function upsertAlertWithTask(
       source_entity_type: detection.sourceEntityType ?? null,
       source_entity_id: detection.sourceEntityId ?? null,
       severity: template.default_severity,
-      title: interpolate(template.alert_title_template, detection.templateValues).slice(0, 255),
-      message: interpolate(template.alert_message_template, detection.templateValues),
+      title: interpolate(
+        template.alert_title_template,
+        detection.templateValues,
+      ).slice(0, 255),
+      message: interpolate(
+        template.alert_message_template,
+        detection.templateValues,
+      ),
       metric_code: null,
       metric_value: detection.metricValue,
       threshold_value: detection.thresholdValue,
@@ -130,7 +152,13 @@ async function upsertAlertWithTask(
     throw new Error(`alert_insert_failed: ${insertError?.message}`);
   }
 
-  await notifyAlertCreated(supabase, organizationId, alert.id, template, detection);
+  await notifyAlertCreated(
+    supabase,
+    organizationId,
+    alert.id,
+    template,
+    detection,
+  );
 
   if (template.task_title_template) {
     const { data: createdTask, error: taskError } = await supabase
@@ -140,15 +168,23 @@ async function upsertAlertWithTask(
         alert_id: alert.id,
         source: "alert",
         priority:
-          template.default_severity === "critical" || template.default_severity === "high"
+          template.default_severity === "critical" ||
+          template.default_severity === "high"
             ? "high"
             : "medium",
-        title: interpolate(template.task_title_template, detection.templateValues).slice(0, 255),
+        title: interpolate(
+          template.task_title_template,
+          detection.templateValues,
+        ).slice(0, 255),
         description: template.task_description_template
-          ? interpolate(template.task_description_template, detection.templateValues)
+          ? interpolate(
+              template.task_description_template,
+              detection.templateValues,
+            )
           : null,
         category:
-          template.code === "integration_sync_failed" && typeof detection.contextData?.provider === "string"
+          template.code === "integration_sync_failed" &&
+          typeof detection.contextData?.provider === "string"
             ? normalizeProviderCategory(detection.contextData.provider)
             : template.category,
       })
@@ -164,7 +200,10 @@ async function upsertAlertWithTask(
     // criterio que ai-runtime.ts): las tareas generadas por el motor de
     // alertas no tenian ninguna conexion con el plan estrategico.
     if (createdTask) {
-      const milestoneId = await findCurrentMilestoneId(supabase, organizationId);
+      const milestoneId = await findCurrentMilestoneId(
+        supabase,
+        organizationId,
+      );
       if (milestoneId) {
         await supabase.from("milestone_task_links").insert({
           organization_id: organizationId,
@@ -201,7 +240,10 @@ async function notifyAlertCreated(
       return;
     }
 
-    const title = interpolate(template.alert_title_template, detection.templateValues).slice(0, 255);
+    const title = interpolate(
+      template.alert_title_template,
+      detection.templateValues,
+    ).slice(0, 255);
 
     await supabase.from("notifications").insert(
       members.map((member) => ({
@@ -209,7 +251,10 @@ async function notifyAlertCreated(
         user_id: member.user_id,
         type: "alert",
         title,
-        message: interpolate(template.alert_message_template, detection.templateValues),
+        message: interpolate(
+          template.alert_message_template,
+          detection.templateValues,
+        ),
         action_url: `/tareas?organizationId=${organizationId}`,
         entity_type: "alert",
         entity_id: alertId,
@@ -234,7 +279,11 @@ async function resolveStaleAlerts(
     .in("status", ["open", "acknowledged"]);
 
   if (liveFingerprints.length > 0) {
-    query = query.not("fingerprint", "in", `(${liveFingerprints.map((f) => `"${f}"`).join(",")})`);
+    query = query.not(
+      "fingerprint",
+      "in",
+      `(${liveFingerprints.map((f) => `"${f}"`).join(",")})`,
+    );
   }
 
   const { error } = await query;
@@ -307,9 +356,13 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
           thresholdValue: 0,
           sourceEntityType: "integration_connection",
           sourceEntityId: connection.id,
-          contextData: { provider: connection.provider, error: connection.last_error_message },
+          contextData: {
+            provider: connection.provider,
+            error: connection.last_error_message,
+          },
           templateValues: {
-            context_provider: connection.provider_account_name ?? connection.provider,
+            context_provider:
+              connection.provider_account_name ?? connection.provider,
             context_error: connection.last_error_message ?? "desconocido",
           },
         });
@@ -355,7 +408,10 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
             fingerprint: `shopify_revenue_drop:${organizationId}:${weekKey}`,
             metricValue: Math.round(changePct * 100) / 100,
             thresholdValue: threshold,
-            contextData: { current_net_sales: current, previous_net_sales: previous },
+            contextData: {
+              current_net_sales: current,
+              previous_net_sales: previous,
+            },
             templateValues: {
               metric_value_abs: Math.abs(Math.round(changePct)),
               threshold_abs: Math.abs(threshold),
@@ -368,7 +424,12 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
     }
 
     for (const detection of detections) {
-      const result = await upsertAlertWithTask(supabase, organizationId, template, detection);
+      const result = await upsertAlertWithTask(
+        supabase,
+        organizationId,
+        template,
+        detection,
+      );
       if (result.created) {
         summary.alerts_created += 1;
       } else {
@@ -403,7 +464,12 @@ export async function runAlertRulesForAllOrganizations(env: ApiEnv) {
     throw new Error(`organizations_load_failed: ${error.message}`);
   }
 
-  const summary = { organizations: 0, succeeded: 0, failed: 0, alerts_created: 0 };
+  const summary = {
+    organizations: 0,
+    succeeded: 0,
+    failed: 0,
+    alerts_created: 0,
+  };
 
   for (const organization of organizations ?? []) {
     summary.organizations += 1;
@@ -415,7 +481,8 @@ export async function runAlertRulesForAllOrganizations(env: ApiEnv) {
       summary.failed += 1;
       console.error("alert_rules_org_failed", {
         organization_id: organization.id,
-        error: ruleError instanceof Error ? ruleError.message : String(ruleError),
+        error:
+          ruleError instanceof Error ? ruleError.message : String(ruleError),
       });
     }
   }
@@ -423,7 +490,11 @@ export async function runAlertRulesForAllOrganizations(env: ApiEnv) {
   return summary;
 }
 
-export async function evaluateAlertRules(env: ApiEnv, context: AuthContext, organizationId: string) {
+export async function evaluateAlertRules(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
     return access;
@@ -494,7 +565,13 @@ export async function listOperations(
   };
 }
 
-const TASK_STATUSES = ["pending", "in_progress", "completed", "ignored", "cancelled"] as const;
+const TASK_STATUSES = [
+  "pending",
+  "in_progress",
+  "completed",
+  "ignored",
+  "cancelled",
+] as const;
 
 export async function updateTaskStatus(
   env: ApiEnv,
@@ -509,8 +586,15 @@ export async function updateTaskStatus(
     return access;
   }
 
-  if (!statusInput || !TASK_STATUSES.includes(statusInput as (typeof TASK_STATUSES)[number])) {
-    return { ok: false as const, statusCode: 400, error: "invalid_task_status" };
+  if (
+    !statusInput ||
+    !TASK_STATUSES.includes(statusInput as (typeof TASK_STATUSES)[number])
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_task_status",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -522,7 +606,9 @@ export async function updateTaskStatus(
       status: statusInput,
       ...(statusInput === "in_progress" ? { started_at: now } : {}),
       ...(statusInput === "completed" ? { completed_at: now } : {}),
-      ...(statusInput === "ignored" ? { ignored_at: now, ignored_reason: reason ?? null } : {}),
+      ...(statusInput === "ignored"
+        ? { ignored_at: now, ignored_reason: reason ?? null }
+        : {}),
     })
     .eq("id", taskId)
     .eq("organization_id", organizationId)
@@ -530,7 +616,12 @@ export async function updateTaskStatus(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "task_update_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "task_update_failed",
+      detail: error.message,
+    };
   }
 
   if (!data) {
@@ -542,11 +633,24 @@ export async function updateTaskStatus(
   if (statusInput === "completed" && data.alert_id) {
     await supabase
       .from("alerts")
-      .update({ status: "resolved", resolved_by: context.user.id, resolved_at: now })
+      .update({
+        status: "resolved",
+        resolved_by: context.user.id,
+        resolved_at: now,
+      })
       .eq("id", data.alert_id)
       .eq("organization_id", organizationId)
       .in("status", ["open", "acknowledged"]);
   }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "operations.update_task_status",
+    entityType: "task",
+    entityId: data.id,
+    newData: { status: data.status, reason: reason ?? null },
+  });
 
   return { ok: true as const, data: { id: data.id, status: data.status } };
 }
@@ -565,7 +669,11 @@ export async function addTaskComment(
   }
 
   if (!body || body.trim().length === 0) {
-    return { ok: false as const, statusCode: 400, error: "missing_comment_body" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "missing_comment_body",
+    };
   }
 
   if (isInternal && !isConsultantOrAdmin(context)) {
@@ -573,7 +681,8 @@ export async function addTaskComment(
       ok: false as const,
       statusCode: 403,
       error: "internal_comment_denied",
-      message: "Solo consultores o administradores pueden crear comentarios internos.",
+      message:
+        "Solo consultores o administradores pueden crear comentarios internos.",
     };
   }
 
@@ -587,7 +696,12 @@ export async function addTaskComment(
     .maybeSingle();
 
   if (taskError) {
-    return { ok: false as const, statusCode: 500, error: "task_lookup_failed", detail: taskError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "task_lookup_failed",
+      detail: taskError.message,
+    };
   }
 
   if (!task) {
@@ -607,7 +721,12 @@ export async function addTaskComment(
     .single();
 
   if (error || !data) {
-    return { ok: false as const, statusCode: 500, error: "task_comment_failed", detail: error?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "task_comment_failed",
+      detail: error?.message,
+    };
   }
 
   // AI-07: solo las notas internas del consultor entran a la memoria (nunca
@@ -629,6 +748,15 @@ export async function addTaskComment(
     });
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "operations.add_task_comment",
+    entityType: "task_comment",
+    entityId: data.id,
+    newData: { task_id: taskId, is_internal: Boolean(isInternal) },
+  });
+
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -644,8 +772,15 @@ export async function updateAlertStatus(
     return access;
   }
 
-  if (!statusInput || !["acknowledged", "resolved", "dismissed"].includes(statusInput)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_alert_status" };
+  if (
+    !statusInput ||
+    !["acknowledged", "resolved", "dismissed"].includes(statusInput)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_alert_status",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -655,7 +790,9 @@ export async function updateAlertStatus(
     .from("alerts")
     .update({
       status: statusInput,
-      ...(statusInput === "acknowledged" ? { acknowledged_by: context.user.id, acknowledged_at: now } : {}),
+      ...(statusInput === "acknowledged"
+        ? { acknowledged_by: context.user.id, acknowledged_at: now }
+        : {}),
       ...(statusInput === "resolved" || statusInput === "dismissed"
         ? { resolved_by: context.user.id, resolved_at: now }
         : {}),
@@ -666,12 +803,26 @@ export async function updateAlertStatus(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "alert_update_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "alert_update_failed",
+      detail: error.message,
+    };
   }
 
   if (!data) {
     return { ok: false as const, statusCode: 404, error: "alert_not_found" };
   }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "operations.update_alert_status",
+    entityType: "alert",
+    entityId: data.id,
+    newData: { status: data.status },
+  });
 
   return { ok: true as const, data: { id: data.id, status: data.status } };
 }

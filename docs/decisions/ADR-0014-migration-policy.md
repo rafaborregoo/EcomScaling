@@ -1,8 +1,9 @@
 # ADR-0014: Política de migraciones
 
 - **Fecha:** 2026-07-23
-- **Estado:** Aprobada, para el estado actual del proyecto (pre-piloto, un solo entorno real, equipo de una
-  persona). Reevaluar cuando exista staging (OPS-00, bloqueado por Q-001) o un segundo desarrollador.
+- **Estado:** Aprobada, para el estado actual del proyecto (Piloto 1, un solo entorno real, equipo de una
+  persona). Reevaluar cuando exista staging o un segundo desarrollador; la ausencia de staging esta aceptada
+  explicitamente por R-015 y no bloquea el piloto actual.
 - **Relacionada:** [`RB-005-failed-migration.md`](../../roadmap/roadmaps/07-operacion-despliegue/runbooks/RB-005-failed-migration.md)
   (el hallazgo real de drift de version que motiva esta politica), OPS-00 (entorno/CI-CD, entregable
   "politica de migraciones" pendiente desde el origen del roadmap).
@@ -52,5 +53,13 @@ Mientras el proyecto siga en esta fase (un entorno real, sin staging, equipo de 
   tamaño actual del equipo, no lo sería con más gente tocando el esquema.
 
 ## Historial relacionado
+
+### Verificación 2026-08-02
+
+Durante la aplicación de AI-14 se detectaron dos archivos con el timestamp `20260802130000`.
+El timestamp ya aplicado correspondía a AI-11; AI-14 se renombró antes de desplegarse a
+`20260802130100_ai_14_abstention_quality_tools.sql`, sin modificar ninguna migración aplicada.
+`supabase migration list --linked` y un `db push --dry-run` posterior confirmaron que el historial
+local y remoto están alineados y no quedan migraciones pendientes.
 
 Hallazgo y corrección del drift real: `RB-005-failed-migration.md` (2026-07-23).

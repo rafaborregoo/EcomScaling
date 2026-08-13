@@ -10,12 +10,15 @@
  * (y sus read_* equivalentes, que Shopify marca solos).
  *
  * Uso:
- *   SEED_SHOP_DOMAIN=mi-dev-store.myshopify.com SEED_ADMIN_TOKEN=shpat_xxx npm run seed:shopify-store
+ *   ALLOW_SHOPIFY_SEED=true SEED_SHOP_DOMAIN=mi-dev-store.myshopify.com SEED_ADMIN_TOKEN=shpat_xxx npm run seed:shopify-store
  * o anade ambas variables a .env.local y ejecuta npm run seed:shopify-store.
  */
 import { z } from "zod";
 
 const envSchema = z.object({
+  // Este script crea productos, clientes y pedidos en Shopify: nunca se
+  // permite sin una confirmación explícita en el entorno.
+  ALLOW_SHOPIFY_SEED: z.literal("true"),
   SEED_SHOP_DOMAIN: z
     .string()
     .regex(/^[a-z0-9][a-z0-9.-]*\.myshopify\.com$/, "SEED_SHOP_DOMAIN debe ser *.myshopify.com"),

@@ -5,6 +5,9 @@ import { z } from "zod";
 const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  // Guard explícito: este script hace upsert/delete lógico sobre datos de demo
+  // y nunca debe ejecutarse por accidente contra el proyecto de producción.
+  ALLOW_DEMO_SEED: z.literal("true"),
   DEMO_USER_ID: z.string().uuid().default("95ca12f1-72b1-474c-ab53-73320f78d6a3"),
   DEMO_CLIENT_USER_ID: z.string().uuid().default("40e2d772-02d3-4884-b8b6-755c22c0b561"),
   DEMO_FULL_NAME: z.string().default("Rafa Borrego"),
@@ -22,7 +25,7 @@ const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     autoRefreshToken: false,
   },
   realtime: {
-    transport: WebSocket,
+    transport: WebSocket as any,
   },
 });
 

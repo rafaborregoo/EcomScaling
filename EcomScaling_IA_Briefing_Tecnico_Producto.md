@@ -1,5 +1,10 @@
 # EcomScaling IA
 
+> **Criterio de producto vigente:** este briefing se ejecuta conforme al [objetivo global del SaaS,
+> piloto y criterios de terminado](docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md). Shopify es la
+> integración operativa actual; Meta Ads, Klaviyo e Instagram deben poder activarse después sin rehacer
+> la interfaz, el dominio ni los agentes. Los datos ausentes o simulados deben estar siempre etiquetados.
+
 ## Briefing Técnico de Producto
 ### Documento para desarrollador
 Julio 2026 · Confidencial

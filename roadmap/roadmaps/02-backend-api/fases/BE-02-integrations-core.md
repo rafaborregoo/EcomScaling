@@ -2,25 +2,26 @@
 
 ## Estado
 
-- **Estado real:** `planned` (documento de intenciones, no de contrato implementable — a pesar de que
-  Shopify/Meta ya usan un nucleo comun de hecho, ese nucleo nunca se documento aqui).
+- **Estado real:** `implemented_partial` (el contrato común de adaptadores y el catálogo de estados ya
+  existen; Shopify y Meta tienen runners reales, mientras Klaviyo e Instagram exponen adapters no
+  disponibles sin fingir conexión).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-02
 - **Dependencias:** DB-04
-- **Bloqueador:** ninguno tecnico; falta escribir el contrato antes de declarar el bloque cerrado.
-- **Evidencia:** codigo real disperso en `apps/api/src/shopify.ts`, `shopify-webhook-handler.ts`,
-  `shopify-webhooks.ts`, `meta.ts` — funciona (validado con tienda Shopify real), pero **no esta descrito
-  como contrato reutilizable** en este documento; cada proveedor repite su propia logica en vez de
-  compartir una interfaz de conector comun.
+- **Bloqueador:** ninguno técnico para Shopify; la operación real de Meta/Klaviyo/Instagram depende de
+  credenciales, App Review o runners que todavía no existen.
+- **Evidencia:** `apps/api/src/integration-adapters.ts`, `packages/integrations/src/index.ts`,
+  `apps/api/src/integration-adapters.test.ts`; Shopify/Meta reutilizan `IntegrationAdapter`, y los
+  conectores futuros devuelven `unknown`/`connector_not_enabled` sin datos inventados.
 - **Gaps identificados (los mismos que bloquean tratarlo como "implementable"):**
-  - Sin interfaz comun de conectores declarada.
+  - La interfaz común ya está declarada; falta ampliar el runner de sincronización a cada proveedor futuro.
   - Sin maquina de estados OAuth documentada (aunque existe una implementacion dual publica/custom con
     fallback de secret, ver DB-04/INT-01).
   - Sin politica de rotacion de credenciales, retry, circuit breaker, rate limiting o dead-letter queue
     documentada como contrato transversal (existe ad-hoc por proveedor).
   - Sin lista de archivos/endpoints/eventos/tests que demuestren el cierre.
-- **Siguiente accion:** extraer el patron que ya funciona en Shopify (conexion, credenciales, sync runs,
-  webhooks) a un contrato explicito en este documento antes de que Klaviyo (BE-06) tenga que reinventarlo.
+- **Siguiente accion:** mantener el contrato como frontera única y añadir OAuth versionado, paginación,
+  rate limits, reconciliación y runners de Klaviyo/Instagram cuando existan credenciales aprobadas.
 
 ## Objetivo
 
@@ -39,4 +40,3 @@ Crear la capa comun para proveedores externos.
 - Conector nuevo puede usar el nucleo comun.
 - Reintentos no duplican efectos.
 - Errores externos son auditables y accionables.
-

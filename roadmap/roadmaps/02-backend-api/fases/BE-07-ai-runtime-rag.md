@@ -1,5 +1,11 @@
 # BE-07 - Runtime IA, SQL Gateway y RAG
 
+> Correccion vigente 2026-08-02: el bloqueo explicito de funciones de expansion/alto coste ya esta
+> implementado en `apps/api/src/sql-gateway.ts`: `generate_series`, `regexp_split_to_table` y
+> `jsonb_path_query` estan en `FORBIDDEN_FUNCTIONS`, y `pg_*` (incluido `pg_sleep`) se rechaza por
+> prefijo. La suite correspondiente de SQO-04 pasa; los pendientes reales son evals de calidad y
+> nuevas tools tipadas, no esta defensa de recursos.
+
 ## Estado
 
 - **Estado real:** `partial_security_and_quality_pending` (el gateway tiene controles reales serios, pero

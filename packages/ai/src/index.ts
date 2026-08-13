@@ -8,6 +8,119 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { z } from "zod";
 
+export * from "./tool-layer.js";
+
+/**
+ * Fixture inmutable de una secuencia de tools para depurar una run sin
+ * volver a llamar al proveedor de IA ni a los conectores externos.
+ */
+export const replayToolCallSchema = z.object({
+  sequence: z.number().int().nonnegative(),
+  tool_name: z.string().min(1),
+  input: z.unknown(),
+  output: z.unknown(),
+  is_error: z.boolean(),
+  created_at: z.string().datetime().nullable(),
+});
+
+export const toolReplayFixtureSchema = z.object({
+  schema_version: z.literal("tool-replay-v1"),
+  calls: z.array(replayToolCallSchema),
+});
+
+export type ToolReplayFixture = z.infer<typeof toolReplayFixtureSchema>;
+
+function normalizeReplayTimestamp(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const trimmed = value.trim();
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+  const normalizedInput = hasTimezone
+    ? trimmed
+    : trimmed.replace(" ", "T") + "Z";
+  const parsed = new Date(normalizedInput);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function canonicalReplayValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalReplayValue).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([key, item]) => `${JSON.stringify(key)}:${canonicalReplayValue(item)}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function createToolReplayFixture(
+  rawCalls: unknown[],
+): ToolReplayFixture {
+  const calls = rawCalls
+    .map((raw, index) => {
+      const call = raw as Record<string, unknown>;
+      return {
+        sequence: index,
+        tool_name: call.tool_name,
+        input: call.input,
+        output: call.output,
+        is_error: Boolean(call.is_error),
+        created_at: normalizeReplayTimestamp(call.created_at),
+      };
+    })
+    .sort((left, right) => {
+      if (!left.created_at || !right.created_at)
+        return left.sequence - right.sequence;
+      return (
+        left.created_at.localeCompare(right.created_at) ||
+        left.sequence - right.sequence
+      );
+    })
+    .map((call, sequence) => ({ ...call, sequence }));
+
+  return toolReplayFixtureSchema.parse({
+    schema_version: "tool-replay-v1",
+    calls,
+  });
+}
+
+export function createReplayToolExecutor(fixture: ToolReplayFixture) {
+  const calls = toolReplayFixtureSchema.parse(fixture).calls;
+  let cursor = 0;
+
+  return {
+    execute(toolName: string, input: unknown): unknown {
+      const expected = calls[cursor];
+      if (!expected) {
+        throw new Error(`replay_exhausted: no hay respuesta para ${toolName}`);
+      }
+      if (
+        expected.tool_name !== toolName ||
+        canonicalReplayValue(expected.input) !== canonicalReplayValue(input)
+      ) {
+        throw new Error(
+          `replay_mismatch: se esperaba ${expected.tool_name} en la posicion ${cursor}`,
+        );
+      }
+      cursor += 1;
+      return expected.output;
+    },
+    assertComplete(): void {
+      if (cursor !== calls.length) {
+        throw new Error(
+          `replay_incomplete: quedan ${calls.length - cursor} respuestas de tools`,
+        );
+      }
+    },
+    get cursor(): number {
+      return cursor;
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Contrato comun de entrada (seccion 3.2 del documento maestro)
 // ---------------------------------------------------------------------------
@@ -26,7 +139,11 @@ export const agentInputSchema = z.object({
     .optional(),
   entity_ids: z.array(z.string()).nullable().optional(),
   allowed_tools: z.array(z.string()),
-  approval_mode: z.enum(["none", "required_before_write", "required_before_publish"]),
+  approval_mode: z.enum([
+    "none",
+    "required_before_write",
+    "required_before_publish",
+  ]),
 });
 
 export type AgentInput = z.infer<typeof agentInputSchema>;
@@ -95,7 +212,10 @@ export const agentOutputJsonSchema = {
     "warnings",
   ],
   properties: {
-    answer: { type: "string", description: "Explicacion autosuficiente para el usuario, en espanol." },
+    answer: {
+      type: "string",
+      description: "Explicacion autosuficiente para el usuario, en espanol.",
+    },
     findings: {
       type: "array",
       items: {
@@ -105,7 +225,10 @@ export const agentOutputJsonSchema = {
         properties: {
           title: { type: "string" },
           severity: { type: "string", enum: severityEnum },
-          evidence: { type: "string", description: "Cifra concreta y periodo del que sale." },
+          evidence: {
+            type: "string",
+            description: "Cifra concreta y periodo del que sale.",
+          },
         },
       },
     },
@@ -130,7 +253,10 @@ export const agentOutputJsonSchema = {
         additionalProperties: false,
         required: ["kind", "reference", "period"],
         properties: {
-          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          kind: {
+            type: "string",
+            enum: ["metric", "table", "tool", "document"],
+          },
           reference: { type: "string" },
           period: { type: ["string", "null"] },
         },
@@ -176,7 +302,10 @@ export const chatJsonSchema = {
   additionalProperties: false,
   required: ["answer", "sources", "confidence", "warnings"],
   properties: {
-    answer: { type: "string", description: "Respuesta directa a la pregunta del usuario, en espanol." },
+    answer: {
+      type: "string",
+      description: "Respuesta directa a la pregunta del usuario, en espanol.",
+    },
     sources: {
       type: "array",
       items: {
@@ -184,21 +313,187 @@ export const chatJsonSchema = {
         additionalProperties: false,
         required: ["kind", "reference", "period"],
         properties: {
-          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          kind: {
+            type: "string",
+            enum: ["metric", "table", "tool", "document"],
+          },
           reference: { type: "string" },
           period: { type: ["string", "null"] },
         },
       },
-      description: "Fuentes usadas para responder: solo si se uso una tool de datos.",
+      description:
+        "Fuentes usadas para responder: solo si se uso una tool de datos.",
     },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
     warnings: {
       type: "array",
       items: { type: "string" },
-      description: "Avisos: p. ej. datos incompletos o pregunta fuera del alcance de las tools disponibles.",
+      description:
+        "Avisos: p. ej. datos incompletos o pregunta fuera del alcance de las tools disponibles.",
     },
   },
 } as const;
+
+// AI-13: contrato de contenido de Klaviyo. El agente genera un borrador
+// portable; publicar/enviar se resuelve fuera del modelo y siempre requiere
+// aprobación humana. `html` se vuelve a sanear en backend antes de persistir.
+export const klaviyoEmailBlockSchema = z.object({
+  type: z.enum([
+    "heading",
+    "text",
+    "button",
+    "image",
+    "divider",
+    "spacer",
+    "columns",
+  ]),
+  content: z.string().max(12000),
+  href: z.string().url().nullable(),
+  alt: z.string().max(500).nullable(),
+});
+
+export const klaviyoEmailOutputSchema = z.object({
+  summary: z.string().min(1),
+  template_name: z.string().min(1).max(160),
+  subject: z.string().min(1).max(255),
+  preheader: z.string().max(255),
+  from_name: z.string().max(160),
+  reply_to: z.string().email().nullable(),
+  purpose: z.string().min(1).max(500),
+  audience: z.string().min(1).max(500),
+  locale: z.string().min(2).max(20),
+  tone: z.string().min(1).max(120),
+  plain_text: z.string().min(1).max(100000),
+  html: z.string().min(1).max(200000),
+  blocks: z.array(klaviyoEmailBlockSchema).max(100),
+  personalization_tokens: z.array(z.string().max(120)).max(100),
+  compliance_notes: z.array(z.string().max(1000)).max(50),
+  sources: z.array(agentSourceSchema),
+  confidence: z.enum(["low", "medium", "high"]),
+  warnings: z.array(z.string()),
+  approval_required: z.literal(true),
+});
+
+/**
+ * Human-editable fields for a persisted marketing draft. This deliberately
+ * excludes provenance, confidence and approval metadata: those remain owned
+ * by the runtime and are never accepted from the browser.
+ */
+export const klaviyoEmailDraftPatchSchema = z
+  .object({
+    subject: z.string().min(1).max(255).optional(),
+    preheader: z.string().max(255).optional(),
+    from_name: z.string().max(160).optional(),
+    reply_to: z.string().email().nullable().optional(),
+    plain_text: z.string().min(1).max(100000).optional(),
+    html: z.string().min(1).max(200000).optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one editable field is required",
+  });
+
+export type KlaviyoEmailDraftPatch = z.infer<
+  typeof klaviyoEmailDraftPatchSchema
+>;
+
+export type KlaviyoEmailOutput = z.infer<typeof klaviyoEmailOutputSchema>;
+
+export const klaviyoEmailJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "summary",
+    "template_name",
+    "subject",
+    "preheader",
+    "from_name",
+    "reply_to",
+    "purpose",
+    "audience",
+    "locale",
+    "tone",
+    "plain_text",
+    "html",
+    "blocks",
+    "personalization_tokens",
+    "compliance_notes",
+    "sources",
+    "confidence",
+    "warnings",
+    "approval_required",
+  ],
+  properties: {
+    summary: { type: "string", description: "Resumen breve del borrador." },
+    template_name: { type: "string" },
+    subject: { type: "string" },
+    preheader: { type: "string" },
+    from_name: { type: "string" },
+    reply_to: { type: ["string", "null"] },
+    purpose: { type: "string" },
+    audience: { type: "string" },
+    locale: { type: "string" },
+    tone: { type: "string" },
+    plain_text: { type: "string" },
+    html: { type: "string" },
+    blocks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "content", "href", "alt"],
+        properties: {
+          type: {
+            type: "string",
+            enum: [
+              "heading",
+              "text",
+              "button",
+              "image",
+              "divider",
+              "spacer",
+              "columns",
+            ],
+          },
+          content: { type: "string" },
+          href: { type: ["string", "null"] },
+          alt: { type: ["string", "null"] },
+        },
+      },
+    },
+    personalization_tokens: { type: "array", items: { type: "string" } },
+    compliance_notes: { type: "array", items: { type: "string" } },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "reference", "period"],
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["metric", "table", "tool", "document"],
+          },
+          reference: { type: "string" },
+          period: { type: ["string", "null"] },
+        },
+      },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    warnings: { type: "array", items: { type: "string" } },
+    approval_required: { type: "boolean", enum: [true] },
+  },
+} as const;
+
+/** Removes active HTML capabilities before a generated draft is persisted. */
+export function sanitizeGeneratedEmailHtml(html: string) {
+  return html
+    .replace(/<\/?script\b[^>]*>/gi, "")
+    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/javascript\s*:/gi, "")
+    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "")
+    .trim();
+}
 
 // ---------------------------------------------------------------------------
 // Contrato de salida A01 - analista de llamadas (AI-01)
@@ -251,17 +546,20 @@ export const callSummaryJsonSchema = {
   properties: {
     summary: {
       type: "string",
-      description: "Resumen narrativo de la llamada en espanol, separando lo tratado de lo acordado.",
+      description:
+        "Resumen narrativo de la llamada en espanol, separando lo tratado de lo acordado.",
     },
     facts: {
       type: "array",
       items: { type: "string" },
-      description: "Hechos objetivos mencionados en la llamada (que paso / que se dijo), sin interpretacion.",
+      description:
+        "Hechos objetivos mencionados en la llamada (que paso / que se dijo), sin interpretacion.",
     },
     decisions: {
       type: "array",
       items: { type: "string" },
-      description: "Decisiones tomadas y acuerdos alcanzados durante la llamada.",
+      description:
+        "Decisiones tomadas y acuerdos alcanzados durante la llamada.",
     },
     recommendations: {
       type: "array",
@@ -275,7 +573,8 @@ export const callSummaryJsonSchema = {
           rationale: { type: "string" },
         },
       },
-      description: "Recomendaciones del consultor derivadas de la llamada (distintas de las decisiones ya tomadas).",
+      description:
+        "Recomendaciones del consultor derivadas de la llamada (distintas de las decisiones ya tomadas).",
     },
     risks: {
       type: "array",
@@ -289,18 +588,24 @@ export const callSummaryJsonSchema = {
         additionalProperties: false,
         required: ["title", "description", "priority", "owner"],
         properties: {
-          title: { type: "string", description: "Accion concreta e inequivoca, sin duplicar otras tareas." },
+          title: {
+            type: "string",
+            description:
+              "Accion concreta e inequivoca, sin duplicar otras tareas.",
+          },
           description: { type: "string" },
           priority: { type: "string", enum: priorityEnum },
           owner: { type: "string", enum: ["cliente", "consultor"] },
         },
       },
-      description: "Tareas accionables y deduplicables acordadas en la llamada; se crean solo tras aprobacion.",
+      description:
+        "Tareas accionables y deduplicables acordadas en la llamada; se crean solo tras aprobacion.",
     },
     key_quotes: {
       type: "array",
       items: { type: "string" },
-      description: "Fragmentos textuales de la transcripcion que respaldan el resumen (citas de origen).",
+      description:
+        "Fragmentos textuales de la transcripcion que respaldan el resumen (citas de origen).",
     },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
     warnings: {
@@ -340,7 +645,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
 // Modelo de costes (USD por millon de tokens; actualizar junto al modelo)
 // ---------------------------------------------------------------------------
 
-const MODEL_PRICING: Record<string, { inputPerMTok: number; outputPerMTok: number }> = {
+const MODEL_PRICING: Record<
+  string,
+  { inputPerMTok: number; outputPerMTok: number }
+> = {
   "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
   "claude-sonnet-5": { inputPerMTok: 3, outputPerMTok: 15 },
   "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
@@ -351,7 +659,11 @@ const MODEL_PRICING: Record<string, { inputPerMTok: number; outputPerMTok: numbe
   "gpt-4.1-nano": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
 };
 
-export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number) {
+export function estimateCostUsd(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+) {
   const pricing = MODEL_PRICING[model];
 
   if (!pricing) {
@@ -462,7 +774,10 @@ export function evaluateAgentBudget(
     };
   }
 
-  if (budget.maxToolCalls !== undefined && toolCallCount > budget.maxToolCalls) {
+  if (
+    budget.maxToolCalls !== undefined &&
+    toolCallCount > budget.maxToolCalls
+  ) {
     return {
       exceeded: true,
       message: `agent_budget_exceeded: ${toolCallCount} tool calls > max ${budget.maxToolCalls}`,
@@ -516,7 +831,9 @@ function hasIncoherentOpening(text: string): boolean {
   const newlineIndex = text.indexOf("\n");
   if (newlineIndex > 0 && newlineIndex < 60) {
     const beforeNewline = text.slice(0, newlineIndex);
-    const brokenWord = /[a-zA-ZÀ-ÿ]$/.test(beforeNewline) && /^[a-zA-ZÀ-ÿ]/.test(text.slice(newlineIndex + 1));
+    const brokenWord =
+      /[a-zA-ZÀ-ÿ]$/.test(beforeNewline) &&
+      /^[a-zA-ZÀ-ÿ]/.test(text.slice(newlineIndex + 1));
     const hasSentenceEnd = /[.!?]/.test(beforeNewline);
     if (brokenWord && !hasSentenceEnd) {
       return true;
@@ -597,7 +914,8 @@ export function checkOutputSanity(output: unknown): OutputSanityResult {
         continue;
       }
       const title = typeof item.title === "string" ? item.title.trim() : "";
-      const description = typeof item.description === "string" ? item.description.trim() : "";
+      const description =
+        typeof item.description === "string" ? item.description.trim() : "";
       if (!title) {
         return { ok: false, reason: `${field}_con_titulo_vacio` };
       }
@@ -634,7 +952,8 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   const tools = params.tools ?? [];
   const budget = params.budget;
   const outputContract =
-    params.outputContract ?? (defaultOutputContract as unknown as OutputContract<TOutput>);
+    params.outputContract ??
+    (defaultOutputContract as unknown as OutputContract<TOutput>);
 
   const contextText = params.contextBlocks
     .map((block) => `## ${block.label}\n${JSON.stringify(block.data, null, 2)}`)
@@ -649,7 +968,9 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
           text: [
             `Organizacion activa: ${input.organization_id} (resuelta por el backend; analiza solo estos datos).`,
             `Objetivo de la ejecucion: ${input.objective}`,
-            input.time_range ? `Periodo: ${input.time_range.start} a ${input.time_range.end}` : null,
+            input.time_range
+              ? `Periodo: ${input.time_range.start} a ${input.time_range.end}`
+              : null,
             "",
             "Contexto verificado:",
             contextText,
@@ -699,7 +1020,11 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     const verdict = evaluateAgentBudget(budget, costSoFar, toolCallCount);
 
     if (verdict.exceeded) {
-      throw new AgentBudgetExceededError(verdict.message, costSoFar, toolCallCount);
+      throw new AgentBudgetExceededError(
+        verdict.message,
+        costSoFar,
+        toolCallCount,
+      );
     }
   };
 
@@ -712,7 +1037,10 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
 
   while (response.stop_reason === "tool_use") {
     if (modelCalls >= MAX_MODEL_CALLS_PER_TURN) {
-      throw new AgentOutputValidationError("agent_tool_loop_limit_exceeded", "");
+      throw new AgentOutputValidationError(
+        "agent_tool_loop_limit_exceeded",
+        "",
+      );
     }
 
     const toolUses = response.content.filter(
@@ -730,15 +1058,20 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
       let isError = false;
 
       if (!tool) {
-        resultContent = JSON.stringify({ error: `tool_desconocida: ${toolUse.name}` });
+        resultContent = JSON.stringify({
+          error: `tool_desconocida: ${toolUse.name}`,
+        });
         isError = true;
       } else {
         try {
-          const result = await tool.execute((toolUse.input ?? {}) as Record<string, unknown>);
+          const result = await tool.execute(
+            (toolUse.input ?? {}) as Record<string, unknown>,
+          );
           resultContent = JSON.stringify(result ?? null);
         } catch (error) {
           resultContent = JSON.stringify({
-            error: error instanceof Error ? error.message : "tool_execution_failed",
+            error:
+              error instanceof Error ? error.message : "tool_execution_failed",
           });
           isError = true;
         }
@@ -770,7 +1103,10 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   }
 
   if (response.stop_reason === "max_tokens") {
-    throw new AgentOutputValidationError("agent_output_truncated_max_tokens", "");
+    throw new AgentOutputValidationError(
+      "agent_output_truncated_max_tokens",
+      "",
+    );
   }
 
   // El JSON estructurado es el ultimo bloque de texto de la respuesta final;
@@ -788,7 +1124,10 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   try {
     parsed = JSON.parse(textBlock.text);
   } catch {
-    throw new AgentOutputValidationError("agent_output_invalid_json", textBlock.text);
+    throw new AgentOutputValidationError(
+      "agent_output_invalid_json",
+      textBlock.text,
+    );
   }
 
   const validated = outputContract.schema.safeParse(parsed);
@@ -803,7 +1142,10 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   const sanity = checkOutputSanity(validated.data);
 
   if (!sanity.ok) {
-    throw new AgentOutputValidationError(`agent_output_sanity_check_failed: ${sanity.reason}`, textBlock.text);
+    throw new AgentOutputValidationError(
+      `agent_output_sanity_check_failed: ${sanity.reason}`,
+      textBlock.text,
+    );
   }
 
   return {
@@ -844,7 +1186,8 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   const tools = params.tools ?? [];
   const budget = params.budget;
   const outputContract =
-    params.outputContract ?? (defaultOutputContract as unknown as OutputContract<TOutput>);
+    params.outputContract ??
+    (defaultOutputContract as unknown as OutputContract<TOutput>);
 
   const contextText = params.contextBlocks
     .map((block) => `## ${block.label}\n${JSON.stringify(block.data, null, 2)}`)
@@ -853,7 +1196,9 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   const userText = [
     `Organizacion activa: ${input.organization_id} (resuelta por el backend; analiza solo estos datos).`,
     `Objetivo de la ejecucion: ${input.objective}`,
-    input.time_range ? `Periodo: ${input.time_range.start} a ${input.time_range.end}` : null,
+    input.time_range
+      ? `Periodo: ${input.time_range.start} a ${input.time_range.end}`
+      : null,
     "",
     "Contexto verificado:",
     contextText,
@@ -904,11 +1249,18 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     const verdict = evaluateAgentBudget(budget, costSoFar, toolCallCount);
 
     if (verdict.exceeded) {
-      throw new AgentBudgetExceededError(verdict.message, costSoFar, toolCallCount);
+      throw new AgentBudgetExceededError(
+        verdict.message,
+        costSoFar,
+        toolCallCount,
+      );
     }
   };
 
-  let response = await client.chat.completions.create({ ...requestBase, messages });
+  let response = await client.chat.completions.create({
+    ...requestBase,
+    messages,
+  });
   modelCalls += 1;
   inputTokens += response.usage?.prompt_tokens ?? 0;
   outputTokens += response.usage?.completion_tokens ?? 0;
@@ -923,47 +1275,66 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
 
   while (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
     if (modelCalls >= MAX_MODEL_CALLS_PER_TURN) {
-      throw new AgentOutputValidationError("agent_tool_loop_limit_exceeded", "");
+      throw new AgentOutputValidationError(
+        "agent_tool_loop_limit_exceeded",
+        "",
+      );
     }
 
-    const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] = [];
+    const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] =
+      [];
 
     for (const toolCall of choice.message.tool_calls) {
       if (toolCall.type !== "function") {
         continue;
       }
 
-      const tool = tools.find((candidate) => candidate.name === toolCall.function.name);
+      const tool = tools.find(
+        (candidate) => candidate.name === toolCall.function.name,
+      );
       toolCallCount += 1;
       enforceBudget();
 
       let resultContent: string;
 
       if (!tool) {
-        resultContent = JSON.stringify({ error: `tool_desconocida: ${toolCall.function.name}` });
+        resultContent = JSON.stringify({
+          error: `tool_desconocida: ${toolCall.function.name}`,
+        });
       } else {
         try {
-          const args = toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {};
+          const args = toolCall.function.arguments
+            ? JSON.parse(toolCall.function.arguments)
+            : {};
           const result = await tool.execute(args as Record<string, unknown>);
           resultContent = JSON.stringify(result ?? null);
         } catch (error) {
           resultContent = JSON.stringify({
-            error: error instanceof Error ? error.message : "tool_execution_failed",
+            error:
+              error instanceof Error ? error.message : "tool_execution_failed",
           });
         }
       }
 
-      toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: resultContent });
+      toolResults.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: resultContent,
+      });
     }
 
     messages.push(choice.message);
     messages.push(...toolResults);
 
-    response = await client.chat.completions.create({ ...requestBase, messages });
+    response = await client.chat.completions.create({
+      ...requestBase,
+      messages,
+    });
     modelCalls += 1;
     inputTokens += response.usage?.prompt_tokens ?? 0;
     outputTokens += response.usage?.completion_tokens ?? 0;
-    cacheReadTokens += response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    cacheReadTokens +=
+      response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
     enforceBudget();
 
     const nextChoice = response.choices[0];
@@ -980,7 +1351,10 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   }
 
   if (choice.finish_reason === "length") {
-    throw new AgentOutputValidationError("agent_output_truncated_max_tokens", "");
+    throw new AgentOutputValidationError(
+      "agent_output_truncated_max_tokens",
+      "",
+    );
   }
 
   const text = choice.message.content;
@@ -1008,7 +1382,10 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   const sanity = checkOutputSanity(validated.data);
 
   if (!sanity.ok) {
-    throw new AgentOutputValidationError(`agent_output_sanity_check_failed: ${sanity.reason}`, text);
+    throw new AgentOutputValidationError(
+      `agent_output_sanity_check_failed: ${sanity.reason}`,
+      text,
+    );
   }
 
   return {
@@ -1052,7 +1429,10 @@ export class VoyageEmbeddingProvider implements EmbeddingProvider {
     this.model = model;
   }
 
-  async embed(texts: string[], inputType: "document" | "query"): Promise<number[][]> {
+  async embed(
+    texts: string[],
+    inputType: "document" | "query",
+  ): Promise<number[][]> {
     if (texts.length === 0) {
       return [];
     }
@@ -1073,7 +1453,9 @@ export class VoyageEmbeddingProvider implements EmbeddingProvider {
 
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
-      throw new Error(`voyage_embeddings_failed: ${response.status} ${detail.slice(0, 300)}`);
+      throw new Error(
+        `voyage_embeddings_failed: ${response.status} ${detail.slice(0, 300)}`,
+      );
     }
 
     const payload = (await response.json()) as {

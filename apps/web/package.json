@@ -8,7 +8,8 @@
     "build:local": "dotenv -e ../../.env.local -- next build",
     "start": "dotenv -e ../../.env.local -- next start --port 3001",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test --test-force-exit src/lib/api-error.test.ts src/portal-state-contract.test.ts"
   },
   "engines": {
     "node": "22.x"
@@ -17,7 +18,7 @@
     "@ecomscaling/contracts": "^0.1.0",
     "@heroui/react": "^3.2.2",
     "@supabase/supabase-js": "^2.109.0",
-    "next": "16.2.10",
+    "next": "16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -27,8 +28,9 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.2.12",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

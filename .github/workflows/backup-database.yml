@@ -2,8 +2,13 @@ name: Backup Database
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "30 2 * * *"
+  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
+  # automaticos. Para reactivar, descomentar el bloque de abajo.
+  # schedule:
+  #   - cron: "30 2 * * *"
+
+permissions:
+  contents: read
 
 concurrency:
   group: backup-database
@@ -48,11 +53,17 @@ jobs:
           echo "DUMP_FILE=$DUMP_FILE" >> "$GITHUB_ENV"
 
       - name: Verify dump integrity
-        run: pg_restore --list "$DUMP_FILE" > /dev/null
+        run: |
+          set -euo pipefail
+          pg_restore --list "$DUMP_FILE" > /dev/null
+          sha256sum "$DUMP_FILE" > "$DUMP_FILE.sha256"
 
       - name: Upload backup artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.DUMP_FILE }}
-          path: ${{ env.DUMP_FILE }}
+          path: |
+            ${{ env.DUMP_FILE }}
+            ${{ env.DUMP_FILE }}.sha256
+          if-no-files-found: error
           retention-days: 30

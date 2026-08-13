@@ -35,6 +35,7 @@ const RUN_TAG = `${Date.now()}`;
 const SHOP_DOMAIN = `db04-idempotency-test-${RUN_TAG}.myshopify.com`;
 
 let orgId = "";
+let connectionId = "";
 
 before(async () => {
   const { data: org, error: orgError } = await admin
@@ -66,6 +67,7 @@ before(async () => {
   if (connectionError || !connection) {
     throw new Error(`No se pudo crear la conexion de prueba: ${connectionError?.message}`);
   }
+  connectionId = connection.id;
 
   // resolveConnectionContext (shopify-webhook-handler.ts) exige tambien una
   // fila en shopify_stores enlazada a la conexion -- sin esto cualquier
@@ -129,6 +131,54 @@ test("dos webhooks identicos concurrentes solo se procesan una vez (idempotencia
   assert.equal(eventsError, null);
   assert.equal(events?.length, 1, "debe existir exactamente una fila de webhook_events para el mismo fingerprint");
   assert.equal(events?.[0]?.status, "processed");
+});
+
+test("un webhook que fallo puede reintentarse sin duplicar su efecto", async () => {
+  const payload = JSON.stringify({
+    shop_id: 1,
+    shop_domain: SHOP_DOMAIN,
+    orders_requested: [],
+    customer: { id: 777777, email: "retry@example.com" },
+  });
+  const rawBody = Buffer.from(payload, "utf8");
+  const fingerprint = crypto.createHash("sha256").update(payload).digest("hex");
+  const webhookId = `db04-retry-${RUN_TAG}`;
+  const headers = {
+    "x-shopify-hmac-sha256": crypto.createHmac("sha256", env.SHOPIFY_API_SECRET).update(rawBody).digest("base64"),
+    "x-shopify-shop-domain": SHOP_DOMAIN,
+    "x-shopify-topic": "customers/data_request",
+    "x-shopify-webhook-id": webhookId,
+  };
+
+  const { error: seedError } = await admin.schema("private").from("webhook_events").insert({
+    connection_id: connectionId,
+    organization_id: orgId,
+    provider: "shopify",
+    topic: "customers/data_request",
+    external_event_id: webhookId,
+    fingerprint,
+    signature_valid: true,
+    status: "failed",
+    payload: JSON.parse(payload),
+    headers,
+    error_message: "transient_test_failure",
+  });
+  assert.equal(seedError, null, seedError?.message);
+
+  const result = await handleShopifyWebhookRequest(env, headers, rawBody);
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.status, "processed");
+
+  const { data: event, error: eventError } = await admin
+    .schema("private")
+    .from("webhook_events")
+    .select("status")
+    .eq("provider", "shopify")
+    .eq("fingerprint", fingerprint)
+    .single();
+  assert.equal(eventError, null);
+  assert.equal(event?.status, "processed");
 });
 
 // SQO-04 (gap real cerrado 2026-07-29, fila 4 de la matriz de amenazas): la

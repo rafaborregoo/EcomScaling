@@ -2,8 +2,13 @@ name: Purge Expired Deletions
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "7 3 * * *"
+  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
+  # automaticos. Para reactivar, descomentar el bloque de abajo.
+  # schedule:
+  #   - cron: "7 3 * * *"
+
+permissions:
+  contents: read
 
 concurrency:
   group: purge-expired-deletions

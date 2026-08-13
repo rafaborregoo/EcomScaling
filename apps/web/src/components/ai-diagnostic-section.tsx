@@ -2,10 +2,25 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
 import { useActiveConnection } from "@/components/active-connection";
-import { Badge, Banner, Button, Card, ErrorBlock, Heading, LoadingBlock, Table, type Tone } from "@/components/ui";
+import {
+  Badge,
+  Banner,
+  Button,
+  Card,
+  ErrorBlock,
+  Heading,
+  LoadingBlock,
+  Table,
+  type Tone,
+} from "@/components/ui";
 
-type Finding = { title: string; severity: "info" | "low" | "medium" | "high" | "critical"; evidence: string };
+type Finding = {
+  title: string;
+  severity: "info" | "low" | "medium" | "high" | "critical";
+  evidence: string;
+};
 type Recommendation = {
   action: string;
   priority: "low" | "medium" | "high" | "urgent";
@@ -16,7 +31,12 @@ type DiagnosticOutput = {
   answer: string;
   findings: Finding[];
   recommendations: Recommendation[];
-  proposed_writes: Array<{ kind: string; title: string; description: string; priority: string }>;
+  proposed_writes: Array<{
+    kind: string;
+    title: string;
+    description: string;
+    priority: string;
+  }>;
   confidence: "low" | "medium" | "high";
   warnings: string[];
 };
@@ -31,7 +51,8 @@ type Diagnostic = {
     freshness: { status: "fresh" | "stale" | "superseded"; reason?: string };
     quality: {
       confidence: "low" | "medium" | "high";
-      groundedness: "verified" | "partially_supported" | "insufficient_evidence";
+      groundedness:
+        "verified" | "partially_supported" | "insufficient_evidence";
       dataCompleteness: "complete" | "partial" | "insufficient";
       warnings: string[];
     };
@@ -53,13 +74,6 @@ const priorityLabelsEs: Record<string, string> = {
   high: "alta",
   urgent: "urgente",
 };
-
-async function readError(response: Response) {
-  const body = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string; detail?: string }
-    | null;
-  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
-}
 
 /**
  * Bloque de diagnostico automatico reutilizable (AI-02/AI-05: A02, A04, A06).
@@ -97,7 +111,8 @@ export function AiDiagnosticSection({
     connectionId ? `connectionId=${encodeURIComponent(connectionId)}` : null,
     days ? `days=${days}` : null,
   ].filter(Boolean);
-  const connectionParam = queryParams.length > 0 ? `?${queryParams.join("&")}` : "";
+  const connectionParam =
+    queryParams.length > 0 ? `?${queryParams.join("&")}` : "";
 
   useEffect(() => {
     async function load() {
@@ -105,13 +120,15 @@ export function AiDiagnosticSection({
       setError(null);
       setTasksFeedback(null);
 
-      const response = await apiFetch(`/v1/organizations/${organizationId}${getPath}${connectionParam}`);
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}${getPath}${connectionParam}`,
+      );
 
       if (response.ok) {
         setDiagnostic((await response.json()) as Diagnostic);
       } else {
         setDiagnostic(null);
-        setError(await readError(response));
+        setError(await readApiError(response));
       }
 
       setIsLoading(false);
@@ -125,14 +142,17 @@ export function AiDiagnosticSection({
     setError(null);
     setTasksFeedback(null);
 
-    const response = await apiFetch(`/v1/organizations/${organizationId}${runPath}${connectionParam}`, {
-      method: "POST",
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organizationId}${runPath}${connectionParam}`,
+      {
+        method: "POST",
+      },
+    );
 
     if (response.ok) {
       setDiagnostic((await response.json()) as Diagnostic);
     } else {
-      setError(await readError(response));
+      setError(await readApiError(response));
     }
 
     setIsRegenerating(false);
@@ -156,7 +176,7 @@ export function AiDiagnosticSection({
     );
 
     if (!response.ok) {
-      setTasksFeedback(await readError(response));
+      setTasksFeedback(await readApiError(response));
       setIsCreatingTasks(false);
       return;
     }
@@ -183,14 +203,22 @@ export function AiDiagnosticSection({
               {new Date(diagnostic.generated_at).toLocaleString()}
               {diagnostic.envelope ? (
                 <>
-                  {" "}· datos {diagnostic.envelope.freshness.status} · {diagnostic.envelope.sources.length} fuente(s)
+                  {" "}
+                  · datos {diagnostic.envelope.freshness.status} ·{" "}
+                  {diagnostic.envelope.sources.length} fuente(s)
                 </>
               ) : null}
             </p>
           ) : null}
         </div>
         {diagnostic ? (
-          <Button variant="secondary" size="sm" type="button" disabled={isRegenerating} onClick={regenerate}>
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            disabled={isRegenerating}
+            onClick={regenerate}
+          >
             {isRegenerating ? "Actualizando..." : "Actualizar ahora"}
           </Button>
         ) : null}
@@ -210,7 +238,9 @@ export function AiDiagnosticSection({
 
           {diagnostic.output.findings.length ? (
             <div className="mt-4">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">Hallazgos</p>
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                Hallazgos
+              </p>
               <Table
                 className="mt-2"
                 ariaLabel="Hallazgos del diagnostico"
@@ -218,12 +248,19 @@ export function AiDiagnosticSection({
                   {
                     key: "severity",
                     label: "Severidad",
-                    render: (row) => <Badge tone={severityTone[row.severity]}>{row.severity}</Badge>,
+                    render: (row) => (
+                      <Badge tone={severityTone[row.severity]}>
+                        {row.severity}
+                      </Badge>
+                    ),
                   },
                   { key: "title", label: "Hallazgo" },
                   { key: "evidence", label: "Evidencia" },
                 ]}
-                rows={diagnostic.output.findings.map((finding, index) => ({ id: String(index), ...finding }))}
+                rows={diagnostic.output.findings.map((finding, index) => ({
+                  id: String(index),
+                  ...finding,
+                }))}
               />
             </div>
           ) : null}
@@ -237,12 +274,16 @@ export function AiDiagnosticSection({
                   {
                     key: "priority",
                     label: "Prioridad",
-                    render: (row) => priorityLabelsEs[row.priority] ?? row.priority,
+                    render: (row) =>
+                      priorityLabelsEs[row.priority] ?? row.priority,
                   },
                   { key: "expected_impact", label: "Impacto esperado" },
                   { key: "owner", label: "Responsable" },
                 ]}
-                rows={diagnostic.output.recommendations.map((rec, index) => ({ id: String(index), ...rec }))}
+                rows={diagnostic.output.recommendations.map((rec, index) => ({
+                  id: String(index),
+                  ...rec,
+                }))}
               />
             </Card>
           ) : null}
@@ -260,12 +301,17 @@ export function AiDiagnosticSection({
           {diagnostic.output.proposed_writes.length ? (
             <div className="mt-4 border-t border-line pt-3">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                {diagnostic.output_status === "pending_approval" ? "Propuesta, sin aplicar" : "Propuesta ya revisada"}
+                {diagnostic.output_status === "pending_approval"
+                  ? "Propuesta, sin aplicar"
+                  : "Propuesta ya revisada"}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-4">
                 <Button
                   type="button"
-                  disabled={isCreatingTasks || diagnostic.output_status !== "pending_approval"}
+                  disabled={
+                    isCreatingTasks ||
+                    diagnostic.output_status !== "pending_approval"
+                  }
                   onClick={createSuggestedTasks}
                 >
                   {isCreatingTasks
@@ -274,7 +320,9 @@ export function AiDiagnosticSection({
                       ? "Tareas ya revisadas"
                       : `Crear ${diagnostic.output.proposed_writes.length} ${tasksLabelSingular}(s) sugerida(s)`}
                 </Button>
-                {tasksFeedback ? <p className="text-sm text-muted">{tasksFeedback}</p> : null}
+                {tasksFeedback ? (
+                  <p className="text-sm text-muted">{tasksFeedback}</p>
+                ) : null}
               </div>
             </div>
           ) : tasksFeedback ? (

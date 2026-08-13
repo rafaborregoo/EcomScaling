@@ -10,7 +10,7 @@ import {
   type AccountAction,
   type BootstrapResponse,
 } from "@/lib/bootstrap";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseClient } from "@/lib/supabase";
 import {
   Alert,
   Avatar,
@@ -54,6 +54,7 @@ const consultantNavGroups: NavGroup[] = [
     items: [
       { href: "/consultor", label: "Clientes" },
       { href: "/agentes", label: "Ejecuciones IA" },
+      { href: "/marketing", label: "Marketing IA" },
     ],
   },
   {
@@ -105,7 +106,10 @@ function formatRole(role: string) {
 // (siempre rojo de marca) aunque `severity` ya distinguia los dos casos desde
 // el backend -- un error real (integracion caida) y un aviso (permisos
 // pendientes) no deberian competir por la misma urgencia visual.
-const actionSeverityStatus: Record<AccountAction["severity"], "danger" | "warning" | "default"> = {
+const actionSeverityStatus: Record<
+  AccountAction["severity"],
+  "danger" | "warning" | "default"
+> = {
   error: "danger",
   warning: "warning",
   info: "default",
@@ -130,7 +134,10 @@ function readConnectionMap(): Record<string, string> {
 function writeConnectionMap(organizationId: string, connectionId: string) {
   const map = readConnectionMap();
   map[organizationId] = connectionId;
-  window.localStorage.setItem(ACTIVE_CONNECTION_STORAGE_KEY, JSON.stringify(map));
+  window.localStorage.setItem(
+    ACTIVE_CONNECTION_STORAGE_KEY,
+    JSON.stringify(map),
+  );
 }
 
 // R-009: la URL es la fuente primaria del contexto activo (organizationId/
@@ -163,9 +170,17 @@ function buildUrlWithParams(
 // cache, solo se ve ese loader la primera vez que se abre el portal en la
 // sesion; las siguientes navegaciones muestran el shell al instante con los
 // ultimos datos conocidos mientras se refrescan en segundo plano.
-let bootstrapCache: { bootstrap: BootstrapResponse; actions: AccountAction[]; token: string } | null = null;
+let bootstrapCache: {
+  bootstrap: BootstrapResponse;
+  actions: AccountAction[];
+  token: string;
+} | null = null;
 
-function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: PortalShellProps) {
+function PortalShellContent({
+  title,
+  eyebrow = "EcomScaling IA",
+  children,
+}: PortalShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -173,19 +188,29 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
   const connectionIdFromUrl = searchParams.get("connectionId");
 
   function updateUrlParams(updates: Record<string, string | undefined>) {
-    router.replace(buildUrlWithParams(pathname, searchParams, updates), { scroll: false });
+    router.replace(buildUrlWithParams(pathname, searchParams, updates), {
+      scroll: false,
+    });
   }
 
-  const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(bootstrapCache?.bootstrap ?? null);
-  const [actions, setActions] = useState<AccountAction[]>(bootstrapCache?.actions ?? []);
-  const [token, setToken] = useState<string | null>(bootstrapCache?.token ?? null);
+  const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(
+    bootstrapCache?.bootstrap ?? null,
+  );
+  const [actions, setActions] = useState<AccountAction[]>(
+    bootstrapCache?.actions ?? [],
+  );
+  const [token, setToken] = useState<string | null>(
+    bootstrapCache?.token ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(!bootstrapCache);
   const [activeOrganizationId, setActiveOrganizationId] = useState(() => {
     if (!bootstrapCache) {
       return organizationIdFromUrl ?? "";
     }
-    const validIds = bootstrapCache.bootstrap.memberships.map((membership) => membership.organization_id);
+    const validIds = bootstrapCache.bootstrap.memberships.map(
+      (membership) => membership.organization_id,
+    );
     if (organizationIdFromUrl && validIds.includes(organizationIdFromUrl)) {
       return organizationIdFromUrl;
     }
@@ -194,7 +219,9 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
   });
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
-  const [shopifyConnections, setShopifyConnections] = useState<ShopifyConnectionSummary[]>([]);
+  const [shopifyConnections, setShopifyConnections] = useState<
+    ShopifyConnectionSummary[]
+  >([]);
   const [activeConnectionId, setActiveConnectionId] = useState("");
 
   // El menú móvil se cierra al navegar a otra ruta.
@@ -227,7 +254,9 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
         return;
       }
 
-      const response = await apiFetch(`/v1/organizations/${activeOrganizationId}/shopify/connections`);
+      const response = await apiFetch(
+        `/v1/organizations/${activeOrganizationId}/shopify/connections`,
+      );
 
       if (cancelled || !response.ok) {
         return;
@@ -244,7 +273,9 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
 
       setShopifyConnections(payload.connections ?? []);
 
-      const validIds = (payload.connections ?? []).map((connection) => connection.id);
+      const validIds = (payload.connections ?? []).map(
+        (connection) => connection.id,
+      );
 
       // Si una pagina ya fijo una tienda valida mientras esta carga estaba en
       // vuelo, no la pisamos. Si no, la URL (?connectionId=...) gana sobre
@@ -289,11 +320,13 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
         // explicarle al usuario por que aterrizo en /login.
         const {
           data: { session: existingSession },
-        } = await supabase.auth.getSession();
+        } = await getSupabaseClient().auth.getSession();
         const accessToken = await getAccessToken();
 
         if (!accessToken) {
-          router.replace(existingSession ? "/login?reason=session_expired" : "/login");
+          router.replace(
+            existingSession ? "/login?reason=session_expired" : "/login",
+          );
           return;
         }
 
@@ -302,25 +335,42 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
         setToken(accessToken);
         setBootstrap(payload);
         setActions(accountActions);
-        bootstrapCache = { bootstrap: payload, actions: accountActions, token: accessToken };
+        bootstrapCache = {
+          bootstrap: payload,
+          actions: accountActions,
+          token: accessToken,
+        };
 
         // Organización activa global: la URL (?organizationId=...) gana sobre
         // todo -- es la fuente primaria (R-009). Si no hay URL valida, la que
         // ya estaba activa (remontaje via cache), si no la ultima elegida en
         // localStorage, si no la primera membership.
-        const stored = window.localStorage.getItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
-        const validIds = payload.memberships.map((membership) => membership.organization_id);
+        const stored = window.localStorage.getItem(
+          ACTIVE_ORGANIZATION_STORAGE_KEY,
+        );
+        const validIds = payload.memberships.map(
+          (membership) => membership.organization_id,
+        );
         setActiveOrganizationId((current) => {
-          if (organizationIdFromUrl && validIds.includes(organizationIdFromUrl)) {
+          if (
+            organizationIdFromUrl &&
+            validIds.includes(organizationIdFromUrl)
+          ) {
             return organizationIdFromUrl;
           }
           if (current && validIds.includes(current)) {
             return current;
           }
-          return stored && validIds.includes(stored) ? stored : (validIds[0] ?? "");
+          return stored && validIds.includes(stored)
+            ? stored
+            : (validIds[0] ?? "");
         });
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Error cargando la cuenta");
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Error cargando la cuenta",
+        );
       } finally {
         setIsLoading(false);
       }
@@ -331,7 +381,10 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
 
   function selectOrganization(organizationId: string) {
     setActiveOrganizationId(organizationId);
-    window.localStorage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, organizationId);
+    window.localStorage.setItem(
+      ACTIVE_ORGANIZATION_STORAGE_KEY,
+      organizationId,
+    );
     // La tienda activa es especifica de cada organizacion; se recalcula en
     // cuanto llega la lista de tiendas de la nueva organizacion.
     setActiveConnectionId("");
@@ -339,7 +392,7 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    await getSupabaseClient().auth.signOut();
     router.replace("/login");
   }
 
@@ -360,7 +413,9 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
   }
 
   const visibleActions = actions.slice(0, 3);
-  const isConsultant = ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role);
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
   const visibleGroups = isConsultant ? consultantNavGroups : clientNavGroups;
 
   const navigation = (
@@ -399,9 +454,15 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
   const accountBlock = (
     <div className="border-t border-line pt-5 text-sm text-muted">
       <div className="flex items-center gap-3">
-        <Avatar name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"} size="sm" color="accent" />
+        <Avatar
+          name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"}
+          size="sm"
+          color="accent"
+        />
         <div className="min-w-0">
-          <p className="truncate text-black">{bootstrap.profile.full_name ?? bootstrap.user.email}</p>
+          <p className="truncate text-black">
+            {bootstrap.profile.full_name ?? bootstrap.user.email}
+          </p>
           <p className="mt-0.5 font-mono text-xs text-brand">
             {formatRole(bootstrap.profile.platform_role)}
           </p>
@@ -428,144 +489,189 @@ function PortalShellContent({ title, eyebrow = "EcomScaling IA", children }: Por
   return (
     <>
       <main className="min-h-screen bg-white pt-2 text-black">
-      {/* Barra superior solo móvil: marca + hamburguesa */}
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-white px-4 py-3 text-black lg:hidden">
-        <div>
-          <p className="font-mono text-[0.65rem] uppercase text-brand">{eyebrow}</p>
-          <p className="text-sm font-semibold">{title}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <NotificationsBell token={token} />
-          <Button
-            variant="secondary"
-            aria-expanded={isMobileNavOpen}
-            aria-controls="mobile-nav"
-            onClick={() => setIsMobileNavOpen((open) => !open)}
-          >
-            {isMobileNavOpen ? <CloseIcon aria-hidden /> : <MenuIcon aria-hidden />}
-            Menú
-          </Button>
-        </div>
-      </div>
-
-      {/* Panel de navegacion móvil desplegable */}
-      {isMobileNavOpen ? (
-        <div id="mobile-nav" className="border-b border-line bg-white px-4 py-5 text-black lg:hidden">
-          {navigation}
-          <div className="mt-6">{accountBlock}</div>
-        </div>
-      ) : null}
-
-      <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
-        <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-line bg-white p-5 text-black lg:flex">
+        <a className="skip-link" href="#portal-content">
+          Saltar al contenido principal
+        </a>
+        {/* Barra superior solo móvil: marca + hamburguesa */}
+        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-white px-4 py-3 text-black lg:hidden">
           <div>
-            <p className="font-mono text-xs uppercase text-brand">{eyebrow}</p>
-            <h1 className="mt-2 text-lg font-semibold">Centro operativo</h1>
-            <div className="mt-7">{navigation}</div>
+            <p className="font-mono text-[0.65rem] uppercase text-brand">
+              {eyebrow}
+            </p>
+            <p className="text-sm font-semibold">{title}</p>
           </div>
-          {accountBlock}
-        </aside>
-
-        <section className="min-w-0">
-          <div className="hidden items-center justify-between border-b border-line px-6 py-3 lg:flex lg:px-10">
-            <Breadcrumbs items={[{ label: eyebrow, href: "/dashboard" }, { label: title }]} />
+          <div className="flex items-center gap-2">
             <NotificationsBell token={token} />
+            <Button
+              variant="secondary"
+              aria-expanded={isMobileNavOpen}
+              aria-controls="mobile-nav"
+              onClick={() => setIsMobileNavOpen((open) => !open)}
+            >
+              {isMobileNavOpen ? (
+                <CloseIcon aria-hidden />
+              ) : (
+                <MenuIcon aria-hidden />
+              )}
+              Menú
+            </Button>
           </div>
-          {/* Mini barra de contexto: solo se muestra si hay algo que seleccionar
+        </div>
+
+        {/* Panel de navegacion móvil desplegable */}
+        {isMobileNavOpen ? (
+          <div
+            id="mobile-nav"
+            className="border-b border-line bg-white px-4 py-5 text-black lg:hidden"
+          >
+            {navigation}
+            <div className="mt-6">{accountBlock}</div>
+          </div>
+        ) : null}
+
+        <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
+          <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-line bg-white p-5 text-black lg:flex">
+            <div>
+              <p className="font-mono text-xs uppercase text-brand">
+                {eyebrow}
+              </p>
+              <h1 className="mt-2 text-lg font-semibold">Centro operativo</h1>
+              <div className="mt-7">{navigation}</div>
+            </div>
+            {accountBlock}
+          </aside>
+
+          <section id="portal-content" tabIndex={-1} className="min-w-0">
+            <div className="hidden items-center justify-between border-b border-line px-6 py-3 lg:flex lg:px-10">
+              <Breadcrumbs
+                items={[
+                  { label: eyebrow, href: "/dashboard" },
+                  { label: title },
+                ]}
+              />
+              <NotificationsBell token={token} />
+            </div>
+            {/* Mini barra de contexto: solo se muestra si hay algo que seleccionar
               (cliente activo o tienda). El indicador de rol/estado se quito por no
               aportar nada al usuario. */}
-          {(isConsultant && bootstrap.memberships.length > 1) || shopifyConnections.length > 1 ? (
-            <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-line bg-surface px-6 py-3 lg:px-10">
-              {isConsultant && bootstrap.memberships.length > 1 ? (
-                <Combobox
-                  className="w-44"
-                  label="Cliente activo"
-                  value={activeOrganizationId}
-                  onChange={selectOrganization}
-                  options={bootstrap.memberships.map((membership) => ({
-                    value: membership.organization_id,
-                    label: membership.organization?.display_name ?? membership.organization_id,
-                  }))}
-                />
-              ) : null}
-              {shopifyConnections.length > 1 ? (
-                <Combobox
-                  className="w-40"
-                  label="Tienda"
-                  value={activeConnectionId}
-                  onChange={selectConnection}
-                  options={shopifyConnections.map((connection) => ({
-                    value: connection.id,
-                    label: connection.provider_account_id ?? connection.provider_account_name ?? connection.id,
-                  }))}
-                />
-              ) : null}
-            </div>
-          ) : null}
+            {(isConsultant && bootstrap.memberships.length > 1) ||
+            shopifyConnections.length > 1 ? (
+              <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-line bg-surface px-6 py-3 lg:px-10">
+                {isConsultant && bootstrap.memberships.length > 1 ? (
+                  <Combobox
+                    className="w-44"
+                    label="Cliente activo"
+                    value={activeOrganizationId}
+                    onChange={selectOrganization}
+                    options={bootstrap.memberships.map((membership) => ({
+                      value: membership.organization_id,
+                      label:
+                        membership.organization?.display_name ??
+                        membership.organization_id,
+                    }))}
+                  />
+                ) : null}
+                {shopifyConnections.length > 1 ? (
+                  <Combobox
+                    className="w-40"
+                    label="Tienda"
+                    value={activeConnectionId}
+                    onChange={selectConnection}
+                    options={shopifyConnections.map((connection) => ({
+                      value: connection.id,
+                      label:
+                        connection.provider_account_id ??
+                        connection.provider_account_name ??
+                        connection.id,
+                    }))}
+                  />
+                ) : null}
+              </div>
+            ) : null}
 
-          {visibleActions.map((action) => (
-            <div key={action.id} className="border-b border-edge px-6 py-3 lg:px-10">
-              <Alert status={actionSeverityStatus[action.severity]} className="items-center">
-                <Alert.Indicator />
-                <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
-                  <div>
-                    <Alert.Title>{action.title}</Alert.Title>
-                    <Alert.Description>
-                      {action.organization_name ? `${action.organization_name}: ` : ""}
-                      {action.message}
-                      {action.missing_scopes?.length
-                        ? ` (${action.missing_scopes.length} permisos pendientes)`
-                        : ""}
-                    </Alert.Description>
-                  </div>
-                  <Link className="inline-flex items-center gap-1 whitespace-nowrap" href={action.cta_href}>
-                    {action.cta_label}
-                    <IconChevronRight aria-hidden />
-                  </Link>
-                </Alert.Content>
-              </Alert>
-            </div>
-          ))}
-          {actions.length > visibleActions.length ? (
-            <div className="border-b border-edge px-6 py-2 font-mono text-xs text-muted lg:px-10">
-              {actions.length - visibleActions.length} avisos más en Integraciones.
-            </div>
-          ) : null}
-          <div className="px-6 pt-6 pb-14 lg:px-10">
-            <ActiveOrganizationContext.Provider
-              value={{
-                organizationId: activeOrganizationId || (bootstrap.memberships[0]?.organization_id ?? ""),
-                setOrganizationId: selectOrganization,
-              }}
-            >
-              <ActiveConnectionContext.Provider
-                value={{ connectionId: activeConnectionId, setConnectionId: selectConnection }}
+            {visibleActions.map((action) => (
+              <div
+                key={action.id}
+                className="border-b border-edge px-6 py-3 lg:px-10"
               >
-                {children(bootstrap, token)}
-              </ActiveConnectionContext.Provider>
-            </ActiveOrganizationContext.Provider>
-          </div>
-        </section>
-      </div>
+                <Alert
+                  status={actionSeverityStatus[action.severity]}
+                  className="items-center"
+                >
+                  <Alert.Indicator />
+                  <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                    <div>
+                      <Alert.Title>{action.title}</Alert.Title>
+                      <Alert.Description>
+                        {action.organization_name
+                          ? `${action.organization_name}: `
+                          : ""}
+                        {action.message}
+                        {action.missing_scopes?.length
+                          ? ` (${action.missing_scopes.length} permisos pendientes)`
+                          : ""}
+                      </Alert.Description>
+                    </div>
+                    <Link
+                      className="inline-flex items-center gap-1 whitespace-nowrap"
+                      href={action.cta_href}
+                    >
+                      {action.cta_label}
+                      <IconChevronRight aria-hidden />
+                    </Link>
+                  </Alert.Content>
+                </Alert>
+              </div>
+            ))}
+            {actions.length > visibleActions.length ? (
+              <div className="border-b border-edge px-6 py-2 font-mono text-xs text-muted lg:px-10">
+                {actions.length - visibleActions.length} avisos más en
+                Integraciones.
+              </div>
+            ) : null}
+            <div className="px-6 pt-6 pb-14 lg:px-10">
+              <ActiveOrganizationContext.Provider
+                value={{
+                  organizationId:
+                    activeOrganizationId ||
+                    (bootstrap.memberships[0]?.organization_id ?? ""),
+                  setOrganizationId: selectOrganization,
+                }}
+              >
+                <ActiveConnectionContext.Provider
+                  value={{
+                    connectionId: activeConnectionId,
+                    setConnectionId: selectConnection,
+                  }}
+                >
+                  {children(bootstrap, token)}
+                </ActiveConnectionContext.Provider>
+              </ActiveOrganizationContext.Provider>
+            </div>
+          </section>
+        </div>
 
-      {(activeOrganizationId || bootstrap.memberships[0]?.organization_id) ? (
-        <>
-          <Button
-            className="fixed bottom-6 right-6 z-30"
-            aria-expanded={isCopilotOpen}
-            aria-controls="copilot-panel"
-            onClick={() => setIsCopilotOpen((open) => !open)}
-          >
-            {isCopilotOpen ? "Cerrar copiloto" : "Copiloto"}
-          </Button>
-          {isCopilotOpen ? (
-            <CopilotPanel
-              organizationId={activeOrganizationId || (bootstrap.memberships[0]?.organization_id ?? "")}
-              onClose={() => setIsCopilotOpen(false)}
-            />
-          ) : null}
-        </>
-      ) : null}
+        {activeOrganizationId || bootstrap.memberships[0]?.organization_id ? (
+          <>
+            <Button
+              className="fixed bottom-6 right-6 z-30"
+              aria-expanded={isCopilotOpen}
+              aria-controls="copilot-panel"
+              onClick={() => setIsCopilotOpen((open) => !open)}
+            >
+              {isCopilotOpen ? "Cerrar copiloto" : "Copiloto"}
+            </Button>
+            {isCopilotOpen ? (
+              <CopilotPanel
+                organizationId={
+                  activeOrganizationId ||
+                  (bootstrap.memberships[0]?.organization_id ?? "")
+                }
+                onClose={() => setIsCopilotOpen(false)}
+              />
+            ) : null}
+          </>
+        ) : null}
       </main>
     </>
   );

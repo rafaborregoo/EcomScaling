@@ -10,6 +10,8 @@
     "dev:purge-expired-deletions": "dotenv -e ../../.env.local -- tsx src/purge-expired-deletions-once.ts",
     "dev:shopify-resend-webhooks": "dotenv -e ../../.env.local -- tsx src/shopify-resend-webhooks-once.ts",
     "dev:shopify-reconcile-counts": "dotenv -e ../../.env.local -- tsx src/shopify-reconcile-counts-once.ts",
+    "dev:klaviyo-reconcile": "dotenv -e ../../.env.local -- tsx src/klaviyo-reconcile-once.ts",
+    "dev:meta-reconcile": "dotenv -e ../../.env.local -- tsx src/meta-reconcile-once.ts",
     "dev:ops-health-check": "dotenv -e ../../.env.local -- tsx src/ops-health-check-once.ts",
     "dev:memory-ingestion": "dotenv -e ../../.env.local -- tsx src/memory-ingestion-once.ts",
     "build": "tsc -p tsconfig.json",
@@ -19,11 +21,13 @@
     "start:purge-expired-deletions": "node dist/purge-expired-deletions-once.js",
     "start:shopify-resend-webhooks": "node dist/shopify-resend-webhooks-once.js",
     "start:shopify-reconcile-counts": "node dist/shopify-reconcile-counts-once.js",
+    "start:klaviyo-reconcile": "node dist/klaviyo-reconcile-once.js",
+    "start:meta-reconcile": "node dist/meta-reconcile-once.js",
     "start:ops-health-check": "node dist/ops-health-check-once.js",
     "start:memory-ingestion": "node dist/memory-ingestion-once.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/repeatable-jobs.test.ts"
+    "test": "tsx --test src/repeatable-jobs.test.ts src/cron-workflow-env.test.ts"
   },
   "dependencies": {
     "@ecomscaling/api": "0.1.0",

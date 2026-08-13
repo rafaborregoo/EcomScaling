@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { getSupabaseClient } from "@/lib/supabase";
 import type { AccountAction } from "@ecomscaling/contracts";
 
 export type { AccountAction };
@@ -37,6 +37,7 @@ export type BootstrapResponse = {
 export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 export async function getAccessToken() {
+  const supabase = getSupabaseClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -65,6 +66,7 @@ export async function getAccessToken() {
 }
 
 async function refreshAccessToken() {
+  const supabase = getSupabaseClient();
   const {
     data: { session },
     error,

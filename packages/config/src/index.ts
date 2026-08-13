@@ -27,6 +27,15 @@ const apiEnvSchema = z.object({
   META_APP_SECRET: z.string().min(1).optional(),
   META_REDIRECT_URI: z.string().url().optional(),
   META_SCOPES: z.string().min(1).optional(),
+  // Klaviyo OAuth. Opcional hasta que exista una app aprobada; las tres
+  // variables de aplicación deben llegar juntas para no habilitar un flujo roto.
+  KLAVIYO_CLIENT_ID: z.string().min(1).optional(),
+  KLAVIYO_CLIENT_SECRET: z.string().min(1).optional(),
+  KLAVIYO_REDIRECT_URI: z.string().url().optional(),
+  KLAVIYO_SCOPES: z.string().min(1).optional(),
+  // Allowlist opcional de providers implementados, separado por comas.
+  // Ejemplo: INTEGRATION_FEATURE_FLAGS=shopify,meta_ads
+  INTEGRATION_FEATURE_FLAGS: z.string().min(1).optional(),
   // Runtime de agentes IA (AI-00). Opcional: sin key, los endpoints de IA
   // devuelven 503 y el resto de la plataforma funciona igual.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
@@ -69,6 +78,11 @@ export type LoadedApiEnv = {
   META_APP_SECRET?: string;
   META_REDIRECT_URI?: string;
   META_SCOPES?: string;
+  KLAVIYO_CLIENT_ID?: string;
+  KLAVIYO_CLIENT_SECRET?: string;
+  KLAVIYO_REDIRECT_URI?: string;
+  KLAVIYO_SCOPES?: string;
+  INTEGRATION_FEATURE_FLAGS?: string;
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
@@ -77,7 +91,9 @@ export type LoadedApiEnv = {
   REDIS_URL?: string;
 };
 
-export function loadApiEnv(source: Record<string, string | undefined>): LoadedApiEnv {
+export function loadApiEnv(
+  source: Record<string, string | undefined>,
+): LoadedApiEnv {
   // Una variable presente pero vacia (META_APP_ID=) cuenta como no configurada:
   // los .env suelen copiarse de .env.example con claves opcionales en blanco.
   const cleanedSource = Object.fromEntries(
@@ -128,12 +144,32 @@ export function loadApiEnv(source: Record<string, string | undefined>): LoadedAp
     );
   }
 
-  const metaFields = [env.META_APP_ID, env.META_APP_SECRET, env.META_REDIRECT_URI];
+  const metaFields = [
+    env.META_APP_ID,
+    env.META_APP_SECRET,
+    env.META_REDIRECT_URI,
+  ];
   const metaFieldsSetCount = metaFields.filter(Boolean).length;
 
   if (metaFieldsSetCount > 0 && metaFieldsSetCount < metaFields.length) {
     throw new Error(
       "META_APP_ID, META_APP_SECRET y META_REDIRECT_URI deben estar todas seteadas o ninguna",
+    );
+  }
+
+  const klaviyoFields = [
+    env.KLAVIYO_CLIENT_ID,
+    env.KLAVIYO_CLIENT_SECRET,
+    env.KLAVIYO_REDIRECT_URI,
+  ];
+  const klaviyoFieldsSetCount = klaviyoFields.filter(Boolean).length;
+
+  if (
+    klaviyoFieldsSetCount > 0 &&
+    klaviyoFieldsSetCount < klaviyoFields.length
+  ) {
+    throw new Error(
+      "KLAVIYO_CLIENT_ID, KLAVIYO_CLIENT_SECRET y KLAVIYO_REDIRECT_URI deben estar todas seteadas o ninguna",
     );
   }
 
@@ -143,8 +179,12 @@ export function loadApiEnv(source: Record<string, string | undefined>): LoadedAp
     WEB_ORIGIN: env.WEB_ORIGIN,
     SUPABASE_URL: supabaseUrl,
     SUPABASE_PUBLISHABLE_KEY: supabasePublishableKey,
-    ...(env.SUPABASE_SERVICE_ROLE_KEY ? { SUPABASE_SERVICE_ROLE_KEY: env.SUPABASE_SERVICE_ROLE_KEY } : {}),
-    ...(env.SUPABASE_JWT_SECRET ? { SUPABASE_JWT_SECRET: env.SUPABASE_JWT_SECRET } : {}),
+    ...(env.SUPABASE_SERVICE_ROLE_KEY
+      ? { SUPABASE_SERVICE_ROLE_KEY: env.SUPABASE_SERVICE_ROLE_KEY }
+      : {}),
+    ...(env.SUPABASE_JWT_SECRET
+      ? { SUPABASE_JWT_SECRET: env.SUPABASE_JWT_SECRET }
+      : {}),
     SHOPIFY_API_KEY: env.SHOPIFY_API_KEY,
     SHOPIFY_API_SECRET: env.SHOPIFY_API_SECRET,
     SHOPIFY_SCOPES: env.SHOPIFY_SCOPES,
@@ -162,14 +202,32 @@ export function loadApiEnv(source: Record<string, string | undefined>): LoadedAp
           META_APP_ID: env.META_APP_ID!,
           META_APP_SECRET: env.META_APP_SECRET!,
           META_REDIRECT_URI: env.META_REDIRECT_URI!,
-          META_SCOPES: env.META_SCOPES ?? "ads_read,business_management,pages_show_list",
+          META_SCOPES:
+            env.META_SCOPES ?? "ads_read,business_management,pages_show_list",
         }
       : {}),
-    ...(env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } : {}),
+    ...(klaviyoFieldsSetCount === klaviyoFields.length
+      ? {
+          KLAVIYO_CLIENT_ID: env.KLAVIYO_CLIENT_ID!,
+          KLAVIYO_CLIENT_SECRET: env.KLAVIYO_CLIENT_SECRET!,
+          KLAVIYO_REDIRECT_URI: env.KLAVIYO_REDIRECT_URI!,
+          KLAVIYO_SCOPES:
+            env.KLAVIYO_SCOPES ??
+            "accounts:read,flows:read,campaigns:read,forms:read,lists:read,segments:read,metrics:read",
+        }
+      : {}),
+    ...(env.INTEGRATION_FEATURE_FLAGS
+      ? { INTEGRATION_FEATURE_FLAGS: env.INTEGRATION_FEATURE_FLAGS }
+      : {}),
+    ...(env.ANTHROPIC_API_KEY
+      ? { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY }
+      : {}),
     ...(env.OPENAI_API_KEY ? { OPENAI_API_KEY: env.OPENAI_API_KEY } : {}),
     ...(env.OPENAI_MODEL ? { OPENAI_MODEL: env.OPENAI_MODEL } : {}),
     ...(env.VOYAGE_API_KEY ? { VOYAGE_API_KEY: env.VOYAGE_API_KEY } : {}),
-    ...(env.INTERNAL_API_SECRET ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET } : {}),
+    ...(env.INTERNAL_API_SECRET
+      ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET }
+      : {}),
     ...(env.REDIS_URL ? { REDIS_URL: env.REDIS_URL } : {}),
   };
 }

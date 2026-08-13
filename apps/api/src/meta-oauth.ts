@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { LoadedApiEnv } from "@ecomscaling/config";
-import { metaGraphGet } from "./meta-client.js";
+import { META_GRAPH_VERSION, metaGraphGet } from "./meta-client.js";
 
 export type MetaOAuthEnv = {
   META_APP_ID: string;
@@ -18,7 +18,8 @@ export function resolveMetaAppEnv(env: LoadedApiEnv): MetaOAuthEnv | null {
     META_APP_ID: env.META_APP_ID,
     META_APP_SECRET: env.META_APP_SECRET,
     META_REDIRECT_URI: env.META_REDIRECT_URI,
-    META_SCOPES: env.META_SCOPES ?? "ads_read,business_management,pages_show_list",
+    META_SCOPES:
+      env.META_SCOPES ?? "ads_read,business_management,pages_show_list",
   };
 }
 
@@ -27,7 +28,9 @@ export function createMetaState() {
 }
 
 export function buildMetaAuthUrl(appEnv: MetaOAuthEnv, state: string) {
-  const url = new URL("https://www.facebook.com/v23.0/dialog/oauth");
+  const url = new URL(
+    `https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`,
+  );
   url.searchParams.set("client_id", appEnv.META_APP_ID);
   url.searchParams.set("redirect_uri", appEnv.META_REDIRECT_URI);
   url.searchParams.set("state", state);
@@ -50,38 +53,38 @@ export async function exchangeMetaCodeForLongLivedToken(
   appEnv: MetaOAuthEnv,
   code: string,
 ): Promise<MetaLongLivedToken> {
-  const shortResponse = await metaGraphGet<{ access_token?: string; expires_in?: number }>(
-    "oauth/access_token",
-    "",
-    {
-      client_id: appEnv.META_APP_ID,
-      client_secret: appEnv.META_APP_SECRET,
-      redirect_uri: appEnv.META_REDIRECT_URI,
-      code,
-    },
-  );
+  const shortResponse = await metaGraphGet<{
+    access_token?: string;
+    expires_in?: number;
+  }>("oauth/access_token", "", {
+    client_id: appEnv.META_APP_ID,
+    client_secret: appEnv.META_APP_SECRET,
+    redirect_uri: appEnv.META_REDIRECT_URI,
+    code,
+  });
 
   if (!shortResponse.access_token) {
     throw new Error("meta_oauth_missing_access_token");
   }
 
-  const longResponse = await metaGraphGet<{ access_token?: string; expires_in?: number }>(
-    "oauth/access_token",
-    "",
-    {
-      grant_type: "fb_exchange_token",
-      client_id: appEnv.META_APP_ID,
-      client_secret: appEnv.META_APP_SECRET,
-      fb_exchange_token: shortResponse.access_token,
-    },
-  );
+  const longResponse = await metaGraphGet<{
+    access_token?: string;
+    expires_in?: number;
+  }>("oauth/access_token", "", {
+    grant_type: "fb_exchange_token",
+    client_id: appEnv.META_APP_ID,
+    client_secret: appEnv.META_APP_SECRET,
+    fb_exchange_token: shortResponse.access_token,
+  });
 
   const accessToken = longResponse.access_token ?? shortResponse.access_token;
   const expiresIn = longResponse.expires_in ?? shortResponse.expires_in ?? null;
 
   return {
     accessToken,
-    expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null,
+    expiresAt: expiresIn
+      ? new Date(Date.now() + expiresIn * 1000).toISOString()
+      : null,
   };
 }
 
@@ -89,5 +92,8 @@ export async function exchangeMetaCodeForLongLivedToken(
  * appsecret_proof requerido por Marketing API en llamadas server-to-server.
  */
 export function buildAppSecretProof(accessToken: string, appSecret: string) {
-  return crypto.createHmac("sha256", appSecret).update(accessToken).digest("hex");
+  return crypto
+    .createHmac("sha256", appSecret)
+    .update(accessToken)
+    .digest("hex");
 }

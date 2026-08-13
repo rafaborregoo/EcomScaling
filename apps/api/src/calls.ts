@@ -1,4 +1,5 @@
-// BE-05 (parte pendiente): workflow de llamadas de consultoria.
+// BE-05: workflow operativo de llamadas de consultoria; los resúmenes quedan
+// ligados a la versión exacta de transcripción que los originó.
 // Registro de llamada con enlace Loom/Fathom, transcripcion manual versionada
 // (una sola actual), resumen con aprobacion obligatoria antes de publicar al
 // cliente, notas internas solo-consultor y tareas derivadas de la llamada.
@@ -33,11 +34,20 @@ function createServiceClient(env: ApiEnv) {
 // organizaciones virtuales de platform_admin (todas) y consultant (solo las
 // asignadas, ver auth-context.ts) -- comprobar solo `membership` es correcto
 // y suficiente, `isPrivileged` como bypass nunca hacia falta.
-function requireOrganizationAccess(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find((item) => item.organization_id === organizationId);
+function requireOrganizationAccess(
+  context: AuthContext,
+  organizationId: string,
+) {
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
 
   if (!membership) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
   return { ok: true as const, membership };
@@ -46,7 +56,9 @@ function requireOrganizationAccess(context: AuthContext, organizationId: string)
 // Gestionar llamadas (crear, transcribir, resumir, publicar) es trabajo del
 // consultor: cliente (owner/manager incluidos) solo consume.
 function requireConsultant(context: AuthContext) {
-  if (!["platform_admin", "consultant"].includes(context.profile.platform_role)) {
+  if (
+    !["platform_admin", "consultant"].includes(context.profile.platform_role)
+  ) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -63,7 +75,9 @@ const RECORDING_PROVIDERS = ["loom", "fathom", "meet", "zoom", "other"];
 
 // La URL de grabacion se renderiza como <a href> en el portal: solo http(s),
 // nunca javascript:/data: u otros esquemas.
-function parseRecordingUrl(value: unknown): { ok: true; url: string | null } | { ok: false } {
+function parseRecordingUrl(
+  value: unknown,
+): { ok: true; url: string | null } | { ok: false } {
   if (typeof value !== "string" || value.trim() === "") {
     return { ok: true, url: null };
   }
@@ -102,7 +116,7 @@ export async function listCalls(
         "id, title, call_type, status, scheduled_at, held_at, duration_minutes",
         "recording_url, recording_provider, is_visible_to_client, created_at",
         "call_transcripts(id, version, source, is_current, content, created_at)",
-        "call_ai_summaries(id, summary, key_points, agreed_actions, status, approved_at, published_at, rejection_reason, created_at)",
+        "call_ai_summaries(id, transcript_id, summary, key_points, agreed_actions, status, approved_at, published_at, rejection_reason, created_at)",
         "call_internal_notes(id, body, author_user_id, created_at)",
         "call_task_links(id, task_id, tasks(id, title, status, priority))",
       ].join(", "),
@@ -112,19 +126,27 @@ export async function listCalls(
     .limit(100);
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "calls_load_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "calls_load_failed",
+      detail: error.message,
+    };
   }
 
   const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
 
   const calls = rows.map((call) => ({
     ...call,
-    call_transcripts: ((call.call_transcripts as Array<{ is_current: boolean }>) ?? []).filter(
-      (transcript) => transcript.is_current,
-    ),
+    call_transcripts: (
+      (call.call_transcripts as Array<{ is_current: boolean }>) ?? []
+    ).filter((transcript) => transcript.is_current),
   }));
 
-  return { ok: true as const, data: { organization_id: organizationId, calls } };
+  return {
+    ok: true as const,
+    data: { organization_id: organizationId, calls },
+  };
 }
 
 export async function createCall(
@@ -149,7 +171,10 @@ export async function createCall(
     return { ok: false as const, statusCode: 400, error: "title_requerido" };
   }
 
-  const callType = typeof payload.call_type === "string" ? payload.call_type : "monthly_review";
+  const callType =
+    typeof payload.call_type === "string"
+      ? payload.call_type
+      : "monthly_review";
 
   if (!CALL_TYPES.includes(callType)) {
     return { ok: false as const, statusCode: 400, error: "call_type_invalido" };
@@ -161,13 +186,21 @@ export async function createCall(
       : null;
 
   if (recordingProvider && !RECORDING_PROVIDERS.includes(recordingProvider)) {
-    return { ok: false as const, statusCode: 400, error: "recording_provider_invalido" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "recording_provider_invalido",
+    };
   }
 
   const recordingUrl = parseRecordingUrl(payload.recording_url);
 
   if (recordingUrl.ok === false) {
-    return { ok: false as const, statusCode: 400, error: "recording_url_invalido" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "recording_url_invalido",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -179,7 +212,8 @@ export async function createCall(
       consultant_user_id: context.user.id,
       title: title.slice(0, 255),
       call_type: callType,
-      scheduled_at: typeof payload.scheduled_at === "string" ? payload.scheduled_at : null,
+      scheduled_at:
+        typeof payload.scheduled_at === "string" ? payload.scheduled_at : null,
       recording_url: recordingUrl.url,
       recording_provider: recordingProvider,
       is_visible_to_client: payload.is_visible_to_client !== false,
@@ -189,9 +223,22 @@ export async function createCall(
     .single();
 
   if (error || !data) {
-    return { ok: false as const, statusCode: 500, error: "call_create_failed", detail: error?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "call_create_failed",
+      detail: error?.message,
+    };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "calls.create",
+    entityType: "consulting_call",
+    entityId: data.id,
+    newData: { title: data.title, status: data.status },
+  });
   return { ok: true as const, data };
 }
 
@@ -214,7 +261,10 @@ export async function updateCall(
 
   const updates: Record<string, unknown> = {};
 
-  if (typeof payload.status === "string" && ["scheduled", "held", "cancelled"].includes(payload.status)) {
+  if (
+    typeof payload.status === "string" &&
+    ["scheduled", "held", "cancelled"].includes(payload.status)
+  ) {
     updates.status = payload.status;
     if (payload.status === "held" && !payload.held_at) {
       updates.held_at = new Date().toISOString();
@@ -225,7 +275,10 @@ export async function updateCall(
     updates.held_at = payload.held_at;
   }
 
-  if (typeof payload.duration_minutes === "number" && payload.duration_minutes > 0) {
+  if (
+    typeof payload.duration_minutes === "number" &&
+    payload.duration_minutes > 0
+  ) {
     updates.duration_minutes = Math.round(payload.duration_minutes);
   }
 
@@ -233,7 +286,11 @@ export async function updateCall(
     const recordingUrl = parseRecordingUrl(payload.recording_url);
 
     if (recordingUrl.ok === false) {
-      return { ok: false as const, statusCode: 400, error: "recording_url_invalido" };
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "recording_url_invalido",
+      };
     }
 
     updates.recording_url = recordingUrl.url;
@@ -265,13 +322,26 @@ export async function updateCall(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "call_update_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "call_update_failed",
+      detail: error.message,
+    };
   }
 
   if (!data) {
     return { ok: false as const, statusCode: 404, error: "call_not_found" };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "calls.update",
+    entityType: "consulting_call",
+    entityId: data.id,
+    newData: updates,
+  });
   return { ok: true as const, data };
 }
 
@@ -296,7 +366,8 @@ export async function saveTranscript(
     return role;
   }
 
-  const content = typeof payload.content === "string" ? payload.content.trim() : "";
+  const content =
+    typeof payload.content === "string" ? payload.content.trim() : "";
 
   if (!content) {
     return { ok: false as const, statusCode: 400, error: "content_requerido" };
@@ -358,6 +429,14 @@ export async function saveTranscript(
     };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "calls.save_transcript",
+    entityType: "call_transcript",
+    entityId: data.id,
+    newData: { call_id: callId, version: data.version, source },
+  });
   return { ok: true as const, data };
 }
 
@@ -378,7 +457,8 @@ export async function createSummary(
     return role;
   }
 
-  const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
+  const summary =
+    typeof payload.summary === "string" ? payload.summary.trim() : "";
 
   if (!summary) {
     return { ok: false as const, statusCode: 400, error: "summary_requerido" };
@@ -397,14 +477,25 @@ export async function createSummary(
     return { ok: false as const, statusCode: 404, error: "call_not_found" };
   }
 
+  const { data: transcript } = await supabase
+    .from("call_transcripts")
+    .select("id")
+    .eq("call_id", callId)
+    .eq("organization_id", organizationId)
+    .eq("is_current", true)
+    .maybeSingle();
+
   const { data, error } = await supabase
     .from("call_ai_summaries")
     .insert({
       call_id: callId,
       organization_id: organizationId,
+      transcript_id: transcript?.id ?? null,
       summary,
       key_points: Array.isArray(payload.key_points) ? payload.key_points : null,
-      agreed_actions: Array.isArray(payload.agreed_actions) ? payload.agreed_actions : null,
+      agreed_actions: Array.isArray(payload.agreed_actions)
+        ? payload.agreed_actions
+        : null,
       status: "pending_approval",
       authored_by: context.user.id,
     })
@@ -412,9 +503,22 @@ export async function createSummary(
     .single();
 
   if (error || !data) {
-    return { ok: false as const, statusCode: 500, error: "summary_create_failed", detail: error?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "summary_create_failed",
+      detail: error?.message,
+    };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "calls.create_summary",
+    entityType: "call_ai_summary",
+    entityId: data.id,
+    newData: { call_id: callId, status: data.status },
+  });
   return { ok: true as const, data };
 }
 
@@ -451,8 +555,18 @@ export async function decideSummary(
     .from("call_ai_summaries")
     .update(
       decision === "approved"
-        ? { status: "published", approved_by: context.user.id, approved_at: now, published_at: now }
-        : { status: "rejected", approved_by: context.user.id, approved_at: now, rejection_reason: reason ?? null },
+        ? {
+            status: "published",
+            approved_by: context.user.id,
+            approved_at: now,
+            published_at: now,
+          }
+        : {
+            status: "rejected",
+            approved_by: context.user.id,
+            approved_at: now,
+            rejection_reason: reason ?? null,
+          },
     )
     .eq("id", summaryId)
     .eq("organization_id", organizationId)
@@ -461,7 +575,12 @@ export async function decideSummary(
     .maybeSingle();
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "summary_decision_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "summary_decision_failed",
+      detail: error.message,
+    };
   }
 
   if (!data) {
@@ -479,7 +598,11 @@ export async function decideSummary(
       .maybeSingle();
 
     if (!existing) {
-      return { ok: false as const, statusCode: 404, error: "pending_summary_not_found" };
+      return {
+        ok: false as const,
+        statusCode: 404,
+        error: "pending_summary_not_found",
+      };
     }
 
     return {
@@ -496,8 +619,12 @@ export async function decideSummary(
   let tasksCreated = 0;
 
   if (decision === "approved") {
-    const keyPoints = (data.key_points ?? null) as { proposed_tasks?: Array<Record<string, unknown>> } | null;
-    const proposedTasks = Array.isArray(keyPoints?.proposed_tasks) ? keyPoints.proposed_tasks : [];
+    const keyPoints = (data.key_points ?? null) as {
+      proposed_tasks?: Array<Record<string, unknown>>;
+    } | null;
+    const proposedTasks = Array.isArray(keyPoints?.proposed_tasks)
+      ? keyPoints.proposed_tasks
+      : [];
 
     if (proposedTasks.length > 0) {
       const { data: existingLinks } = await supabase
@@ -512,7 +639,8 @@ export async function decideSummary(
       );
 
       for (const proposed of proposedTasks) {
-        const title = typeof proposed.title === "string" ? proposed.title.trim() : "";
+        const title =
+          typeof proposed.title === "string" ? proposed.title.trim() : "";
 
         if (!title || existingTitles.has(title.toLowerCase())) {
           continue;
@@ -531,7 +659,10 @@ export async function decideSummary(
             source: "consulting_call",
             priority,
             title: title.slice(0, 255),
-            description: typeof proposed.description === "string" ? proposed.description : null,
+            description:
+              typeof proposed.description === "string"
+                ? proposed.description
+                : null,
             created_by: context.user.id,
             metadata: { call_summary_id: summaryId },
           })
@@ -558,10 +689,17 @@ export async function decideSummary(
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
-    action: decision === "approved" ? "calls.approve_summary" : "calls.reject_summary",
+    action:
+      decision === "approved"
+        ? "calls.approve_summary"
+        : "calls.reject_summary",
     entityType: "call_ai_summary",
     entityId: summaryId,
-    newData: { status: data.status, reason: reason ?? null, tasks_created: tasksCreated },
+    newData: {
+      status: data.status,
+      reason: reason ?? null,
+      tasks_created: tasksCreated,
+    },
   });
 
   // AI-07: solo un resumen PUBLICADO (aprobado y visible al cliente) entra a
@@ -583,7 +721,10 @@ export async function decideSummary(
     });
   }
 
-  return { ok: true as const, data: { id: data.id, status: data.status, tasks_created: tasksCreated } };
+  return {
+    ok: true as const,
+    data: { id: data.id, status: data.status, tasks_created: tasksCreated },
+  };
 }
 
 export async function addInternalNote(
@@ -623,9 +764,22 @@ export async function addInternalNote(
     .single();
 
   if (error || !data) {
-    return { ok: false as const, statusCode: 500, error: "note_create_failed", detail: error?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "note_create_failed",
+      detail: error?.message,
+    };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "calls.add_internal_note",
+    entityType: "call_internal_note",
+    entityId: data.id,
+    newData: { call_id: callId },
+  });
   return { ok: true as const, data };
 }
 
@@ -654,7 +808,8 @@ export async function createTaskFromCall(
   }
 
   const priority =
-    typeof payload.priority === "string" && ["low", "medium", "high", "urgent"].includes(payload.priority)
+    typeof payload.priority === "string" &&
+    ["low", "medium", "high", "urgent"].includes(payload.priority)
       ? payload.priority
       : "medium";
 
@@ -678,7 +833,8 @@ export async function createTaskFromCall(
       source: "consulting_call",
       priority,
       title: title.slice(0, 255),
-      description: typeof payload.description === "string" ? payload.description : null,
+      description:
+        typeof payload.description === "string" ? payload.description : null,
       due_at: typeof payload.due_at === "string" ? payload.due_at : null,
       created_by: context.user.id,
     })
@@ -686,7 +842,12 @@ export async function createTaskFromCall(
     .single();
 
   if (taskError || !task) {
-    return { ok: false as const, statusCode: 500, error: "task_create_failed", detail: taskError?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "task_create_failed",
+      detail: taskError?.message,
+    };
   }
 
   const { error: linkError } = await supabase.from("call_task_links").insert({
@@ -697,8 +858,21 @@ export async function createTaskFromCall(
   });
 
   if (linkError) {
-    return { ok: false as const, statusCode: 500, error: "task_link_failed", detail: linkError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "task_link_failed",
+      detail: linkError.message,
+    };
   }
 
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "calls.create_task",
+    entityType: "task",
+    entityId: task.id,
+    newData: { call_id: callId, source: "consulting_call" },
+  });
   return { ok: true as const, data: { task_id: task.id, title: task.title } };
 }

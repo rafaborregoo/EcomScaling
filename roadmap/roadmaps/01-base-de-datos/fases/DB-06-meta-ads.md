@@ -22,6 +22,16 @@
 
 Normalizar activos publicitarios, insights y metricas calculadas para comparar adquisicion con rentabilidad.
 
+## Preparacion de esquema 2026-08-02
+
+El esquema existente se mantiene preparado para varias cuentas y niveles de Meta,
+pero no se crean filas de cuentas, insights o report runs hasta que el proveedor
+devuelva datos reales y el activo haya sido seleccionado por la organización. Las
+dimensiones de atribución (`level`, fecha, breakdown, ventana, `action_type`, zona
+horaria y `action_report_time`) acompañan cada sync. La UI consume el estado común y
+`freshness`; no infiere cero a partir de ausencia de filas. Ver el contrato transversal
+en [`../../../04-integraciones/CONTRATO_PREPARACION_CONECTORES.md`](../../../04-integraciones/CONTRATO_PREPARACION_CONECTORES.md).
+
 ## Tablas
 
 - `meta_business_accounts`
@@ -45,4 +55,3 @@ Normalizar activos publicitarios, insights y metricas calculadas para comparar a
 - Checks coherentes segun `level`.
 - Rate limits y report runs auditables.
 - ROAS e inversion pueden compararse contra break-even.
-

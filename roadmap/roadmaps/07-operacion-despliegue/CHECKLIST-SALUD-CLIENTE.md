@@ -60,8 +60,12 @@ Para cada cliente, en este orden:
 - Salud comercial/satisfacción del cliente (fuera de alcance técnico, es seguimiento de Rafa como soporte).
 - Métricas de negocio del cliente (ventas, ROAS) — eso es lo que el dashboard le muestra al cliente mismo,
   no parte de esta revisión operativa.
-- Meta Ads/Klaviyo/Instagram — no aplican todavía (Meta bloqueado por App Review, Klaviyo/Instagram sin
-  código, ver INT-02/03/05).
+- Instagram — no aplica todavía (INT-05 no ejecuta OAuth ni sync hasta tener permisos reales).
+- Meta Ads y Klaviyo — solo aplican a clientes con el conector realmente activado (Meta sigue pendiente de
+  App Review; Klaviyo, de scopes aprobados). Para esos clientes, revisar además que la reconciliación
+  diaria de Meta (`meta-reconcile.yml`) y la de 6 h de Klaviyo (`klaviyo-reconcile.yml`) tienen ejecuciones
+  recientes en verde, y que la conexión Klaviyo no lleva semanas en `skipped` por falta de
+  `conversion_metric_id`. El alta inicial se sigue con `runbooks/RB-009-alta-cliente-conectores.md`.
 
 ## Historial
 

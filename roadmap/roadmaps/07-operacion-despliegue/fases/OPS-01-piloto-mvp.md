@@ -1,11 +1,22 @@
 # OPS-01 - Piloto MVP
 
+> Correccion vigente 2026-08-02: Klaviyo ya no esta en estado "sin codigo"; INT-03/BE-06 tienen
+> OAuth, sync, reporting reciente, reconciliacion y UI preparados en `implemented_partial`. La
+> dependencia real de Piloto 3 es una cuenta Klaviyo y validacion externa, no construir el vertical
+> slice. Meta e Instagram siguen correctamente bloqueados/preparados por credenciales externas.
+
+> Corrección de estado 2026-08-02: Piloto 1 está en `verification_pending`, no en `planned`.
+> Shopify ya tiene conexión, sync, webhooks, reconciliación, métricas, estados de portal,
+> agentes en shadow y controles RLS probados. Queda pendiente configurar y ejecutar una vez
+> el backup manual; el drill de restauración se mantiene pospuesto por decisión explícita.
+> Meta y Klaviyo no bloquean el Piloto 1.
+
 ## Estado
 
-- **Estado real:** `planned`
+- **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
 - **Ultima validacion:** 2026-07-20
-- **Dependencias:** OPS-00 (staging), SQO-00/02/03, INT-01 (webhooks de privacidad)
+- **Dependencias:** OPS-00 (producción Vercel + GitHub Actions), SQO-00/02/03, INT-01 (webhooks de privacidad)
 - **Bloqueador:** ninguno tecnico para el Piloto 1 (Shopify); Meta App Review bloquea el Piloto 2.
 - **Correccion sobre la version anterior de este documento**: el paso 1 exigia "Shopify y Meta" desde el
   arranque, pero Meta sigue bloqueado por App Review/business verification (ver BE-04, INT-02) — no tiene

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
+import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { createLogger } from "@ecomscaling/observability";
 import type { AuthContext } from "./auth-context.js";
 import { metaGraphGetAll, metaGraphGet } from "./meta-client.js";
@@ -9,9 +10,16 @@ import {
   exchangeMetaCodeForLongLivedToken,
   resolveMetaAppEnv,
 } from "./meta-oauth.js";
-import { createIntegrationAdapters, toIntegrationConnection } from "./integration-adapters.js";
-import { decryptShopifyCredential, encryptShopifyCredential } from "./shopify-oauth.js";
+import {
+  createIntegrationAdapters,
+  toIntegrationConnection,
+} from "./integration-adapters.js";
+import {
+  decryptShopifyCredential,
+  encryptShopifyCredential,
+} from "./shopify-oauth.js";
 import { resolveCredentialSecret } from "./shopify-token-store.js";
+import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -21,7 +29,73 @@ const PROVIDER = "meta_ads";
 
 type Result =
   | { ok: true; data: { redirectUrl: string } }
-  | { ok: false; statusCode: number; error: string; message?: string; detail?: string };
+  | {
+      ok: false;
+      statusCode: number;
+      error: string;
+      message?: string;
+      detail?: string;
+    };
+
+type MetaAssetSelectionInput = {
+  businessIds?: unknown;
+  pageIds?: unknown;
+  adAccountIds?: unknown;
+};
+
+type MetaAssetRow = {
+  id: string;
+  connection_id: string;
+  external_id: string;
+  name: string;
+  is_selected: boolean;
+  is_active: boolean;
+  last_synced_at: string | null;
+};
+
+export function normalizeAssetIds(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const ids = [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim()),
+    ),
+  ].filter(Boolean);
+
+  return ids.length <= 100 ? ids : null;
+}
+
+function hasOrganizationAccess(
+  authContext: AuthContext,
+  organizationId: string,
+) {
+  return authContext.memberships.some(
+    (membership) => membership.organization_id === organizationId,
+  );
+}
+
+function canManageOrganization(
+  authContext: AuthContext,
+  organizationId: string,
+) {
+  const membership = authContext.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
+
+  return Boolean(
+    membership &&
+    (authContext.profile.platform_role === "platform_admin" ||
+      ["owner", "manager"].includes(membership.role)),
+  );
+}
 
 function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
@@ -31,7 +105,11 @@ function createServiceClient(env: ApiEnv) {
 }
 
 function parseState(metadata: unknown) {
-  if (typeof metadata === "object" && metadata !== null && "state" in metadata) {
+  if (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    "state" in metadata
+  ) {
     const value = (metadata as Record<string, unknown>).state;
     return typeof value === "string" ? value : null;
   }
@@ -43,11 +121,39 @@ export function isMetaAppConfigured(env: ApiEnv) {
   return resolveMetaAppEnv(env) !== null;
 }
 
+export function getVerifiedMetaIdentity(
+  me: { id?: string; name?: string } | null,
+) {
+  if (!me?.id?.trim()) {
+    return {
+      ok: false as const,
+      error: "meta_identity_missing",
+      message:
+        "Meta no devolvió una identidad de cuenta verificable; la conexión no se activó.",
+    };
+  }
+
+  return {
+    ok: true as const,
+    id: me.id,
+    name: me.name?.trim() || "Meta Ads",
+  };
+}
+
 export async function createMetaConnectionAuthUrl(
   env: ApiEnv,
   authContext: AuthContext,
   organizationId: string,
 ): Promise<Result> {
+  if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "integration_disabled",
+      message: "La integracion Meta Ads esta desactivada por feature flag.",
+    };
+  }
+
   const appEnv = resolveMetaAppEnv(env);
 
   if (!appEnv) {
@@ -55,11 +161,14 @@ export async function createMetaConnectionAuthUrl(
       ok: false,
       statusCode: 400,
       error: "meta_app_not_configured",
-      message: "La app de Meta no esta configurada en el servidor (META_APP_ID/SECRET/REDIRECT_URI).",
+      message:
+        "La app de Meta no esta configurada en el servidor (META_APP_ID/SECRET/REDIRECT_URI).",
     };
   }
 
-  const membership = authContext.memberships.find((item) => item.organization_id === organizationId);
+  const membership = authContext.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
 
   if (!membership) {
     return { ok: false, statusCode: 403, error: "organization_access_denied" };
@@ -80,13 +189,14 @@ export async function createMetaConnectionAuthUrl(
   const state = createMetaState();
   const supabase = createServiceClient(env);
 
-  // Una conexion Meta por organizacion (MVP): provider_account_id placeholder
-  // estable hasta que el callback resuelva el usuario real de Meta.
+  // El registro pendiente necesita una clave para el upsert, pero no debe
+  // simular una cuenta real. El callback la sustituye por el ID devuelto por
+  // Meta antes de marcar la conexión como connected.
   const { error } = await supabase.from("integration_connections").upsert(
     {
       organization_id: organizationId,
       provider: PROVIDER,
-      provider_account_id: "primary",
+      provider_account_id: `pending:${state}`,
       provider_account_name: "Meta Ads",
       status: "pending",
       metadata: { state, source: "oauth_start" },
@@ -95,10 +205,17 @@ export async function createMetaConnectionAuthUrl(
   );
 
   if (error) {
-    return { ok: false, statusCode: 500, error: "meta_connection_seed_failed", detail: error.message };
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "meta_connection_seed_failed",
+      detail: error.message,
+    };
   }
 
-  const authorization = await createIntegrationAdapters(env).meta_ads.buildAuthorizationUrl({
+  const authorization = await createIntegrationAdapters(
+    env,
+  ).meta_ads.buildAuthorizationUrl({
     organizationId,
     redirectUri: appEnv.META_REDIRECT_URI,
     state,
@@ -124,7 +241,10 @@ async function saveMetaToken(
       {
         connection_id: connectionId,
         credential_kind: CREDENTIAL_KIND,
-        encrypted_payload: encryptShopifyCredential(payload, resolveCredentialSecret(env)),
+        encrypted_payload: encryptShopifyCredential(
+          payload,
+          resolveCredentialSecret(env),
+        ),
         encryption_key_version: "v1",
         expires_at: expiresAt,
         rotated_at: new Date().toISOString(),
@@ -137,7 +257,10 @@ async function saveMetaToken(
   }
 }
 
-export async function getValidMetaAccessToken(env: ApiEnv, connectionId: string) {
+export async function getValidMetaAccessToken(
+  env: ApiEnv,
+  connectionId: string,
+) {
   const supabase = createServiceClient(env);
 
   const { data, error } = await supabase
@@ -171,7 +294,10 @@ export async function getValidMetaAccessToken(env: ApiEnv, connectionId: string)
 
   try {
     const payload = JSON.parse(
-      decryptShopifyCredential(data.encrypted_payload, resolveCredentialSecret(env)),
+      decryptShopifyCredential(
+        data.encrypted_payload,
+        resolveCredentialSecret(env),
+      ),
     ) as { access_token?: string };
     return payload.access_token ?? null;
   } catch {
@@ -179,7 +305,12 @@ export async function getValidMetaAccessToken(env: ApiEnv, connectionId: string)
   }
 }
 
-type MetaBusiness = { id: string; name?: string; verification_status?: string; vertical?: string };
+type MetaBusiness = {
+  id: string;
+  name?: string;
+  verification_status?: string;
+  vertical?: string;
+};
 type MetaAdAccountNode = {
   id: string;
   account_id?: string;
@@ -196,7 +327,13 @@ type MetaAdAccountNode = {
   business?: { id: string };
   created_time?: string;
 };
-type MetaPageNode = { id: string; name?: string; category?: string; tasks?: string[]; picture?: { data?: { url?: string } } };
+type MetaPageNode = {
+  id: string;
+  name?: string;
+  category?: string;
+  tasks?: string[];
+  picture?: { data?: { url?: string } };
+};
 
 /**
  * Descubrimiento post-OAuth: businesses, ad accounts y pages accesibles con el
@@ -210,9 +347,13 @@ export async function discoverMetaAssets(
 ) {
   const supabase = createServiceClient(env);
 
-  const businesses = await metaGraphGetAll<MetaBusiness>("me/businesses", accessToken, {
-    fields: "id,name,verification_status,vertical",
-  }).catch((error: unknown) => {
+  const businesses = await metaGraphGetAll<MetaBusiness>(
+    "me/businesses",
+    accessToken,
+    {
+      fields: "id,name,verification_status,vertical",
+    },
+  ).catch((error: unknown) => {
     // business_management puede no estar concedido; el resto del descubrimiento sigue.
     logger.info("meta_business_discovery_failed", {
       connection_id: connectionId,
@@ -252,17 +393,23 @@ export async function discoverMetaAssets(
     }
   }
 
-  const adAccounts = await metaGraphGetAll<MetaAdAccountNode>("me/adaccounts", accessToken, {
-    fields:
-      "id,account_id,name,account_status,disable_reason,currency,timezone_name,timezone_offset_hours_utc,amount_spent,balance,spend_cap,min_daily_budget,business,created_time",
-  });
+  const adAccounts = await metaGraphGetAll<MetaAdAccountNode>(
+    "me/adaccounts",
+    accessToken,
+    {
+      fields:
+        "id,account_id,name,account_status,disable_reason,currency,timezone_name,timezone_offset_hours_utc,amount_spent,balance,spend_cap,min_daily_budget,business,created_time",
+    },
+  );
 
   for (const account of adAccounts) {
     const { error } = await supabase.from("meta_ad_accounts").upsert(
       {
         organization_id: organizationId,
         connection_id: connectionId,
-        business_account_id: account.business?.id ? businessIdMap.get(account.business.id) ?? null : null,
+        business_account_id: account.business?.id
+          ? (businessIdMap.get(account.business.id) ?? null)
+          : null,
         external_ad_account_id: account.id,
         account_name: account.name ?? account.account_id ?? account.id,
         account_status_code: account.account_status ?? null,
@@ -270,10 +417,17 @@ export async function discoverMetaAssets(
         currency_code: account.currency ?? null,
         timezone_name: account.timezone_name ?? null,
         timezone_offset_hours_utc: account.timezone_offset_hours_utc ?? null,
-        amount_spent: account.amount_spent != null ? Number(account.amount_spent) / 100 : null,
+        amount_spent:
+          account.amount_spent != null
+            ? Number(account.amount_spent) / 100
+            : null,
         balance: account.balance != null ? Number(account.balance) / 100 : null,
-        spend_cap: account.spend_cap != null ? Number(account.spend_cap) / 100 : null,
-        minimum_daily_budget: account.min_daily_budget != null ? account.min_daily_budget / 100 : null,
+        spend_cap:
+          account.spend_cap != null ? Number(account.spend_cap) / 100 : null,
+        minimum_daily_budget:
+          account.min_daily_budget != null
+            ? account.min_daily_budget / 100
+            : null,
         raw_data: account,
         last_synced_at: new Date().toISOString(),
         external_created_at: account.created_time ?? null,
@@ -286,9 +440,13 @@ export async function discoverMetaAssets(
     }
   }
 
-  const pages = await metaGraphGetAll<MetaPageNode>("me/accounts", accessToken, {
-    fields: "id,name,category,tasks,picture",
-  }).catch((error: unknown) => {
+  const pages = await metaGraphGetAll<MetaPageNode>(
+    "me/accounts",
+    accessToken,
+    {
+      fields: "id,name,category,tasks,picture",
+    },
+  ).catch((error: unknown) => {
     logger.info("meta_pages_discovery_failed", {
       connection_id: connectionId,
       organization_id: organizationId,
@@ -323,14 +481,376 @@ export async function discoverMetaAssets(
     adAccounts: adAccounts.length,
     pages: pages.length,
     assets: [
-      ...businesses.map((business) => ({ id: business.id, name: business.name ?? business.id, type: "business" })),
+      ...businesses.map((business) => ({
+        id: business.id,
+        name: business.name ?? business.id,
+        type: "business",
+      })),
       ...adAccounts.map((account) => ({
         id: account.id,
         name: account.name ?? account.account_id ?? account.id,
         type: "ad_account",
       })),
-      ...pages.map((page) => ({ id: page.id, name: page.name ?? page.id, type: "page" })),
+      ...pages.map((page) => ({
+        id: page.id,
+        name: page.name ?? page.id,
+        type: "page",
+      })),
     ],
+  };
+}
+
+export async function listMetaAssets(
+  env: ApiEnv,
+  authContext: AuthContext,
+  organizationId: string,
+) {
+  if (!hasOrganizationAccess(authContext, organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: connections, error: connectionError } = await supabase
+    .from("integration_connections")
+    .select("id, status, provider_account_name, last_sync_at")
+    .eq("organization_id", organizationId)
+    .eq("provider", PROVIDER)
+    .order("updated_at", { ascending: false });
+
+  if (connectionError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_connections_load_failed",
+      detail: connectionError.message,
+    };
+  }
+
+  const connectionIds = (connections ?? []).map(
+    (connection) => connection.id as string,
+  );
+  if (connectionIds.length === 0) {
+    return {
+      ok: true as const,
+      data: {
+        connected: false,
+        connection: null,
+        businesses: [],
+        pages: [],
+        ad_accounts: [],
+      },
+    };
+  }
+
+  const [businessesResult, pagesResult, adAccountsResult] = await Promise.all([
+    supabase
+      .from("meta_business_accounts")
+      .select(
+        "id, connection_id, external_business_id, name, is_selected, is_active, last_synced_at",
+      )
+      .eq("organization_id", organizationId)
+      .in("connection_id", connectionIds)
+      .order("name", { ascending: true }),
+    supabase
+      .from("meta_pages")
+      .select(
+        "id, connection_id, external_page_id, name, is_selected, is_active, last_synced_at",
+      )
+      .eq("organization_id", organizationId)
+      .in("connection_id", connectionIds)
+      .order("name", { ascending: true }),
+    supabase
+      .from("meta_ad_accounts")
+      .select(
+        "id, connection_id, external_ad_account_id, account_name, is_selected, is_active, last_synced_at, currency_code, timezone_name",
+      )
+      .eq("organization_id", organizationId)
+      .in("connection_id", connectionIds)
+      .order("account_name", { ascending: true }),
+  ]);
+
+  const firstError =
+    businessesResult.error ?? pagesResult.error ?? adAccountsResult.error;
+  if (firstError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_assets_load_failed",
+      detail: firstError.message,
+    };
+  }
+
+  const connection = connections[0] ?? null;
+  return {
+    ok: true as const,
+    data: {
+      connected: true,
+      connection,
+      businesses: (businessesResult.data ?? []).map((row) => ({
+        id: row.id,
+        connection_id: row.connection_id,
+        external_id: row.external_business_id,
+        name: row.name,
+        is_selected: row.is_selected,
+        is_active: row.is_active,
+        last_synced_at: row.last_synced_at,
+      })) as MetaAssetRow[],
+      pages: (pagesResult.data ?? []).map((row) => ({
+        id: row.id,
+        connection_id: row.connection_id,
+        external_id: row.external_page_id,
+        name: row.name,
+        is_selected: row.is_selected,
+        is_active: row.is_active,
+        last_synced_at: row.last_synced_at,
+      })) as MetaAssetRow[],
+      ad_accounts: (adAccountsResult.data ?? []).map((row) => ({
+        id: row.id,
+        connection_id: row.connection_id,
+        external_id: row.external_ad_account_id,
+        name: row.account_name,
+        is_selected: row.is_selected,
+        is_active: row.is_active,
+        last_synced_at: row.last_synced_at,
+        currency_code: row.currency_code,
+        timezone_name: row.timezone_name,
+      })),
+    },
+  };
+}
+
+export async function updateMetaAssetSelection(
+  env: ApiEnv,
+  authContext: AuthContext,
+  organizationId: string,
+  input: MetaAssetSelectionInput,
+) {
+  if (!canManageOrganization(authContext, organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_manage_denied",
+      message:
+        "Solo owner, manager o platform admin pueden seleccionar activos de Meta.",
+    };
+  }
+
+  const businessIds = normalizeAssetIds(input.businessIds);
+  const pageIds = normalizeAssetIds(input.pageIds);
+  const adAccountIds = normalizeAssetIds(input.adAccountIds);
+  if (
+    businessIds === null ||
+    pageIds === null ||
+    adAccountIds === null ||
+    (businessIds === undefined &&
+      pageIds === undefined &&
+      adAccountIds === undefined)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_meta_asset_selection",
+      message:
+        "Envía arrays de IDs internos de activos Meta (máximo 100 por tipo).",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: connections, error: connectionError } = await supabase
+    .from("integration_connections")
+    .select("id, metadata")
+    .eq("organization_id", organizationId)
+    .eq("provider", PROVIDER);
+
+  if (connectionError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_connections_load_failed",
+      detail: connectionError.message,
+    };
+  }
+
+  const connectionIds = (connections ?? []).map(
+    (connection) => connection.id as string,
+  );
+  if (connectionIds.length === 0) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "meta_connection_not_found",
+    };
+  }
+
+  // Validate the submitted internal IDs before resetting any selection. This
+  // keeps the endpoint atomic from the caller's perspective: a typo or an ID
+  // belonging to another organization cannot silently produce a false save.
+  const requestedAssets = [
+    { ids: businessIds, table: "meta_business_accounts" },
+    { ids: pageIds, table: "meta_pages" },
+    { ids: adAccountIds, table: "meta_ad_accounts" },
+  ] as const;
+  for (const requested of requestedAssets) {
+    if (!requested.ids?.length) continue;
+    const { data, error } = await supabase
+      .from(requested.table)
+      .select("id")
+      .eq("organization_id", organizationId)
+      .in("connection_id", connectionIds)
+      .eq("is_active", true)
+      .in("id", requested.ids);
+    if (error) {
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "meta_asset_selection_validation_failed",
+        detail: error.message,
+      };
+    }
+    const found = new Set((data ?? []).map((row) => row.id as string));
+    const missing = requested.ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_meta_asset_selection",
+        message:
+          "Uno o más activos no pertenecen a la organización, no están activos o ya no existen.",
+      };
+    }
+  }
+
+  const updates: Array<PromiseLike<{ error: { message: string } | null }>> = [];
+  if (businessIds !== undefined) {
+    updates.push(
+      supabase
+        .from("meta_business_accounts")
+        .update({ is_selected: false })
+        .eq("organization_id", organizationId)
+        .in("connection_id", connectionIds),
+    );
+  }
+  if (pageIds !== undefined) {
+    updates.push(
+      supabase
+        .from("meta_pages")
+        .update({ is_selected: false })
+        .eq("organization_id", organizationId)
+        .in("connection_id", connectionIds),
+    );
+  }
+  if (adAccountIds !== undefined) {
+    updates.push(
+      supabase
+        .from("meta_ad_accounts")
+        .update({ is_selected: false })
+        .eq("organization_id", organizationId)
+        .in("connection_id", connectionIds),
+    );
+  }
+
+  const resetResults = await Promise.all(updates);
+  const resetError = resetResults.find((result) => result.error)?.error;
+  if (resetError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_asset_selection_reset_failed",
+      detail: resetError.message,
+    };
+  }
+
+  const selectedUpdates: Array<
+    PromiseLike<{ error: { message: string } | null }>
+  > = [];
+  if (businessIds?.length) {
+    selectedUpdates.push(
+      supabase
+        .from("meta_business_accounts")
+        .update({ is_selected: true })
+        .eq("organization_id", organizationId)
+        .in("connection_id", connectionIds)
+        .in("id", businessIds),
+    );
+  }
+  if (pageIds?.length) {
+    selectedUpdates.push(
+      supabase
+        .from("meta_pages")
+        .update({ is_selected: true })
+        .eq("organization_id", organizationId)
+        .in("connection_id", connectionIds)
+        .in("id", pageIds),
+    );
+  }
+  if (adAccountIds?.length) {
+    selectedUpdates.push(
+      supabase
+        .from("meta_ad_accounts")
+        .update({ is_selected: true })
+        .eq("organization_id", organizationId)
+        .in("connection_id", connectionIds)
+        .in("id", adAccountIds),
+    );
+  }
+
+  const selectedResults = await Promise.all(selectedUpdates);
+  const selectedError = selectedResults.find((result) => result.error)?.error;
+  if (selectedError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_asset_selection_update_failed",
+      detail: selectedError.message,
+    };
+  }
+
+  const selectedAt = new Date().toISOString();
+  await Promise.all(
+    (connections ?? []).map((connection) => {
+      const currentMetadata =
+        typeof connection.metadata === "object" && connection.metadata !== null
+          ? (connection.metadata as Record<string, unknown>)
+          : {};
+      return supabase
+        .from("integration_connections")
+        .update({
+          metadata: {
+            ...currentMetadata,
+            asset_selection: { confirmed_at: selectedAt, source: "portal" },
+          },
+        })
+        .eq("id", connection.id);
+    }),
+  );
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: authContext.user.id,
+    action: "meta_asset_selection_updated",
+    entityType: "meta_asset_selection",
+    newData: {
+      businesses: businessIds?.length ?? null,
+      pages: pageIds?.length ?? null,
+      ad_accounts: adAccountIds?.length ?? null,
+      source: "portal",
+    },
+  });
+
+  return {
+    ok: true as const,
+    data: {
+      selected: {
+        businesses: businessIds?.length ?? null,
+        pages: pageIds?.length ?? null,
+        ad_accounts: adAccountIds?.length ?? null,
+      },
+      confirmed_at: selectedAt,
+    },
   };
 }
 
@@ -369,7 +889,12 @@ export async function handleMetaOAuthCallback(
     .limit(20);
 
   if (lookupError) {
-    return { ok: false, statusCode: 500, error: "meta_pending_connection_lookup_failed", detail: lookupError.message };
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "meta_pending_connection_lookup_failed",
+      detail: lookupError.message,
+    };
   }
 
   // El state se compara contra el sembrado server-side en /connect, pero no se ata a la
@@ -377,7 +902,9 @@ export async function handleMetaOAuthCallback(
   // desde el portal y enviarsela al owner real de la cuenta (mismo criterio que Shopify,
   // commit f74fcc0). El state es un UUID aleatorio no adivinable y solo puede vincular la
   // cuenta Meta a la organizacion que lo sembro, nunca a una elegida por el atacante.
-  const pending = (connections ?? []).find((connection) => parseState(connection.metadata) === state);
+  const pending = (connections ?? []).find(
+    (connection) => parseState(connection.metadata) === state,
+  );
 
   if (!pending) {
     return { ok: false, statusCode: 400, error: "invalid_meta_oauth_state" };
@@ -395,12 +922,33 @@ export async function handleMetaOAuthCallback(
     };
   }
 
-  const me = await metaGraphGet<{ id?: string; name?: string }>("me", token.accessToken, {
-    fields: "id,name",
-  }).catch(() => null);
+  const me = await metaGraphGet<{ id?: string; name?: string }>(
+    "me",
+    token.accessToken,
+    {
+      fields: "id,name",
+    },
+  ).catch(() => null);
+
+  const verifiedIdentity = getVerifiedMetaIdentity(me);
+  if (!verifiedIdentity.ok) {
+    return {
+      ok: false,
+      statusCode: 502,
+      error: verifiedIdentity.error,
+      message: verifiedIdentity.message,
+    };
+  }
 
   try {
-    await saveMetaToken(supabase, env, pending.id, token.accessToken, token.expiresAt, appEnv.META_SCOPES);
+    await saveMetaToken(
+      supabase,
+      env,
+      pending.id,
+      token.accessToken,
+      token.expiresAt,
+      appEnv.META_SCOPES,
+    );
   } catch (error) {
     return {
       ok: false,
@@ -412,7 +960,12 @@ export async function handleMetaOAuthCallback(
 
   let discovery = { businesses: 0, adAccounts: 0, pages: 0 };
   try {
-    discovery = await discoverMetaAssets(env, pending.id, pending.organization_id, token.accessToken);
+    discovery = await discoverMetaAssets(
+      env,
+      pending.id,
+      pending.organization_id,
+      token.accessToken,
+    );
   } catch (error) {
     const detail = error instanceof Error ? error.message : "unknown_error";
     await supabase
@@ -424,15 +977,20 @@ export async function handleMetaOAuthCallback(
       })
       .eq("id", pending.id);
 
-    return { ok: false, statusCode: 502, error: "meta_discovery_failed", detail };
+    return {
+      ok: false,
+      statusCode: 502,
+      error: "meta_discovery_failed",
+      detail,
+    };
   }
 
   const now = new Date().toISOString();
   const { error: updateError } = await supabase
     .from("integration_connections")
     .update({
-      provider_account_id: me?.id ?? "primary",
-      provider_account_name: me?.name ?? "Meta Ads",
+      provider_account_id: verifiedIdentity.id,
+      provider_account_name: verifiedIdentity.name,
       status: "connected",
       scopes: appEnv.META_SCOPES.split(",").map((scope) => scope.trim()),
       connected_at: now,
@@ -442,8 +1000,29 @@ export async function handleMetaOAuthCallback(
     .eq("id", pending.id);
 
   if (updateError) {
-    return { ok: false, statusCode: 500, error: "meta_connection_update_failed", detail: updateError.message };
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "meta_connection_update_failed",
+      detail: updateError.message,
+    };
   }
+
+  await recordAuditLog(supabase, {
+    organizationId: pending.organization_id,
+    actorUserId: null,
+    action: "meta.oauth_connected",
+    entityType: "integration_connection",
+    entityId: pending.id,
+    newData: {
+      provider: "meta_ads",
+      provider_account_id: verifiedIdentity.id,
+      scopes: appEnv.META_SCOPES.split(",")
+        .map((scope) => scope.trim())
+        .filter(Boolean),
+      discovery,
+    },
+  });
 
   const metaSyncAdapter = createIntegrationAdapters(env).meta_ads;
   void metaSyncAdapter
@@ -464,15 +1043,256 @@ export async function handleMetaOAuthCallback(
       });
     });
 
-  return { ok: true, data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?meta=connected` } };
+  return {
+    ok: true,
+    data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?meta=connected` },
+  };
+}
+
+/**
+ * action_type de compra que EcomScaling propone por defecto. `omni_purchase`
+ * es la columna "Compras" que el anunciante ve en Ads Manager para ecommerce
+ * (agrega web, app y offline); coincide con el default de la migracion
+ * `20260803120000_int_02_canonical_purchase_action_type.sql`.
+ */
+export const DEFAULT_PURCHASE_ACTION_TYPE = "omni_purchase";
+
+/** action_type que Meta reporta como compra bajo distintas convenciones. */
+const PURCHASE_ACTION_TYPE_PATTERN = /purchase/i;
+
+/**
+ * Ordena los action_type observados dejando primero los que parecen compras.
+ * Meta emite decenas de action_type por cuenta (page_engagement, link_click,
+ * landing_page_view...) y quien elige la metrica no deberia tener que buscar
+ * la de compra entre todas.
+ */
+export function rankPurchaseActionTypes<T extends { action_type: string }>(
+  rows: T[],
+): T[] {
+  return [...rows].sort((left, right) => {
+    const leftIsPurchase = PURCHASE_ACTION_TYPE_PATTERN.test(left.action_type);
+    const rightIsPurchase = PURCHASE_ACTION_TYPE_PATTERN.test(
+      right.action_type,
+    );
+    if (leftIsPurchase !== rightIsPurchase) return leftIsPurchase ? -1 : 1;
+    return left.action_type.localeCompare(right.action_type);
+  });
+}
+
+/**
+ * action_type realmente observados en los insights de la organizacion, por
+ * cuenta publicitaria. No inventa un catalogo: si Meta nunca reporto un tipo,
+ * no aparece, y una cuenta sin insights devuelve lista vacia.
+ */
+export async function listMetaPurchaseActionTypes(
+  env: ApiEnv,
+  authContext: AuthContext,
+  organizationId: string,
+) {
+  if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "integration_disabled",
+      message: "La integracion Meta Ads esta desactivada por feature flag.",
+    };
+  }
+  if (!hasOrganizationAccess(authContext, organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: accounts, error: accountsError } = await supabase
+    .from("meta_ad_accounts")
+    .select(
+      "id, external_ad_account_id, account_name, canonical_purchase_action_type, canonical_purchase_action_selected_at, canonical_purchase_action_selected_by",
+    )
+    .eq("organization_id", organizationId)
+    .eq("is_selected", true)
+    .eq("is_active", true);
+  if (accountsError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_ad_accounts_load_failed",
+      detail: accountsError.message,
+    };
+  }
+
+  const { data: observed, error: observedError } = await supabase
+    .from("meta_insight_action_metrics")
+    .select("action_type, value, meta_insight_rows_daily!inner(ad_account_id)")
+    .eq("organization_id", organizationId)
+    .eq("metric_name", "actions");
+  if (observedError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_action_types_load_failed",
+      detail: observedError.message,
+    };
+  }
+
+  const totals = new Map<string, Map<string, number>>();
+  for (const row of observed ?? []) {
+    const relation = row.meta_insight_rows_daily as unknown as {
+      ad_account_id?: string;
+    } | null;
+    const adAccountId = relation?.ad_account_id;
+    if (!adAccountId || typeof row.action_type !== "string") continue;
+    const perAccount = totals.get(adAccountId) ?? new Map<string, number>();
+    perAccount.set(
+      row.action_type,
+      (perAccount.get(row.action_type) ?? 0) + Number(row.value ?? 0),
+    );
+    totals.set(adAccountId, perAccount);
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      organization_id: organizationId,
+      default_action_type: DEFAULT_PURCHASE_ACTION_TYPE,
+      accounts: (accounts ?? []).map((account) => ({
+        id: account.id,
+        external_ad_account_id: account.external_ad_account_id,
+        account_name: account.account_name,
+        canonical_purchase_action_type: account.canonical_purchase_action_type,
+        // Sin decision humana la cuenta sigue el default del sistema; la UI
+        // debe poder decirlo en vez de aparentar una eleccion del cliente.
+        is_default: !account.canonical_purchase_action_selected_by,
+        selected_at: account.canonical_purchase_action_selected_at,
+        observed_action_types: rankPurchaseActionTypes(
+          [...(totals.get(account.id) ?? new Map<string, number>())].map(
+            ([action_type, total]) => ({ action_type, total }),
+          ),
+        ),
+      })),
+    },
+  };
+}
+
+export async function selectMetaPurchaseActionType(
+  env: ApiEnv,
+  authContext: AuthContext,
+  organizationId: string,
+  adAccountId: string,
+  actionType: string,
+) {
+  if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "integration_disabled",
+      message: "La integracion Meta Ads esta desactivada por feature flag.",
+    };
+  }
+  if (!canManageOrganization(authContext, organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_manage_denied",
+      message:
+        "Solo owner, manager o platform admin pueden elegir el action_type de compra.",
+    };
+  }
+  const normalizedActionType = actionType?.trim();
+  if (!normalizedActionType || normalizedActionType.length > 255) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_purchase_action_type",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: account, error: accountError } = await supabase
+    .from("meta_ad_accounts")
+    .select("id, canonical_purchase_action_type")
+    .eq("id", adAccountId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (accountError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_ad_accounts_load_failed",
+      detail: accountError.message,
+    };
+  }
+  if (!account) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "meta_ad_account_not_found",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from("meta_ad_accounts")
+    .update({
+      canonical_purchase_action_type: normalizedActionType,
+      canonical_purchase_action_selected_at: now,
+      canonical_purchase_action_selected_by: authContext.user.id,
+    })
+    .eq("id", account.id)
+    .eq("organization_id", organizationId);
+  if (updateError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "meta_purchase_action_type_update_failed",
+      detail: updateError.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: authContext.user.id,
+    action: "meta_purchase_action_type_selected",
+    entityType: "meta_ad_account",
+    entityId: account.id,
+    oldData: {
+      canonical_purchase_action_type: account.canonical_purchase_action_type,
+    },
+    newData: { canonical_purchase_action_type: normalizedActionType },
+  });
+
+  return {
+    ok: true as const,
+    data: {
+      ad_account_id: account.id,
+      canonical_purchase_action_type: normalizedActionType,
+      selected_at: now,
+    },
+  };
 }
 
 export async function triggerMetaSync(
   env: ApiEnv,
   authContext: AuthContext,
   organizationId: string,
-): Promise<{ ok: true; data: { status: string; connectionId: string } } | Result & { ok: false }> {
-  const membership = authContext.memberships.find((item) => item.organization_id === organizationId);
+): Promise<
+  | { ok: true; data: { status: string; connectionId: string } }
+  | (Result & { ok: false })
+> {
+  if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "integration_disabled",
+      message: "La integracion Meta Ads esta desactivada por feature flag.",
+    };
+  }
+
+  const membership = authContext.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
 
   if (!membership) {
     return { ok: false, statusCode: 403, error: "organization_access_denied" };
@@ -486,7 +1306,8 @@ export async function triggerMetaSync(
       ok: false,
       statusCode: 403,
       error: "organization_manage_denied",
-      message: "Solo owner, manager o platform admin pueden lanzar un sync de Meta Ads.",
+      message:
+        "Solo owner, manager o platform admin pueden lanzar un sync de Meta Ads.",
     };
   }
 
@@ -500,7 +1321,12 @@ export async function triggerMetaSync(
     .maybeSingle();
 
   if (error) {
-    return { ok: false, statusCode: 500, error: "meta_connection_load_failed", detail: error.message };
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "meta_connection_load_failed",
+      detail: error.message,
+    };
   }
 
   if (!connection) {
@@ -522,7 +1348,8 @@ export async function triggerMetaSync(
       logger.error("meta_manual_sync_failed", {
         connection_id: connection.id,
         organization_id: connection.organization_id,
-        error: syncError instanceof Error ? syncError.message : String(syncError),
+        error:
+          syncError instanceof Error ? syncError.message : String(syncError),
       });
     });
 

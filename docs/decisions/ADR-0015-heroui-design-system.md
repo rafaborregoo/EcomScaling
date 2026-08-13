@@ -1,5 +1,9 @@
 # ADR-0015: HeroUI v3 como sistema de componentes obligatorio de `apps/web`
 
+> Verificacion adicional 2026-08-02: el catalogo `apps/web/src/components/ui` tambien centraliza
+> `Drawer`, `RouterProvider`, `Alert`, `Modal` y `Toast`; los componentes de aplicacion ya no importan
+> primitivas HeroUI directamente fuera del catalogo. Typecheck web verificado sin errores.
+
 - **Fecha:** 2026-07-23
 - **Estado:** Aprobada
 - **Sustituye a:** [`ADR-0013-component-library-perf-conventions.md`](ADR-0013-component-library-perf-conventions.md)

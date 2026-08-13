@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 
 export type ShopifyOverview = {
@@ -121,7 +121,7 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  async function load(options: { initial?: boolean } = {}) {
+  const load = useCallback(async (options: { initial?: boolean } = {}) => {
     if (!organizationId) {
       setError("No hay organización activa.");
       setIsLoading(false);
@@ -151,9 +151,9 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
     setOverview((await response.json()) as ShopifyOverview);
     setIsLoading(false);
     setIsRefreshing(false);
-  }
+  }, [organizationId, connectionId]);
 
-  async function triggerSync() {
+  const triggerSync = useCallback(async () => {
     if (!organizationId) {
       return;
     }
@@ -177,11 +177,11 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
 
     setIsSyncing(false);
     void load();
-  }
+  }, [connectionId, load, organizationId]);
 
   useEffect(() => {
     void load({ initial: true });
-  }, [organizationId, connectionId]);
+  }, [load]);
 
   useEffect(() => {
     if (overview?.connection?.status !== "syncing" && overview?.sync_runs[0]?.status !== "running") {
@@ -193,7 +193,7 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
     }, 3000);
 
     return () => window.clearInterval(interval);
-  }, [overview?.connection?.status, overview?.sync_runs, organizationId]);
+  }, [load, overview?.connection?.status, overview?.sync_runs]);
 
   return { overview, isLoading, isRefreshing, error, reload: load, isSyncing, syncError, triggerSync };
 }

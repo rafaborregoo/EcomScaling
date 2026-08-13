@@ -67,3 +67,17 @@ Permitir que el Consultor IA use metodologia EcomScaling versionada y citada.
 - Casos privados no pasan a conocimiento global sin aprobacion.
 - Tests de retrieval y prompt injection.
 
+## Corrección 2026-08-01 — retrieval híbrido preparado
+
+- Añadida la migración `20260801100000_ai_04_knowledge_hybrid_search.sql` con el RPC
+  `knowledge_search_hybrid`, que combina similitud vectorial (75 %) y coincidencia léxica (25 %).
+- Se conservan los filtros de organización, tienda, audiencia y estado activo para evitar fugas
+  cross-tenant o de contenido no publicable.
+- La API centraliza la llamada en `executeKnowledgeSearch`: usa el RPC híbrido cuando está disponible
+  y cae temporalmente a `knowledge_search` durante el despliegue de la migración.
+- El Consultor IA y la búsqueda humana comparten el mismo límite de retrieval y contrato de filtros.
+- La migración queda preparada para aplicarse junto con el siguiente despliegue de base de datos; no se
+  ha ejecutado ninguna escritura sobre producción en esta revisión.
+- Añadidas pruebas aisladas del boundary (`apps/api/src/knowledge-search-rpc.test.ts`) para el RPC híbrido,
+  el fallback durante el rollout y la propagación de errores reales. El detector acepta también el formato
+  PostgREST `Could not find the function ...`.

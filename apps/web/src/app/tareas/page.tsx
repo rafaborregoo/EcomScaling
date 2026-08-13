@@ -5,7 +5,21 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
-import { Heading, Badge, Button, Card, ErrorBlock, Input, LoadingBlock, Modal, Pagination, Select, toast } from "@/components/ui";
+import { readApiError } from "@/lib/api-error";
+import {
+  EmptyState,
+  Heading,
+  Badge,
+  Button,
+  Card,
+  ErrorBlock,
+  Input,
+  LoadingBlock,
+  Modal,
+  Pagination,
+  Select,
+  toast,
+} from "@/components/ui";
 
 const TASKS_PAGE_SIZE = 20;
 
@@ -88,18 +102,19 @@ const SEVERITY_TONE: Record<string, "neutral" | "warn" | "danger"> = {
 // gestiona la tarea (antes due_at se guardaba y viajaba en la respuesta de
 // la API pero nunca se mostraba).
 function isTaskOverdue(task: Task) {
-  return Boolean(task.due_at) && ["pending", "in_progress"].includes(task.status) && Date.parse(task.due_at as string) < Date.now();
+  return (
+    Boolean(task.due_at) &&
+    ["pending", "in_progress"].includes(task.status) &&
+    Date.parse(task.due_at as string) < Date.now()
+  );
 }
 
 function formatDueDate(dueAt: string) {
-  return new Date(dueAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-async function readApiError(response: Response) {
-  const body = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string; detail?: string }
-    | null;
-  return [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - ");
+  return new Date(dueAt).toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 // Badges + acciones + comentarios de una tarea: se usa tanto en la fila de la
@@ -108,10 +123,16 @@ async function readApiError(response: Response) {
 function TaskBadges({ task }: { task: Task }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Badge tone="neutral">{CATEGORY_LABELS[task.category] ?? task.category}</Badge>
-      <Badge tone="neutral">{PRIORITY_LABELS[task.priority] ?? task.priority}</Badge>
+      <Badge tone="neutral">
+        {CATEGORY_LABELS[task.category] ?? task.category}
+      </Badge>
+      <Badge tone="neutral">
+        {PRIORITY_LABELS[task.priority] ?? task.priority}
+      </Badge>
       <Badge tone="neutral">{STATUS_LABELS[task.status] ?? task.status}</Badge>
-      {task.source === "alert" ? <Badge tone="brand">desde alerta</Badge> : null}
+      {task.source === "alert" ? (
+        <Badge tone="brand">desde alerta</Badge>
+      ) : null}
       {isTaskOverdue(task) ? <Badge tone="danger">Vencida</Badge> : null}
     </div>
   );
@@ -136,14 +157,24 @@ function TaskDetail({
         <div className="min-w-0">
           <TaskBadges task={task} />
           <p className="mt-2 font-medium">{task.title}</p>
-          {task.description ? <p className="mt-1 text-sm leading-6 text-muted">{task.description}</p> : null}
+          {task.description ? (
+            <p className="mt-1 text-sm leading-6 text-muted">
+              {task.description}
+            </p>
+          ) : null}
           {task.due_at ? (
-            <p className="mt-1 font-mono text-xs text-muted">vence {formatDueDate(task.due_at)}</p>
+            <p className="mt-1 font-mono text-xs text-muted">
+              vence {formatDueDate(task.due_at)}
+            </p>
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {task.status === "pending" ? (
-            <Button variant="secondary" size="sm" onClick={() => onStatusChange("in_progress")}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onStatusChange("in_progress")}
+            >
               Empezar
             </Button>
           ) : null}
@@ -152,7 +183,11 @@ function TaskDetail({
               <Button size="sm" onClick={() => onStatusChange("completed")}>
                 Completar
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => onStatusChange("ignored")}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onStatusChange("ignored")}
+              >
                 Ignorar
               </Button>
             </>
@@ -193,8 +228,11 @@ function TaskDetail({
 function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const organization =
-    bootstrap.memberships.find((membership) => membership.organization_id === selectedOrganizationId)
-      ?.organization ?? bootstrap.memberships[0]?.organization ?? null;
+    bootstrap.memberships.find(
+      (membership) => membership.organization_id === selectedOrganizationId,
+    )?.organization ??
+    bootstrap.memberships[0]?.organization ??
+    null;
 
   const [payload, setPayload] = useState<OperationsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -205,7 +243,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // FE-03: sin buscador, encontrar una tarea concreta entre muchas exigia
   // escanear la lista/tarjetas a ojo -- filtro por titulo o descripcion.
   const [searchQuery, setSearchQuery] = useState("");
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
+    {},
+  );
   const [viewMode, setViewMode] = useState<"list" | "cards">("cards");
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
 
@@ -215,7 +255,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
 
     setIsLoading(true);
-    const response = await apiFetch(`/v1/organizations/${organization.id}/operations`);
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/operations`,
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -226,7 +268,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setPayload((await response.json()) as OperationsResponse);
     setError(null);
     setIsLoading(false);
-  }, [organization?.id]);
+  }, [organization]);
 
   useEffect(() => {
     void loadOperations();
@@ -240,9 +282,12 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setIsEvaluating(true);
     setError(null);
 
-    const response = await apiFetch(`/v1/organizations/${organization.id}/operations/run-rules`, {
-      method: "POST",
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/operations/run-rules`,
+      {
+        method: "POST",
+      },
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -258,11 +303,14 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
 
     setError(null);
-    const response = await apiFetch(`/v1/organizations/${organization.id}/tasks/${taskId}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/tasks/${taskId}/status`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      },
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -273,7 +321,10 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void loadOperations();
   }
 
-  async function submitComment(event: FormEvent<HTMLFormElement>, taskId: string) {
+  async function submitComment(
+    event: FormEvent<HTMLFormElement>,
+    taskId: string,
+  ) {
     event.preventDefault();
 
     if (!organization) {
@@ -286,11 +337,14 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
-    const response = await apiFetch(`/v1/organizations/${organization.id}/tasks/${taskId}/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/tasks/${taskId}/comments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      },
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -307,11 +361,14 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
-    const response = await apiFetch(`/v1/organizations/${organization.id}/alerts/${alertId}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
+    const response = await apiFetch(
+      `/v1/organizations/${organization.id}/alerts/${alertId}/status`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      },
+    );
 
     if (!response.ok) {
       setError(await readApiError(response));
@@ -336,10 +393,17 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     if (categoryFilter !== "all" && task.category !== categoryFilter) {
       return false;
     }
-    if (statusFilter === "open" && !["pending", "in_progress"].includes(task.status)) {
+    if (
+      statusFilter === "open" &&
+      !["pending", "in_progress"].includes(task.status)
+    ) {
       return false;
     }
-    if (statusFilter !== "open" && statusFilter !== "all" && task.status !== statusFilter) {
+    if (
+      statusFilter !== "open" &&
+      statusFilter !== "all" &&
+      task.status !== statusFilter
+    ) {
       return false;
     }
     if (
@@ -394,7 +458,11 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ]}
           />
         </div>
-        <Button type="button" onClick={() => void evaluateRules()} disabled={isEvaluating}>
+        <Button
+          type="button"
+          onClick={() => void evaluateRules()}
+          disabled={isEvaluating}
+        >
           {isEvaluating ? "Evaluando..." : "Evaluar reglas ahora"}
         </Button>
       </section>
@@ -405,24 +473,48 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <>
           <section className="border-t border-ink/20">
             <div className="border-b border-line px-4 py-3">
-              <Heading size="lg">Alertas activas ({activeAlerts.length})</Heading>
+              <Heading size="lg">
+                Alertas activas ({activeAlerts.length})
+              </Heading>
             </div>
             <div className="divide-y divide-line">
               {activeAlerts.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-muted">
-                  Sin alertas activas. Pulsa &quot;Evaluar reglas ahora&quot; para comprobar los datos actuales.
-                </p>
+                <EmptyState
+                  title="Sin alertas activas"
+                  hint="Pulsa «Evaluar reglas ahora» para comprobar los datos actuales."
+                  action={
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => void evaluateRules()}
+                      disabled={isEvaluating}
+                    >
+                      {isEvaluating ? "Evaluando..." : "Evaluar reglas"}
+                    </Button>
+                  }
+                />
               ) : (
                 activeAlerts.map((alert) => (
-                  <div key={alert.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                  <div
+                    key={alert.id}
+                    className="flex flex-wrap items-start justify-between gap-3 px-4 py-3"
+                  >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone={SEVERITY_TONE[alert.severity] ?? "neutral"}>{alert.severity}</Badge>
+                        <Badge
+                          tone={SEVERITY_TONE[alert.severity] ?? "neutral"}
+                        >
+                          {alert.severity}
+                        </Badge>
                         <p className="font-medium">{alert.title}</p>
                       </div>
-                      <p className="mt-1 text-sm leading-6 text-muted">{alert.message}</p>
+                      <p className="mt-1 text-sm leading-6 text-muted">
+                        {alert.message}
+                      </p>
                       <p className="mt-1 font-mono text-xs text-muted">
-                        detectada {new Date(alert.first_detected_at).toLocaleString()} · última vez{" "}
+                        detectada{" "}
+                        {new Date(alert.first_detected_at).toLocaleString()} ·
+                        última vez{" "}
                         {new Date(alert.last_detected_at).toLocaleString()}
                       </p>
                     </div>
@@ -432,7 +524,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           variant="secondary"
                           size="sm"
                           type="button"
-                          onClick={() => void changeAlertStatus(alert.id, "acknowledged")}
+                          onClick={() =>
+                            void changeAlertStatus(alert.id, "acknowledged")
+                          }
                         >
                           Vista
                         </Button>
@@ -441,7 +535,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         variant="secondary"
                         size="sm"
                         type="button"
-                        onClick={() => void changeAlertStatus(alert.id, "dismissed")}
+                        onClick={() =>
+                          void changeAlertStatus(alert.id, "dismissed")
+                        }
                       >
                         Descartar
                       </Button>
@@ -456,17 +552,28 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
               <Heading size="lg">Tareas ({filteredTasks.length})</Heading>
               <div className="flex gap-2">
-                <Button size="sm" variant={viewMode === "list" ? "primary" : "secondary"} onClick={() => setViewMode("list")}>
+                <Button
+                  size="sm"
+                  variant={viewMode === "list" ? "primary" : "secondary"}
+                  onClick={() => setViewMode("list")}
+                >
                   Lista
                 </Button>
-                <Button size="sm" variant={viewMode === "cards" ? "primary" : "secondary"} onClick={() => setViewMode("cards")}>
+                <Button
+                  size="sm"
+                  variant={viewMode === "cards" ? "primary" : "secondary"}
+                  onClick={() => setViewMode("cards")}
+                >
                   Tarjetas
                 </Button>
               </div>
             </div>
 
             {filteredTasks.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-muted">Sin tareas para este filtro.</p>
+              <EmptyState
+                title="Sin tareas para este filtro"
+                hint="Prueba otro filtro o crea una tarea desde una recomendación."
+              />
             ) : viewMode === "list" ? (
               <div className="divide-y divide-line">
                 {tasksPage.pageItems.map((task) => (
@@ -474,9 +581,16 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <TaskDetail
                       task={task}
                       commentDraft={commentDrafts[task.id] ?? ""}
-                      onCommentChange={(value) => setCommentDrafts((drafts) => ({ ...drafts, [task.id]: value }))}
+                      onCommentChange={(value) =>
+                        setCommentDrafts((drafts) => ({
+                          ...drafts,
+                          [task.id]: value,
+                        }))
+                      }
                       onSubmitComment={(event) => submitComment(event, task.id)}
-                      onStatusChange={(status) => void changeTaskStatus(task.id, status)}
+                      onStatusChange={(status) =>
+                        void changeTaskStatus(task.id, status)
+                      }
                     />
                   </div>
                 ))}
@@ -489,14 +603,26 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <div>
                       <p className="font-medium">{task.title}</p>
                       {task.description ? (
-                        <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">{task.description}</p>
+                        <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">
+                          {task.description}
+                        </p>
                       ) : null}
                       {task.due_at ? (
-                        <p className="mt-1 font-mono text-xs text-muted">vence {formatDueDate(task.due_at)}</p>
+                        <p className="mt-1 font-mono text-xs text-muted">
+                          vence {formatDueDate(task.due_at)}
+                        </p>
                       ) : null}
                     </div>
-                    <Button size="sm" variant="secondary" className="mt-auto" onClick={() => setDetailTaskId(task.id)}>
-                      Ver detalle{task.task_comments.length > 0 ? ` (${task.task_comments.length})` : ""}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="mt-auto"
+                      onClick={() => setDetailTaskId(task.id)}
+                    >
+                      Ver detalle
+                      {task.task_comments.length > 0
+                        ? ` (${task.task_comments.length})`
+                        : ""}
                     </Button>
                   </Card>
                 ))}
@@ -512,12 +638,17 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </section>
 
           {(() => {
-            const detailTask = detailTaskId ? filteredTasks.find((task) => task.id === detailTaskId) : null;
+            const detailTask = detailTaskId
+              ? filteredTasks.find((task) => task.id === detailTaskId)
+              : null;
             if (!detailTask) {
               return null;
             }
             return (
-              <Modal isOpen onOpenChange={(open) => !open && setDetailTaskId(null)}>
+              <Modal
+                isOpen
+                onOpenChange={(open) => !open && setDetailTaskId(null)}
+              >
                 <Modal.Backdrop>
                   <Modal.Container size="md">
                     <Modal.Dialog>
@@ -530,10 +661,17 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           task={detailTask}
                           commentDraft={commentDrafts[detailTask.id] ?? ""}
                           onCommentChange={(value) =>
-                            setCommentDrafts((drafts) => ({ ...drafts, [detailTask.id]: value }))
+                            setCommentDrafts((drafts) => ({
+                              ...drafts,
+                              [detailTask.id]: value,
+                            }))
                           }
-                          onSubmitComment={(event) => submitComment(event, detailTask.id)}
-                          onStatusChange={(status) => void changeTaskStatus(detailTask.id, status)}
+                          onSubmitComment={(event) =>
+                            submitComment(event, detailTask.id)
+                          }
+                          onStatusChange={(status) =>
+                            void changeTaskStatus(detailTask.id, status)
+                          }
                         />
                       </Modal.Body>
                     </Modal.Dialog>
@@ -546,7 +684,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           {resolvedAlerts.length > 0 ? (
             <section className="border-t border-ink/20">
               <div className="border-b border-line px-4 py-3">
-                <Heading size="lg">Alertas resueltas ({resolvedAlerts.length})</Heading>
+                <Heading size="lg">
+                  Alertas resueltas ({resolvedAlerts.length})
+                </Heading>
               </div>
               <div className="divide-y divide-line">
                 {resolvedAlerts.slice(0, 20).map((alert) => (
@@ -554,7 +694,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <p className="text-sm">{alert.title}</p>
                     <p className="font-mono text-xs text-muted">
                       {alert.status} ·{" "}
-                      {alert.resolved_at ? new Date(alert.resolved_at).toLocaleString() : ""}
+                      {alert.resolved_at
+                        ? new Date(alert.resolved_at).toLocaleString()
+                        : ""}
                     </p>
                   </div>
                 ))}

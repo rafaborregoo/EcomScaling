@@ -5,8 +5,16 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { Redis } from "ioredis";
 import { loadApiEnv } from "@ecomscaling/config";
-import { healthResponseSchema, readinessResponseSchema } from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
+import {
+  healthResponseSchema,
+  readinessResponseSchema,
+} from "@ecomscaling/contracts";
+import {
+  createLogger,
+  createMetricsRegistry,
+  redactSensitiveText,
+} from "@ecomscaling/observability";
+import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { listAccountActions } from "./actions.js";
 import {
   deleteOrganization,
@@ -26,12 +34,22 @@ import {
   type AuthContextError,
 } from "./auth-context.js";
 import { listIntegrations } from "./integrations.js";
-import { createShopifyConnectionAuthUrl, handleShopifyOAuthCallback, triggerShopifySync } from "./shopify.js";
-import { getShopifyConnections, getShopifyOverview } from "./shopify-overview.js";
+import {
+  createShopifyConnectionAuthUrl,
+  handleShopifyOAuthCallback,
+  triggerShopifySync,
+} from "./shopify.js";
+import {
+  getShopifyConnections,
+  getShopifyOverview,
+} from "./shopify-overview.js";
 import { getShopifyMetrics } from "./shopify-metrics.js";
 import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
 import { reconcileAllShopifyConnections } from "./shopify-reconcile.js";
-import { listProductCosts, upsertProductCost } from "./shopify-product-costs.js";
+import {
+  listProductCosts,
+  upsertProductCost,
+} from "./shopify-product-costs.js";
 import {
   createFixedExpense,
   createShippingRule,
@@ -40,7 +58,22 @@ import {
   getFinancialConfig,
   upsertFinancialSettings,
 } from "./financial-config.js";
-import { createMetaConnectionAuthUrl, handleMetaOAuthCallback, triggerMetaSync } from "./meta.js";
+import {
+  createMetaConnectionAuthUrl,
+  handleMetaOAuthCallback,
+  listMetaAssets,
+  listMetaPurchaseActionTypes,
+  selectMetaPurchaseActionType,
+  triggerMetaSync,
+  updateMetaAssetSelection,
+} from "./meta.js";
+import {
+  createKlaviyoConnectionAuthUrl,
+  handleKlaviyoOAuthCallback,
+  listKlaviyoConversionMetrics,
+  selectKlaviyoConversionMetric,
+} from "./klaviyo.js";
+import { listKlaviyoReports, runKlaviyoReport } from "./klaviyo-sync.js";
 import { getMetaMetrics } from "./meta-metrics.js";
 import {
   addTaskComment,
@@ -59,6 +92,12 @@ import {
   getTaskPlannerDiagnostic,
   listAgentRuns,
   getAgentRunTrace,
+  getOrganizationDailyBudgetStatusForOrganization,
+  listMarketingContentDrafts,
+  listMarketingContentDraftVersions,
+  updateMarketingContentDraft,
+  decideMarketingContentDraft,
+  runMarketingContentDraft,
   listConsultantChatConversations,
   runCallAnalyst,
   runConsultantChatTurn,
@@ -67,7 +106,11 @@ import {
   runStockPlannerAgent,
   runTaskPlannerAgent,
 } from "./ai-runtime.js";
-import { createKnowledgeDocument, listKnowledgeDocuments, searchKnowledge } from "./knowledge.js";
+import {
+  createKnowledgeDocument,
+  listKnowledgeDocuments,
+  searchKnowledge,
+} from "./knowledge.js";
 import {
   addInternalNote,
   createCall,
@@ -78,7 +121,11 @@ import {
   saveTranscript,
   updateCall,
 } from "./calls.js";
-import { listNotifications, markAllNotificationsRead, updateNotificationStatus } from "./notifications.js";
+import {
+  listNotifications,
+  markAllNotificationsRead,
+  updateNotificationStatus,
+} from "./notifications.js";
 import {
   activateStrategicPlan,
   addMilestoneInternalNote,
@@ -94,8 +141,25 @@ import {
 } from "./strategic-plans.js";
 
 const logger = createLogger("api");
+const metrics = createMetricsRegistry();
 
-function sendAuthFailure(reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }, error: AuthContextError) {
+export function sendAuthFailure(
+  reply: {
+    code: (statusCode: number) => { send: (payload: unknown) => unknown };
+  },
+  error: AuthContextError,
+) {
+  if (error.statusCode >= 500 && error.detail) {
+    logger.error("auth_context_failed", {
+      statusCode: error.statusCode,
+      error: error.error,
+      detail: redactFailureDetail(error.detail),
+    });
+
+    const { detail: _internalDetail, ...publicError } = error;
+    return reply.code(error.statusCode).send(publicError);
+  }
+
   return reply.code(error.statusCode).send(error);
 }
 
@@ -104,6 +168,8 @@ type ServiceFailure = {
   statusCode: number;
   [key: string]: unknown;
 };
+
+export const redactFailureDetail = redactSensitiveText;
 
 const READINESS_CHECK_TIMEOUT_MS = 3_000;
 
@@ -120,7 +186,10 @@ async function checkReadiness(env: ReturnType<typeof loadApiEnv>) {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), READINESS_CHECK_TIMEOUT_MS);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      READINESS_CHECK_TIMEOUT_MS,
+    );
     try {
       const response = await fetch(`${env.SUPABASE_URL}/auth/v1/health`, {
         headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY },
@@ -162,7 +231,9 @@ async function checkReadiness(env: ReturnType<typeof loadApiEnv>) {
 // Supabase). Un token invalido o forjado en este punto solo puede ensuciar
 // una linea de log con un user_id que no se usa para nada mas; la request en
 // si sigue siendo rechazada normalmente donde corresponda.
-function decodeJwtSubject(authorizationHeader: string | undefined): string | undefined {
+function decodeJwtSubject(
+  authorizationHeader: string | undefined,
+): string | undefined {
   if (!authorizationHeader?.startsWith("Bearer ")) {
     return undefined;
   }
@@ -175,7 +246,9 @@ function decodeJwtSubject(authorizationHeader: string | undefined): string | und
   }
 
   try {
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { sub?: unknown };
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString("utf8"),
+    ) as { sub?: unknown };
     return typeof payload.sub === "string" ? payload.sub : undefined;
   } catch {
     return undefined;
@@ -186,11 +259,29 @@ function isServiceFailure(result: { ok: boolean }): result is ServiceFailure {
   return result.ok === false;
 }
 
-function sendServiceFailure(
-  reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } },
+export function sendServiceFailure(
+  reply: {
+    code: (statusCode: number) => { send: (payload: unknown) => unknown };
+  },
   result: unknown,
 ) {
   const failure = result as ServiceFailure;
+
+  // No expongas mensajes de Supabase, SQL ni proveedores externos al cliente.
+  // Muchos servicios construyen `detail` desde `error.message`; devolverlo en
+  // una respuesta 5xx filtra nombres de tablas, restricciones y detalles de
+  // infraestructura. Se conserva en logs para diagnóstico operativo.
+  if (failure.statusCode >= 500 && typeof failure.detail === "string") {
+    logger.error("service_request_failed", {
+      statusCode: failure.statusCode,
+      error: failure.error,
+      detail: redactFailureDetail(failure.detail),
+    });
+
+    const { detail: _internalDetail, ...publicFailure } = failure;
+    return reply.code(failure.statusCode).send(publicFailure);
+  }
+
   return reply.code(failure.statusCode).send(failure);
 }
 
@@ -227,6 +318,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     origin: env.WEB_ORIGIN,
     credentials: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+    // SQO-02: sin exponerla, el navegador no puede leer `x-request-id` en una
+    // respuesta cross-origin, asi que la cabecera solo servia si ya estabas
+    // mirando los logs del servidor -- justo lo contrario de lo que hace falta
+    // cuando un cliente reporta un error y hay que encontrarlo.
+    exposedHeaders: ["x-request-id"],
   });
 
   // SQO-00: cabeceras de seguridad. API pura JSON (nunca sirve HTML), asi que
@@ -258,10 +354,21 @@ export async function buildApp(): Promise<FastifyInstance> {
   // mostraba 2 sockets huerfanos tras `app.close()` incluso sin ninguna
   // request de por medio). Mismo patron que ya usaba `redis-cache.ts`.
   const rateLimitRedis = env.REDIS_URL
-    ? new Redis(env.REDIS_URL, { maxRetriesPerRequest: null, enableOfflineQueue: false, retryStrategy: () => null })
+    ? new Redis(env.REDIS_URL, {
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: false,
+        retryStrategy: () => null,
+      })
     : undefined;
 
   if (rateLimitRedis) {
+    // ioredis emits connection failures asynchronously. Register the listener
+    // immediately so a missing/unreachable Redis in local CI never becomes an
+    // unhandled error event; @fastify/rate-limit will use its configured
+    // skipOnError fallback for the request.
+    rateLimitRedis.on("error", (error: Error) => {
+      logger.error("rate_limit_redis_unavailable_using_fallback", error);
+    });
     app.addHook("onClose", async () => {
       rateLimitRedis.disconnect();
     });
@@ -281,7 +388,8 @@ export async function buildApp(): Promise<FastifyInstance> {
         max: 10,
         timeWindow: "1 minute",
         keyGenerator: (request: { params: unknown; ip: string }) =>
-          (request.params as { organizationId?: string } | undefined)?.organizationId ?? request.ip,
+          (request.params as { organizationId?: string } | undefined)
+            ?.organizationId ?? request.ip,
       },
     },
   };
@@ -296,8 +404,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   // incluya, sin tocar cada handler uno a uno. `user_id` (2026-07-23) se
   // extrae del JWT sin verificar -- solo para poder filtrar logs por usuario,
   // no como decision de autorizacion.
-  app.addHook("onRequest", async (request) => {
-    const organizationId = (request.params as { organizationId?: string } | undefined)?.organizationId;
+  app.addHook("onRequest", async (request, reply) => {
+    // SQO-02: permite correlacionar el error que ve el cliente con los logs
+    // JSON de Fastify sin incluir datos de negocio en la respuesta.
+    reply.header("x-request-id", request.id);
+
+    const organizationId = (
+      request.params as { organizationId?: string } | undefined
+    )?.organizationId;
     const userId = decodeJwtSubject(request.headers.authorization);
     const bindings: Record<string, string> = {};
 
@@ -313,6 +427,27 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
   });
 
+  // INT-00: el allowlist de integraciones es una guarda de runtime, no solo
+  // una señal visual del catálogo. Mantenerla aquí evita que un cliente llame
+  // directamente a OAuth/sync/metrics cuando el proveedor está desactivado.
+  app.addHook("onRequest", async (request, reply) => {
+    const path = (request.url ?? "").split("?")[0] ?? "";
+    const provider = path.includes("/meta/")
+      ? "meta_ads"
+      : path.includes("/klaviyo/")
+        ? "klaviyo"
+        : null;
+    if (
+      provider &&
+      !isIntegrationFeatureEnabled(provider, env.INTEGRATION_FEATURE_FLAGS)
+    ) {
+      return reply.code(404).send({
+        error: "integration_feature_disabled",
+        provider,
+      });
+    }
+  });
+
   // El "request completed" automatico de Fastify usa el logger capturado al
   // crear la request, antes de que corra el onRequest de arriba -- nunca
   // lleva organization_id/user_id aunque el resto de logs de la misma
@@ -321,7 +456,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   // una linea por request filtrable por organizacion o usuario sin tener que
   // buscar en logs internos.
   app.addHook("onResponse", async (request, reply) => {
-    const organizationId = (request.params as { organizationId?: string } | undefined)?.organizationId;
+    const route =
+      request.routeOptions.url ?? request.url.split("?")[0] ?? "unknown";
+    metrics.increment("http_requests_total", {
+      method: request.method,
+      route,
+      status_code: reply.statusCode,
+    });
+
+    const organizationId = (
+      request.params as { organizationId?: string } | undefined
+    )?.organizationId;
     const userId = decodeJwtSubject(request.headers.authorization);
 
     if (organizationId || userId) {
@@ -354,6 +499,22 @@ export async function buildApp(): Promise<FastifyInstance> {
     }),
   );
 
+  app.get("/health/metrics", async (request, reply) => {
+    if (!env.INTERNAL_API_SECRET) {
+      return reply
+        .code(503)
+        .send({ error: "internal_api_secret_not_configured" });
+    }
+
+    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
+
+    return reply
+      .type("text/plain; version=0.0.4; charset=utf-8")
+      .send(`${metrics.toPrometheus()}\n`);
+  });
+
   // Readiness: puede el proceso servir trafico de verdad ahora mismo. A
   // diferencia de liveness, esto si toca dependencias externas y puede
   // fallar sin que el proceso este roto (Supabase caido, Redis caido) --
@@ -376,137 +537,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   app.get("/v1/bootstrap", async (request, reply) => {
-  const result = await resolveAuthContext(env, request.headers.authorization);
+    const result = await resolveAuthContext(env, request.headers.authorization);
 
-  if (isAuthContextError(result)) {
-    return sendAuthFailure(reply, result.error);
-  }
+    if (isAuthContextError(result)) {
+      return sendAuthFailure(reply, result.error);
+    }
 
-  return result.context;
+    return result.context;
   });
 
   app.get("/v1/actions", async (request, reply) => {
-  const auth = await resolveAuthContext(env, request.headers.authorization);
-
-  if (isAuthContextError(auth)) {
-    return sendAuthFailure(reply, auth.error);
-  }
-
-  const authorization = request.headers.authorization;
-
-  if (!authorization) {
-    return reply.code(401).send({ error: "missing_bearer_token" });
-  }
-
-  const result = await listAccountActions(env, authorization, auth.context);
-
-  if (isServiceFailure(result)) {
-    return sendServiceFailure(reply, result);
-  }
-
-  return result.data;
-  });
-
-  app.get("/v1/consultant/organizations", async (request, reply) => {
-  const auth = await resolveAuthContext(env, request.headers.authorization);
-
-  if (isAuthContextError(auth)) {
-    return sendAuthFailure(reply, auth.error);
-  }
-
-  const authorization = request.headers.authorization;
-
-  if (!authorization) {
-    return reply.code(401).send({ error: "missing_bearer_token" });
-  }
-
-  const result = await listConsultantOrganizations(env, authorization, auth.context);
-
-  if (isServiceFailure(result)) {
-    return sendServiceFailure(reply, result);
-  }
-
-  return result.data;
-  });
-
-  app.get<{ Params: { organizationId: string } }>(
-  "/v1/consultant/organizations/:organizationId/access",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const result = await getOrganizationAccess(env, auth.context, request.params.organizationId);
-
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
-
-    return result.data;
-  },
-  );
-
-  app.put<{
-    Params: { organizationId: string };
-    Body: { user_id?: string; role?: string; is_active?: boolean };
-  }>(
-  "/v1/consultant/organizations/:organizationId/members",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const result = await upsertOrganizationMember(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.body ?? {},
-    );
-
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
-
-    return result.data;
-  },
-  );
-
-  app.put<{
-    Params: { organizationId: string };
-    Body: { consultant_user_id?: string; is_primary?: boolean; is_active?: boolean };
-  }>(
-  "/v1/consultant/organizations/:organizationId/assignments",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const result = await upsertConsultantAssignment(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.body ?? {},
-    );
-
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
-
-    return result.data;
-  },
-  );
-
-  // CRUD de consultoria: tiendas de un cliente, borrar tienda, borrar cliente
-  // entero. Las escrituras (borrados) son solo platform_admin (irreversibles).
-  app.get<{ Params: { organizationId: string } }>(
-  "/v1/consultant/organizations/:organizationId/stores",
-  async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
     if (isAuthContextError(auth)) {
@@ -519,108 +559,356 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(401).send({ error: "missing_bearer_token" });
     }
 
-    const result = await listOrganizationStores(env, authorization, auth.context, request.params.organizationId);
+    const result = await listAccountActions(env, authorization, auth.context);
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
     }
 
     return result.data;
-  },
+  });
+
+  app.get("/v1/consultant/organizations", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantOrganizations(
+      env,
+      authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/consultant/organizations/:organizationId/access",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await getOrganizationAccess(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.put<{
+    Params: { organizationId: string };
+    Body: { user_id?: string; role?: string; is_active?: boolean };
+  }>(
+    "/v1/consultant/organizations/:organizationId/members",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await upsertOrganizationMember(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: {
+      connectionId?: string;
+      type?:
+        | "campaign-values-report"
+        | "flow-values-report"
+        | "form-values-report"
+        | "segment-values-report";
+      statistics?: string[];
+      periodStart?: string;
+      periodEnd?: string;
+      filter?: string;
+      group_by?: string[];
+      interval?: "hourly" | "daily" | "weekly" | "monthly";
+    };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/reporting",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const body = request.body ?? {};
+      if (
+        !body.connectionId ||
+        !body.type ||
+        !body.statistics?.length ||
+        !body.periodStart ||
+        !body.periodEnd
+      ) {
+        return reply
+          .code(400)
+          .send({ error: "invalid_klaviyo_reporting_request" });
+      }
+      if (
+        !auth.context.memberships.some(
+          (item) => item.organization_id === request.params.organizationId,
+        )
+      ) {
+        return reply.code(403).send({ error: "organization_access_denied" });
+      }
+      try {
+        const result = await runKlaviyoReport(
+          env,
+          request.params.organizationId,
+          body.connectionId,
+          {
+            type: body.type,
+            statistics: body.statistics,
+            periodStart: body.periodStart,
+            periodEnd: body.periodEnd,
+            ...(body.filter ? { filter: body.filter } : {}),
+            ...(body.group_by ? { group_by: body.group_by } : {}),
+            ...(body.interval ? { interval: body.interval } : {}),
+          },
+        );
+        return result;
+      } catch (error) {
+        return reply.code(502).send({
+          error: "klaviyo_reporting_failed",
+          detail: error instanceof Error ? error.message : "unknown_error",
+        });
+      }
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string; limit?: string };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/reporting",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      if (
+        !auth.context.memberships.some(
+          (item) => item.organization_id === request.params.organizationId,
+        )
+      ) {
+        return reply.code(403).send({ error: "organization_access_denied" });
+      }
+      if (!request.query.connectionId) {
+        return reply.code(400).send({ error: "missing_klaviyo_connection_id" });
+      }
+      try {
+        return await listKlaviyoReports(
+          env,
+          request.params.organizationId,
+          request.query.connectionId,
+          Number(request.query.limit ?? 25),
+        );
+      } catch (error) {
+        return reply.code(502).send({
+          error: "klaviyo_reporting_load_failed",
+          detail: error instanceof Error ? error.message : "unknown_error",
+        });
+      }
+    },
+  );
+
+  app.put<{
+    Params: { organizationId: string };
+    Body: {
+      consultant_user_id?: string;
+      is_primary?: boolean;
+      is_active?: boolean;
+    };
+  }>(
+    "/v1/consultant/organizations/:organizationId/assignments",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await upsertConsultantAssignment(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  // CRUD de consultoria: tiendas de un cliente, borrar tienda, borrar cliente
+  // entero. Las escrituras (borrados) son solo platform_admin (irreversibles).
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/consultant/organizations/:organizationId/stores",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listOrganizationStores(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
   );
 
   app.delete<{ Params: { organizationId: string; connectionId: string } }>(
-  "/v1/consultant/organizations/:organizationId/stores/:connectionId",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/consultant/organizations/:organizationId/stores/:connectionId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await deleteOrganizationStore(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.connectionId,
-    );
+      const result = await deleteOrganizationStore(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.connectionId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.post<{ Params: { organizationId: string; connectionId: string } }>(
-  "/v1/consultant/organizations/:organizationId/stores/:connectionId/restore",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/consultant/organizations/:organizationId/stores/:connectionId/restore",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await restoreOrganizationStore(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.connectionId,
-    );
+      const result = await restoreOrganizationStore(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.connectionId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.delete<{ Params: { organizationId: string } }>(
-  "/v1/consultant/organizations/:organizationId",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/consultant/organizations/:organizationId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await deleteOrganization(env, auth.context, request.params.organizationId);
+      const result = await deleteOrganization(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.post<{ Params: { organizationId: string } }>(
-  "/v1/consultant/organizations/:organizationId/restore",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/consultant/organizations/:organizationId/restore",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await restoreOrganization(env, auth.context, request.params.organizationId);
+      const result = await restoreOrganization(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.patch<{
     Params: { organizationId: string };
-    Body: { display_name?: string; status?: string; timezone?: string; currency_code?: string };
-  }>(
-  "/v1/consultant/organizations/:organizationId",
-  async (request, reply) => {
+    Body: {
+      display_name?: string;
+      status?: string;
+      timezone?: string;
+      currency_code?: string;
+    };
+  }>("/v1/consultant/organizations/:organizationId", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
     if (isAuthContextError(auth)) {
@@ -639,396 +927,525 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     return result.data;
-  },
-  );
+  });
 
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/integrations",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/integrations",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await listIntegrations(
-      env,
-      authorization,
-      auth.context,
-      request.params.organizationId,
-    );
+      const result = await listIntegrations(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
-  "/v1/organizations/:organizationId/shopify/overview",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/shopify/overview",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await getShopifyOverview(
-      env,
-      authorization,
-      auth.context,
-      request.params.organizationId,
-      request.query.connectionId,
-    );
+      const result = await getShopifyOverview(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   // Lista liviana de conexiones, para el selector de tienda del header global
   // (evita pedir el overview completo -- ~20 queries de conteo -- en cada
   // cambio de cliente activo).
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/shopify/connections",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/shopify/connections",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await getShopifyConnections(env, authorization, auth.context, request.params.organizationId);
+      const result = await getShopifyConnections(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.get<{ Params: { organizationId: string }; Querystring: { days?: string; connectionId?: string } }>(
-  "/v1/organizations/:organizationId/shopify/metrics",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { days?: string; connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/shopify/metrics",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await getShopifyMetrics(
-      env,
-      authorization,
-      auth.context,
-      request.params.organizationId,
-      request.query.days,
-      request.query.connectionId,
-    );
+      const result = await getShopifyMetrics(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.query.days,
+        request.query.connectionId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/shopify/product-costs",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/shopify/product-costs",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await listProductCosts(env, authorization, auth.context, request.params.organizationId);
+      const result = await listProductCosts(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.post<{
-  Params: { organizationId: string };
-  Body: { sku?: string; inventoryItemId?: string; unitCost: number; currencyCode?: string; validFrom?: string };
-}>("/v1/organizations/:organizationId/shopify/product-costs", async (request, reply) => {
-  const auth = await resolveAuthContext(env, request.headers.authorization);
+    Params: { organizationId: string };
+    Body: {
+      sku?: string;
+      inventoryItemId?: string;
+      unitCost: number;
+      currencyCode?: string;
+      validFrom?: string;
+    };
+  }>(
+    "/v1/organizations/:organizationId/shopify/product-costs",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (isAuthContextError(auth)) {
-    return sendAuthFailure(reply, auth.error);
-  }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-  const result = await upsertProductCost(env, auth.context, request.params.organizationId, request.body);
+      const result = await upsertProductCost(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body,
+      );
 
-  if (isServiceFailure(result)) {
-    return sendServiceFailure(reply, result);
-  }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-  return reply.code(201).send(result.data);
-  });
+      return reply.code(201).send(result.data);
+    },
+  );
 
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/financial-config",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/financial-config",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await getFinancialConfig(env, authorization, auth.context, request.params.organizationId);
+      const result = await getFinancialConfig(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.put<{
-  Params: { organizationId: string };
-  Body: {
-    currencyCode?: string;
-    paymentFeePct?: number;
-    paymentFeeFixed?: number;
-    defaultShippingCost?: number;
-    vatPct?: number;
-    notes?: string | null;
-  };
-}>("/v1/organizations/:organizationId/financial-config/settings", async (request, reply) => {
-  const auth = await resolveAuthContext(env, request.headers.authorization);
+    Params: { organizationId: string };
+    Body: {
+      currencyCode?: string;
+      paymentFeePct?: number;
+      paymentFeeFixed?: number;
+      defaultShippingCost?: number;
+      vatPct?: number;
+      notes?: string | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/financial-config/settings",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (isAuthContextError(auth)) {
-    return sendAuthFailure(reply, auth.error);
-  }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-  const result = await upsertFinancialSettings(env, auth.context, request.params.organizationId, request.body ?? {});
+      const result = await upsertFinancialSettings(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
 
-  if (isServiceFailure(result)) {
-    return sendServiceFailure(reply, result);
-  }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-  return result.data;
-  });
+      return result.data;
+    },
+  );
 
   app.post<{
-  Params: { organizationId: string };
-  Body: {
-    name?: string;
-    category?: string | null;
-    amount?: number;
-    currencyCode?: string;
-    billingPeriod?: string;
-    validFrom?: string;
-    validUntil?: string | null;
-  };
-}>("/v1/organizations/:organizationId/financial-config/fixed-expenses", async (request, reply) => {
-  const auth = await resolveAuthContext(env, request.headers.authorization);
+    Params: { organizationId: string };
+    Body: {
+      name?: string;
+      category?: string | null;
+      amount?: number;
+      currencyCode?: string;
+      billingPeriod?: string;
+      validFrom?: string;
+      validUntil?: string | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/financial-config/fixed-expenses",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (isAuthContextError(auth)) {
-    return sendAuthFailure(reply, auth.error);
-  }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-  const result = await createFixedExpense(env, auth.context, request.params.organizationId, request.body ?? {});
+      const result = await createFixedExpense(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
 
-  if (isServiceFailure(result)) {
-    return sendServiceFailure(reply, result);
-  }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-  return reply.code(201).send(result.data);
-  });
+      return reply.code(201).send(result.data);
+    },
+  );
 
   app.delete<{ Params: { organizationId: string; expenseId: string } }>(
-  "/v1/organizations/:organizationId/financial-config/fixed-expenses/:expenseId",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/financial-config/fixed-expenses/:expenseId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await deactivateFixedExpense(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.expenseId,
-    );
+      const result = await deactivateFixedExpense(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.expenseId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.post<{
-  Params: { organizationId: string };
-  Body: {
-    name?: string;
-    countryCode?: string | null;
-    costPerOrder?: number;
-    currencyCode?: string;
-    minOrderTotal?: number;
-    maxOrderTotal?: number | null;
-  };
-}>("/v1/organizations/:organizationId/financial-config/shipping-rules", async (request, reply) => {
-  const auth = await resolveAuthContext(env, request.headers.authorization);
+    Params: { organizationId: string };
+    Body: {
+      name?: string;
+      countryCode?: string | null;
+      costPerOrder?: number;
+      currencyCode?: string;
+      minOrderTotal?: number;
+      maxOrderTotal?: number | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/financial-config/shipping-rules",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (isAuthContextError(auth)) {
-    return sendAuthFailure(reply, auth.error);
-  }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-  const result = await createShippingRule(env, auth.context, request.params.organizationId, request.body ?? {});
+      const result = await createShippingRule(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
 
-  if (isServiceFailure(result)) {
-    return sendServiceFailure(reply, result);
-  }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-  return reply.code(201).send(result.data);
-  });
+      return reply.code(201).send(result.data);
+    },
+  );
 
   app.delete<{ Params: { organizationId: string; ruleId: string } }>(
-  "/v1/organizations/:organizationId/financial-config/shipping-rules/:ruleId",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/financial-config/shipping-rules/:ruleId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await deactivateShippingRule(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.ruleId,
-    );
+      const result = await deactivateShippingRule(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.ruleId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string }; Body: { shopDomain: string; appMode?: "public" | "custom" } }>(
-  "/v1/organizations/:organizationId/integrations/shopify/connect",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string };
+    Body: { shopDomain: string; appMode?: "public" | "custom" };
+  }>(
+    "/v1/organizations/:organizationId/integrations/shopify/connect",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    if (!request.body?.shopDomain) {
-      return reply.code(400).send({ error: "missing_shop_domain" });
-    }
+      if (!request.body?.shopDomain) {
+        return reply.code(400).send({ error: "missing_shop_domain" });
+      }
 
-    const result = await createShopifyConnectionAuthUrl(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.body.shopDomain,
-      request.body.appMode === "custom" ? "custom" : "public",
-    );
+      const result = await createShopifyConnectionAuthUrl(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body.shopDomain,
+        request.body.appMode === "custom" ? "custom" : "public",
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string } }>(
-  "/v1/organizations/:organizationId/shopify/sync",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/shopify/sync",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await triggerShopifySync(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.query.connectionId,
-    );
+      const result = await triggerShopifySync(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(202).send(result.data);
-  },
+      return reply.code(202).send(result.data);
+    },
   );
 
   app.post<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/integrations/meta/connect",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/integrations/meta/connect",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await createMetaConnectionAuthUrl(env, auth.context, request.params.organizationId);
+      const result = await createMetaConnectionAuthUrl(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/integrations/klaviyo/connect",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await createKlaviyoConnectionAuthUrl(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/klaviyo/metrics",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listKlaviyoConversionMetrics(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.put<{
+    Params: { organizationId: string };
+    Body: {
+      metricId?: string;
+      source?: "shopify" | "klaviyo" | "custom" | "other";
+    };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/conversion-metric",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await selectKlaviyoConversionMetric(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body?.metricId ?? "",
+        request.body?.source ?? "klaviyo",
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
   );
 
   app.get("/v1/meta/oauth/callback", async (request, reply) => {
@@ -1044,227 +1461,373 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.redirect(result.data.redirectUrl);
   });
 
-  app.get<{ Params: { organizationId: string }; Querystring: { days?: string } }>(
-  "/v1/organizations/:organizationId/meta/metrics",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const authorization = request.headers.authorization;
-
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
-
-    const result = await getMetaMetrics(
+  app.get("/v1/klaviyo/oauth/callback", async (request, reply) => {
+    const result = await handleKlaviyoOAuthCallback(
       env,
-      authorization,
-      auth.context,
-      request.params.organizationId,
-      request.query.days,
+      request.query as Record<string, string | string[] | undefined>,
     );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
     }
 
-    return result.data;
-  },
+    return reply.redirect(result.data.redirectUrl);
+  });
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/meta/assets",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await listMetaAssets(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/meta/sync",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.put<{
+    Params: { organizationId: string };
+    Body: { businessIds?: unknown; pageIds?: unknown; adAccountIds?: unknown };
+  }>(
+    "/v1/organizations/:organizationId/meta/assets/selection",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await triggerMetaSync(env, auth.context, request.params.organizationId);
+      const result = await updateMetaAssetSelection(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(202).send(result.data);
-  },
+      return result.data;
+    },
   );
 
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/operations",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/meta/purchase-action-types",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const result = await listMetaPurchaseActionTypes(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    const result = await listOperations(env, authorization, auth.context, request.params.organizationId);
+      return result.data;
+    },
+  );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+  app.put<{
+    Params: { organizationId: string };
+    Body: { adAccountId?: string; actionType?: string };
+  }>(
+    "/v1/organizations/:organizationId/meta/purchase-action-types",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    return result.data;
-  },
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await selectMetaPurchaseActionType(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body?.adAccountId ?? "",
+        request.body?.actionType ?? "",
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { days?: string };
+  }>(
+    "/v1/organizations/:organizationId/meta/metrics",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getMetaMetrics(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.query.days,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
   );
 
   app.post<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/operations/run-rules",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/meta/sync",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await evaluateAlertRules(env, auth.context, request.params.organizationId);
+      const result = await triggerMetaSync(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return reply.code(202).send(result.data);
+    },
   );
 
-  app.patch<{ Params: { organizationId: string; taskId: string }; Body: { status?: string; reason?: string } }>(
-  "/v1/organizations/:organizationId/tasks/:taskId/status",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/operations",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await updateTaskStatus(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.taskId,
-      request.body?.status,
-      request.body?.reason,
-    );
+      const authorization = request.headers.authorization;
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    return result.data;
-  },
+      const result = await listOperations(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string; taskId: string }; Body: { body?: string; isInternal?: boolean } }>(
-  "/v1/organizations/:organizationId/tasks/:taskId/comments",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/operations/run-rules",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await addTaskComment(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.taskId,
-      request.body?.body,
-      request.body?.isInternal,
-    );
+      const result = await evaluateAlertRules(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return result.data;
+    },
   );
 
-  app.patch<{ Params: { organizationId: string; alertId: string }; Body: { status?: string } }>(
-  "/v1/organizations/:organizationId/alerts/:alertId/status",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.patch<{
+    Params: { organizationId: string; taskId: string };
+    Body: { status?: string; reason?: string };
+  }>(
+    "/v1/organizations/:organizationId/tasks/:taskId/status",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await updateAlertStatus(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.alertId,
-      request.body?.status,
-    );
+      const result = await updateTaskStatus(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.taskId,
+        request.body?.status,
+        request.body?.reason,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.get<{ Querystring: { status?: string } }>("/v1/notifications", async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string; taskId: string };
+    Body: { body?: string; isInternal?: boolean };
+  }>(
+    "/v1/organizations/:organizationId/tasks/:taskId/comments",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const result = await addTaskComment(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.taskId,
+        request.body?.body,
+        request.body?.isInternal,
+      );
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    const result = await listNotifications(env, authorization, request.query?.status);
+      return reply.code(201).send(result.data);
+    },
+  );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+  app.patch<{
+    Params: { organizationId: string; alertId: string };
+    Body: { status?: string };
+  }>(
+    "/v1/organizations/:organizationId/alerts/:alertId/status",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    return result.data;
-  });
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await updateAlertStatus(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.alertId,
+        request.body?.status,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get<{ Querystring: { status?: string } }>(
+    "/v1/notifications",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listNotifications(
+        env,
+        authorization,
+        request.query?.status,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
 
   app.patch<{ Params: { notificationId: string }; Body: { status?: string } }>(
-  "/v1/notifications/:notificationId/status",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/notifications/:notificationId/status",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await updateNotificationStatus(
-      env,
-      authorization,
-      request.params.notificationId,
-      request.body?.status,
-    );
+      const result = await updateNotificationStatus(
+        env,
+        authorization,
+        request.params.notificationId,
+        request.body?.status,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.post("/v1/notifications/read-all", async (request, reply) => {
@@ -1290,273 +1853,345 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/strategic-plan",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/strategic-plan",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await getStrategicPlan(env, authorization, auth.context, request.params.organizationId);
+      const result = await getStrategicPlan(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.post<{
-  Params: { organizationId: string };
-  Body: {
-    name?: string;
-    description?: string | null;
-    phases?: Array<{
+    Params: { organizationId: string };
+    Body: {
       name?: string;
       description?: string | null;
-      milestones?: Array<{ name?: string; description?: string | null; targetDate?: string | null }>;
-    }>;
-  };
-}>("/v1/organizations/:organizationId/strategic-plan", async (request, reply) => {
-  const auth = await resolveAuthContext(env, request.headers.authorization);
+      phases?: Array<{
+        name?: string;
+        description?: string | null;
+        milestones?: Array<{
+          name?: string;
+          description?: string | null;
+          targetDate?: string | null;
+        }>;
+      }>;
+    };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-  if (isAuthContextError(auth)) {
-    return sendAuthFailure(reply, auth.error);
-  }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-  const result = await createStrategicPlan(env, auth.context, request.params.organizationId, request.body ?? {});
+      const result = await createStrategicPlan(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
 
-  if (isServiceFailure(result)) {
-    return sendServiceFailure(reply, result);
-  }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-  return reply.code(201).send(result.data);
-  });
-
-  app.post<{
-  Params: { organizationId: string; planId: string };
-  Body: { name?: string; description?: string | null };
-}>("/v1/organizations/:organizationId/strategic-plan/:planId/phases", async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const result = await createPhase(env, auth.context, request.params.organizationId, request.params.planId, {
-      name: request.body?.name,
-      description: request.body?.description,
-    });
-
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
-
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   app.post<{
-  Params: { organizationId: string; phaseId: string };
-  Body: { name?: string; description?: string | null; targetDate?: string | null };
-}>("/v1/organizations/:organizationId/strategic-plan/phases/:phaseId/milestones", async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    Params: { organizationId: string; planId: string };
+    Body: { name?: string; description?: string | null };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/:planId/phases",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await createMilestone(env, auth.context, request.params.organizationId, request.params.phaseId, {
-      name: request.body?.name,
-      description: request.body?.description,
-      targetDate: request.body?.targetDate,
-    });
+      const result = await createPhase(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.planId,
+        {
+          name: request.body?.name,
+          description: request.body?.description,
+        },
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; phaseId: string };
+    Body: {
+      name?: string;
+      description?: string | null;
+      targetDate?: string | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/phases/:phaseId/milestones",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await createMilestone(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.phaseId,
+        {
+          name: request.body?.name,
+          description: request.body?.description,
+          targetDate: request.body?.targetDate,
+        },
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
   );
 
   app.post<{ Params: { organizationId: string; planId: string } }>(
-  "/v1/organizations/:organizationId/strategic-plan/:planId/activate",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/strategic-plan/:planId/activate",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await activateStrategicPlan(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.planId,
-    );
+      const result = await activateStrategicPlan(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.planId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.patch<{ Params: { organizationId: string; milestoneId: string }; Body: { status?: string } }>(
-  "/v1/organizations/:organizationId/milestones/:milestoneId/status",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.patch<{
+    Params: { organizationId: string; milestoneId: string };
+    Body: { status?: string };
+  }>(
+    "/v1/organizations/:organizationId/milestones/:milestoneId/status",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await updateMilestoneStatus(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.milestoneId,
-      request.body?.status,
-    );
+      const result = await updateMilestoneStatus(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.milestoneId,
+        request.body?.status,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
-  );
-
-  app.post<{ Params: { organizationId: string; milestoneId: string }; Body: { body?: string } }>(
-  "/v1/organizations/:organizationId/milestones/:milestoneId/internal-notes",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const result = await addMilestoneInternalNote(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.milestoneId,
-      request.body?.body,
-    );
-
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
-
-    return reply.code(201).send(result.data);
-  },
+      return result.data;
+    },
   );
 
   app.post<{
-  Params: { organizationId: string; milestoneId: string };
-  Body: {
-    taskId?: string;
-    title?: string;
-    description?: string | null;
-    priority?: string;
-    dueAt?: string | null;
-  };
-}>("/v1/organizations/:organizationId/milestones/:milestoneId/tasks", async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    Params: { organizationId: string; milestoneId: string };
+    Body: { body?: string };
+  }>(
+    "/v1/organizations/:organizationId/milestones/:milestoneId/internal-notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    // Dos modos: enlazar una tarea ya existente (taskId) o crearla directamente
-    // con el contexto del hito (title) -- el consultor/IA que compone Mi Camino
-    // usa el segundo para no tener que crear la tarea aparte y volver a enlazarla.
-    const result = request.body?.taskId
-      ? await linkTaskToMilestone(
-          env,
-          auth.context,
-          request.params.organizationId,
-          request.params.milestoneId,
-          request.body.taskId,
-        )
-      : await createMilestoneTask(env, auth.context, request.params.organizationId, request.params.milestoneId, {
-          title: request.body?.title,
+      const result = await addMilestoneInternalNote(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.milestoneId,
+        request.body?.body,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; milestoneId: string };
+    Body: {
+      taskId?: string;
+      title?: string;
+      description?: string | null;
+      priority?: string;
+      dueAt?: string | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/milestones/:milestoneId/tasks",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      // Dos modos: enlazar una tarea ya existente (taskId) o crearla directamente
+      // con el contexto del hito (title) -- el consultor/IA que compone Mi Camino
+      // usa el segundo para no tener que crear la tarea aparte y volver a enlazarla.
+      const result = request.body?.taskId
+        ? await linkTaskToMilestone(
+            env,
+            auth.context,
+            request.params.organizationId,
+            request.params.milestoneId,
+            request.body.taskId,
+          )
+        : await createMilestoneTask(
+            env,
+            auth.context,
+            request.params.organizationId,
+            request.params.milestoneId,
+            {
+              title: request.body?.title,
+              description: request.body?.description,
+              priority: request.body?.priority,
+              dueAt: request.body?.dueAt,
+            },
+          );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; phaseId: string };
+    Body: { name?: string; description?: string | null };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/phases/:phaseId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await updatePhase(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.phaseId,
+        {
+          name: request.body?.name,
           description: request.body?.description,
-          priority: request.body?.priority,
-          dueAt: request.body?.dueAt,
-        });
+        },
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return result.data;
+    },
   );
 
   app.patch<{
-  Params: { organizationId: string; phaseId: string };
-  Body: { name?: string; description?: string | null };
-}>("/v1/organizations/:organizationId/strategic-plan/phases/:phaseId", async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    Params: { organizationId: string; milestoneId: string };
+    Body: {
+      name?: string;
+      description?: string | null;
+      targetDate?: string | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/milestones/:milestoneId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await updatePhase(env, auth.context, request.params.organizationId, request.params.phaseId, {
-      name: request.body?.name,
-      description: request.body?.description,
-    });
+      const result = await updateMilestone(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.milestoneId,
+        {
+          name: request.body?.name,
+          description: request.body?.description,
+          targetDate: request.body?.targetDate,
+        },
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
-  );
-
-  app.patch<{
-  Params: { organizationId: string; milestoneId: string };
-  Body: { name?: string; description?: string | null; targetDate?: string | null };
-}>("/v1/organizations/:organizationId/milestones/:milestoneId", async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const result = await updateMilestone(env, auth.context, request.params.organizationId, request.params.milestoneId, {
-      name: request.body?.name,
-      description: request.body?.description,
-      targetDate: request.body?.targetDate,
-    });
-
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
-
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   // AI-02: diagnostico automatico, sin boton de "aprobar para ver" (RLS ya deja
   // ver pending_approval a consultor/admin). Devuelve el ultimo run fresco
   // (<24h) o genera uno nuevo sobre la marcha si no hay ninguno o esta viejo.
-  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
-  "/v1/organizations/:organizationId/ai/monitor",
-  async (request, reply) => {
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string; days?: string };
+  }>("/v1/organizations/:organizationId/ai/monitor", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
     if (isAuthContextError(auth)) {
@@ -1576,498 +2211,649 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     return result.data;
-  },
-  );
+  });
 
   // Regenerar ahora (ignora la cache de 24h): boton secundario "Actualizar".
-  app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
-  "/v1/organizations/:organizationId/ai/monitor-run",
-  aiEndpointRateLimit,
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string; days?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/monitor-run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await runMonitorAgent(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.query.connectionId,
-      request.query.days ? Number(request.query.days) : null,
-    );
+      const result = await runMonitorAgent(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+        request.query.days ? Number(request.query.days) : null,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   // AI-05 (A04): plan de tareas automatico, mismo patron de cache/regenerar que A02.
-  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
-  "/v1/organizations/:organizationId/ai/task-planner",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string; days?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/task-planner",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await getTaskPlannerDiagnostic(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.query.connectionId,
-      request.query.days ? Number(request.query.days) : null,
-    );
+      const result = await getTaskPlannerDiagnostic(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+        request.query.days ? Number(request.query.days) : null,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
-  "/v1/organizations/:organizationId/ai/task-planner-run",
-  aiEndpointRateLimit,
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string; days?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/task-planner-run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await runTaskPlannerAgent(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.query.connectionId,
-      request.query.days ? Number(request.query.days) : null,
-    );
+      const result = await runTaskPlannerAgent(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+        request.query.days ? Number(request.query.days) : null,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   // AI-05 (A06): plan de reposicion de stock automatico, mismo patron.
-  app.get<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
-  "/v1/organizations/:organizationId/ai/stock-planner",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string; days?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/stock-planner",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await getStockPlannerDiagnostic(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.query.connectionId,
-      request.query.days ? Number(request.query.days) : null,
-    );
+      const result = await getStockPlannerDiagnostic(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+        request.query.days ? Number(request.query.days) : null,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string }; Querystring: { connectionId?: string; days?: string } }>(
-  "/v1/organizations/:organizationId/ai/stock-planner-run",
-  aiEndpointRateLimit,
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string; days?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/stock-planner-run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await runStockPlannerAgent(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.query.connectionId,
-      request.query.days ? Number(request.query.days) : null,
-    );
+      const result = await runStockPlannerAgent(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+        request.query.days ? Number(request.query.days) : null,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   // AI-05 (A08): gestor de conocimiento automatico, mismo patron.
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/ai/knowledge-manager",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/ai/knowledge-manager",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await getKnowledgeManagerDiagnostic(env, auth.context, request.params.organizationId);
+      const result = await getKnowledgeManagerDiagnostic(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.post<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/ai/knowledge-manager-run",
-  aiEndpointRateLimit,
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/ai/knowledge-manager-run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await runKnowledgeManagerAgent(env, auth.context, request.params.organizationId);
+      const result = await runKnowledgeManagerAgent(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/ai/runs",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/ai/budget",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      if (
+        !auth.context.memberships.some(
+          (membership) =>
+            membership.organization_id === request.params.organizationId,
+        )
+      ) {
+        return reply.code(403).send({ error: "organization_access_denied" });
+      }
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      const result = await getOrganizationDailyBudgetStatusForOrganization(
+        env,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    const result = await listAgentRuns(env, authorization, auth.context, request.params.organizationId);
+      return reply.send(result.data);
+    },
+  );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/ai/runs",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    return result.data;
-  },
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listAgentRuns(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
   );
 
   app.get<{ Params: { organizationId: string; runId: string } }>(
-  "/v1/organizations/:organizationId/ai/runs/:runId/trace",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/ai/runs/:runId/trace",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await getAgentRunTrace(
-      env,
-      authorization,
-      auth.context,
-      request.params.organizationId,
-      request.params.runId,
-    );
+      const result = await getAgentRunTrace(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.params.runId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string; outputId: string }; Body: { decision?: string; reason?: string } }>(
-  "/v1/organizations/:organizationId/ai/outputs/:outputId/decision",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string; outputId: string };
+    Body: { decision?: string; reason?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/outputs/:outputId/decision",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await decideAgentOutput(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.outputId,
-      request.body?.decision,
-      request.body?.reason,
-    );
+      const result = await decideAgentOutput(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.outputId,
+        request.body?.decision,
+        request.body?.reason,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
+  );
+
+  // AI-11 Fase A: borradores Klaviyo sanitizados. No conecta, publica ni
+  // envía contenido al proveedor; requiere aprobación antes de quedar listos
+  // para copiar manualmente.
+  app.post<{
+    Params: { organizationId: string };
+    Body: { content_type?: string; brief?: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/drafts",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await runMarketingContentDraft(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/marketing/drafts",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization)
+        return reply.code(401).send({ error: "missing_bearer_token" });
+
+      const result = await listMarketingContentDrafts(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string; draftId: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/drafts/:draftId/versions",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listMarketingContentDraftVersions(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.params.draftId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; draftId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/marketing/drafts/:draftId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await updateMarketingContentDraft(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.draftId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; draftId: string };
+    Body: { decision?: string; reason?: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/drafts/:draftId/decision",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await decideMarketingContentDraft(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.draftId,
+        request.body?.decision,
+        request.body?.reason,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
   );
 
   // AI-05: copiloto del consultor (A09). Chat de solo lectura sobre sql_select
   // y search_knowledge; sin aprobacion (nunca escribe en el dominio).
-  app.post<{ Params: { organizationId: string }; Body: { message?: string; conversation_id?: string } }>(
-  "/v1/organizations/:organizationId/consultant-chat",
-  aiEndpointRateLimit,
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string };
+    Body: { message?: string; conversation_id?: string };
+  }>(
+    "/v1/organizations/:organizationId/consultant-chat",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await runConsultantChatTurn(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.body?.message ?? "",
-      request.body?.conversation_id,
-    );
+      const result = await runConsultantChatTurn(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body?.message ?? "",
+        request.body?.conversation_id,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/consultant-chat/conversations",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/consultant-chat/conversations",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await listConsultantChatConversations(env, auth.context, request.params.organizationId);
+      const result = await listConsultantChatConversations(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.get<{ Params: { organizationId: string; conversationId: string } }>(
-  "/v1/organizations/:organizationId/consultant-chat/conversations/:conversationId",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/consultant-chat/conversations/:conversationId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await getConsultantChatMessages(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.conversationId,
-    );
+      const result = await getConsultantChatMessages(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.conversationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   // AI-04: conocimiento (RAG). Ingestion por organizacion; con "global" en la
   // ruta se crea metodologia compartida (solo platform admin).
   app.post<{
     Params: { organizationId: string };
-    Body: { title?: string; description?: string; content?: string; source_type?: string };
+    Body: {
+      title?: string;
+      description?: string;
+      content?: string;
+      source_type?: string;
+    };
   }>(
-  "/v1/organizations/:organizationId/knowledge/documents",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/knowledge/documents",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const organizationId =
-      request.params.organizationId === "global" ? null : request.params.organizationId;
+      const organizationId =
+        request.params.organizationId === "global"
+          ? null
+          : request.params.organizationId;
 
-    const result = await createKnowledgeDocument(env, auth.context, organizationId, request.body ?? {});
+      const result = await createKnowledgeDocument(
+        env,
+        auth.context,
+        organizationId,
+        request.body ?? {},
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/knowledge/documents",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/knowledge/documents",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await listKnowledgeDocuments(
-      env,
-      authorization,
-      auth.context,
-      request.params.organizationId,
-    );
+      const result = await listKnowledgeDocuments(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   app.post<{ Params: { organizationId: string }; Body: { query?: string } }>(
-  "/v1/organizations/:organizationId/knowledge/search",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/knowledge/search",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await searchKnowledge(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.body?.query,
-    );
+      const result = await searchKnowledge(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body?.query,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
   // BE-05: llamadas de consultoria (registro, transcripcion, resumen aprobado).
   app.get<{ Params: { organizationId: string } }>(
-  "/v1/organizations/:organizationId/calls",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/calls",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const authorization = request.headers.authorization;
+      const authorization = request.headers.authorization;
 
-    if (!authorization) {
-      return reply.code(401).send({ error: "missing_bearer_token" });
-    }
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
 
-    const result = await listCalls(env, authorization, auth.context, request.params.organizationId);
+      const result = await listCalls(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string }; Body: Record<string, unknown> }>(
-  "/v1/organizations/:organizationId/calls",
-  async (request, reply) => {
+  app.post<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>("/v1/organizations/:organizationId/calls", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
     if (isAuthContextError(auth)) {
       return sendAuthFailure(reply, auth.error);
     }
 
-    const result = await createCall(env, auth.context, request.params.organizationId, request.body ?? {});
-
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
-
-    return reply.code(201).send(result.data);
-  },
-  );
-
-  app.patch<{ Params: { organizationId: string; callId: string }; Body: Record<string, unknown> }>(
-  "/v1/organizations/:organizationId/calls/:callId",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const result = await updateCall(
+    const result = await createCall(
       env,
       auth.context,
       request.params.organizationId,
-      request.params.callId,
-      request.body ?? {},
-    );
-
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
-
-    return result.data;
-  },
-  );
-
-  app.put<{ Params: { organizationId: string; callId: string }; Body: Record<string, unknown> }>(
-  "/v1/organizations/:organizationId/calls/:callId/transcript",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
-
-    const result = await saveTranscript(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.callId,
       request.body ?? {},
     );
 
@@ -2076,205 +2862,279 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     return reply.code(201).send(result.data);
-  },
+  });
+
+  app.patch<{
+    Params: { organizationId: string; callId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/calls/:callId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await updateCall(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.callId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string; callId: string }; Body: Record<string, unknown> }>(
-  "/v1/organizations/:organizationId/calls/:callId/summary",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.put<{
+    Params: { organizationId: string; callId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/calls/:callId/transcript",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await createSummary(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.callId,
-      request.body ?? {},
-    );
+      const result = await saveTranscript(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.callId,
+        request.body ?? {},
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; callId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/calls/:callId/summary",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await createSummary(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.callId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
   );
 
   // AI-01: genera el resumen estructurado de la llamada con el agente A01 a
   // partir de su transcripcion actual. Queda pending_approval como el manual.
   app.post<{ Params: { organizationId: string; callId: string } }>(
-  "/v1/organizations/:organizationId/calls/:callId/analyze",
-  aiEndpointRateLimit,
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/calls/:callId/analyze",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await runCallAnalyst(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.callId,
-    );
+      const result = await runCallAnalyst(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.callId,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   app.post<{
     Params: { organizationId: string; summaryId: string };
     Body: { decision?: string; reason?: string };
   }>(
-  "/v1/organizations/:organizationId/call-summaries/:summaryId/decision",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+    "/v1/organizations/:organizationId/call-summaries/:summaryId/decision",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await decideSummary(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.summaryId,
-      request.body?.decision,
-      request.body?.reason,
-    );
+      const result = await decideSummary(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.summaryId,
+        request.body?.decision,
+        request.body?.reason,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return result.data;
-  },
+      return result.data;
+    },
   );
 
-  app.post<{ Params: { organizationId: string; callId: string }; Body: { body?: string } }>(
-  "/v1/organizations/:organizationId/calls/:callId/internal-notes",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string; callId: string };
+    Body: { body?: string };
+  }>(
+    "/v1/organizations/:organizationId/calls/:callId/internal-notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await addInternalNote(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.callId,
-      request.body?.body,
-    );
+      const result = await addInternalNote(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.callId,
+        request.body?.body,
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
-  app.post<{ Params: { organizationId: string; callId: string }; Body: Record<string, unknown> }>(
-  "/v1/organizations/:organizationId/calls/:callId/tasks",
-  async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.post<{
+    Params: { organizationId: string; callId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/calls/:callId/tasks",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
 
-    if (isAuthContextError(auth)) {
-      return sendAuthFailure(reply, auth.error);
-    }
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
 
-    const result = await createTaskFromCall(
-      env,
-      auth.context,
-      request.params.organizationId,
-      request.params.callId,
-      request.body ?? {},
-    );
+      const result = await createTaskFromCall(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.callId,
+        request.body ?? {},
+      );
 
-    if (isServiceFailure(result)) {
-      return sendServiceFailure(reply, result);
-    }
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
 
-    return reply.code(201).send(result.data);
-  },
+      return reply.code(201).send(result.data);
+    },
   );
 
   app.get("/v1/shopify/oauth/callback", async (request, reply) => {
-  const result = await handleShopifyOAuthCallback(
-    env,
-    request.query as Record<string, string | string[] | undefined>,
-  );
+    const result = await handleShopifyOAuthCallback(
+      env,
+      request.query as Record<string, string | string[] | undefined>,
+    );
 
-  if (isServiceFailure(result)) {
-    return sendServiceFailure(reply, result);
-  }
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
 
-  return reply.redirect(result.data.redirectUrl);
+    return reply.redirect(result.data.redirectUrl);
   });
 
   await app.register(async (webhookScope) => {
-  webhookScope.addContentTypeParser("application/json", { parseAs: "buffer" }, (_request, body, done) => {
-    done(null, body);
-  });
-
-  webhookScope.post("/v1/shopify/webhooks", async (request, reply) => {
-    const result = await handleShopifyWebhookRequest(
-      env,
-      request.headers as Record<string, string | string[] | undefined>,
-      request.body as Buffer,
+    webhookScope.addContentTypeParser(
+      "application/json",
+      { parseAs: "buffer" },
+      (_request, body, done) => {
+        done(null, body);
+      },
     );
 
-    return reply.code(result.statusCode).send(result.body);
-  });
+    webhookScope.post("/v1/shopify/webhooks", async (request, reply) => {
+      const result = await handleShopifyWebhookRequest(
+        env,
+        request.headers as Record<string, string | string[] | undefined>,
+        request.body as Buffer,
+      );
+
+      return reply.code(result.statusCode).send(result.body);
+    });
   });
 
   app.post("/v1/internal/operations/run-rules", async (request, reply) => {
-  if (!env.INTERNAL_API_SECRET) {
-    return reply.code(503).send({ error: "internal_api_secret_not_configured" });
-  }
+    if (!env.INTERNAL_API_SECRET) {
+      return reply
+        .code(503)
+        .send({ error: "internal_api_secret_not_configured" });
+    }
 
-  if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
-    return reply.code(401).send({ error: "invalid_internal_secret" });
-  }
+    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
 
-  void runAlertRulesForAllOrganizations(env).catch((error: unknown) => {
-    logger.error("Alert rules pass failed", error);
-  });
+    void runAlertRulesForAllOrganizations(env).catch((error: unknown) => {
+      logger.error("Alert rules pass failed", error);
+    });
 
-  return reply.code(202).send({ status: "alert_rules_started" });
+    return reply.code(202).send({ status: "alert_rules_started" });
   });
 
   app.post("/v1/internal/shopify/reconcile", async (request, reply) => {
-  if (!env.INTERNAL_API_SECRET) {
-    return reply.code(503).send({ error: "internal_api_secret_not_configured" });
-  }
+    if (!env.INTERNAL_API_SECRET) {
+      return reply
+        .code(503)
+        .send({ error: "internal_api_secret_not_configured" });
+    }
 
-  if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
-    return reply.code(401).send({ error: "invalid_internal_secret" });
-  }
+    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
 
-  void reconcileAllShopifyConnections(env).catch((error: unknown) => {
-    logger.error("Shopify reconciliation pass failed", error);
-  });
+    void reconcileAllShopifyConnections(env).catch((error: unknown) => {
+      logger.error("Shopify reconciliation pass failed", error);
+    });
 
-  return reply.code(202).send({ status: "reconciliation_started" });
+    return reply.code(202).send({ status: "reconciliation_started" });
   });
 
   return app;
 }
 
-const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
+const isDirectRun = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
 
 // BE-00: sin esto, un SIGTERM (docker stop, redeploy, scale-down) mata el
 // proceso a mitad de request en vez de drenar las conexiones en vuelo --
@@ -2292,7 +3152,10 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 // ni de registrar listeners reales de `process` en el proceso de test.
 export function createShutdownHandler(
   app: { close: () => Promise<unknown> },
-  { exit = process.exit, timeoutMs = SHUTDOWN_TIMEOUT_MS }: { exit?: (code: number) => void; timeoutMs?: number } = {},
+  {
+    exit = process.exit,
+    timeoutMs = SHUTDOWN_TIMEOUT_MS,
+  }: { exit?: (code: number) => void; timeoutMs?: number } = {},
 ) {
   let shuttingDown = false;
 
@@ -2304,7 +3167,9 @@ export function createShutdownHandler(
     logger.info(`Received ${signal}, shutting down gracefully`);
 
     const forceExitTimer = setTimeout(() => {
-      logger.error(`Graceful shutdown did not complete within ${timeoutMs}ms, forcing exit`);
+      logger.error(
+        `Graceful shutdown did not complete within ${timeoutMs}ms, forcing exit`,
+      );
       exit(1);
     }, timeoutMs);
     forceExitTimer.unref();

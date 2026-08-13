@@ -1,5 +1,7 @@
 # Tool Design para plataformas SaaS con agentes de IA
 
+> La fundación operativa y el catálogo priorizado de tools están definidos en [AI-00A — Fundación del Tool Layer](./fases/AI-00A-tool-layer-foundation.md). Este documento conserva los principios transversales; AI-00A fija el contrato de implementación y el orden con Meta, Klaviyo e Instagram.
+
 ## Estado del documento
 
 - **Tipo:** especificación técnica transversal

@@ -168,3 +168,17 @@ los archivos locales en el momento del incidente, y el archivo de la migracion c
   [`ADR-0014-migration-policy.md`](../../../docs/decisions/ADR-0014-migration-policy.md). Define quien
   aplica (hoy, cualquiera con acceso, equipo de una persona), con que mecanismo (CLI o MCP, indistinto sin
   staging que proteger), y deja explicito que no hay revision formal por PR todavia.
+## Rollout pendiente: AI-04 hybrid search (2026-08-01)
+
+La migración `20260801100000_ai_04_knowledge_hybrid_search.sql` está en local y todavía no aplicada en
+remoto. Antes de aplicarla:
+
+1. Confirmar backup reciente y ventana de bajo tráfico.
+2. Ejecutar `npx supabase migration list --linked` y conservar la salida como evidencia.
+3. Revisar que el índice GIN y el RPC nuevo sean compatibles con el tamaño actual de
+   `knowledge_chunks`; no modificar la función `knowledge_search` existente.
+4. Aplicar únicamente mediante el procedimiento autorizado de `ADR-0014`.
+5. Repetir `migration list --linked` y ejecutar el eval RAG ampliado; comprobar que la API ya no usa el
+   fallback y que los filtros de organización/audiencia/tienda se mantienen.
+
+No se ejecutó `db push` durante la auditoría del 2026-08-01.

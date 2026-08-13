@@ -2,8 +2,13 @@ name: Memory Ingestion
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/15 * * * *"
+  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
+  # automaticos. Para reactivar, descomentar el bloque de abajo.
+  # schedule:
+  #   - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
 
 concurrency:
   group: memory-ingestion

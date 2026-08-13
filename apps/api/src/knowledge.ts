@@ -3,11 +3,12 @@
 // embeddings intercambiable (VoyageEmbeddingProvider hoy); si algun dia se
 // migra a una base vectorial separada, cambia esta capa y nada mas.
 import crypto from "node:crypto";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { chunkText, VoyageEmbeddingProvider } from "@ecomscaling/ai";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -30,10 +31,65 @@ function requireEmbeddings(env: ApiEnv) {
     };
   }
 
-  return { ok: true as const, provider: new VoyageEmbeddingProvider(env.VOYAGE_API_KEY) };
+  return {
+    ok: true as const,
+    provider: new VoyageEmbeddingProvider(env.VOYAGE_API_KEY),
+  };
 }
 
-function requireKnowledgeManager(context: AuthContext, organizationId: string | null) {
+type KnowledgeSearchRpcInput = {
+  targetOrganizationId: string;
+  queryEmbedding: string;
+  queryText: string;
+  audienceAllowed: string[];
+  targetStoreId?: string | null | undefined;
+  matchCount?: number;
+};
+
+function isHybridSearchMissing(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("knowledge_search_hybrid") &&
+    (normalized.includes("does not exist") ||
+      normalized.includes("could not find function") ||
+      normalized.includes("could not find the function") ||
+      normalized.includes("not found"))
+  );
+}
+
+/** Shared RPC boundary for human search and agent tool search. */
+export async function executeKnowledgeSearch(
+  supabase: SupabaseClient,
+  input: KnowledgeSearchRpcInput,
+) {
+  const hybrid = await supabase.rpc("knowledge_search_hybrid", {
+    target_organization_id: input.targetOrganizationId,
+    query_embedding: input.queryEmbedding,
+    query_text: input.queryText,
+    audience_allowed: input.audienceAllowed,
+    target_store_id: input.targetStoreId ?? null,
+    match_count: input.matchCount ?? 8,
+  });
+
+  if (!hybrid.error || !isHybridSearchMissing(hybrid.error.message)) {
+    return hybrid;
+  }
+
+  // Safe deployment window: code may reach the API before the migration is
+  // applied. The old semantic function has the same isolation contract.
+  return supabase.rpc("knowledge_search", {
+    target_organization_id: input.targetOrganizationId,
+    query_embedding: input.queryEmbedding,
+    audience_allowed: input.audienceAllowed,
+    target_store_id: input.targetStoreId ?? null,
+    match_count: input.matchCount ?? 8,
+  });
+}
+
+function requireKnowledgeManager(
+  context: AuthContext,
+  organizationId: string | null,
+) {
   // Conocimiento global = metodologia de la plataforma: solo platform admin.
   if (organizationId === null) {
     if (context.profile.platform_role !== "platform_admin") {
@@ -47,18 +103,22 @@ function requireKnowledgeManager(context: AuthContext, organizationId: string | 
     return { ok: true as const };
   }
 
-  const membership = context.memberships.find((item) => item.organization_id === organizationId);
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
 
   const canManage =
     ["platform_admin", "consultant"].includes(context.profile.platform_role) ||
-    (membership !== undefined && ["owner", "manager"].includes(membership.role));
+    (membership !== undefined &&
+      ["owner", "manager"].includes(membership.role));
 
   if (!canManage) {
     return {
       ok: false as const,
       statusCode: 403,
       error: "knowledge_access_denied",
-      message: "Solo owner, manager, consultor o platform admin pueden gestionar conocimiento.",
+      message:
+        "Solo owner, manager, consultor o platform admin pueden gestionar conocimiento.",
     };
   }
 
@@ -94,21 +154,35 @@ export async function createKnowledgeDocument(
   }
 
   const title = typeof payload.title === "string" ? payload.title.trim() : "";
-  const content = typeof payload.content === "string" ? payload.content.trim() : "";
-  const sourceType = typeof payload.source_type === "string" ? payload.source_type : "manual";
+  const content =
+    typeof payload.content === "string" ? payload.content.trim() : "";
+  const sourceType =
+    typeof payload.source_type === "string" ? payload.source_type : "manual";
 
   if (!title || !content) {
-    return { ok: false as const, statusCode: 400, error: "title_y_content_requeridos" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "title_y_content_requeridos",
+    };
   }
 
   if (!["manual", "upload", "url", "call_transcript"].includes(sourceType)) {
-    return { ok: false as const, statusCode: 400, error: "source_type_invalido" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "source_type_invalido",
+    };
   }
 
   const chunks = chunkText(content);
 
   if (chunks.length === 0) {
-    return { ok: false as const, statusCode: 400, error: "contenido_vacio_tras_chunking" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "contenido_vacio_tras_chunking",
+    };
   }
 
   const vectors: number[][] = [];
@@ -126,7 +200,8 @@ export async function createKnowledgeDocument(
     .insert({
       organization_id: organizationId,
       title: title.slice(0, 255),
-      description: typeof payload.description === "string" ? payload.description : null,
+      description:
+        typeof payload.description === "string" ? payload.description : null,
       source_type: sourceType,
       visibility: organizationId === null ? "global" : "organization",
       checksum,
@@ -159,7 +234,10 @@ export async function createKnowledgeDocument(
   if (chunksError) {
     // Sin chunks el documento no sirve: se marca archivado para no dejar
     // basura activa (no se borra: eso lo decide un humano).
-    await supabase.from("knowledge_documents").update({ status: "archived" }).eq("id", document.id);
+    await supabase
+      .from("knowledge_documents")
+      .update({ status: "archived" })
+      .eq("id", document.id);
     return {
       ok: false as const,
       statusCode: 500,
@@ -167,6 +245,19 @@ export async function createKnowledgeDocument(
       detail: chunksError.message,
     };
   }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "knowledge.create_document",
+    entityType: "knowledge_document",
+    entityId: document.id,
+    newData: {
+      visibility: document.visibility,
+      source_type: sourceType,
+      chunk_count: chunks.length,
+    },
+  });
 
   return {
     ok: true as const,
@@ -195,12 +286,26 @@ export async function listKnowledgeDocuments(
   // `context.memberships` ya incluye las organizaciones virtuales de
   // platform_admin (todas) y consultant (solo asignadas), asi que comprobar
   // solo `membership` es correcto y suficiente.
-  if (!context.memberships.some((item) => item.organization_id === organizationId)) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+  if (
+    !context.memberships.some((item) => item.organization_id === organizationId)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(organizationId)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_organization_id" };
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      organizationId,
+    )
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_organization_id",
+    };
   }
 
   const token = authorization.slice("Bearer ".length);
@@ -208,16 +313,26 @@ export async function listKnowledgeDocuments(
 
   const { data, error } = await supabase
     .from("knowledge_documents")
-    .select("id, organization_id, title, description, source_type, visibility, version, status, created_at, updated_at")
+    .select(
+      "id, organization_id, title, description, source_type, visibility, version, status, created_at, updated_at",
+    )
     .or(`visibility.eq.global,organization_id.eq.${organizationId}`)
     .order("created_at", { ascending: false })
     .limit(100);
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "knowledge_list_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "knowledge_list_failed",
+      detail: error.message,
+    };
   }
 
-  return { ok: true as const, data: { organization_id: organizationId, documents: data ?? [] } };
+  return {
+    ok: true as const,
+    data: { organization_id: organizationId, documents: data ?? [] },
+  };
 }
 
 /**
@@ -244,10 +359,18 @@ export async function searchKnowledge(
   // que lo frenara como en el caso de arriba. `context.memberships` ya
   // incluye las organizaciones virtuales correctas (platform_admin: todas;
   // consultant: solo asignadas), comprobar solo `membership` es correcto.
-  const isPrivileged = ["platform_admin", "consultant"].includes(context.profile.platform_role);
+  const isPrivileged = ["platform_admin", "consultant"].includes(
+    context.profile.platform_role,
+  );
 
-  if (!context.memberships.some((item) => item.organization_id === organizationId)) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+  if (
+    !context.memberships.some((item) => item.organization_id === organizationId)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
   const embeddings = requireEmbeddings(env);
@@ -267,19 +390,34 @@ export async function searchKnowledge(
   // AI-07: busqueda humana desde /conocimiento (no un agente automatico), asi
   // que un consultor/platform_admin si puede ver memoria consultant_only;
   // un cliente con membership normal solo ve lo client_visible.
-  const audienceAllowed = isPrivileged ? ["client_visible", "consultant_only"] : ["client_visible"];
+  const audienceAllowed = isPrivileged
+    ? ["client_visible", "consultant_only"]
+    : ["client_visible"];
 
-  const { data, error } = await supabase.rpc("knowledge_search", {
-    target_organization_id: organizationId,
-    query_embedding: JSON.stringify(embedding),
-    audience_allowed: audienceAllowed,
-    target_store_id: storeId ?? null,
-    match_count: 8,
+  const { data, error } = await executeKnowledgeSearch(supabase, {
+    targetOrganizationId: organizationId,
+    queryEmbedding: JSON.stringify(embedding),
+    queryText,
+    audienceAllowed,
+    targetStoreId: storeId,
+    matchCount: 8,
   });
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "knowledge_search_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "knowledge_search_failed",
+      detail: error.message,
+    };
   }
 
-  return { ok: true as const, data: { organization_id: organizationId, query: queryText, matches: data ?? [] } };
+  return {
+    ok: true as const,
+    data: {
+      organization_id: organizationId,
+      query: queryText,
+      matches: data ?? [],
+    },
+  };
 }
