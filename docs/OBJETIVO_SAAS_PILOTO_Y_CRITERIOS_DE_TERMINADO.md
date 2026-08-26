@@ -1,5 +1,11 @@
 # Objetivo global de EcomScaling
 
+> **Estado ejecutivo vigente 2026-08-26:** el núcleo del piloto está implementado. Shopify es el
+> conector operativo; Meta Ads, Klaviyo e Instagram están preparados para activarse sin rediseñar la
+> UI ni los agentes. Supabase está alineado con 71 migraciones locales/remotas y los tipos oficiales
+> se regeneraron desde `public,private`. Lo pendiente real es validación con proveedores, QA manual
+> final, restore drill y observabilidad/APM avanzada; no falta construir un CRM completo.
+
 > Estado canonico vigente 2026-08-24: hay 64 migraciones locales/remotas alineadas, con
 > `supabase db push --linked --include-all --dry-run` al dia y `supabase db lint` sin errores.
 > Las cifras 55/56/59/60 que aparecen mas abajo pertenecen a auditorias historicas y quedan

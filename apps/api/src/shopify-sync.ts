@@ -77,6 +77,7 @@ type BulkVariantLine = BulkLine & {
     countryCodeOfOrigin?: string | null;
     provinceCodeOfOrigin?: string | null;
     harmonizedSystemCode?: string | null;
+    unitCost?: { amount?: string | null; currencyCode?: string | null } | null;
     measurement?: {
       weight?: { value?: number | null; unit?: string | null } | null;
     } | null;
@@ -709,6 +710,7 @@ export async function runShopifyInitialSync(
                         countryCodeOfOrigin
                         provinceCodeOfOrigin
                         harmonizedSystemCode
+                        unitCost { amount currencyCode }
                         measurement { weight { value unit } }
                         inventoryLevels {
                           edges {
@@ -877,6 +879,9 @@ export async function runShopifyInitialSync(
             variant.inventoryItem.provinceCodeOfOrigin ?? null,
           harmonized_system_code:
             variant.inventoryItem.harmonizedSystemCode ?? null,
+          current_unit_cost: variant.inventoryItem.unitCost?.amount ?? null,
+          cost_currency_code:
+            variant.inventoryItem.unitCost?.currencyCode ?? null,
           measurement_data: variant.inventoryItem.measurement ?? null,
           external_updated_at: new Date().toISOString(),
         });

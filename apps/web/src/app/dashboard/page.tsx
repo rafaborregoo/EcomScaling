@@ -7,8 +7,12 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { mapWithConcurrency } from "@/lib/async-concurrency";
+import { formatMoney } from "@/lib/money";
+import { displayValue } from "@/lib/display-labels";
 import {
   Badge,
+  ButtonLink,
+  Card,
   Heading,
   Button,
   EmptyState,
@@ -75,6 +79,16 @@ type ShopifyMetrics = {
     refunds: number;
     units_sold: number;
     aov: number;
+  };
+  // Ya venia en la respuesta de /shopify/metrics (ver shopify-metrics.ts) pero
+  // el Dashboard lo ignoraba por completo: un cliente podia tener productos
+  // agotados sin ninguna senal en su vista principal, solo visible via el
+  // panel Stock IA (ahora ademas restringido a consultor/admin).
+  stock: {
+    tracked_items: number;
+    total_available: number;
+    low_stock_items: number;
+    out_of_stock_items: number;
   };
   financial: {
     net_sales: number;
@@ -253,6 +267,29 @@ function buildFocusItems({
       });
     });
 
+  // Regla determinista, no IA: un producto agotado deja de vender ahora
+  // mismo, no es una prediccion. No tiene sentido que esto solo se supiera
+  // via el panel Stock IA (consultor/admin).
+  if (metrics && metrics.stock.out_of_stock_items > 0) {
+    items.push({
+      id: "stock:out",
+      eyebrow: "Stock",
+      title: `${metrics.stock.out_of_stock_items} producto(s) agotado(s)`,
+      detail: "Sin unidades disponibles: revisa reposición antes de perder más ventas.",
+      href: "/shopify",
+      tone: "danger",
+    });
+  } else if (metrics && metrics.stock.low_stock_items > 0) {
+    items.push({
+      id: "stock:low",
+      eyebrow: "Stock",
+      title: `${metrics.stock.low_stock_items} producto(s) con poco stock`,
+      detail: "Revisa reposición antes de que se agoten.",
+      href: "/shopify",
+      tone: "warn",
+    });
+  }
+
   if (connections.length === 0) {
     items.push({
       id: "shopify:missing",
@@ -314,21 +351,17 @@ function AdaptiveFocus({
   error: string | null;
 }) {
   return (
-    <section
-      className="border-t border-ink/20 pt-5"
-      aria-labelledby="dashboard-focus-title"
-    >
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <Card
+      title={
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+          <p className="font-mono text-xs uppercase tracking-wider text-muted">
             Ordenado por impacto
           </p>
-          <Heading size="lg" id="dashboard-focus-title">
-            Qué requiere atención
-          </Heading>
+          <Heading size="lg">Qué requiere atención</Heading>
         </div>
-        <Link href="/tareas">Ver operaciones</Link>
-      </div>
+      }
+      actions={<Link href="/tareas">Ver operaciones</Link>}
+    >
       {isLoading ? (
         <div className="mt-3">
           <LoadingBlock label="Calculando prioridades..." />
@@ -369,7 +402,7 @@ function AdaptiveFocus({
           ))}
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -496,7 +529,7 @@ function StoresOverviewTable({
       label: "Estado",
       render: (row) => (
         <span className="font-mono text-xs uppercase text-muted">
-          {row.status}
+          {displayValue(row.status)}
         </span>
       ),
     },
@@ -510,7 +543,7 @@ function StoresOverviewTable({
             {isLoading && summary === undefined
               ? "..."
               : summary
-                ? Number(summary.net_sales).toFixed(2)
+                ? formatMoney(summary.net_sales)
                 : "—"}
           </span>
         );
@@ -540,7 +573,7 @@ function StoresOverviewTable({
             {isLoading && summary === undefined
               ? "..."
               : summary
-                ? Number(summary.net_profit).toFixed(2)
+                ? formatMoney(summary.net_profit)
                 : "—"}
           </span>
         );
@@ -569,20 +602,21 @@ function StoresOverviewTable({
   ];
 
   return (
-    <section className="border-t border-ink/20">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <Heading size="lg">Todas las tiendas</Heading>
+    <Card
+      title={<Heading size="lg">Todas las tiendas</Heading>}
+      actions={
         <PeriodSelector
           periodDays={periodDays}
           onPeriodChange={onPeriodChange}
         />
-      </div>
+      }
+    >
       <Table
         ariaLabel="Todas las tiendas Shopify"
         columns={columns}
         rows={connections}
       />
-    </section>
+    </Card>
   );
 }
 
@@ -808,7 +842,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="portal-page space-y-8">
       <Tabs
         value={activeTab}
         onChange={(value) => setActiveTab(value as DashboardTab)}
@@ -883,16 +917,16 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           title="Klaviyo preparado, pero no disponible"
           hint="El conector de Klaviyo está preparado en el dominio, pero aún no está habilitado para conectar cuentas reales. No se muestran métricas simuladas."
           action={
-            <Link className="button button--primary" href="/integraciones">
+            <ButtonLink href="/integraciones">
               Ver estado del conector
-            </Link>
+            </ButtonLink>
           }
         />
       ) : null}
 
       {activeTab === "todo" || activeTab === "shopify" ? (
-        <section className="border-t border-ink/20 pt-5">
-          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <Card
+          title={
             <div>
               <Heading size="lg">
                 {activeConnectionId
@@ -900,18 +934,21 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   : "Resumen ejecutivo"}
               </Heading>
               {metrics ? (
-                <p className="mt-1 font-mono text-xs text-muted">
+                <p className="font-mono text-xs text-muted">
                   hasta {new Date(metrics.period.end).toLocaleString()}
                 </p>
               ) : null}
             </div>
-            {!showStoresOverview ? (
+          }
+          actions={
+            !showStoresOverview ? (
               <PeriodSelector
                 periodDays={periodDays}
                 onPeriodChange={setPeriodDays}
               />
-            ) : null}
-          </div>
+            ) : null
+          }
+        >
 
           {isLoadingMetrics ? (
             <div className="p-4">
@@ -929,7 +966,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     Facturación neta
                   </p>
                   <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                    {Number(metrics.sales.net_sales).toFixed(2)}
+                    {formatMoney(metrics.sales.net_sales)}
                   </p>
                   <PeriodDeltaBadge
                     current={metrics.sales.net_sales}
@@ -950,10 +987,10 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </article>
                 <article className="py-4 xl:pr-8">
                   <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    AOV
+                    Ticket medio (AOV)
                   </p>
                   <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                    {Number(metrics.sales.aov).toFixed(2)}
+                    {formatMoney(metrics.sales.aov)}
                   </p>
                   <PeriodDeltaBadge
                     current={metrics.sales.aov}
@@ -972,7 +1009,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         : "text-brand",
                     ].join(" ")}
                   >
-                    {Number(metrics.financial.net_profit).toFixed(2)}
+                    {formatMoney(metrics.financial.net_profit)}
                   </p>
                   <p className="mt-1 font-mono text-xs text-muted">
                     {Number(metrics.financial.net_margin_pct).toFixed(1)}%
@@ -989,9 +1026,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </p>
                   <p className="mt-1.5 font-mono text-3xl tracking-tight">
                     {metrics.financial.break_even_monthly_revenue != null
-                      ? Number(
-                          metrics.financial.break_even_monthly_revenue,
-                        ).toFixed(2)
+                      ? formatMoney(metrics.financial.break_even_monthly_revenue)
                       : "n/a"}
                   </p>
                 </article>
@@ -1000,7 +1035,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     Gastos fijos/mes
                   </p>
                   <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                    {Number(metrics.financial.monthly_fixed_costs).toFixed(2)}
+                    {formatMoney(metrics.financial.monthly_fixed_costs)}
                   </p>
                 </article>
               </div>
@@ -1038,32 +1073,68 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </ul>
                 </div>
               ) : null}
+
+              <div className="grid gap-x-8 border-t border-line pt-3 md:grid-cols-3">
+                <article className="py-2 md:pr-8">
+                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                    Referencias con stock
+                  </p>
+                  <p className="mt-1 font-mono text-xl tracking-tight">
+                    {metrics.stock.tracked_items}
+                  </p>
+                </article>
+                <article className="py-2 md:pr-8">
+                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                    Con poco stock
+                  </p>
+                  <p
+                    className={[
+                      "mt-1 font-mono text-xl tracking-tight",
+                      metrics.stock.low_stock_items > 0 ? "text-warn-deep" : "",
+                    ].join(" ")}
+                  >
+                    {metrics.stock.low_stock_items}
+                  </p>
+                </article>
+                <article className="py-2">
+                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                    Agotadas
+                  </p>
+                  <p
+                    className={[
+                      "mt-1 font-mono text-xl tracking-tight",
+                      metrics.stock.out_of_stock_items > 0 ? "text-brand" : "",
+                    ].join(" ")}
+                  >
+                    {metrics.stock.out_of_stock_items}
+                  </p>
+                </article>
+              </div>
             </>
           ) : (
             <EmptyState
               title="Sin datos de Shopify"
               hint="Conecta una tienda Shopify y completa la sincronización inicial para ver los KPIs del negocio."
               action={
-                <Link className="button button--primary" href="/integraciones">
+                <ButtonLink href="/integraciones">
                   Ir a Integraciones
-                </Link>
+                </ButtonLink>
               }
             />
           )}
-        </section>
+        </Card>
       ) : null}
 
       {activeTab === "todo" || activeTab === "meta" ? (
-        <section className="border-t border-ink/20 pt-5">
-          <Heading size="lg">Meta Ads</Heading>
-          <div className="mt-3 grid gap-x-8 border-b border-line pb-2 md:grid-cols-3 xl:grid-cols-6">
+        <Card title={<Heading size="lg">Meta Ads</Heading>}>
+          <div className="grid gap-x-8 md:grid-cols-3 xl:grid-cols-6">
             <article className="py-4 md:pr-8">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
                 Inversión Meta
               </p>
               <p className="mt-1.5 font-mono text-3xl tracking-tight">
                 {metaMetrics && metaMetrics.acquisition.days_with_data > 0
-                  ? Number(metaMetrics.acquisition.spend).toFixed(2)
+                  ? formatMoney(metaMetrics.acquisition.spend)
                   : "—"}
               </p>
             </article>
@@ -1073,7 +1144,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </p>
               <p className="mt-1.5 font-mono text-3xl tracking-tight">
                 {metaMetrics?.acquisition.roas != null
-                  ? Number(metaMetrics.acquisition.roas).toFixed(2)
+                  ? `${Number(metaMetrics.acquisition.roas).toFixed(2)}x`
                   : "—"}
               </p>
             </article>
@@ -1083,7 +1154,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </p>
               <p className="mt-1.5 font-mono text-3xl tracking-tight">
                 {metaMetrics?.acquisition.cac != null
-                  ? Number(metaMetrics.acquisition.cac).toFixed(2)
+                  ? formatMoney(metaMetrics.acquisition.cac)
                   : "—"}
               </p>
             </article>
@@ -1110,26 +1181,41 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
           {!metaMetrics || metaMetrics.acquisition.days_with_data === 0 ? (
             <div className="pt-4">
-              <Link className="button button--primary" href="/integraciones">
+              <ButtonLink href="/integraciones">
                 Conectar Meta Ads
-              </Link>
+              </ButtonLink>
             </div>
           ) : null}
-        </section>
+        </Card>
+      ) : null}
+
+      {/*
+        Que ve cada rol del diagnostico IA (decision de producto 2026-08-26):
+        el cliente necesita saber "que esta pasando" en su negocio -- eso es
+        el resumen ejecutivo (A02), y su variante `summary` ya es solo lectura
+        (sin tabla de hallazgos/recomendaciones ni boton de aprobar, ver
+        ai-diagnostic-section.tsx). El "como lo calculamos y priorizamos"
+        -- el backlog completo de tareas propuestas (A04) y la logica de
+        reposicion de stock (A06), ambos en variante `full` con el boton que
+        aprueba y materializa tareas -- es trabajo interno del consultor.
+        Las tareas que el consultor aprueba sí llegan al cliente, pero via
+        Tareas/Mi Camino, no como panel de IA en bruto sin filtrar.
+      */}
+      {activeTab === "todo" && organization ? (
+        <AiDiagnosticSection
+          organizationId={organization.id}
+          title="Resumen ejecutivo IA"
+          getPath="/ai/monitor"
+          runPath="/ai/monitor-run"
+          loadingLabel="Analizando el negocio con IA... la primera vez puede tardar 1-2 minutos."
+          tasksLabelSingular="tarea"
+          days={aiDiagnosticDays}
+          variant="summary"
+        />
       ) : null}
 
       {activeTab === "todo" && isConsultant && organization ? (
         <>
-          <AiDiagnosticSection
-            organizationId={organization.id}
-            title="Resumen ejecutivo IA"
-            getPath="/ai/monitor"
-            runPath="/ai/monitor-run"
-            loadingLabel="Analizando el negocio con IA... la primera vez puede tardar 1-2 minutos."
-            tasksLabelSingular="tarea"
-            days={aiDiagnosticDays}
-            variant="summary"
-          />
           <AiDiagnosticSection
             organizationId={organization.id}
             title="Plan de tareas IA"
@@ -1152,10 +1238,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       {activeTab === "todo" || activeTab === "shopify" ? (
-        <section className="border-t border-ink/20">
-          <div className="border-b border-line px-4 py-3">
-            <Heading size="lg">Tiendas Shopify</Heading>
-          </div>
+        <Card title={<Heading size="lg">Tiendas Shopify</Heading>}>
           <div className="divide-y divide-line">
             {isLoadingStores ? (
               <div className="px-4 py-3">
@@ -1180,10 +1263,10 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     </p>
                   </div>
                   <p className="font-mono text-sm text-brand">
-                    {connection.status}
+                    {displayValue(connection.status)}
                   </p>
                   <Link
-                    className="button button--primary w-fit"
+                    className="inline-flex min-h-9 w-fit items-center border border-brand bg-brand px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-deep"
                     href={`/shopify?organizationId=${selectedOrganizationId}&connectionId=${connection.id}`}
                   >
                     Ver tienda
@@ -1201,7 +1284,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   hint="Conecta la tienda del cliente para empezar a ver ventas, margen y stock en tiempo real."
                   action={
                     <Link
-                      className="button button--primary"
+                      className="inline-flex min-h-9 items-center border border-brand bg-brand px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-deep"
                       href="/integraciones"
                     >
                       Conectar Shopify
@@ -1211,7 +1294,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
             )}
           </div>
-        </section>
+        </Card>
       ) : null}
     </div>
   );

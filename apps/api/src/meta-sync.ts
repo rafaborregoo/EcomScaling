@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
@@ -144,9 +145,15 @@ type InsightNode = {
   cpc?: string;
   ctr?: string;
   cpp?: string;
-  actions?: Array<{ action_type?: string; value?: string }>;
-  action_values?: Array<{ action_type?: string; value?: string }>;
-  purchase_roas?: Array<{ action_type?: string; value?: string }>;
+  publisher_platform?: string;
+  platform_position?: string;
+  device_platform?: string;
+  action_report_time?: string;
+  action_attribution_windows?: string[];
+  [key: string]: unknown;
+  actions?: Array<Record<string, unknown> & { action_type?: string; value?: string }>;
+  action_values?: Array<Record<string, unknown> & { action_type?: string; value?: string }>;
+  purchase_roas?: Array<Record<string, unknown> & { action_type?: string; value?: string }>;
 };
 
 type MetaInsightRowPayload = {
@@ -158,6 +165,14 @@ type MetaInsightRowPayload = {
   level: "ad";
   external_entity_id: string;
   metric_date: string;
+  publisher_platform: string | null;
+  platform_position: string | null;
+  device_platform: string | null;
+  breakdowns: Record<string, string> | null;
+  breakdown_hash: string;
+  attribution_windows: string[] | null;
+  attribution_hash: string;
+  action_report_time: string;
   spend: number;
   impressions: number;
   reach: number;
@@ -179,8 +194,22 @@ export function buildMetaInsightRowPayload(
   insight: InsightNode,
   internal: { adId: string; adSetId: string; campaignId: string | null } | undefined,
   syncedAt = new Date().toISOString(),
+  actionReportTime: MetaActionReportTime | undefined = undefined,
 ): MetaInsightRowPayload | null {
   if (!insight.ad_id || !insight.date_start) return null;
+  const breakdownEntries = Object.entries({
+    publisher_platform: insight.publisher_platform,
+    platform_position: insight.platform_position,
+    device_platform: insight.device_platform,
+  }).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  const breakdowns = breakdownEntries.length
+    ? Object.fromEntries(breakdownEntries)
+    : null;
+  const attributionWindows = Array.isArray(insight.action_attribution_windows)
+    ? insight.action_attribution_windows
+    : null;
+  const hash = (value: unknown) =>
+    crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
   return {
     organization_id: organizationId,
     ad_account_id: adAccountRowId,
@@ -190,6 +219,14 @@ export function buildMetaInsightRowPayload(
     level: "ad",
     external_entity_id: insight.ad_id,
     metric_date: insight.date_start,
+    publisher_platform: insight.publisher_platform ?? null,
+    platform_position: insight.platform_position ?? null,
+    device_platform: insight.device_platform ?? null,
+    breakdowns,
+    breakdown_hash: breakdowns ? hash(breakdowns) : "none",
+    attribution_windows: attributionWindows,
+    attribution_hash: attributionWindows ? hash(attributionWindows) : "default",
+    action_report_time: actionReportTime ?? insight.action_report_time ?? "default",
     spend: insight.spend != null ? Number(insight.spend) : 0,
     impressions: insight.impressions != null ? Number(insight.impressions) : 0,
     reach: insight.reach != null ? Number(insight.reach) : 0,
@@ -212,7 +249,8 @@ type MetaActionMetricPayload = {
   metric_name: "actions" | "action_values" | "purchase_roas";
   action_type: string;
   value: number | null;
-  raw_value: { action_type?: string; value?: string };
+  attribution_window: string;
+  raw_value: Record<string, unknown>;
 };
 
 export function buildMetaActionMetricPayloads(
@@ -226,24 +264,32 @@ export function buildMetaActionMetricPayloads(
     { metricName: "purchase_roas" as const, entries: insight.purchase_roas },
   ];
   const deduped = new Map<string, MetaActionMetricPayload>();
+  const attributionWindows = ["1d_click", "7d_click", "1d_view"];
   for (const group of groups) {
     for (const entry of group.entries ?? []) {
       const actionType = entry.action_type ?? "none";
-      deduped.set(`${group.metricName}:${actionType}`, {
-        organization_id: organizationId,
-        insight_row_id: insightRowId,
-        metric_name: group.metricName,
-        action_type: actionType,
-        value: entry.value != null ? Number(entry.value) : null,
-        raw_value: entry,
-      });
+      const windows = attributionWindows.filter((window) => entry[window] != null);
+      for (const attributionWindow of windows.length ? windows : ["default"]) {
+        const rawValue = windows.length ? entry[attributionWindow] : entry.value;
+        deduped.set(`${group.metricName}:${actionType}:${attributionWindow}`, {
+          organization_id: organizationId,
+          insight_row_id: insightRowId,
+          metric_name: group.metricName,
+          action_type: actionType,
+          attribution_window: attributionWindow,
+          value: rawValue != null ? Number(rawValue) : null,
+          raw_value: entry,
+        });
+      }
     }
   }
   return [...deduped.values()];
 }
 
 const META_INSIGHT_FIELDS =
-  "ad_id,adset_id,campaign_id,date_start,spend,impressions,reach,frequency,clicks,unique_clicks,inline_link_clicks,cpm,cpc,ctr,cpp,actions,action_values,purchase_roas";
+  "ad_id,adset_id,campaign_id,date_start,publisher_platform,platform_position,device_platform,spend,impressions,reach,frequency,clicks,unique_clicks,inline_link_clicks,cpm,cpc,ctr,cpp,actions,action_values,purchase_roas";
+const META_INSIGHT_BREAKDOWNS = "publisher_platform,platform_position,device_platform";
+const META_ACTION_ATTRIBUTION_WINDOWS = ["1d_click", "7d_click", "1d_view"];
 const ASYNC_REPORT_MAX_POLLS = 30;
 const ASYNC_REPORT_POLL_MS = 2000;
 
@@ -284,6 +330,8 @@ async function fetchMetaInsights(
       until: until.toISOString().slice(0, 10),
     }),
     fields: META_INSIGHT_FIELDS,
+    breakdowns: META_INSIGHT_BREAKDOWNS,
+    action_attribution_windows: JSON.stringify(META_ACTION_ATTRIBUTION_WINDOWS),
   };
   const actionReportTime = resolveMetaActionReportTime(env);
   if (actionReportTime) {
@@ -322,7 +370,11 @@ async function fetchMetaInsights(
       return metaGraphGetAll<InsightNode>(
         `${reportRunId}/insights`,
         accessToken,
-        { fields: META_INSIGHT_FIELDS },
+        {
+          fields: META_INSIGHT_FIELDS,
+          breakdowns: META_INSIGHT_BREAKDOWNS,
+          action_attribution_windows: JSON.stringify(META_ACTION_ATTRIBUTION_WINDOWS),
+        },
         env.META_APP_SECRET,
       );
     }
@@ -650,13 +702,14 @@ async function syncAdAccountInsights(
         insight,
         insight.ad_id ? adMap.get(insight.ad_id) : undefined,
         syncedAt,
+        resolveMetaActionReportTime(env),
       ),
     }))
     .filter((item): item is { insight: InsightNode; row: MetaInsightRowPayload } => item.row !== null);
   const validInsights = [
     ...new Map(
       validInsightCandidates.map((item) => [
-        `${item.row.external_entity_id}:${item.row.metric_date}`,
+        `${item.row.external_entity_id}:${item.row.metric_date}:${item.row.breakdown_hash}:${item.row.attribution_hash}:${item.row.action_report_time}`,
         item,
       ]),
     ).values(),
@@ -669,17 +722,17 @@ async function syncAdAccountInsights(
         onConflict:
           "ad_account_id,level,external_entity_id,metric_date,breakdown_hash,attribution_hash,action_report_time",
       })
-      .select("id, external_entity_id, metric_date");
+      .select("id, external_entity_id, metric_date, breakdown_hash, attribution_hash, action_report_time");
     if (error) throw new Error(`meta_insight_upsert_failed: ${error.message}`);
 
     const rowIds = new Map(
-      ((persistedRows ?? []) as Array<{ id: string; external_entity_id: string; metric_date: string }>).map(
-        (row) => [`${row.external_entity_id}:${row.metric_date}`, row.id],
+      ((persistedRows ?? []) as Array<{ id: string; external_entity_id: string; metric_date: string; breakdown_hash?: string; attribution_hash?: string; action_report_time?: string }>).map(
+        (row) => [`${row.external_entity_id}:${row.metric_date}:${row.breakdown_hash ?? "none"}:${row.attribution_hash ?? "default"}:${row.action_report_time ?? "default"}`, row.id],
       ),
     );
     const actionPayloads: MetaActionMetricPayload[] = [];
     for (const item of validInsights) {
-      const rowId = rowIds.get(`${item.row.external_entity_id}:${item.row.metric_date}`);
+      const rowId = rowIds.get(`${item.row.external_entity_id}:${item.row.metric_date}:${item.row.breakdown_hash}:${item.row.attribution_hash}:${item.row.action_report_time}`);
       if (!rowId) throw new Error("meta_insight_row_id_missing_after_upsert");
       actionPayloads.push(...buildMetaActionMetricPayloads(organizationId, rowId, item.insight));
     }

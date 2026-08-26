@@ -5,11 +5,13 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { formatMoney } from "@/lib/money";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
 import {
   AsyncState,
   Banner,
   Button,
+  Card,
   EmptyState,
   ErrorBlock,
   Heading,
@@ -64,11 +66,6 @@ const periodOptions: Array<{ days: number | "all"; label: string }> = [
   { days: "all", label: "Todo" },
 ];
 
-function formatMoney(value: number | null | undefined, currency = "EUR") {
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(
-    Number(value ?? 0),
-  );
-}
 
 function formatDate(value: string | null | undefined) {
   if (!value) {
@@ -152,7 +149,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       setMetrics((await response.json()) as ShopifyMetrics);
     } catch {
-      setMetricsError("No se pudieron cargar las mÃ©tricas de Shopify. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+      setMetricsError("No se pudieron cargar las métricas de Shopify. Revisa la conexión e inténtalo de nuevo.");
     }
   }, [organization, periodDays, selectedConnectionId]);
 
@@ -198,7 +195,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setCostUnitCost("");
     void loadMetrics();
     } catch {
-      setCostFeedback("No se pudo guardar el coste. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+      setCostFeedback("No se pudo guardar el coste. Revisa la conexión e inténtalo de nuevo.");
     } finally {
       setIsSavingCost(false);
     }
@@ -285,11 +282,11 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const currency = overview.store?.currency_code ?? "EUR";
 
   return (
-    <div className="space-y-5">
-      <section className="border-t border-ink/20 pt-5">
-        <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="portal-page space-y-6">
+      <Card>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <Heading size="lg">
+            <Heading level={1} size="lg">
               {overview.store?.shop_name ?? "Sin tienda conectada"}
             </Heading>
             <p className="mt-1 font-mono text-xs text-muted">
@@ -298,7 +295,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 "sin dominio"}
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Button
               type="button"
               disabled={isRefreshing}
@@ -336,12 +333,12 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Banner>
           </div>
         ) : null}
-      </section>
+      </Card>
 
-      <section className="border-t border-ink/20">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+      <Card>
+          <div className="-mx-4 -mt-4 flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:-mx-5 sm:px-5">
           <Heading size="lg">Ventas</Heading>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {periodOptions.map((option) => (
               <Button
                 key={option.days}
@@ -496,7 +493,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     value={costSku}
                     onChange={(event) => setCostSku(event.target.value)}
                   />
-                  <div className="flex gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       className="w-full"
                       type="number"
@@ -524,9 +521,9 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div>
           </>
         )}
-      </section>
+      </Card>
 
-      <section className="flex items-center justify-between border-t border-ink/20 pt-5 text-sm text-muted">
+      <Card className="flex items-center justify-between text-sm text-muted">
         <span>
           Último sync: {formatDate(overview.sync_runs[0]?.finished_at)}
         </span>
@@ -538,7 +535,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             Diagnóstico técnico <IconChevronRight aria-hidden />
           </Link>
         ) : null}
-      </section>
+      </Card>
     </div>
   );
 }

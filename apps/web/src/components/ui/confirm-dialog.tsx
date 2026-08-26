@@ -38,10 +38,10 @@ export function ConfirmDialog({
               {/* AlertDialog.CloseTrigger ya es el elemento <button> (extiende el
                   Button primitivo de react-aria) -- se estiliza directamente en
                   vez de anidar otro Button, para no anidar dos <button>. */}
-              <AlertDialog.CloseTrigger className="button button--secondary">{cancelLabel}</AlertDialog.CloseTrigger>
+              <AlertDialog.CloseTrigger className="min-h-9 border border-edge bg-white px-3 py-2 text-sm font-medium text-ink transition hover:border-brand hover:text-brand">{cancelLabel}</AlertDialog.CloseTrigger>
               <AlertDialog.CloseTrigger
                 onPress={onConfirm}
-                className={`button ${status === "danger" ? "button--danger" : "button--primary"}`}
+                className={status === "danger" ? "min-h-9 border border-danger bg-danger px-3 py-2 text-sm font-medium text-white transition hover:opacity-90" : "min-h-9 border border-brand bg-brand px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-deep"}
               >
                 {confirmLabel}
               </AlertDialog.CloseTrigger>

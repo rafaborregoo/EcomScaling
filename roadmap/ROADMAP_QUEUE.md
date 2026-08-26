@@ -2,6 +2,10 @@
 
 ## Corrección vigente 2026-08-26 - Estado real de la cola
 
+> **Lectura rápida:** el producto está en cierre de piloto, no en fase de fundación. Base de datos,
+> contratos IA, UI reutilizable, Shopify y preparación de conectores están implementados; la cola
+> debe priorizar validación, hardening y bloqueos externos, evitando nuevas capas de arquitectura.
+
 Los bloques AI-16 a AI-31 ya tienen implementación local, contratos, UI,
 FE-01/BE-07 2026-08-26: El panel de Consultor endurece carga y mutaciones de acceso multi-tenant,
 edicion de clientes, tiendas y restauraciones. Miembros, asignaciones, eliminaciones y
@@ -27,7 +31,33 @@ tools futuras, prompts canónicos, evals de los diez agentes, evidence grounding
 release gate, evidencia durable, runner offline/shadow/live y readiness API/UI.
 La cola no debe volver a tratarlos como pendientes de diseño; sólo queda la
 aplicación remota de migraciones/tipado y la validación con proveedores reales.
-El siguiente trabajo local se mantiene en UI/UX, QA/observabilidad y runbooks,
+FE-UI 2026-08-26: Se empieza la migraciÃ³n visual pÃ¡gina por pÃ¡gina usando el
+catÃ¡logo compartido de HeroUI. Dashboard e Integraciones ya usan `Card` de
+HeroUI para sus superficies principales, eliminando contenedores ad-hoc de
+secciÃ³n y manteniendo los controles centralizados en `components/ui`. Typecheck
+web y los gates de catÃ¡logo/accesibilidad pasan.
+
+FE-UI siguiente incremento: Conocimiento, Operaciones y Agentes tambiÃ©n pasan
+por `Card` y controles HeroUI compartidos para formularios, filtros, alertas,
+tareas y ejecuciones. ConfiguraciÃ³n ya estaba basada en el mismo componente.
+
+FE-UI siguiente incremento: Llamadas, Shopify y DiagnÃ³stico Shopify usan
+`Card` para sus superficies principales, KPIs, trazas, sincronizaciÃ³n y muestras.
+El typecheck web y los gates de catÃ¡logo/accesibilidad siguen verdes.
+
+FE-UI cierre de pasada 2026-08-26: Camino, Consultor, Marketing, Login y
+Privacidad quedan revisados por pÃ¡gina. Las superficies operativas usan el
+catÃ¡logo HeroUI compartido; Home solo redirige y no requiere UI adicional.
+Validaciones finales: typecheck web, catÃ¡logo HeroUI, accesibilidad, estados de
+producto, enlaces Markdown y foundation Instagram pasan.
+
+INT-FIELDS 2026-08-26: se aÃ±ade `scripts/assert-connector-field-coverage.mjs`.
+El gate comprueba 27 tablas y 135 campos estructurales del MVP de Shopify, Meta
+Ads y Klaviyo contra `packages/db/src/database.types.ts`; pasa con cobertura
+completa del contrato MVP. Los campos fuera de alcance permanecen documentados
+como `raw_data`/extensiÃ³n futura, no como deuda oculta.
+
+ El siguiente trabajo local se mantiene en UI/UX, QA/observabilidad y runbooks,
 sin esperar credenciales externas.
 
 > Documento operativo para avanzar por bloques completos, con una única cola de trabajo. Evita abrir fases al azar y mantiene una separación explícita entre lo implementable localmente y lo que depende de sistemas externos.
@@ -72,6 +102,13 @@ Dejar EcomScaling preparado para piloto: Shopify operativo, Meta/Klaviyo/Instagr
 |    09 | Cierre de piloto               | `99-decisiones-y-seguimiento`                                       | Evidencia canónica actualizada y lista externa de bloqueos sin afirmaciones inventadas.               |
 
 ## Estado actual de la cola
+
+> **CorrecciÃ³n vigente 2026-08-26:** las 71 migraciones locales y remotas estÃ¡n
+ alineadas (`localCount=71`, `remoteCount=71`, sin `pendingLocal` ni
+ `remoteOnly`). Las 7 migraciones recientes fueron revisadas, probadas con
+ rollback y aplicadas al proyecto remoto; los tipos oficiales de Supabase se
+ regeneraron desde ese esquema. Las menciones histÃ³ricas a 64 migraciones o a
+ typegen pendiente quedan supersedidas por esta evidencia.
 
 > Incremento FE-01 2026-08-24: el dashboard incorpora `OnboardingChecklist`, que guía la secuencia
 > Shopify conectado → primera sincronización validada → canales futuros preparados. No muestra datos
@@ -136,7 +173,7 @@ Dejar EcomScaling preparado para piloto: Shopify operativo, Meta/Klaviyo/Instagr
   `public,private` y actualizó `packages/db/src/database.types.ts`; incluye AI-26, cola de memoria,
   Fathom y los RPC nuevos. Typecheck de db/API/web pasa.
 - Supabase types: `gen types --db-url` requiere Docker Linux en esta instalación y no pudo consultar el esquema; se conservan los tipos locales verificados sin sobrescribirlos.
-- `07`: `in_progress`; API y worker ya exponen contadores y el API también histograma de latencia; falta backend compartido de métricas, alertas basadas en SLO y simulacro real aislado de restore.
+- `07`: `in_progress`; API y worker ya exponen contadores y el API también histograma de latencia. La alerta de SLO (`http_slo_degraded`/`http_slo_check_failed`, RB-011) ya está cableada en `runOpsHealthCheck` mediante `API_BASE_URL`/`INTERNAL_API_SECRET` opcionales; falta desplegar una instancia real accesible desde el cron para que produzca findings, backend compartido de métricas multi-instancia y simulacro real aislado de restore.
 - `08`: `implemented_partial` / `blocked_external`; faltan credenciales, scopes y validación real.
 - `09`: `in_progress`; es el bloque de consolidación, no un sustituto de las verificaciones externas.
 
@@ -447,6 +484,96 @@ La cola permite seguir implementando campos, contratos, agentes, UI, tests y doc
 La checklist ejecutable de requisitos, evidencia y activación está en
 [`BLOQUEADORES_EXTERNOS_Y_ACTIVACION.md`](roadmaps/99-decisiones-y-seguimiento/BLOQUEADORES_EXTERNOS_Y_ACTIVACION.md).
 
+## Presentación y traducción de campos
+
+- `apps/web/src/lib/display-labels.ts` es el registro reutilizable de presentación:
+  mantiene los nombres canónicos de proveedores y base de datos en backend, pero
+  traduce métricas, dimensiones, estados y booleanos al español en la UI.
+- Los valores desconocidos no se muestran como `snake_case`: se humanizan como
+  fallback mientras se añade su traducción explícita.
+- El diagnóstico técnico de Shopify ya usa este contrato para estados de pago,
+  envío, inventario controlado y requerimiento de envío. Debe reutilizarse en
+  cualquier nueva tabla o filtro de conectores.
+
+## FE-UI 2026-08-26: escala SaaS compartida
+
+- La base visual aplica la escala oficial de HeroUI para títulos (`36/30/24/20/18/16px`),
+  botones `sm/md` con altura consistente y ancho mínimo para acciones.
+- `Card`, `Button` y `Heading` son los puntos únicos de composición; las páginas
+  no deben recrear radios, padding, foco o jerarquías por separado.
+- El ritmo común usa `line-height: 1.5`, `gap` espacioso en desktop y adaptación
+  móvil, con foco visible y reducción de movimiento respetando preferencias del
+  sistema.
+- Referencias: [HeroUI Typography](https://heroui.com/en/docs/react/components/typography),
+  [HeroUI Card](https://beta.heroui.com/docs/components/card),
+  [HeroUI Button](https://heroui.com/en/docs/react/components/button) y
+  [WCAG 2.1](https://www.w3.org/TR/WCAG21/).
+
+- Integraciones: primera pasada de detalle aplicada. La página usa el
+  contenedor común, separación de 16px entre tarjetas, encabezados con jerarquía
+  semántica `h3`, subpaneles con padding uniforme y estados de reporting
+  traducidos mediante `display-labels`.
+- Conocimiento: segunda pasada aplicada. La página usa el contenedor común,
+  separación responsive entre columnas y formularios, y paneles de permisos
+  con superficie diferenciada para que añadir, buscar y revisar documentos sean
+  acciones visualmente separables.
+- Tareas/Operaciones: tercera pasada aplicada. Filtros y búsqueda se adaptan a
+  móvil, la acción de evaluar reglas ocupa una posición primaria clara, las
+  tarjetas cambian de densidad solo en breakpoints amplios y las severidades de
+  alertas se presentan con texto de negocio en lugar del enum interno.
+- Llamadas: cuarta pasada aplicada. El detalle usa el espacio interno común de
+  las cards, los subpaneles de resumen tienen superficie diferenciada, los
+  formularios de tarea/nota se apilan correctamente en móvil y los estados de
+  tareas relacionadas se traducen al lenguaje de negocio.
+- Shopify: quinta pasada aplicada. La vista de negocio usa el contenedor común,
+  cabecera responsive, acciones operativas agrupadas, selector de periodo con
+  wrapping seguro y cabecera de ventas alineada con el padding HeroUI.
+- Diagnóstico Shopify: sexta pasada aplicada. El panel técnico usa el contenedor
+  común, reduce la densidad vertical, traduce estados del resumen y muestras,
+  nombra los permisos como permisos API y mantiene los identificadores crudos
+  solo dentro de las tablas de verificación técnica.
+- Mi Camino: séptima pasada aplicada. La planificación mantiene su patrón
+  vertical numerado, pero usa el contenedor común, cards sin sombras innecesarias
+  y una jerarquía más limpia entre fases, hitos, tareas y formularios de edición.
+- Consultor: octava pasada aplicada. La tabla de clientes presenta estados de
+  organización y suscripción traducidos, el buscador ocupa correctamente el
+  ancho disponible en móvil y el contenedor separa mejor resumen, búsqueda,
+  listado y detalle expandido.
+- Configuración: novena pasada aplicada. Los formularios financieros usan una
+  cuadrícula con separación uniforme, las acciones ocupan el ancho adecuado en
+  móvil y los roles/estados de suscripción se traducen al lenguaje de negocio.
+- Marketing IA: décima pasada aplicada. La página separa mejor generación,
+  revisión, historial, edición y preview; los paneles de auditoría y avisos
+  usan superficies diferenciadas y la confianza se presenta como Baja, Media o
+  Alta.
+- Agentes IA: undécima pasada aplicada. La vista distingue estados de ejecución,
+  modo de previsualización/en vivo, revisión humana y trazabilidad; los
+  resultados de herramientas y consultas se presentan como Correcto/Error o
+  Correcta/Rechazada para evitar enums técnicos en la lectura operativa.
+- Dashboard: duodécima pasada aplicada. Se eliminó un encabezado duplicado en el
+  bloque de foco, se traducen estados de conexión de tiendas y se conserva la
+  prioridad visual: primero acciones de impacto, después KPIs y finalmente el
+  detalle por canal.
+- Login: decimotercera pasada aplicada. El formulario usa una columna de acceso
+  más cómoda en desktop, superficie diferenciada en el panel de entrada, ancho
+  máximo legible y ritmo vertical consistente en campos y feedback.
+- PortalShell: pasada transversal aplicada. La navegación lateral y el cierre de
+  sesión tienen objetivos táctiles y alineación consistentes, mientras que la
+  barra de contexto de cliente/tienda usa más aire vertical sin perder densidad.
+- Consistencia transversal: eliminadas las últimas clases heredadas
+  `button--primary/secondary/danger` de Dashboard, onboarding y diálogos. Las
+  acciones usan estilos explícitos compatibles con HeroUI, con foco y estados
+  hover coherentes.
+- Copy/UI: corregidas las últimas cadenas visibles con codificación rota en
+  errores de agentes, Shopify, Copilot y notificaciones. La búsqueda de
+  caracteres `Ã`, `Â` y `â` en el código web queda limpia.
+- Componentes UI: creado `ButtonLink` sobre HeroUI y migrados Dashboard y
+  onboarding. Los enlaces que ejecutan una acción visual ahora comparten un
+  único contrato de altura, padding, foco y variantes primaria/secundaria.
+- Revisión transversal final de esta pasada: todas las páginas del portal usan
+  `portal-page`; no quedan clases `button--*` ni cadenas corruptas `Ã`, `Â` o `â`
+  en el código web.
+
 ## AI-16 completado localmente: RAG y Playbook anti-injection
 
 `packages/ai/src/untrusted-context.ts` centraliza la frontera de datos no confiables para conocimiento propio, metodologÃ­a global, Playbook inteligente, conectores y resultados de tools. Los ciclos Anthropic/OpenAI usan delimitadores, lÃ­mites de tamaÃ±o y neutralizaciÃ³n de intentos de prompt injection directa/indirecta. El detalle y los tests adversariales estÃ¡n en `roadmaps/05-agentes-ia/AI-16-RAG-PLAYBOOK-ANTI-INJECTION.md`.
@@ -575,7 +702,101 @@ compartido de análisis, resumen, aprobación, notas y tareas. Las operaciones s
 éxito tras HTTP confirmado, el busy state siempre termina y el formulario de registro conserva
 los datos si falla la red. Typecheck web y gates UI pasan.
 
+FE-01 2026-08-26: decisión de producto de Rafa — el aprovisionamiento manual de cuentas es
+suficiente para el Piloto 1; no se construyen signup, invitación por email ni recuperación de
+contraseña propia. Cierra el único punto pendiente real de FE-01; el resto del gap histórico era
+documentación desactualizada (ver corrección siguiente).
+
+FE-01 2026-08-26: corrección documental — la lista de "gaps sin resolver" de
+`fases/FE-01-auth-onboarding.md` estaba desactualizada desde su última validación (2026-07-22) y
+listaba como pendientes cuatro cosas ya resueltas por incrementos posteriores: reautorización de
+Shopify por scopes faltantes (`actions.ts` + `portal-shell.tsx`), estados de organización
+suspendida/suscripción no activa en `PortalShell`, `EmptyState` de consultor sin clientes
+asignados y cierre honesto de callbacks OAuth con token caducado. Sólo queda como decisión real
+pendiente el signup/invitación propios (decisión de producto de Rafa, no implementación).
+
 FE-01/DB-03 2026-08-26: Configuración financiera y cobertura Shopify capturan fallos de red,
 liberan siempre sus estados de carga/guardado y conservan los valores editados si el servidor
 no responde. Añadir/quitar gastos evita duplicados durante la misma operación y sólo refresca
 la configuración tras éxito confirmado. Typecheck web y gates UI pasan.
+
+FE-02 2026-08-26: decisión de producto — qué ve el cliente del diagnóstico IA
+en el Dashboard. "Resumen ejecutivo IA" (A02, variante `summary`, solo lectura
+sin tabla de hallazgos/recomendaciones ni botón de aprobar) pasa a verse
+también por el cliente: es lo esencial ("qué está pasando"), sin exponer
+metodología. "Plan de tareas IA" (A04) y "Stock IA" (A06) — variante `full`
+con el motor de priorización/reposición y el botón que materializa tareas —
+siguen sólo para consultor/admin; las tareas que el consultor aprueba llegan
+igual al cliente vía Tareas/Mi Camino. Backend sin cambios: ninguno de los
+tres endpoints tenía restricción de rol, la gate era sólo de frontend.
+
+FE-02 2026-08-26: auditoría de campos — `/shopify/metrics` ya devolvía
+`stock.{tracked_items,total_available,low_stock_items,out_of_stock_items}`
+en cada respuesta, pero el tipo del Dashboard lo descartaba por completo, así
+que nadie (ni cliente ni consultor) veía stock agotado o bajo desde la vista
+principal. Añadido: fila de stock en el Card de resumen ejecutivo (visible a
+ambos roles, dato crudo sin metodología) y una regla determinista (sin IA) en
+`buildFocusItems` que sube "N producto(s) agotado(s)" a "Qué requiere
+atención" cuando `out_of_stock_items > 0` — una rotura de stock no es una
+predicción, es un hecho ya ocurrido.
+
+FE-02 2026-08-26: Dashboard más legible para cliente y consultor. Todos los
+importes (facturación, AOV, beneficio neto, break-even, gastos fijos,
+inversión/CAC de Meta) usan el `formatMoney` compartido (`@/lib/money`,
+dedupe de tres copias idénticas en `/shopify` y `/shopify/diagnostico`) en
+vez de números crudos sin separador de miles ni símbolo de moneda. ROAS
+gana el sufijo "x" (convención estándar del métrica). El estado de las
+tiendas Shopify usa `displayValue` en vez del enum en inglés sin traducir.
+"AOV" pasa a "Ticket medio (AOV)". De paso se corrigió un encabezado con
+mojibake ("QuÃ© requiere atenciÃ³n") y un bloque duplicado oculto que había
+quedado de una edición concurrente en `AdaptiveFocus`. Typecheck web y los
+tres gates UI/accesibilidad/catálogo pasan.
+
+FE-05 2026-08-26: Mi Camino gana orientación para ambos perfiles sin cambiar
+el patrón de lista numerada explícitamente pedido por Rafa. `TaskListItem`
+ahora muestra `due_at` (nunca se renderizaba) con `Badge` "Vencida" si está
+vencida, mismo criterio que `tareas/page.tsx`. La fase activa y su hito en
+curso (o el primer pendiente) reciben `aria-current="step"` y el Card del
+plan añade una frase de una línea ("Estás en la fase X, en el hito Y" para
+cliente; "El cliente está en..." para consultor/admin) para orientar sin leer
+todo el árbol. Typecheck web y los tres gates UI/accesibilidad/catálogo pasan.
+
+SQO-02 2026-08-26 (bloque 07): `checkHttpSlo` conecta `runOpsHealthCheck` con el endpoint
+`/health/slo` ya existente. Con `API_BASE_URL`/`INTERNAL_API_SECRET` configurados (nuevos, ambos
+opcionales en `packages/config`), emite `http_slo_degraded` cuando el SLO HTTP se incumple y
+`http_slo_check_failed` si el propio chequeo no puede completarse (timeout, red, secreto
+incorrecto); sin esas dos variables se omite en vez de fallar, mismo criterio de "preparado, no
+conectado" que el resto de conectores. Nuevo runbook `RB-011-http-slo-degraded.md`. 7/7 tests
+directos nuevos y typecheck de API/config/worker pasan. Falta desplegar una instancia real
+accesible desde el runner del cron para que produzca findings de verdad — eso sí es
+`blocked_external` (necesita un despliegue), no un límite de diseño.
+
+INT-FIELDS 2026-08-26 (correcciÃ³n): el gate verifica 27 tablas y 135 campos MVP
+contra los tipos generados. La inspecciÃ³n de adaptadores confirma los mapeos
+principales de Shopify, Meta y Klaviyo. `raw_data` es respaldo para Meta/Klaviyo;
+Shopify lo excluye intencionadamente para no retener PII cruda, por lo que sus
+campos no normalizados requieren una decisiÃ³n futura de privacidad/retenciÃ³n.
+
+INT-MAPPINGS 2026-08-26: la auditorÃ­a de adaptadores detectÃ³ y cerrÃ³ dos huecos:
+Shopify ahora solicita `InventoryItem.unitCost` y lo escribe en coste/currency del
+inventory item (respetando el permiso View product costs); Meta solicita y persiste
+breakdowns, hashes, `action_report_time` y ventanas de atribuciÃ³n. El gate pasa con
+3 adaptadores, 13 grupos y 69 tokens, y los tests directos de Meta pasan 7/7.
+
+SQO-RETENTION 2026-08-26: nueva migraciÃ³n `20260826170000_ops_webhook_retention.sql`
+con purga segura de payloads terminales de webhook tras 30 dÃ­as, endpoint interno
+protegido y job diario del worker a las 03:30 Europe/Madrid. Los estados recibidos,
+encolados o fallidos no se eliminan. Typechecks db/API/worker, tests de retenciÃ³n y
+repeatables (6/6), y drift Supabase (72/72) pasan.
+
+SQO-AI-RETENTION 2026-08-26: `20260826173000_ops_ai_context_retention.sql` redacta
+payloads antiguos de tools/contexto/SQL y elimina solo versiones no actuales de
+transcripciones, manteniendo runs, costes, aprobaciones y outputs. El worker lo
+ejecuta a las 03:45 Europe/Madrid con ventana tecnica de 180 dias. Typechecks de
+db/API/worker, tests de retencion (8/8) y drift Supabase (73/73) pasan.
+
+SQO-EXPORT 2026-08-26: `20260826180000_ops_organization_export.sql` añade export
+JSON v1 filtrado por tenant mediante lista blanca y excluye credenciales/secretos;
+el endpoint queda restringido a platform_admin y auditado. La prueba remota devuelve
+schema v1, organization_id y 56 tablas exportables para un tenant existente; el
+contrato de exportación pasa.

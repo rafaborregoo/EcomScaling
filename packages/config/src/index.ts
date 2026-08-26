@@ -80,6 +80,11 @@ const apiEnvSchema = z.object({
   VOYAGE_API_KEY: z.string().min(1).optional(),
   INTERNAL_API_SECRET: z.string().min(1).optional(),
   REDIS_URL: z.string().url().optional(),
+  // SQO-02: URL publica de una instancia de la API ya desplegada, para que el
+  // chequeo de salud operativa (corrido aparte, por cron/CI) pueda leer
+  // `/health/slo` de esa instancia real. Opcional: sin desplegar, el chequeo
+  // simplemente omite esta alerta en vez de fallar.
+  API_BASE_URL: z.string().url().optional(),
 });
 
 const workerEnvSchema = z.object({
@@ -132,6 +137,7 @@ export type LoadedApiEnv = {
   VOYAGE_API_KEY?: string;
   INTERNAL_API_SECRET?: string;
   REDIS_URL?: string;
+  API_BASE_URL?: string;
 };
 
 export function loadApiEnv(
@@ -305,6 +311,7 @@ export function loadApiEnv(
       ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET }
       : {}),
     ...(env.REDIS_URL ? { REDIS_URL: env.REDIS_URL } : {}),
+    ...(env.API_BASE_URL ? { API_BASE_URL: env.API_BASE_URL } : {}),
   };
 }
 

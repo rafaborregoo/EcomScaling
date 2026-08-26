@@ -1,5 +1,30 @@
 # SQO-03 - Privacidad y auditoria
 
+> Actualizacion 2026-08-26: se establece una retencion operativa de 30 dias para
+> payloads de webhook en estado terminal (`processed`/`ignored_duplicate`). La
+> migracion `20260826170000_ops_webhook_retention.sql` crea la purga batched
+> `private.purge_processed_webhook_events`; nunca elimina eventos `received`,
+> `queued` o `failed`, que deben seguir disponibles para procesamiento/replay.
+> El worker la ejecuta diariamente a las 03:30 Europe/Madrid mediante el endpoint
+> interno protegido. El resto de retenciones (transcripciones, agent runs y
+> auditoria) continua pendiente de una politica de producto/legal especifica.
+
+> Actualizacion 2026-08-26 (contexto IA): se fija una ventana tecnica de 180 dias
+> para payloads de `agent_run_steps`, inputs/outputs de `agent_tool_calls`,
+> snapshots de contexto y SQL de `agent_query_runs`. La migracion
+> `20260826173000_ops_ai_context_retention.sql` los redacta por lotes solo en
+> ejecuciones no activas y conserva metadatos, costes, estados, aprobaciones y
+> outputs. Elimina unicamente versiones antiguas no actuales de
+> `call_transcripts`. El worker lo ejecuta diariamente a las 03:45 Europe/Madrid.
+> La cifra es una politica tecnica inicial y debe revisarse con legal antes del
+> lanzamiento comercial.
+
+> Exportacion tenant-scoped 2026-08-26: `private.export_organization_data` y
+> `GET /v1/consultant/organizations/:organizationId/export` generan JSON v1 con
+> lista blanca de tablas publicas filtradas por `organization_id`. Solo un
+> `platform_admin` puede solicitarlo; las credenciales cifradas y secretos quedan
+> fuera del export. La purga existente mantiene periodo de gracia y cascada FK.
+
 ## Estado
 
 > Auditoria vigente 2026-08-24: `recordAuditLog` sigue siendo el punto comun

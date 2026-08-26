@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, Card, Link } from "@/components/ui";
+import { Badge, ButtonLink, Card, Link } from "@/components/ui";
 import {
   getOnboardingChecklistSteps,
   type ChecklistStepState,
@@ -80,9 +80,9 @@ export function OnboardingChecklist({
       title="Pon tu tienda en marcha"
       description="Sigue el orden que protege la calidad de tus decisiones: primero datos propios, después adquisición y retención."
       actions={
-        <Link className="button button--secondary" href={actionHref}>
+        <ButtonLink variant="secondary" href={actionHref}>
           {actionLabel}
-        </Link>
+        </ButtonLink>
       }
       className="border-l-4 border-l-accent"
     >

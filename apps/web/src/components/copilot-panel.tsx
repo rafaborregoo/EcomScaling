@@ -70,7 +70,7 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
     setConversationId(payload.conversation_id);
     setMessages((prev) => [...prev, { role: "assistant", content: payload.output.answer, sources: payload.output.sources ?? [], warnings: payload.output.warnings ?? [] }]);
     } catch {
-      setError({ message: "No se pudo completar la consulta. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.", status: "danger" });
+      setError({ message: "No se pudo completar la consulta. Revisa la conexión e inténtalo de nuevo.", status: "danger" });
     } finally {
       setIsSending(false);
     }

@@ -88,6 +88,12 @@ const contentTypeOptions = [
   { value: "popup", label: "Popup / formulario" },
 ];
 
+const confidenceLabels: Record<MarketingDraft["confidence"], string> = {
+  low: "Baja",
+  medium: "Media",
+  high: "Alta",
+};
+
 function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
   const canView = ["platform_admin", "consultant"].includes(
@@ -322,7 +328,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="portal-page space-y-8">
       <div>
         <Heading size="lg">Contenido para Klaviyo</Heading>
         <p className="mt-2 max-w-3xl text-sm text-muted">
@@ -373,7 +379,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <section className="space-y-4">
+      <Card>
         <Heading level={2} size="md">
           Borradores recientes
         </Heading>
@@ -385,7 +391,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             hint="Crea el primero para revisar el preview y el HTML sanitizado."
           />
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-6">
             {drafts.map((draft) => (
               <Card
                 key={draft.id}
@@ -429,7 +435,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       </Button>
                     </div>
                     {historyDraftId === draft.id ? (
-                      <div className="border border-edge bg-surface p-3 text-sm">
+                      <div className="rounded-md border border-edge bg-surface p-4 text-sm">
                         <p className="font-medium">Versiones auditables</p>
                         <ol className="mt-2 space-y-2">
                           {versionHistory.map((version) => (
@@ -454,7 +460,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       </div>
                     ) : null}
                     {editingDraftId === draft.id && editForm ? (
-                      <div className="space-y-4 border border-warning/40 bg-warning/10 p-4">
+                      <div className="space-y-4 rounded-md border border-warning/40 bg-warning/10 p-4">
                         <p className="text-sm font-medium">
                           Editar contenido · al guardar volverá a requerir
                           aprobación
@@ -571,14 +577,14 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       </div>
                       <div>
                         <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                          Confianza
+                          Confianza de la generación
                         </p>
-                        <p className="text-sm">{draft.confidence}</p>
+                        <p className="text-sm">{confidenceLabels[draft.confidence]}</p>
                       </div>
                     </div>
                     {draft.warnings.length > 0 ? (
-                      <div className="border border-warning/40 bg-warning/10 p-3 text-sm">
-                        <p className="font-medium">Warnings</p>
+                      <div className="rounded-md border border-warning/40 bg-warning/10 p-4 text-sm">
+                        <p className="font-medium">Avisos</p>
                         <ul className="mt-1 list-disc pl-5">
                           {draft.warnings.map((warning) => (
                             <li key={warning}>{warning}</li>
@@ -615,7 +621,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         </>
                       ) : null}
                       {decisionDraft?.id === draft.id ? (
-                        <div className="basis-full space-y-3 border border-edge bg-surface p-3">
+                        <div className="basis-full space-y-3 rounded-md border border-edge bg-surface p-4">
                           <Field
                             label={
                               decisionDraft.decision === "approved"
@@ -693,7 +699,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ))}
           </div>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

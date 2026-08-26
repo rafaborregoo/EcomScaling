@@ -4,7 +4,7 @@ import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { fetchBootstrap, getAccessToken } from "@/lib/bootstrap";
-import { Button, ErrorBlock, Field, Input, LoadingBlock } from "@/components/ui";
+import { Button, Card, ErrorBlock, Field, Input, LoadingBlock } from "@/components/ui";
 
 // FE-01: antes una sesion expirada (o un signOut forzado por el backend, ej.
 // consultor suspendido en caliente) redirigia aqui en silencio -- el usuario
@@ -80,8 +80,8 @@ function LoginPageContent() {
       </aside>
 
       {/* Formulario */}
-      <div className="flex items-center justify-center bg-white px-6 py-12 text-black">
-        <section className="w-full max-w-sm">
+      <div className="flex items-center justify-center bg-surface px-6 py-12 text-black lg:px-12">
+        <Card className="w-full max-w-md">
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-brand lg:hidden">
             EcomScaling IA
           </p>
@@ -93,7 +93,7 @@ function LoginPageContent() {
             </p>
           ) : null}
 
-          <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
             <Field label="Email">
               <Input
                 type="email"
@@ -119,7 +119,7 @@ function LoginPageContent() {
               {isSubmitting ? "Entrando..." : "Entrar"}
             </Button>
           </form>
-        </section>
+        </Card>
       </div>
     </main>
   );

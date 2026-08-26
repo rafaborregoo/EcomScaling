@@ -129,6 +129,26 @@ const ORIGIN_LABEL: Record<"consultant" | "client", string> = {
   client: "Cliente",
 };
 
+// Mismo criterio que `isTaskOverdue` en tareas/page.tsx: due_at ya paso y la
+// tarea sigue abierta. Se aplica aqui porque `due_at` llegaba en la respuesta
+// pero nunca se mostraba en Mi Camino -- una tarea de un hito podia estar
+// vencida sin ninguna senal visible en esta vista.
+function isTaskOverdue(task: MilestoneTask) {
+  return (
+    Boolean(task.due_at) &&
+    ["pending", "in_progress"].includes(task.status) &&
+    Date.parse(task.due_at as string) < Date.now()
+  );
+}
+
+function formatDueDate(dueAt: string) {
+  return new Date(dueAt).toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function OriginDot({ origin }: { origin: CreatorOrigin }) {
   if (!origin) return null;
   return (
@@ -203,8 +223,9 @@ function PhaseListItem({
         : "var(--color-edge-strong)";
   return (
     <div
-      className="flex w-full items-center gap-3 rounded-lg border-2 bg-white px-3 py-2.5 shadow-sm"
+      className="flex w-full items-center gap-3 rounded-md border-2 bg-white px-3 py-3 shadow-none"
       style={{ borderColor: tone }}
+      aria-current={phase.status === "active" ? "step" : undefined}
     >
       <span
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold text-white"
@@ -250,6 +271,7 @@ function MilestoneListItem({
   numberLabel,
   milestone,
   canManage,
+  isFocus,
   isExpanded,
   onToggleExpand,
   isEditing,
@@ -259,6 +281,7 @@ function MilestoneListItem({
   numberLabel: string;
   milestone: Milestone;
   canManage: boolean;
+  isFocus: boolean;
   isExpanded: boolean;
   onToggleExpand: () => void;
   isEditing: boolean;
@@ -289,8 +312,9 @@ function MilestoneListItem({
 
   return (
     <div
-      className="flex w-full items-center gap-2.5 rounded-md border-2 bg-white px-2.5 py-1.5 shadow-sm"
+      className="flex w-full items-center gap-2.5 rounded-md border-2 bg-white px-2.5 py-2 shadow-none"
       style={{ borderColor: tone }}
+      aria-current={isFocus ? "step" : undefined}
     >
       <Button
         type="button"
@@ -524,6 +548,13 @@ function TaskListItem({
       <Badge tone="neutral">
         {TASK_STATUS_LABELS[task.status] ?? task.status}
       </Badge>
+      {isTaskOverdue(task) ? (
+        <Badge tone="danger">Vencida</Badge>
+      ) : task.due_at ? (
+        <span className="font-mono text-[0.65rem] text-muted">
+          vence {formatDueDate(task.due_at)}
+        </span>
+      ) : null}
       {TASK_SOURCE_LABELS[task.source] ? (
         <Badge tone="brand">{TASK_SOURCE_LABELS[task.source]}</Badge>
       ) : null}
@@ -544,10 +575,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const membership = bootstrap.memberships.find(
     (item) => item.organization_id === (organization?.id ?? ""),
   );
+  const isConsultantView = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
   const canManage =
-    ["platform_admin", "consultant"].includes(
-      bootstrap.profile.platform_role,
-    ) || ["owner", "manager"].includes(membership?.role ?? "");
+    isConsultantView || ["owner", "manager"].includes(membership?.role ?? "");
 
   const [payload, setPayload] = useState<PlanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -816,8 +848,24 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     0,
   );
 
+  // "Donde estas ahora": orienta a quien abre el plan sin tener que leer todo
+  // el arbol de fases. La fase activa manda; dentro de ella, el hito en curso
+  // o, si ninguno arranco todavia, el primer hito pendiente por posicion.
+  const activePhase = phases.find((phase) => phase.status === "active") ?? null;
+  const focusMilestone = activePhase
+    ? (activePhase.strategic_plan_milestones
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .find((m) => m.status === "in_progress") ??
+      activePhase.strategic_plan_milestones
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .find((m) => m.status === "pending") ??
+      null)
+    : null;
+
   return (
-    <div className="space-y-4">
+    <div className="portal-page space-y-6">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {isLoading ? (
@@ -825,7 +873,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : plan ? (
         <>
           <Card
-            className="border-t border-ink/20"
             kicker={`v${plan.version} · ${plan.status}`}
             title={plan.name}
             description={plan.description ?? undefined}
@@ -866,6 +913,26 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <ProgressBar.Fill />
                 </ProgressBar.Track>
               </ProgressBar>
+            ) : null}
+            {activePhase ? (
+              <p className="mt-2 text-sm">
+                {isConsultantView ? "El cliente está en" : "Estás en"} la fase{" "}
+                <strong className="font-semibold">{activePhase.name}</strong>
+                {focusMilestone ? (
+                  <>
+                    , en el hito{" "}
+                    <strong className="font-semibold">
+                      {focusMilestone.name}
+                    </strong>
+                    {focusMilestone.target_date
+                      ? ` (objetivo ${focusMilestone.target_date})`
+                      : ""}
+                    .
+                  </>
+                ) : (
+                  ", sin ningún hito en curso todavía."
+                )}
+              </p>
             ) : null}
             <div className="mt-2 flex items-center gap-4 font-mono text-xs text-muted">
               <span className="flex items-center gap-1.5">
@@ -983,6 +1050,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                 numberLabel={`${phase.position}.${milestoneIndex + 1}`}
                                 milestone={milestone}
                                 canManage={canManage}
+                                isFocus={focusMilestone?.id === milestone.id}
                                 isExpanded={isMilestoneExpanded}
                                 onToggleExpand={() =>
                                   setExpandedMilestoneId(
@@ -1099,7 +1167,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : null}
         </>
       ) : (
-        <Card title="Sin plan estrategico" className="border-t border-ink/20">
+        <Card title="Sin plan estrategico">
           <p className="text-sm leading-6 text-muted">
             {canManage
               ? "Crea el primer plan: escribe el nombre y el esquema de fases e hitos."

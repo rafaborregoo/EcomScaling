@@ -53,6 +53,7 @@ export { Autocomplete } from "./autocomplete";
 export { ConfirmDialog } from "./confirm-dialog";
 export { Checkbox } from "./checkbox";
 export { Link } from "./link";
+export { ButtonLink } from "./link";
 export { Heading } from "./heading";
 export type { TableColumnDef } from "./table";
 export { Table } from "./table";

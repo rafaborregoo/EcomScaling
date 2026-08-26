@@ -30,6 +30,10 @@ jobs:
       SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
       SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
       SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+      # SQO-02: opcionales. Sin desplegar todavia una instancia de la API con
+      # estos dos secretos, el chequeo de SLO se omite en vez de fallar.
+      API_BASE_URL: ${{ secrets.API_BASE_URL }}
+      INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
       # Ruta absoluta a proposito (bug real que tumbaba este workflow en el
       # 100% de sus corridas): `npm run <script> -w <workspace>` ejecuta con
       # cwd = apps/worker/, asi que una ruta relativa aqui escribia el JSON en

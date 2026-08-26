@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { displayValue } from "@/lib/display-labels";
 import {
   AsyncState,
   Badge,
@@ -368,7 +369,7 @@ function FinancialConfigSection({
   );
 
   return (
-    <div className="space-y-4">
+    <div className="portal-page space-y-6">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {!canManage ? (
@@ -379,7 +380,7 @@ function FinancialConfigSection({
       ) : null}
 
       <Card title="Costes por pedido">
-        <form className="grid gap-3 md:grid-cols-4" onSubmit={saveSettings}>
+        <form className="grid gap-4 md:grid-cols-4" onSubmit={saveSettings}>
           <Field label="Comisión pago (%)">
             <Input
               type="number"
@@ -415,7 +416,7 @@ function FinancialConfigSection({
             />
           </Field>
           <div className="flex items-end">
-            <Button type="submit" disabled={!canManage || isSaving}>
+            <Button className="w-full md:w-auto" type="submit" disabled={!canManage || isSaving}>
               {isSaving ? "Guardando..." : "Guardar"}
             </Button>
           </div>
@@ -434,7 +435,7 @@ function FinancialConfigSection({
         }
       >
         {canManage ? (
-          <form className="grid gap-3 md:grid-cols-4" onSubmit={addExpense}>
+          <form className="grid gap-4 md:grid-cols-4" onSubmit={addExpense}>
             <Input
               className="md:col-span-2"
               value={expenseName}
@@ -465,7 +466,7 @@ function FinancialConfigSection({
                 ]}
               />
             </div>
-            <Button type="submit" disabled={isAddingExpense}>
+            <Button className="w-full md:w-auto" type="submit" disabled={isAddingExpense}>
               {isAddingExpense ? "Añadiendo..." : "Añadir gasto"}
             </Button>
           </form>
@@ -547,7 +548,7 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [tab, setTab] = useState<"general" | "shopify">("general");
 
   return (
-    <div className="space-y-4">
+    <div className="portal-page space-y-6">
       <Tabs
         value={tab}
         onChange={(value) => setTab(value as "general" | "shopify")}
@@ -570,7 +571,7 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </InfoRow>
                 <InfoRow label="Rol plataforma">
                   <span className="font-mono text-brand">
-                    {bootstrap.profile.platform_role}
+                    {displayValue(bootstrap.profile.platform_role)}
                   </span>
                 </InfoRow>
               </dl>
@@ -594,8 +595,8 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <InfoRow label="Plan">
                   <span className="font-mono text-brand">
                     {subscription
-                      ? `${subscription.plan_code}/${subscription.status}`
-                      : "sin_plan"}
+                      ? `${subscription.plan_code} · ${displayValue(subscription.status)}`
+                      : "Sin plan"}
                   </span>
                 </InfoRow>
               </dl>

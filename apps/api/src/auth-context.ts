@@ -33,6 +33,14 @@ type Membership = {
   accessSource: AccessSource;
 };
 
+export type OperationalMembership = Membership & {
+  organization: Organization | null;
+};
+
+export type OperationalOrganizationResult =
+  | { ok: true; membership: OperationalMembership }
+  | { ok: false; statusCode: number; error: string; message?: string };
+
 type Organization = {
   id: string;
   display_name: string;
@@ -74,7 +82,7 @@ export type AuthContextResult =
 export function requireOperationalOrganization(
   context: AuthContext,
   organizationId: string,
-) {
+): OperationalOrganizationResult {
   const membership = context.memberships.find(
     (item) => item.organization_id === organizationId,
   );

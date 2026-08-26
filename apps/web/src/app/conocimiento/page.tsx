@@ -11,12 +11,14 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { displayValue } from "@/lib/display-labels";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
     LoadingBlock,
   Heading,
   Accordion,
   Button,
+  Card,
   EmptyState,
   ErrorBlock,
   Field,
@@ -257,7 +259,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="portal-page space-y-8">
       {organizationId ? (
         <AiDiagnosticSection
           organizationId={organizationId}
@@ -269,15 +271,15 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
       ) : null}
 
-      <div className="grid gap-8 lg:grid-cols-2">
-        <section className="border-t border-ink/20 pt-5">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
           <Heading level={3} size="lg">
             Añadir documento
           </Heading>
 
           {canManageKnowledge ? (
             <>
-              <div className="mt-4 flex flex-wrap items-center gap-4">
+              <div className="mt-5 flex flex-wrap items-center gap-3">
                 <Button
                   type="button"
                   disabled={isSaving}
@@ -351,19 +353,22 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               />
             </>
           ) : (
-            <div className="mt-4 border border-line px-4 py-4 text-sm text-muted">
+            <div className="mt-4 rounded-md border border-line bg-surface px-4 py-4 text-sm leading-6 text-muted">
               Solo los propietarios, managers, consultores y administradores de
               plataforma pueden añadir o indexar documentos. Puedes consultar el
               conocimiento y utilizar la búsqueda semántica.
             </div>
           )}
-        </section>
+        </Card>
 
-        <section className="border-t border-ink/20 pt-5">
+        <Card>
           <Heading level={3} size="lg">
             Búsqueda semántica
           </Heading>
-          <form className="mt-4 flex items-end gap-4" onSubmit={submitSearch}>
+          <form
+            className="mt-5 flex flex-col items-stretch gap-3 sm:flex-row sm:items-end"
+            onSubmit={submitSearch}
+          >
             <Input
               className="w-full"
               aria-label="Buscar en el conocimiento"
@@ -412,10 +417,10 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               )}
             </div>
           ) : null}
-        </section>
+        </Card>
       </div>
 
-      <section className="border-t border-ink/20">
+      <Card>
         <div className="border-b border-line px-4 py-3">
           <Heading level={3} size="md">
             Documentos ({documents.length})
@@ -467,7 +472,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   {document.visibility === "global" ? "global" : "organización"}
                 </span>
                 <span className="font-mono text-xs text-muted">
-                  {document.status} · {document.authority}
+                  {displayValue(document.status)} · {displayValue(document.authority)}
                 </span>
                 <span className="font-mono text-xs text-muted">
                   {new Date(document.created_at).toLocaleDateString("es-ES")}
@@ -476,7 +481,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ))}
           </div>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

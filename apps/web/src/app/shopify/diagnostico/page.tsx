@@ -5,15 +5,18 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { type BootstrapResponse } from "@/lib/bootstrap";
+import { formatMoney } from "@/lib/money";
 import {
   useShopifyOverview,
   type ShopifyOverview,
 } from "@/hooks/use-shopify-overview";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
+import { displayBoolean, displayValue } from "@/lib/display-labels";
 import {
   AsyncState,
   LoadingBlock,
   Banner,
+  Card,
   EmptyState,
   ErrorBlock,
   Heading,
@@ -72,11 +75,6 @@ function formatDate(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
-function formatMoney(value: number | null | undefined, currency = "EUR") {
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(
-    Number(value ?? 0),
-  );
-}
 
 const PAGE_SIZE = 10;
 
@@ -157,10 +155,10 @@ function scopeColumns(
   return [
     {
       key: "scope",
-      label: "Scope",
+      label: "Permiso API",
       render: (row) => <span className="font-mono text-xs">{row.scope}</span>,
     },
-    { key: "area", label: "Area" },
+    { key: "area", label: "Área" },
     {
       key: "authorized",
       label: "Estado",
@@ -273,7 +271,7 @@ function orderColumns(currency: string): TableColumnDef<OrderRow>[] {
       label: "Estado",
       render: (row) => (
         <span className="text-muted">
-          {row.financial_status ?? "n/a"} / {row.fulfillment_status ?? "n/a"}
+        {displayValue(row.financial_status)} / {displayValue(row.fulfillment_status)}
         </span>
       ),
     },
@@ -320,14 +318,14 @@ function inventoryColumns(currency: string): TableColumnDef<InventoryRow>[] {
       key: "tracked",
       label: "Tracked",
       render: (row) => (
-        <span className="text-muted">{String(row.tracked)}</span>
+        <span className="text-muted">{displayBoolean(row.tracked)}</span>
       ),
     },
     {
       key: "requires_shipping",
-      label: "Shipping",
+      label: "Requiere envio",
       render: (row) => (
-        <span className="text-muted">{String(row.requires_shipping)}</span>
+        <span className="text-muted">{displayBoolean(row.requires_shipping)}</span>
       ),
     },
     {
@@ -457,7 +455,7 @@ function ShopifyDiagnosticoView({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="portal-page space-y-6">
       <div className="flex items-center justify-between border-t border-ink/20 pt-5">
         <Link className="inline-flex items-center gap-1" href="/shopify">
           <IconChevronLeft aria-hidden /> Volver a Shopify
@@ -484,7 +482,7 @@ function ShopifyDiagnosticoView({
               {
                 id: "conexion",
                 field: "Conexion",
-                value: overview.connection?.status ?? "sin_conexion",
+                value: displayValue(overview.connection?.status ?? "sin_conexion"),
                 detail:
                   overview.connection?.provider_account_id ??
                   "Tienda pendiente",
@@ -499,7 +497,7 @@ function ShopifyDiagnosticoView({
               {
                 id: "ultimo-sync",
                 field: "Ultimo sync",
-                value: overview.sync_runs[0]?.status ?? "sin_sync",
+                value: displayValue(overview.sync_runs[0]?.status ?? "sin_sync"),
                 detail: formatDate(overview.sync_runs[0]?.finished_at),
               },
               {
@@ -515,7 +513,7 @@ function ShopifyDiagnosticoView({
 
       {tab === "sincronizacion" ? (
         <div className="space-y-5">
-          <section className="grid gap-0 md:grid-cols-4">
+          <Card className="grid gap-0 md:grid-cols-4">
             <article className="border-b border-line p-4 md:border-r">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
                 Se vuelcan ahora
@@ -549,7 +547,7 @@ function ShopifyDiagnosticoView({
                 {overview.authorized_scopes.length}
               </p>
             </article>
-          </section>
+          </Card>
 
           <Table
             ariaLabel="Estado de sincronizacion por bloque"
@@ -590,9 +588,9 @@ function ShopifyDiagnosticoView({
       ) : null}
 
       {tab === "muestras" ? (
-        <div className="space-y-8">
-          <section>
-            <Heading size="md">
+        <div className="space-y-6">
+          <Card>
+            <Heading level={2} size="md">
               Productos ({overview.samples.products.length})
             </Heading>
             <Table
@@ -608,10 +606,10 @@ function ShopifyDiagnosticoView({
               pageCount={products.pageCount}
               onChange={products.setPage}
             />
-          </section>
+          </Card>
 
-          <section>
-            <Heading size="md">
+          <Card>
+            <Heading level={2} size="md">
               Pedidos ({overview.samples.orders.length})
             </Heading>
             <Table
@@ -627,11 +625,11 @@ function ShopifyDiagnosticoView({
               pageCount={orders.pageCount}
               onChange={orders.setPage}
             />
-          </section>
+          </Card>
 
-          <section>
-            <Heading size="md">
-              Inventory items ({overview.samples.inventory.length})
+          <Card>
+            <Heading level={2} size="md">
+              Elementos de inventario ({overview.samples.inventory.length})
             </Heading>
             <Table
               className="mt-3"
@@ -646,7 +644,7 @@ function ShopifyDiagnosticoView({
               pageCount={inventory.pageCount}
               onChange={inventory.setPage}
             />
-          </section>
+          </Card>
         </div>
       ) : null}
     </div>

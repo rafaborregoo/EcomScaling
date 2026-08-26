@@ -1,5 +1,11 @@
 # OPS-02 - Runbooks y soporte
 
+> **CorrecciÃ³n vigente 2026-08-26:** la evidencia actual de migraciones es
+> 71/71 alineadas, no 64/64. Las referencias inferiores a 64 migraciones y al
+> drift histÃ³rico describen fotografÃ­as anteriores; no representan el estado
+> remoto actual. El drill real de backup/restore sigue siendo el Ãºnico pendiente
+> operativo explÃ­cito de este runbook.
+
 > Verificacion vigente 2026-08-24: RB-005 conserva el hallazgo de drift como
 > historial, pero la comprobacion actual es 64/64 migraciones alineadas. El
 > runbook ya incluye la regla de no reparar metadatos sin repetir primero la

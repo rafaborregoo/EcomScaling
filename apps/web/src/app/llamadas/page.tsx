@@ -13,6 +13,7 @@ import {
   Accordion,
   Alert,
   Button,
+  Card,
   EmptyState,
   ErrorBlock,
   Field,
@@ -241,6 +242,14 @@ const summaryStatusLabels: Record<string, string> = {
   rejected: "Rechazado",
 };
 
+const taskStatusLabels: Record<string, string> = {
+  pending: "Pendiente",
+  in_progress: "En curso",
+  completed: "Completada",
+  ignored: "Ignorada",
+  cancelled: "Cancelada",
+};
+
 function formatDate(value: string | null) {
   return value
     ? new Date(value).toLocaleString("es-ES", {
@@ -413,8 +422,8 @@ function CallDetail({
   }
 
   return (
-    <article className="border-t border-ink/20">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
+    <Card className="overflow-hidden">
+      <header className="-mx-4 -mt-4 flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-4 sm:-mx-5 sm:px-5">
         <div>
           <p className="font-medium">{call.title}</p>
           <p className="mt-1 text-sm text-muted">
@@ -451,11 +460,11 @@ function CallDetail({
         </div>
       </header>
 
-      <div className="space-y-4 px-4 py-4">
+      <div className="space-y-5 pt-4">
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
         {publishedSummary ? (
-          <section className="border border-line bg-surface p-3">
+          <section className="rounded-md border border-line bg-surface p-4">
             <p className="text-xs font-medium uppercase text-muted">
               Resumen de la llamada
             </p>
@@ -627,7 +636,7 @@ function CallDetail({
               {call.call_task_links.map((link) => (
                 <li key={link.id} className="flex items-center gap-2 text-sm">
                   <span className="font-mono text-xs text-muted">
-                    {link.tasks?.status ?? "?"}
+                    {taskStatusLabels[link.tasks?.status ?? ""] ?? "Sin estado"}
                   </span>
                   <span>{link.tasks?.title ?? link.task_id}</span>
                 </li>
@@ -638,7 +647,7 @@ function CallDetail({
 
         {isConsultant ? (
           <div className="grid gap-3 lg:grid-cols-2">
-            <form className="flex gap-2" onSubmit={submitTask}>
+            <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submitTask}>
               <Input
                 className="w-full"
                 aria-label="Nueva tarea acordada en la llamada"
@@ -649,12 +658,13 @@ function CallDetail({
               <Button
                 size="sm"
                 type="submit"
+                className="w-full sm:w-auto"
                 disabled={isBusy || !taskTitleDraft.trim()}
               >
                 Crear
               </Button>
             </form>
-            <form className="flex gap-2" onSubmit={submitNote}>
+            <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submitNote}>
               <Input
                 className="w-full"
                 aria-label="Nota interna (solo consultores)"
@@ -666,6 +676,7 @@ function CallDetail({
                 variant="secondary"
                 size="sm"
                 type="submit"
+                className="w-full sm:w-auto"
                 disabled={isBusy || !noteDraft.trim()}
               >
                 Anotar
@@ -692,7 +703,7 @@ function CallDetail({
           </section>
         ) : null}
       </div>
-    </article>
+    </Card>
   );
 }
 
@@ -791,7 +802,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="portal-page space-y-6">
       <section className="flex flex-wrap items-baseline justify-between gap-3 border-t border-ink/20 pt-5">
         <Heading size="lg">Llamadas de consultoría</Heading>
         {isConsultant ? (
@@ -806,7 +817,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {showCreateForm && isConsultant ? (
         <form
-          className="space-y-3 border-t border-ink/20 pt-5"
+          className="space-y-4 rounded-md border border-line bg-surface p-4 sm:p-5"
           onSubmit={submitCreate}
         >
           <div className="grid gap-3 md:grid-cols-[1fr_200px_1fr]">

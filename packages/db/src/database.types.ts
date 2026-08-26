@@ -174,6 +174,10 @@ export type Database = {
         Returns: Database["public"]["Enums"]["member_role"]
       }
       enum_labels: { Args: { enum_type_name: string }; Returns: string[] }
+      export_organization_data: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
       gateway_org_id: { Args: never; Returns: string }
       has_valid_subscription: {
         Args: { target_organization_id: string }
@@ -188,6 +192,14 @@ export type Database = {
         Returns: boolean
       }
       is_platform_admin: { Args: never; Returns: boolean }
+      purge_expired_ai_context: {
+        Args: { p_before: string; p_limit?: number }
+        Returns: Json
+      }
+      purge_processed_webhook_events: {
+        Args: { p_before: string; p_limit?: number }
+        Returns: number
+      }
       record_agent_version_evaluation: {
         Args: { p_payload: Json }
         Returns: string

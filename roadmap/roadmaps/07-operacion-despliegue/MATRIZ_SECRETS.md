@@ -60,6 +60,7 @@ publicar en la UI un flujo OAuth que no puede completarse:
 | `REDIS_URL`                 | Rate limit en memoria por instancia en vez de centralizado.            |
 | `INTEGRATION_FEATURE_FLAGS` | Se habilita solo Shopify; Meta/Klaviyo requieren inclusion explicita.  |
 | `INTERNAL_API_SECRET`       | Las rutas internas (`/v1/internal/*`) quedan sin llamador autorizado.  |
+| `API_BASE_URL`              | El chequeo de salud operativa omite la alerta de SLO HTTP (`RB-011`) en vez de fallar; requiere una API ya desplegada y accesible desde el runner. |
 
 `INTEGRATION_FEATURE_FLAGS` es restrictivo por defecto: dejarlo vacío mantiene
 Shopify operativo y Meta/Klaviyo desactivados hasta validar sus credenciales.

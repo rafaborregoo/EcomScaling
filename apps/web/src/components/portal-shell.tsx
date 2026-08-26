@@ -526,7 +526,7 @@ function PortalShellContent({
                   key={item.href}
                   aria-current={active ? "page" : undefined}
                   className={[
-                    "border-l-2 px-3 py-2 text-sm transition",
+                    "flex min-h-10 items-center border-l-2 px-3 py-2 text-sm transition",
                     active
                       ? "border-brand bg-brand-tint font-medium text-black"
                       : "border-transparent text-muted hover:bg-surface hover:text-black",
@@ -564,7 +564,7 @@ function PortalShellContent({
         trigger={
           <Button
             variant="secondary"
-            className="mt-4 block w-full border border-edge px-3 py-2 text-left text-sm text-black transition hover:border-brand hover:text-brand"
+            className="mt-4 flex min-h-10 w-full items-center border border-edge px-3 py-2 text-left text-sm text-black transition hover:border-brand hover:text-brand"
           >
             Cerrar sesión
           </Button>
@@ -657,7 +657,7 @@ function PortalShellContent({
               aportar nada al usuario. */}
             {(isConsultant && bootstrap.memberships.length > 1) ||
             shopifyConnections.length > 1 ? (
-              <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-line bg-surface px-6 py-3 lg:px-10">
+            <div className="flex flex-wrap items-end gap-x-8 gap-y-4 border-b border-line bg-surface px-6 py-4 lg:px-10">
                 {isConsultant && bootstrap.memberships.length > 1 ? (
                   <Combobox
                     className="w-44"

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { displayValue } from "@/lib/display-labels";
 import {
   AsyncState,
   EmptyState,
@@ -12,6 +13,7 @@ import {
   Badge,
   Banner,
   Button,
+  Card,
   Checkbox,
   Field,
   Input,
@@ -838,7 +840,7 @@ function IntegrationsList({
       ?.configuration.status === "configured";
 
   return (
-    <div className="space-y-4">
+    <div className="portal-page space-y-6">
       {oauthNotice ? (
         <Banner tone={oauthNotice.tone}>{oauthNotice.text}</Banner>
       ) : null}
@@ -849,7 +851,7 @@ function IntegrationsList({
         </Banner>
       ) : null}
 
-      <section className="border-t border-ink/20 pt-5">
+      <Card>
         <Heading size="lg">Conectar Shopify</Heading>
         {!shopifyEnabled ? (
           <Banner tone="warn" className="mt-3">
@@ -870,7 +872,7 @@ function IntegrationsList({
           <span className="font-mono">*.myshopify.com</span> de la tienda. La
           URL de admin de Shopify no sirve como callback OAuth.
         </p>
-        <div className="mt-3 border border-edge bg-surface p-3 text-sm leading-6 text-muted">
+        <div className="mt-4 rounded-md border border-edge bg-surface p-4 text-sm leading-6 text-muted">
           <p className="font-medium text-ink">
             Como encontrar tu dominio .myshopify.com
           </p>
@@ -993,14 +995,14 @@ function IntegrationsList({
             {isConnecting ? "Conectando..." : "Conectar Shopify"}
           </Button>
         </form>
-      </section>
+      </Card>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3">
         {payload.providers.map((provider) => (
-          <article key={provider.id} className="border-t border-ink/20 pt-5">
+          <Card key={provider.id} className="h-full">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <Heading size="lg">{provider.name}</Heading>
+                <Heading level={3} size="lg">{provider.name}</Heading>
                 <p className="mt-1 font-mono text-xs text-brand">
                   {provider.phase}
                 </p>
@@ -1097,7 +1099,7 @@ function IntegrationsList({
               </div>
             ) : null}
             {provider.id === "klaviyo" && provider.connection ? (
-              <div className="mt-4 border border-edge bg-surface p-3 text-sm">
+              <div className="mt-4 rounded-md border border-edge bg-surface p-4 text-sm">
                 <p className="font-medium text-ink">
                   Métrica primaria de conversión
                 </p>
@@ -1128,7 +1130,7 @@ function IntegrationsList({
               </div>
             ) : null}
             {provider.id === "klaviyo" && provider.connection ? (
-              <div className="mt-4 border border-edge bg-surface p-3 text-sm">
+              <div className="mt-4 rounded-md border border-edge bg-surface p-4 text-sm">
                 <p className="font-medium text-ink">Reporting Klaviyo</p>
                 <p className="mt-1 text-muted">
                   Solo se muestran ejecuciones y valores recibidos de Klaviyo;
@@ -1162,7 +1164,7 @@ function IntegrationsList({
                             {run.period_start ?? "periodo pendiente"}
                             {run.period_end ? ` → ${run.period_end}` : ""}
                           </span>
-                          <Badge>{run.status}</Badge>
+                          <Badge>{displayValue(run.status)}</Badge>
                         </div>
                         {run.error_message ? (
                           <p className="mt-1 text-danger">
@@ -1204,7 +1206,7 @@ function IntegrationsList({
               </div>
             ) : null}
             {provider.id === "meta_ads" && provider.connection ? (
-              <div className="mt-4 border border-edge bg-surface p-3 text-sm">
+              <div className="mt-4 rounded-md border border-edge bg-surface p-4 text-sm">
                 <p className="font-medium text-ink">
                   Seleccionar cuentas publicitarias
                 </p>
@@ -1365,7 +1367,7 @@ function IntegrationsList({
                 </dd>
               </div>
             </dl>
-          </article>
+          </Card>
         ))}
       </div>
     </div>

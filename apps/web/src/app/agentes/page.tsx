@@ -137,6 +137,14 @@ const outputStatusLabel: Record<string, string> = {
   draft: "Borrador",
 };
 
+const runStatusLabel: Record<string, string> = {
+  queued: "En cola",
+  running: "En curso",
+  succeeded: "Completada",
+  failed: "Fallida",
+  cancelled: "Cancelada",
+};
+
 function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
   const canView = ["platform_admin", "consultant"].includes(
@@ -185,7 +193,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         setError(await readApiError(response));
       }
     } catch {
-      setError("No se pudieron cargar las ejecuciones de agentes. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+      setError("No se pudieron cargar las ejecuciones de agentes. Revisa la conexión e inténtalo de nuevo.");
     } finally {
       setIsLoading(false);
     }
@@ -213,7 +221,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         setBudgetError(await readApiError(response));
       }
     } catch {
-      setBudgetError("No se pudo cargar el presupuesto de IA. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+      setBudgetError("No se pudo cargar el presupuesto de IA. Revisa la conexión e inténtalo de nuevo.");
     } finally {
       setBudgetLoading(false);
     }
@@ -259,7 +267,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         setTraceError(await readApiError(response));
       }
     } catch {
-      setTraceError("No se pudo cargar la traza. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+      setTraceError("No se pudo cargar la traza. Revisa la conexión e inténtalo de nuevo.");
     } finally {
       setIsTraceLoading(false);
     }
@@ -297,7 +305,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         await loadRuns();
       }
     } catch {
-      toast.danger("No se pudo procesar la propuesta. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+      toast.danger("No se pudo procesar la propuesta. Revisa la conexión e inténtalo de nuevo.");
     } finally {
       setIsDeciding(false);
     }
@@ -319,7 +327,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       key: "status",
       label: "Estado",
       render: (row) => (
-        <Badge tone={statusTone[row.status] ?? "neutral"}>{row.status}</Badge>
+        <Badge tone={statusTone[row.status] ?? "neutral"}>
+          {runStatusLabel[row.status] ?? row.status}
+        </Badge>
       ),
     },
     {
@@ -327,7 +337,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       label: "Modo",
       render: (row) => (
         <Badge tone={row.execution_mode === "shadow" ? "warn" : "danger"}>
-          {row.execution_mode === "shadow" ? "shadow" : "live"}
+          {row.execution_mode === "shadow" ? "Previsualización" : "En vivo"}
         </Badge>
       ),
     },
@@ -409,7 +419,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       label: "Resultado",
       render: (row) => (
         <Badge tone={row.is_error ? "danger" : "neutral"}>
-          {row.is_error ? "error" : "ok"}
+          {row.is_error ? "Error" : "Correcto"}
         </Badge>
       ),
     },
@@ -446,15 +456,15 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       label: "Estado",
       render: (row) => (
         <Badge tone={row.was_rejected ? "danger" : "neutral"}>
-          {row.was_rejected ? "rechazada" : "ok"}
+          {row.was_rejected ? "Rechazada" : "Correcta"}
         </Badge>
       ),
     },
   ];
 
   return (
-    <div className="space-y-6">
-      <Heading size="lg">Ejecuciones de agentes IA</Heading>
+    <div className="portal-page space-y-6">
+      <Heading level={1} size="lg">Ejecuciones de agentes IA</Heading>
       <p className="text-sm text-muted">
         Panel tecnico (AI-12, Observability &amp; tracing): reconstruye una
         ejecucion completa sin consultar varias tablas a mano.
@@ -505,22 +515,24 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         )}
       </Card>
 
-      {isLoading ? (
-        <AsyncState status="loading" loadingLabel="Cargando ejecuciones..." />
-      ) : error ? (
-        <AsyncState status="error" error={error} />
-      ) : runs.length === 0 ? (
-        <EmptyState
-          title="Sin ejecuciones todavia"
-          hint="Los agentes de esta organizacion no han corrido todavia."
-        />
-      ) : (
-        <Table
-          columns={runColumns}
-          rows={runs}
-          ariaLabel="Ejecuciones de agentes IA"
-        />
-      )}
+      <Card title="Ejecuciones recientes">
+        {isLoading ? (
+          <AsyncState status="loading" loadingLabel="Cargando ejecuciones..." />
+        ) : error ? (
+          <AsyncState status="error" error={error} />
+        ) : runs.length === 0 ? (
+          <EmptyState
+            title="Sin ejecuciones todavia"
+            hint="Los agentes de esta organizacion no han corrido todavia."
+          />
+        ) : (
+          <Table
+            columns={runColumns}
+            rows={runs}
+            ariaLabel="Ejecuciones de agentes IA"
+          />
+        )}
+      </Card>
 
       {reviewOutput ? (
         <Card
@@ -537,7 +549,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 {reviewOutput.output.output.answer}
               </p>
             ) : null}
-            <div className="border border-edge bg-surface p-3 text-xs text-muted">
+            <div className="rounded-md border border-edge bg-surface p-4 text-xs text-muted">
               <p className="font-medium text-ink">Evidencia y citas</p>
               <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap">
                 {JSON.stringify(
@@ -552,7 +564,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 )}
               </pre>
             </div>
-            <div className="border border-edge bg-surface p-3 text-xs text-muted">
+            <div className="rounded-md border border-edge bg-surface p-4 text-xs text-muted">
               <p className="font-medium text-ink">Escrituras propuestas</p>
               <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap">
                 {JSON.stringify(

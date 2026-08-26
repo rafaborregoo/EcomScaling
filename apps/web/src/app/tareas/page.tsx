@@ -6,6 +6,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { displayValue } from "@/lib/display-labels";
 import {
   AsyncState,
   LoadingBlock,
@@ -94,6 +95,14 @@ const SEVERITY_TONE: Record<string, "neutral" | "warn" | "danger"> = {
   medium: "warn",
   high: "danger",
   critical: "danger",
+};
+
+const SEVERITY_LABELS: Record<string, string> = {
+  info: "Informativa",
+  low: "Baja",
+  medium: "Media",
+  high: "Alta",
+  critical: "Crítica",
 };
 
 // DB-07: SLA de overdue formalizado -- una tarea esta vencida si su
@@ -210,7 +219,10 @@ function TaskDetail({
         </div>
       ) : null}
 
-      <form className="mt-3 flex gap-2" onSubmit={onSubmitComment}>
+      <form
+        className="mt-4 flex flex-col gap-2 sm:flex-row"
+        onSubmit={onSubmitComment}
+      >
         <Input
           className="min-w-0 flex-1"
           aria-label={`Comentario para la tarea ${task.title}`}
@@ -218,7 +230,7 @@ function TaskDetail({
           onChange={(event) => onCommentChange(event.target.value)}
           placeholder="Añadir comentario..."
         />
-        <Button variant="secondary" type="submit">
+        <Button variant="secondary" type="submit" className="w-full sm:w-auto">
           Comentar
         </Button>
       </form>
@@ -454,18 +466,18 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const tasksPage = usePaginatedUrl(filteredTasks, TASKS_PAGE_SIZE);
 
   return (
-    <div className="space-y-4">
+    <div className="portal-page space-y-6">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <section className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/20 pt-5">
-        <div className="flex flex-wrap items-center gap-3">
+      <Card className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
           <Input
             type="search"
             aria-label="Buscar tarea"
             placeholder="Buscar por título o descripción..."
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            className="w-56"
+            className="w-full sm:w-64"
           />
           <Select
             aria-label="Filtrar por estado"
@@ -494,24 +506,20 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           />
         </div>
         <Button
+          className="w-full lg:w-auto"
           type="button"
           onClick={() => void evaluateRules()}
           disabled={isEvaluating}
         >
           {isEvaluating ? "Evaluando..." : "Evaluar reglas ahora"}
         </Button>
-      </section>
+      </Card>
 
       {isLoading ? (
         <LoadingBlock label="Cargando tareas y alertas..." />
       ) : (
         <>
-          <section className="border-t border-ink/20">
-            <div className="border-b border-line px-4 py-3">
-              <Heading size="lg">
-                Alertas activas ({activeAlerts.length})
-              </Heading>
-            </div>
+          <Card title={<Heading level={2} size="lg">Alertas activas ({activeAlerts.length})</Heading>}>
             <div className="divide-y divide-line">
               {activeAlerts.length === 0 ? (
                 <EmptyState
@@ -539,7 +547,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         <Badge
                           tone={SEVERITY_TONE[alert.severity] ?? "neutral"}
                         >
-                          {alert.severity}
+                          {SEVERITY_LABELS[alert.severity] ?? alert.severity}
                         </Badge>
                         <p className="font-medium">{alert.title}</p>
                       </div>
@@ -563,7 +571,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             void changeAlertStatus(alert.id, "acknowledged")
                           }
                         >
-                          Vista
+                          Marcar vista
                         </Button>
                       ) : null}
                       <Button
@@ -581,12 +589,11 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 ))
               )}
             </div>
-          </section>
+          </Card>
 
-          <section className="border-t border-ink/20">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-              <Heading size="lg">Tareas ({filteredTasks.length})</Heading>
-              <div className="flex gap-2">
+          <Card
+            title={<Heading level={2} size="lg">Tareas ({filteredTasks.length})</Heading>}
+            actions={<div className="flex gap-2">
                 <Button
                   size="sm"
                   variant={viewMode === "list" ? "primary" : "secondary"}
@@ -601,8 +608,8 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 >
                   Tarjetas
                 </Button>
-              </div>
-            </div>
+              </div>}
+          >
 
             {filteredTasks.length === 0 ? (
               <EmptyState
@@ -631,7 +638,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 ))}
               </div>
             ) : (
-              <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-3">
                 {tasksPage.pageItems.map((task) => (
                   <Card key={task.id} className="flex flex-col gap-3">
                     <TaskBadges task={task} />
@@ -670,7 +677,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               pageCount={tasksPage.pageCount}
               onChange={tasksPage.setPage}
             />
-          </section>
+          </Card>
 
           {(() => {
             const detailTask = detailTaskId
@@ -717,18 +724,13 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           })()}
 
           {resolvedAlerts.length > 0 ? (
-            <section className="border-t border-ink/20">
-              <div className="border-b border-line px-4 py-3">
-                <Heading size="lg">
-                  Alertas resueltas ({resolvedAlerts.length})
-                </Heading>
-              </div>
+            <Card title={<Heading level={2} size="lg">Alertas resueltas ({resolvedAlerts.length})</Heading>}>
               <div className="divide-y divide-line">
                 {resolvedAlerts.slice(0, 20).map((alert) => (
                   <div key={alert.id} className="px-4 py-3">
                     <p className="text-sm">{alert.title}</p>
                     <p className="font-mono text-xs text-muted">
-                      {alert.status} ·{" "}
+                      {displayValue(alert.status)} ·{" "}
                       {alert.resolved_at
                         ? new Date(alert.resolved_at).toLocaleString()
                         : ""}
@@ -736,7 +738,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </div>
                 ))}
               </div>
-            </section>
+            </Card>
           ) : null}
         </>
       )}

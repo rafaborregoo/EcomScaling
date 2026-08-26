@@ -37,6 +37,23 @@ const ORGANIZATION_STATUSES = [
   "cancelled",
 ] as const;
 
+const ORGANIZATION_STATUS_LABELS: Record<string, string> = {
+  onboarding: "Incorporación",
+  active: "Activa",
+  suspended: "Suspendida",
+  cancelled: "Cancelada",
+  pending_deletion: "Borrado pendiente",
+};
+
+const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
+  active: "Activa",
+  trialing: "Prueba",
+  paused: "Pausada",
+  cancelled: "Cancelada",
+  expired: "Expirada",
+  pending: "Pendiente",
+};
+
 type ConsultantOrganization = {
   id: string;
   display_name: string;
@@ -859,8 +876,8 @@ function ConsultantPanel({
             >
               {row.slug} -{" "}
               {row.status === "pending_deletion"
-                ? "borrado en 30 dias"
-                : row.status}
+                ? "Borrado en 30 días"
+                : ORGANIZATION_STATUS_LABELS[row.status] ?? row.status}
             </p>
           </div>
         </div>
@@ -938,8 +955,8 @@ function ConsultantPanel({
       render: (row) => (
         <span className="font-mono">
           {row.subscription
-            ? `${row.subscription.plan_code}/${row.subscription.status}`
-            : "sin_plan"}
+            ? `${row.subscription.plan_code} · ${SUBSCRIPTION_STATUS_LABELS[row.subscription.status] ?? row.subscription.status}`
+            : "Sin plan"}
         </span>
       ),
     },
@@ -960,36 +977,36 @@ function ConsultantPanel({
   ];
 
   return (
-    <div className="space-y-4">
-      <section className="border-t border-ink/20 pt-5">
+    <div className="portal-page space-y-6">
+      <Card>
         <Heading size="lg">Qué cliente necesita atención hoy</Heading>
         {needsAttention.length === 0 ? (
           <p className="mt-1 font-mono text-xs uppercase tracking-wide text-success">
             Todos al día
           </p>
         ) : null}
-      </section>
+      </Card>
 
-      <section className="border-t border-ink/20 pt-4">
+      <Card>
         <Field label="Buscar cliente">
           <Input
             type="search"
             placeholder="Nombre o slug..."
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            className="max-w-sm"
+            className="w-full max-w-sm"
           />
         </Field>
-      </section>
+      </Card>
 
-      <section className="border-t border-ink/20 pt-4">
+      <Card>
         <Table
           ariaLabel="Clientes asignados"
           columns={columns}
           rows={filteredOrganizations}
           emptyLabel={`Sin resultados para "${searchQuery}".`}
         />
-      </section>
+      </Card>
 
       {expandedOrganization ? (
         <Card

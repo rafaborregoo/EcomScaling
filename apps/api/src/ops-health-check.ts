@@ -13,12 +13,18 @@ import WebSocket from "ws";
 import {
   redactSensitive,
   redactSensitiveText,
+  type HttpSloReport,
 } from "@ecomscaling/observability";
 
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  // SQO-02: opcionales -- sin una API desplegada y su secreto interno, el
+  // chequeo de SLO simplemente se omite en vez de fallar (mismo criterio de
+  // "preparado, no conectado" que el resto de la cola).
+  API_BASE_URL?: string;
+  INTERNAL_API_SECRET?: string;
 };
 
 // RB-001: SEV-2 si una tienda lleva datos parados >2h.
@@ -44,6 +50,8 @@ const WEBHOOK_BACKLOG_MS = 30 * 60 * 1000;
 const WEBHOOK_BACKLOG_ROW_LIMIT = 500;
 const MAX_FINDING_SUMMARY_LENGTH = 500;
 const MAX_FINDING_DETAIL_STRING_LENGTH = 2_000;
+// SQO-02: no dejar el chequeo colgado si la instancia desplegada esta caida.
+const HTTP_SLO_FETCH_TIMEOUT_MS = 5_000;
 
 function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
@@ -60,7 +68,9 @@ export type OpsHealthFinding = {
     | "token_expiring_soon"
     | "ai_budget_exceeded"
     | "purge_overdue"
-    | "webhook_backlog";
+    | "webhook_backlog"
+    | "http_slo_degraded"
+    | "http_slo_check_failed";
   summary: string;
   runbook: string;
   details: Record<string, unknown>;
@@ -118,12 +128,72 @@ function finding(
   };
 }
 
+/**
+ * SQO-02: lee el SLO HTTP de una instancia de la API ya desplegada. Sin
+ * `API_BASE_URL`/`INTERNAL_API_SECRET` configurados no hay nada que consultar
+ * todavia -- se omite en silencio en vez de tratarlo como fallo. Con ambos
+ * configurados, un fallo de red o una respuesta invalida SI es un finding
+ * (la propia observabilidad esta rota), separado del SLO realmente incumplido.
+ */
+export async function checkHttpSlo(
+  env: Pick<ApiEnv, "API_BASE_URL" | "INTERNAL_API_SECRET">,
+  fetchImpl: typeof fetch = fetch,
+): Promise<OpsHealthFinding[]> {
+  if (!env.API_BASE_URL || !env.INTERNAL_API_SECRET) return [];
+
+  const url = new URL("/health/slo", env.API_BASE_URL).toString();
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      headers: { "x-internal-secret": env.INTERNAL_API_SECRET },
+      signal: AbortSignal.timeout(HTTP_SLO_FETCH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    return [
+      finding({
+        type: "http_slo_check_failed",
+        summary: `No se pudo consultar /health/slo en ${env.API_BASE_URL}`,
+        runbook: "RB-011-http-slo-degraded.md",
+        details: {
+          error: error instanceof Error ? error.message : "unknown_error",
+        },
+      }),
+    ];
+  }
+
+  if (!response.ok) {
+    return [
+      finding({
+        type: "http_slo_check_failed",
+        summary: `/health/slo respondio ${response.status} en ${env.API_BASE_URL}`,
+        runbook: "RB-011-http-slo-degraded.md",
+        details: { status: response.status },
+      }),
+    ];
+  }
+
+  const report = (await response.json()) as HttpSloReport;
+  if (report.status !== "degraded" && report.status !== "critical") return [];
+
+  return [
+    finding({
+      type: "http_slo_degraded",
+      summary: `SLO HTTP en estado ${report.status}: error rate ${(report.errorRate * 100).toFixed(2)}%, p95 ${report.p95LatencyMs ?? "desconocido"}ms`,
+      runbook: "RB-011-http-slo-degraded.md",
+      details: report,
+    }),
+  ];
+}
+
 export async function runOpsHealthCheck(
   env: ApiEnv,
 ): Promise<OpsHealthCheckResult> {
   const client = createServiceClient(env);
   const now = Date.now();
   const findings: OpsHealthFinding[] = [];
+  // Independiente de Supabase: se dispara ya para correr en paralelo con el
+  // resto de las consultas de abajo.
+  const httpSloFindingsPromise = checkHttpSlo(env);
 
   const [
     errorConnectionsResult,
@@ -373,6 +443,8 @@ export async function runOpsHealthCheck(
       }),
     );
   }
+
+  findings.push(...(await httpSloFindingsPromise));
 
   return { ok: true, checkedAt: new Date(now).toISOString(), findings };
 }

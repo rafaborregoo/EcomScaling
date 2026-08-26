@@ -50,6 +50,9 @@ import { handleFathomWebhookRequest } from "./fathom-webhook-handler.js";
 import { processQueuedFathomWebhookEvents } from "./fathom-webhook-handler.js";
 import type { FathomWebhookHeaders } from "./fathom-webhook.js";
 import { reconcileAllShopifyConnections } from "./shopify-reconcile.js";
+import { purgeProcessedWebhookEvents } from "./webhook-retention.js";
+import { purgeExpiredAiContext } from "./ai-context-retention.js";
+import { exportOrganizationData } from "./organization-export.js";
 import {
   listProductCosts,
   upsertProductCost,
@@ -3216,6 +3219,64 @@ export async function buildApp(): Promise<FastifyInstance> {
       });
     }
   });
+
+  app.post("/v1/internal/webhooks/purge-retained", async (request, reply) => {
+    if (!env.INTERNAL_API_SECRET) {
+      return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+    }
+    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
+    try {
+      const result = await purgeProcessedWebhookEvents(env);
+      return reply.code(200).send(result);
+    } catch (error) {
+      return reply.code(503).send({
+        error: "webhook_retention_purge_failed",
+        detail: error instanceof Error ? error.message : "unknown_error",
+      });
+    }
+  });
+
+  app.post("/v1/internal/ai/purge-retained-context", async (request, reply) => {
+    if (!env.INTERNAL_API_SECRET) {
+      return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+    }
+    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
+    try {
+      const result = await purgeExpiredAiContext(env);
+      return reply.code(200).send(result);
+    } catch (error) {
+      return reply.code(503).send({
+        error: "ai_context_retention_purge_failed",
+        detail: error instanceof Error ? error.message : "unknown_error",
+      });
+    }
+  });
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/consultant/organizations/:organizationId/export",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await exportOrganizationData(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (!result.ok) return sendServiceFailure(reply, result);
+
+      reply.header("content-type", "application/json; charset=utf-8");
+      reply.header(
+        "content-disposition",
+        `attachment; filename="ecomscaling-organization-${request.params.organizationId}-export.json"`,
+      );
+      return result.data;
+    },
+  );
 
   return app;
 }

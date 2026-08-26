@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Button as HeroButton, Tooltip } from "@heroui/react";
+import { cn } from "./cn";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 type ButtonSize = "sm" | "md";
@@ -41,7 +42,11 @@ export function Button({
       variant={variant}
       size={size}
       isDisabled={disabled}
-      className={className}
+      className={cn(
+        "min-w-20 font-medium tracking-[-0.01em] focus-visible:outline-2 focus-visible:outline-offset-2",
+        size === "sm" ? "min-h-8" : "min-h-9",
+        className,
+      )}
       onPress={onClick}
       aria-expanded={ariaExpanded}
       aria-controls={ariaControls}

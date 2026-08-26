@@ -6,6 +6,10 @@ import {
   SHOPIFY_RECONCILE_TZ,
   FATHOM_WEBHOOK_CRON,
   FATHOM_WEBHOOK_TZ,
+  WEBHOOK_RETENTION_CRON,
+  WEBHOOK_RETENTION_TZ,
+  AI_CONTEXT_RETENTION_CRON,
+  AI_CONTEXT_RETENTION_TZ,
   isStaleShopifyReconcileRepeatable,
 } from "./repeatable-jobs.js";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
@@ -75,6 +79,42 @@ async function runFathomWebhookProcessing(
   return response.json();
 }
 
+async function runWebhookRetention(
+  context: ReturnType<typeof createWorkerJobContext>,
+) {
+  if (!env.INTERNAL_API_SECRET) return { status: "skipped" };
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/webhooks/purge-retained`,
+    {
+      method: "POST",
+      headers: {
+        "x-internal-secret": env.INTERNAL_API_SECRET,
+        "x-correlation-id": context.correlation_id,
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`webhook_retention_trigger_failed_${response.status}`);
+  return response.json();
+}
+
+async function runAiContextRetention(
+  context: ReturnType<typeof createWorkerJobContext>,
+) {
+  if (!env.INTERNAL_API_SECRET) return { status: "skipped" };
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/ai/purge-retained-context`,
+    {
+      method: "POST",
+      headers: {
+        "x-internal-secret": env.INTERNAL_API_SECRET,
+        "x-correlation-id": context.correlation_id,
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`ai_context_retention_trigger_failed_${response.status}`);
+  return response.json();
+}
+
 const queue = new Queue("ecomscaling-default", { connection });
 
 const staleRepeatables = await queue.getRepeatableJobs();
@@ -108,6 +148,24 @@ if (env.INTERNAL_API_SECRET) {
     },
   );
   logger.info(`Scheduled fathom-webhook-processing every minute (${FATHOM_WEBHOOK_TZ})`);
+  await queue.add(
+    "webhook-retention",
+    {},
+    {
+      repeat: { pattern: WEBHOOK_RETENTION_CRON, tz: WEBHOOK_RETENTION_TZ },
+      jobId: "webhook-retention-repeat",
+    },
+  );
+  logger.info(`Scheduled webhook-retention daily at 3:30am (${WEBHOOK_RETENTION_TZ})`);
+  await queue.add(
+    "ai-context-retention",
+    {},
+    {
+      repeat: { pattern: AI_CONTEXT_RETENTION_CRON, tz: AI_CONTEXT_RETENTION_TZ },
+      jobId: "ai-context-retention-repeat",
+    },
+  );
+  logger.info(`Scheduled ai-context-retention daily at 3:45am (${AI_CONTEXT_RETENTION_TZ})`);
 } else {
   logger.info(
     "Not scheduling shopify-reconcile - INTERNAL_API_SECRET not configured",
@@ -129,6 +187,12 @@ const worker = new Worker(
     }
     if (job.name === "fathom-webhook-processing") {
       return runFathomWebhookProcessing(context);
+    }
+    if (job.name === "webhook-retention") {
+      return runWebhookRetention(context);
+    }
+    if (job.name === "ai-context-retention") {
+      return runAiContextRetention(context);
     }
 
     return {

@@ -3,7 +3,21 @@ import WebSocket from "ws";
 import {
   requireOperationalOrganization,
   type AuthContext,
+  type OperationalOrganizationResult,
 } from "./auth-context.js";
+
+function operationalError(
+  operational: Extract<OperationalOrganizationResult, { ok: false }>,
+): { ok: false; statusCode: number; error: string; message?: string } {
+  return {
+    ok: false,
+    statusCode: operational.statusCode,
+    error: operational.error,
+    ...(operational.message !== undefined
+      ? { message: operational.message }
+      : {}),
+  };
+}
 import {
   createShopifyState,
   exchangeShopifyCodeForToken,
@@ -159,7 +173,7 @@ export async function createShopifyConnectionAuthUrl(
     authContext,
     organizationId,
   );
-  if (!operational.ok) return operational;
+  if (!operational.ok) return operationalError(operational);
   const { membership } = operational;
 
   if (
@@ -261,7 +275,7 @@ export async function triggerShopifySync(
     authContext,
     organizationId,
   );
-  if (!operational.ok) return operational;
+  if (!operational.ok) return operationalError(operational);
   const { membership } = operational;
 
   if (

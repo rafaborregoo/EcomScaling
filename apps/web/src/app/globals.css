@@ -73,12 +73,22 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  line-height: 1.5;
 }
 
 /* Accesibilidad: foco visible coherente en toda la app (FE-08 Bloque A). */
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
+}
+
+/* Ritmo SaaS compartido: el contenido respira en desktop y sigue siendo
+   compacto en movil, sin que cada pagina invente su propia escala. */
+@layer components {
+  .portal-page {
+    width: min(100%, 96rem);
+    margin-inline: auto;
+  }
 }
 
 .skip-link {

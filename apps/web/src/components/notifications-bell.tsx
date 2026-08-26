@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
-import { Badge, BellIcon, Button, ErrorBlock, LoadingBlock, NotificationBadge, toast } from "@/components/ui";
+import { Badge, BellIcon, Button, ErrorBlock, LoadingBlock, NotificationBadge, Popover, toast } from "@/components/ui";
 
 type Notification = {
   id: string;
@@ -43,7 +43,6 @@ export function NotificationsBell({ token }: { token: string }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -69,25 +68,6 @@ export function NotificationsBell({ token }: { token: string }) {
     void load();
   }, [load, token]);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      function handleEscape(event: KeyboardEvent) {
-        if (event.key === "Escape") setIsOpen(false);
-      }
-      document.addEventListener("keydown", handleEscape);
-      return () => {
-        document.removeEventListener("mousedown", handleClickOutside);
-        document.removeEventListener("keydown", handleEscape);
-      };
-    }
-  }, [isOpen]);
-
   async function markStatus(notificationId: string, status: "read" | "archived") {
     try {
     const response = await apiFetch(`/v1/notifications/${notificationId}/status`, {
@@ -111,7 +91,7 @@ export function NotificationsBell({ token }: { token: string }) {
     }
     if (wasUnread) setUnreadCount((current) => Math.max(0, current - 1));
     } catch {
-      toast.danger("No se pudo actualizar la notificaciÃ³n.");
+      toast.danger("No se pudo actualizar la notificación.");
     }
   }
 
@@ -126,31 +106,27 @@ export function NotificationsBell({ token }: { token: string }) {
     setUnreadCount(0);
     toast.success("Notificaciones marcadas como leídas.");
     } catch {
-      toast.danger("No se pudieron marcar todas como leÃ­das.");
+      toast.danger("No se pudieron marcar todas como leídas.");
     }
   }
 
   return (
-    <div ref={containerRef} className="relative">
-      <NotificationBadge count={unreadCount > 0 ? unreadCount : undefined}>
-        <Button
-          variant="secondary"
-          size="sm"
-          aria-label={`Notificaciones${unreadCount > 0 ? ` (${unreadCount} sin leer)` : ""}`}
-          aria-expanded={isOpen}
-          onClick={() => {
-            setIsOpen((open) => !open);
-            if (!isOpen) {
-              void load();
-            }
-          }}
-        >
-          <BellIcon />
-        </Button>
-      </NotificationBadge>
+    <Popover isOpen={isOpen} onOpenChange={setIsOpen}>
+      <Popover.Trigger>
+        <NotificationBadge count={unreadCount > 0 ? unreadCount : undefined}>
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label={`Notificaciones${unreadCount > 0 ? ` (${unreadCount} sin leer)` : ""}`}
+            onClick={() => void load()}
+          >
+            <BellIcon aria-hidden="true" />
+          </Button>
+        </NotificationBadge>
+      </Popover.Trigger>
 
-      {isOpen ? (
-        <div className="absolute right-0 top-full z-40 mt-2 max-h-96 w-80 overflow-y-auto rounded-md border border-line bg-white shadow-lg">
+      <Popover.Content placement="bottom end" className="w-[min(22rem,calc(100vw-2rem))] p-0">
+        <Popover.Dialog aria-label="Notificaciones" className="max-h-[min(32rem,calc(100vh-6rem))] overflow-y-auto p-0">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <p className="text-sm font-medium">Notificaciones</p>
             {unreadCount > 0 ? (
@@ -208,8 +184,8 @@ export function NotificationsBell({ token }: { token: string }) {
               ))}
             </ul>
           )}
-        </div>
-      ) : null}
-    </div>
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
   );
 }

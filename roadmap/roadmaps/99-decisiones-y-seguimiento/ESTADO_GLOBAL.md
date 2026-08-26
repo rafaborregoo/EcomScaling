@@ -1,5 +1,32 @@
 # Estado global
 
+## Incremento vigente 2026-08-26 — SQO-02, alerta de SLO cableada
+
+`runOpsHealthCheck` ya consulta `/health/slo` de una instancia real de la API vía `checkHttpSlo`
+cuando `API_BASE_URL`/`INTERNAL_API_SECRET` (nuevos, ambos opcionales) están configurados, y emite
+`http_slo_degraded`/`http_slo_check_failed` con `RB-011-http-slo-degraded.md`. Sin esas dos
+variables el chequeo se omite en vez de fallar. Bloque `07` sigue `in_progress`: falta desplegar
+una instancia real accesible desde el runner del cron para que esta alerta produzca findings de
+verdad; eso es `blocked_external`, no un gap de diseño. 7/7 tests directos y typecheck de
+API/config/worker pasan.
+
+## CorrecciÃ³n de evidencia vigente 2026-08-26
+
+La base remota y local estÃ¡n actualmente alineadas en 71 migraciones: no hay
+migraciones locales pendientes ni migraciones remotas adicionales. Las 7
+migraciones recientes fueron revisadas, probadas con rollback y aplicadas en
+orden mediante Docker/psql debido al fallo `uv_spawn` de la CLI en Windows.
+Los tipos oficiales de Supabase se regeneraron desde el esquema remoto y el
+typecheck de DB/API/web pasa. Las referencias posteriores que indiquen 64
+migraciones, siete pendientes o typegen sin acceso describen estados histÃ³ricos
+y quedan supersedidas por esta comprobaciÃ³n.
+
+La pasada visual pÃ¡gina por pÃ¡gina del portal tambiÃ©n estÃ¡ cerrada: las
+superficies principales usan el catÃ¡logo compartido HeroUI, con gates de
+catÃ¡logo, accesibilidad, estados de producto, enlaces Markdown e Instagram
+verdes. Permanecen como pendientes externos las credenciales/scopes/App Review
+de proveedores y el drill aislado de backup/restore.
+
 Correccion de evidencia 2026-08-26: `npx tsx --test packages/ai/src/index.test.ts` termina en
 57/57. Las cifras inferiores que aparecen en notas historicas quedan superseded por esta ejecucion.
 

@@ -62,22 +62,34 @@ usuario no queda con el botÃ³n bloqueado por una excepciÃ³n de contexto.
   (dividido en `LoginPageContent` + wrapper con `Suspense`, mismo patron que `PortalShell`, para poder usar
   `useSearchParams`) muestra "Tu sesión expiró. Vuelve a iniciar sesión para continuar." Build de
   produccion limpio; sin verificar visualmente en navegador (sin Playwright/Chromium en este entorno).
-- **Gaps que siguen sin resolver (confirmados, no solo listados):**
-  - No hay pantalla de recuperacion de contrasena ("olvidé mi contraseña") ni de invitacion/signup — la
-    unica via de acceso es email/password ya provisionado. Puede ser intencional (B2B, cuentas creadas por
-    Rafa), pero no esta declarado como decision de producto en ningun sitio.
+- **Correccion de lectura 2026-08-26:** una relectura contra el codigo actual (no solo este documento)
+  encontro que la mayoria de los gaps listados abajo en versiones anteriores ya estaban resueltos por
+  incrementos posteriores a la ultima validacion (2026-07-22) que nunca se reflejaron aqui:
+  - Reautorizacion de Shopify por scopes faltantes: **resuelto**. `apps/api/src/actions.ts`
+    (`listAccountActions`) compara `connection.scopes` contra `SHOPIFY_SCOPES` requeridos y emite
+    `shopify_reauthorization_required` con `missing_scopes`; `portal-shell.tsx` lo consume
+    (`needsShopifyReauthorization`) y muestra el aviso persistente en cabecera con CTA a Integraciones.
+  - Organizacion suspendida / suscripcion no activa vistas desde el cliente: **resuelto**. `PortalShell`
+    ya renderiza estados accionables especificos para ambos casos (incremento 2026-08-24 referenciado
+    arriba), no solo el badge de estado.
+  - Consultor sin asignaciones (0 clientes): **resuelto**. `consultor/page.tsx` ya devuelve un
+    `EmptyState` explicito cuando `organizations.length === 0`.
+  - Token de Shopify caducado durante el proceso de conexion (no ya conectado): **resuelto**. Los
+    callbacks OAuth cierran el `pending` y comunican denegacion/fallo de intercambio sin presentar una
+    conexion fallida como saludable (ver nota INT-06 en `ROADMAP_QUEUE.md`).
+  - Correo no verificado: no aplica al modelo vigente — no hay auto-registro (cuentas provisionadas
+    manualmente), por lo que no existe un estado de "email sin verificar" que cubrir en la UI.
+- **Decision de producto tomada 2026-08-26 (Rafa):** el aprovisionamiento manual (consultor/admin crea
+  la cuenta) es suficiente para el Piloto 1. No se construye signup, invitacion por email ni
+  recuperacion de contrasena propia. Esto no es un gap: es el modelo B2B consultor-first elegido a
+  proposito, y esta decision cierra el punto que quedaba abierto desde 2026-07-22.
+- **Gaps que siguen sin resolver de verdad:**
   - Sin maquina de estados de onboarding documentada para el flujo completo (conectar Shopify -> configurar
-    financiero -> dashboard listo). Sigue siendo la recomendacion correcta antes de anadir mas pantallas.
-  - Sin contrato de UX para: correo no verificado, organizacion suspendida vista desde el cliente (existe el
-    badge de estado en el header, no una pantalla explicativa), suscripcion suspendida, consultor sin
-    asignaciones (el panel de consultor con 0 clientes no se audito esta vuelta), token de Shopify caducado
-    durante el proceso de conexion.
+    financiero -> dashboard listo). `OnboardingChecklist` ya cubre la guia visual; falta el documento que
+    enumere los estados y transiciones para quien mantenga el flujo despues.
   - Selector de organizacion para clientes con varias organizaciones: existe para consultor/admin
     (`bootstrap.memberships.length > 1` en `portal-shell.tsx`), no confirmado si un cliente real puede
     tener membership en mas de una organizacion en este modelo de producto.
-- **Siguiente accion:** decidir explicitamente si el signup/invitacion propios son necesarios para el
-  Piloto 1 (hoy el aprovisionamiento manual funciona con pocos clientes) antes de invertir en construirlos;
-  si no, modelar el onboarding de conexion Shopify -> financiero como maquina de estados explicita.
 
 ## Objetivo
 

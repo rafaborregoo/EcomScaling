@@ -1,5 +1,15 @@
 # SQO-02 - Observabilidad
 
+Alerta de SLO conectada al chequeo operativo 2026-08-26: `checkHttpSlo`
+(`apps/api/src/ops-health-check.ts`) consulta `/health/slo` de una instancia real cuando
+`API_BASE_URL`/`INTERNAL_API_SECRET` estan configurados y emite `http_slo_degraded` (SLO
+incumplido) o `http_slo_check_failed` (el propio chequeo no pudo completarse) — ver
+`roadmap/roadmaps/07-operacion-despliegue/runbooks/RB-011-http-slo-degraded.md`. Sin esas dos
+variables el chequeo se omite en vez de fallar, mismo criterio de "preparado, no conectado" que el
+resto de conectores; falta desplegar una instancia real accesible desde el runner del cron para que
+produzca findings reales. 7/7 tests directos (`ops-health-check.test.ts`) y typecheck de
+API/config/worker pasan.
+
 Endurecimiento de artifacts 2026-08-26: los findings sanitizados limitan strings de detalle a
 2.000 caracteres y summaries a 500 antes de llegar al workflow de GitHub Issues. El redactor común
 ya cubre el límite de detalle; test directo de sanitización pasa 2/2.
