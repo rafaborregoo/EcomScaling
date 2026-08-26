@@ -12,7 +12,7 @@
     "test": "tsx --test --test-force-exit src/lib/api-error.test.ts src/portal-state-contract.test.ts"
   },
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   },
   "dependencies": {
     "@ecomscaling/contracts": "^0.1.0",
