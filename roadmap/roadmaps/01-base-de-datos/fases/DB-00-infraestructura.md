@@ -1,11 +1,21 @@
 # DB-00 - Infraestructura Supabase
 
+> **Integridad remota verificada 2026-08-24:** `supabase db lint --linked` no encuentra errores en
+> `ai`, `extensions`, `private` ni `public`; `supabase db push --linked --dry-run` confirma que no
+> hay migraciones pendientes. La comprobacion fue de lectura y no escribio en produccion.
+
 ## Estado
+
+> Verificacion vigente 2026-08-24: las migraciones locales/remotas estan
+> alineadas (64/64) y la prueba real de permisos de `private` permanece
+> documentada. La fase conserva `verification_pending` porque aun no se ha
+> repetido en esta ronda una ejecucion desde base vacia que pruebe todo el
+> bootstrap, aunque no hay drift ni bloqueador de producto.
 
 - **Estado real:** `verification_pending` (el gap de permisos de `private` ya tiene test real; el gap de
   documentacion de extensiones/`search_path` se cerro 2026-07-23, ver abajo)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** ninguna
 - **Bloqueador:** ninguno
 - **Evidencia:**

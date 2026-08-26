@@ -43,6 +43,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate required runtime secrets
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY SUPABASE_JWT_SECRET; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required secret $key is not configured for alert rules." >&2
+              exit 1
+            fi
+          done
+
       - name: Build API and worker
         run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
 

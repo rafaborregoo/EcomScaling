@@ -34,13 +34,70 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # BE-00: escaneo de dependencias, gap declarado de la fase. No es
-      # `npm audit --audit-level=high` directo porque hoy fallaria siempre por
-      # 3 vulnerabilidades del arbol de Next sin version parcheada, y un paso
-      # que siempre falla se termina ignorando. El guard falla solo si la
-      # situacion empeora (ver scripts/audit-guard.mjs).
+      - name: Verify safe test surface
+        run: node scripts/assert-safe-test-surface.mjs
+
+      - name: Verify safe demo seed surface
+        run: node scripts/assert-safe-seed-surface.mjs
+
+      - name: Verify generated database schema
+        run: node scripts/regenerate-generated-schema.mjs --check
+
+      - name: Verify Markdown local links
+        run: node scripts/assert-markdown-links.mjs
+
+      - name: Verify Instagram database foundation
+        run: node scripts/assert-instagram-foundation.mjs
+
+      - name: Verify UI catalog surface
+        run: node scripts/assert-ui-catalog-surface.mjs
+
+      - name: Verify product state surface
+        run: node scripts/assert-product-state-surface.mjs
+
+      - name: Verify accessibility surface
+        run: node scripts/assert-accessibility-surface.mjs
+
+      # BE-00: el guard ejecuta el audit de dependencias de produccion y falla
+      # ante cualquier vulnerabilidad high/critical.
       - name: Dependency audit
         run: node scripts/audit-guard.mjs
+
+      # BE-00/SQO-04: documentar dependencias de produccion y comprobar las
+      # imagenes que realmente se podrian desplegar. No publica ni despliega.
+      - name: Generate production SBOM
+        run: npm sbom --omit=dev --sbom-format=cyclonedx > ecomscaling-sbom.json
+
+      - name: Upload production SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecomscaling-production-sbom
+          path: ecomscaling-sbom.json
+          if-no-files-found: error
+
+      - name: Build API image for security scan
+        run: docker build -f apps/api/Dockerfile -t ecomscaling-api:ci .
+
+      - name: Build worker image for security scan
+        run: docker build -f apps/worker/Dockerfile -t ecomscaling-worker:ci .
+
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ecomscaling-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Scan worker image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ecomscaling-worker:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
 
       - name: Typecheck (packages, api, web, worker)
         run: npm run typecheck
@@ -128,11 +185,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # El job `dependency-scan` que habia aqui corria `npm audit --omit=dev
-  # --audit-level=high` y por tanto fallaba en cada ejecucion por las 3
-  # vulnerabilidades del arbol de Next que no tienen version parcheada.
-  # Sustituido 2026-08-03 por el paso `Dependency audit` de `checks`, que usa
-  # scripts/audit-guard.mjs y solo falla si la situacion empeora.
+  # El escaneo de dependencias se ejecuta en el job `checks` mediante
+  # scripts/audit-guard.mjs para compartir la instalacion de npm ci.
 
   dependency-review:
     name: Dependency review

@@ -1,5 +1,33 @@
 # INT-01 - Shopify
 
+PreparaciÃ³n de versiÃ³n 2026-08-26: el cliente Admin GraphQL construye su endpoint con
+`SHOPIFY_API_VERSION`, validada como `YYYY-MM`, y mantiene `2026-07` cuando no se configura.
+OAuth, tokens e idempotencia de sync permanecen independientes de esta selecciÃ³n. Test de
+configuraciÃ³n y endpoint versionado pasan 25/25 en el conjunto ejecutado.
+
+> **Recuperación de sync atascado 2026-08-26:** `triggerShopifySync` corrige el estado efectivo
+> después de detectar un `syncing` stale. La fila se marca como `error`, se verifica el resultado de
+> esa actualización y el sync inicial se relanza con el estado recuperado. Si la actualización falla,
+> la ruta devuelve un error explícito y no arranca trabajo en segundo plano con estado incierto.
+
+> **Reconciliación concurrente 2026-08-26:** `reconcileAllShopifyConnections` reclama de forma
+> condicional cada conexión antes de ejecutar el worker. Una ejecución manual concurrente se marca
+> `skipped`, y una recuperación stale solo continúa si la transición a `error` fue confirmada.
+
+> **Corrección 2026-08-26:** la readiness y la UI reconocen las credenciales
+> `SHOPIFY_CUSTOM_*` como una vía operativa independiente mientras la app
+> pública está pendiente de revisión. `appMode: "custom"` ya llega al endpoint
+> OAuth; la configuración pública no bloquea esta ruta.
+
+> **Resiliencia GraphQL 2026-08-24:** `shopify-client.ts` aborta peticiones tras 15 s y limita a 5
+> intentos para red, timeout, 408/425/429 y 5xx, con backoff máximo de 60 s. Se conserva el retry
+> de `THROTTLED` y la idempotencia de los syncs; errores permanentes fallan rápido.
+
+> **Correccion 2026-08-21: payloads webhook malformados.** El handler valida ahora el JSON
+> firmado antes de persistirlo o despacharlo; un body no objeto devuelve `400 invalid_json_payload`
+> de forma determinista y no se convierte en una excepcion 500 sin contexto. La deduplicacion,
+> reintento de eventos fallidos y reconciliacion incremental siguen intactos.
+
 > Correccion de aislamiento 2026-08-02: la unicidad del fingerprint se aplica por proveedor y
 > conexion (`20260802153000_db_04_webhook_fingerprint_connection_scope.sql`), evitando colisiones
 > entre tiendas Shopify con payloads identicos. La migracion esta aplicada y validada con lint remoto.
@@ -53,7 +81,7 @@ distribution` (commit `bf54847`, 2026-07-17) hasta esa aprobacion. La instalacio
 
 ## Scopes
 
-`.env.example` fija `SHOPIFY_SCOPES` con una lista amplia orientada a lectura (`read_products`,
+La configuración de entorno fija `SHOPIFY_SCOPES` con una lista amplia orientada a lectura (`read_products`,
 `read_inventory`, `read_locations`, `read_orders`, `read_customers`, `read_reports`,
 `read_shopify_payments_*`, `read_discounts`, `read_returns`, entre otros). **Pendiente**: no hay
 documentado en este archivo cual de esos scopes es minimo-viable y cual es "nice to have" — la lista

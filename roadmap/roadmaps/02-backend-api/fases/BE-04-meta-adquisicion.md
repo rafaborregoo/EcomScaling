@@ -1,11 +1,18 @@
 # BE-04 - Meta Ads y adquisicion
 
+> **Corrección vigente 2026-08-20:** el núcleo local está preparado para
+> OAuth, descubrimiento, selección auditable de cuenta/acción canónica, sync,
+> insights, paginación, backoff y estados vacíos. La migración de acción de
+> compra canónica ya está aplicada. El único bloqueo del vertical slice real es
+> externo: App Review, business verification, permisos y una cuenta publicitaria
+> de prueba/cliente; no se deben inventar activos ni métricas para cubrirlo.
+
 ## Estado
 
 - **Estado real:** `blocked_external_validation` (el nucleo local puede estar hecho; el vertical slice
   completo esta bloqueado por validacion externa, no es simplemente "parcial").
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-20
 - **Dependencias:** DB-04, DB-06
 - **Bloqueador:** falta `META_APP_ID`/`META_APP_SECRET` de una app real de Meta con App Review y business
   verification aprobados. Sin eso no se puede validar redirect URI real, revision de permisos, acceso a
@@ -15,25 +22,33 @@
   sin poder ejecutarse contra una cuenta real.
 - **Matriz de flujo (a completar con endpoint/estado/prueba real, hoy solo lista lo que existe en codigo):**
 
-  | Flujo | Endpoint/job | Estado | Prueba | Bloqueador |
-  | --- | --- | --- | --- | --- |
-  | Inicio OAuth | `createMetaConnectionAuthUrl` / `POST /v1/organizations/:id/integrations/meta/connect` | Implementado | Ninguna | App real |
-  | Callback | `handleMetaOAuthCallback` / `GET /v1/meta/oauth/callback` | Implementado | Ninguna | App real |
-  | Seleccion ad account | no existe endpoint dedicado | No implementado | Ninguna | App real |
-  | Sync estructura | `triggerMetaSync` / `POST /v1/organizations/:id/meta/sync` | Implementado | Ninguna | App real |
-  | Insights | `getMetaMetrics` / `GET /v1/organizations/:id/meta/metrics` | Implementado | Ninguna | App real |
+  | Flujo                | Endpoint/job                                                                           | Estado             | Prueba      | Bloqueador |
+  | -------------------- | -------------------------------------------------------------------------------------- | ------------------ | ----------- | ---------- |
+  | Inicio OAuth         | `createMetaConnectionAuthUrl` / `POST /v1/organizations/:id/integrations/meta/connect` | Implementado       | Ninguna     | App real   |
+  | Callback             | `handleMetaOAuthCallback` / `GET /v1/meta/oauth/callback`                              | Implementado       | Ninguna     | App real   |
+  | Seleccion ad account | `GET/PUT .../meta/assets` y `.../meta/assets/selection`                                | Implementado local | Contractual | App real   |
+  | Sync estructura      | `triggerMetaSync` / `POST /v1/organizations/:id/meta/sync`                             | Implementado       | Ninguna     | App real   |
+  | Insights             | `getMetaMetrics` / `GET /v1/organizations/:id/meta/metrics`                            | Implementado       | Ninguna     | App real   |
 
 - **Gaps identificados (documentacion, no solo pruebas):**
-  - Sin version exacta de Meta Graph API documentada.
-  - Sin `action_type` canonico para compras definido (`purchase` vs `omni_purchase` vs
-    `offsite_conversion.fb_pixel_purchase`) ni criterio de prioridad.
-  - Sin ventana de atribucion documentada.
-  - Sin formula documentada de CAC y ROAS (existe en codigo, no en este documento).
-  - Sin diferencias esperadas frente a Ads Manager documentadas.
-  - Sin politica de reautorizacion ni estados de revision de la app.
-- **Siguiente accion:** ninguna posible en codigo hasta tener app real; mientras tanto, completar la
-  matriz de flujo y documentar `action_type`/ventana de atribucion/formulas, que no dependen de acceso
-  real.
+  - La validación contra una cuenta real, Ads Manager y App Review sigue pendiente y no puede
+    sustituirse por fixtures de producción.
+  - La selección de cuenta publicitaria ya está expuesta mediante
+    `GET /v1/organizations/:organizationId/meta/assets` y
+    `PUT /v1/organizations/:organizationId/meta/assets/selection`.
+- **Evidencia documental:** `META_GRAPH_VERSION` configurable y validada en `packages/config/src/index.ts` y
+  `apps/api/src/meta-client.ts` (fallback conservador `v23.0` mientras no se confirme otra versión);
+  `omni_purchase` como acción canónica por defecto y persistencia de ventana de atribución en
+  `INT-02-meta-ads.md`; fórmulas de ROAS/CAC y estados de reautorización en el contrato común.
+- **Siguiente accion:** validación externa con una app Meta real, permisos aprobados y una cuenta
+  publicitaria de prueba; después comparar insights y Ads Manager sin cambiar el dominio.
+
+## Correccion de evidencia 2026-08-26
+
+La version Graph ya no esta fijada exclusivamente en codigo: `META_GRAPH_VERSION` se valida
+como `vN.N`, se propaga desde configuracion y mantiene `v23.0` como fallback. El cliente Meta
+tambien incluye `appsecret_proof` en requests server-to-server y paginacion. La validacion real
+de App Review, permisos, activos e Insights sigue siendo externa.
 
 ## Objetivo
 
@@ -46,7 +61,7 @@ bloqueada: OAuth, descubrimiento, selección explícita de activos, sync, salud,
 freshness y errores deben exponer contratos normalizados al portal. No se permiten
 tokens en frontend ni datos simulados. El flujo de varias cuentas y de acceso directo
 o Business Manager/System User se documenta en
-[`../../../04-integraciones/CONTRATO_PREPARACION_CONECTORES.md`](../../../04-integraciones/CONTRATO_PREPARACION_CONECTORES.md).
+[`../../04-integraciones/CONTRATO_PREPARACION_CONECTORES.md`](../../04-integraciones/CONTRATO_PREPARACION_CONECTORES.md).
 
 ## Entregables
 

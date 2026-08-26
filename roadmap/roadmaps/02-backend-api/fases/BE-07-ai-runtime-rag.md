@@ -36,7 +36,7 @@
   calidad, no solo de seguridad.
 - **Resuelto 2026-07-23**: `"with recursive"` ahora **rechazado explicitamente** en `sql-gateway.ts`
   (movido de `TOP_LEVEL_ALLOWED_TYPES` a `FORBIDDEN_NODE_TYPES`, detectado tanto a nivel top-level como
-  anidado dentro de una subquery via el walk del AST) -- 2 tests nuevos en `sql-gateway.test.ts` (30/30
+  anidado dentro de una subquery via el walk del AST) -- 2 tests nuevos en `sql-gateway.test.ts` (31/31
   pasan). Ademas, el gap de "ningun test automatizado ejecuta dos llamadas RPC consecutivas de
   organizaciones distintas" quedo cerrado: `be-07-sql-gateway-tenant-isolation.test.ts` ahora alterna
   A/B/A/B/A sobre el mismo cliente Supabase y confirma contra el Supabase remoto real que el GUC de
@@ -56,8 +56,8 @@
   proactivamente al usuario** de que el documento contenia una inyeccion y que la ignoro -- comportamiento
   mejor de lo minimo exigido por el criterio de cierre. Corrida real: PASS.
 - **Gaps identificados que siguen abiertos:**
-  - Sin bloqueo explicito por nombre de `pg_sleep`/`generate_series` (mitigado parcialmente por el
-    timeout de 8s y el `LIMIT`, pero no es lo mismo que rechazarlas).
+  - El bloqueo por nombre/prefijo de `pg_sleep`/`generate_series` y funciones de expansion ya esta
+    implementado y cubierto; queda como mejora no bloqueante estimar coste antes de un SELECT grande.
   - Sin evals de calidad/seguridad de contenido para el resto de escenarios: cita inexistente, SQL
     invalido, consulta excesiva, contradiccion RAG vs DB, escritura disfrazada, respuesta sin evidencia,
     duplicacion de accion. Prompt injection documental (el mas critico) ya esta cerrado.

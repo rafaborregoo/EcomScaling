@@ -4,9 +4,13 @@ import { createLogger } from "@ecomscaling/observability";
 import {
   SHOPIFY_RECONCILE_CRON,
   SHOPIFY_RECONCILE_TZ,
+  FATHOM_WEBHOOK_CRON,
+  FATHOM_WEBHOOK_TZ,
   isStaleShopifyReconcileRepeatable,
 } from "./repeatable-jobs.js";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
+import { recordWorkerJobMetric, workerMetrics } from "./metrics.js";
+import { fetchWorkerWithResilience } from "./worker-http.js";
 
 const env = loadWorkerEnv(process.env);
 const logger = createLogger("worker");
@@ -35,18 +39,39 @@ async function runShopifyReconcile(
     return { status: "skipped" };
   }
 
-  const response = await fetch(`${env.API_URL}/v1/internal/shopify/reconcile`, {
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/shopify/reconcile`,
+    {
     method: "POST",
     headers: {
       "x-internal-secret": env.INTERNAL_API_SECRET,
       "x-correlation-id": context.correlation_id,
     },
-  });
+    },
+  );
 
   if (!response.ok) {
     throw new Error(`shopify_reconcile_trigger_failed_${response.status}`);
   }
 
+  return response.json();
+}
+
+async function runFathomWebhookProcessing(
+  context: ReturnType<typeof createWorkerJobContext>,
+) {
+  if (!env.INTERNAL_API_SECRET) return { status: "skipped" };
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/fathom/process-queued`,
+    {
+      method: "POST",
+      headers: {
+        "x-internal-secret": env.INTERNAL_API_SECRET,
+        "x-correlation-id": context.correlation_id,
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`fathom_queue_trigger_failed_${response.status}`);
   return response.json();
 }
 
@@ -74,6 +99,15 @@ if (env.INTERNAL_API_SECRET) {
   logger.info(
     `Scheduled shopify-reconcile daily at 2am (${SHOPIFY_RECONCILE_TZ})`,
   );
+  await queue.add(
+    "fathom-webhook-processing",
+    {},
+    {
+      repeat: { pattern: FATHOM_WEBHOOK_CRON, tz: FATHOM_WEBHOOK_TZ },
+      jobId: "fathom-webhook-processing-repeat",
+    },
+  );
+  logger.info(`Scheduled fathom-webhook-processing every minute (${FATHOM_WEBHOOK_TZ})`);
 } else {
   logger.info(
     "Not scheduling shopify-reconcile - INTERNAL_API_SECRET not configured",
@@ -84,6 +118,7 @@ const worker = new Worker(
   "ecomscaling-default",
   async (job) => {
     const context = createWorkerJobContext(job.name, job.id ?? null);
+    recordWorkerJobMetric(job.name, "started");
     logger.info(
       `Processing job ${job.id ?? "unknown"}:${job.name}`,
       workerJobMeta(context, { attempt: job.attemptsMade }),
@@ -91,6 +126,9 @@ const worker = new Worker(
 
     if (job.name === "shopify-reconcile") {
       return runShopifyReconcile(context);
+    }
+    if (job.name === "fathom-webhook-processing") {
+      return runFathomWebhookProcessing(context);
     }
 
     return {
@@ -105,9 +143,20 @@ const worker = new Worker(
 
 worker.on("completed", (job) => {
   const context = createWorkerJobContext(job.name, job.id ?? null);
+  recordWorkerJobMetric(job.name, "completed");
   logger.info(
     `Completed job ${job.id ?? "unknown"}:${job.name}`,
-    workerJobMeta(context),
+    workerJobMeta(context, {
+      metric: "worker_jobs_total",
+      metric_value: workerMetrics
+        .snapshot()
+        .find(
+          (sample) =>
+            sample.name === "worker_jobs_total" &&
+            sample.labels.job_name === job.name &&
+            sample.labels.status === "completed",
+        )?.value,
+    }),
   );
 });
 
@@ -116,6 +165,7 @@ worker.on("failed", (job, error) => {
     job?.name ?? "unknown",
     job?.id ?? null,
   );
+  recordWorkerJobMetric(job?.name ?? "unknown", "failed");
   logger.error(`Failed job ${job?.id ?? "unknown"}:${job?.name ?? "unknown"}`, {
     ...workerJobMeta(context),
     error,

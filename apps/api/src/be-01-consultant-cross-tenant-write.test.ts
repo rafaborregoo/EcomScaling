@@ -24,7 +24,7 @@
  * organizacion B a la que no esta asignado.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test -w @ecomscaling/api`.
+ * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -35,9 +35,13 @@ import { buildApp } from "./server.js";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 const TEST_PASSWORD = "Be01-Consultant-Cross-Tenant-P4ss-9!";
@@ -52,46 +56,73 @@ before(async () => {
   const { data: orgs, error: orgsError } = await admin
     .from("organizations")
     .insert([
-      { display_name: `BE-01 Consultant XT Org A ${RUN_TAG}`, slug: `be01-consultant-xt-a-${RUN_TAG}`, status: "active" },
-      { display_name: `BE-01 Consultant XT Org B ${RUN_TAG}`, slug: `be01-consultant-xt-b-${RUN_TAG}`, status: "active" },
+      {
+        display_name: `BE-01 Consultant XT Org A ${RUN_TAG}`,
+        slug: `be01-consultant-xt-a-${RUN_TAG}`,
+        status: "active",
+      },
+      {
+        display_name: `BE-01 Consultant XT Org B ${RUN_TAG}`,
+        slug: `be01-consultant-xt-b-${RUN_TAG}`,
+        status: "active",
+      },
     ])
     .select("id, slug");
 
   if (orgsError || !orgs || orgs.length !== 2) {
-    throw new Error(`No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`);
+    throw new Error(
+      `No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`,
+    );
   }
   orgA = orgs.find((org) => org.slug.startsWith("be01-consultant-xt-a"))!.id;
   orgB = orgs.find((org) => org.slug.startsWith("be01-consultant-xt-b"))!.id;
 
   const email = `be01-consultant-xt-${RUN_TAG}@ecomscaling.test`;
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password: TEST_PASSWORD,
-    email_confirm: true,
-  });
+  const { data: created, error: createError } =
+    await admin.auth.admin.createUser({
+      email,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
   if (createError || !created.user) {
-    throw new Error(`No se pudo crear el usuario de prueba: ${createError?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba: ${createError?.message}`,
+    );
   }
   consultantUserId = created.user.id;
-  await admin.from("profiles").update({ platform_role: "consultant" }).eq("id", consultantUserId);
+  await admin
+    .from("profiles")
+    .update({ platform_role: "consultant" })
+    .eq("id", consultantUserId);
 
   // Asignado SOLO a orgA -- nunca a orgB, ese es exactamente el escenario del bug.
-  const { error: assignmentError } = await admin.from("consultant_assignments").insert({
-    organization_id: orgA,
-    consultant_user_id: consultantUserId,
-    is_primary: true,
-    is_active: true,
-  });
+  const { error: assignmentError } = await admin
+    .from("consultant_assignments")
+    .insert({
+      organization_id: orgA,
+      consultant_user_id: consultantUserId,
+      is_primary: true,
+      is_active: true,
+    });
   if (assignmentError) {
-    throw new Error(`No se pudo asignar el consultor de prueba: ${assignmentError.message}`);
+    throw new Error(
+      `No se pudo asignar el consultor de prueba: ${assignmentError.message}`,
+    );
   }
 
-  const anon: SupabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: session, error: signInError } = await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
+  const anon: SupabaseClient = createClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+    },
+  );
+  const { data: session, error: signInError } =
+    await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
   if (signInError || !session.session) {
-    throw new Error(`No se pudo iniciar sesion como el consultor de prueba: ${signInError?.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como el consultor de prueba: ${signInError?.message}`,
+    );
   }
   consultantAccessToken = session.session.access_token;
 
@@ -106,15 +137,23 @@ after(async () => {
   if (consultantUserId) {
     await admin.auth.admin.deleteUser(consultantUserId);
   }
-  await admin.from("organizations").delete().in("id", [orgA, orgB].filter(Boolean));
+  await admin
+    .from("organizations")
+    .delete()
+    .in("id", [orgA, orgB].filter(Boolean));
 });
 
 test("calls.ts: un consultor asignado solo a org A NO puede crear una llamada en org B (bug real corregido)", async () => {
   const response = await app.inject({
     method: "POST",
     url: `/v1/organizations/${orgB}/calls`,
-    headers: { authorization: `Bearer ${consultantAccessToken}`, "content-type": "application/json" },
-    payload: { title: "Llamada creada por consultor no asignado (no deberia existir)" },
+    headers: {
+      authorization: `Bearer ${consultantAccessToken}`,
+      "content-type": "application/json",
+    },
+    payload: {
+      title: "Llamada creada por consultor no asignado (no deberia existir)",
+    },
   });
 
   assert.equal(
@@ -129,15 +168,25 @@ test("calls.ts: un consultor asignado solo a org A NO puede crear una llamada en
     .from("consulting_calls")
     .select("id")
     .eq("organization_id", orgB)
-    .eq("title", "Llamada creada por consultor no asignado (no deberia existir)");
-  assert.equal(leakedCalls?.length ?? 0, 0, "no debe haberse creado ninguna llamada en org B");
+    .eq(
+      "title",
+      "Llamada creada por consultor no asignado (no deberia existir)",
+    );
+  assert.equal(
+    leakedCalls?.length ?? 0,
+    0,
+    "no debe haberse creado ninguna llamada en org B",
+  );
 });
 
 test("knowledge.ts: un consultor asignado solo a org A NO puede buscar/leer memoria de org B (bug real corregido)", async () => {
   const response = await app.inject({
     method: "POST",
     url: `/v1/organizations/${orgB}/knowledge/search`,
-    headers: { authorization: `Bearer ${consultantAccessToken}`, "content-type": "application/json" },
+    headers: {
+      authorization: `Bearer ${consultantAccessToken}`,
+      "content-type": "application/json",
+    },
     payload: { query: "cualquier cosa" },
   });
 
@@ -154,8 +203,13 @@ test("strategic-plans.ts: un consultor asignado solo a org A NO puede anadir una
   const response = await app.inject({
     method: "POST",
     url: `/v1/organizations/${orgB}/milestones/00000000-0000-0000-0000-000000000000/internal-notes`,
-    headers: { authorization: `Bearer ${consultantAccessToken}`, "content-type": "application/json" },
-    payload: { body: "Nota escrita por consultor no asignado (no deberia existir)" },
+    headers: {
+      authorization: `Bearer ${consultantAccessToken}`,
+      "content-type": "application/json",
+    },
+    payload: {
+      body: "Nota escrita por consultor no asignado (no deberia existir)",
+    },
   });
 
   assert.equal(

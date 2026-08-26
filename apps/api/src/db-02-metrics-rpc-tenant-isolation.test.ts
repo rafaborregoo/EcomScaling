@@ -27,7 +27,7 @@
  * `target_organization_id = orgB` y se confirma que RLS corta el dato real.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test -w @ecomscaling/api`.
+ * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -36,9 +36,13 @@ import { loadApiEnv } from "@ecomscaling/config";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 const TEST_PASSWORD = "Db02-Rpc-Tenant-Isolation-P4ss-9!";
@@ -57,35 +61,58 @@ before(async () => {
   const { data: orgs, error: orgsError } = await admin
     .from("organizations")
     .insert([
-      { display_name: `DB-02 RPC Isolation Org A ${RUN_TAG}`, slug: `db02-rpc-isolation-org-a-${RUN_TAG}`, status: "active" },
-      { display_name: `DB-02 RPC Isolation Org B ${RUN_TAG}`, slug: `db02-rpc-isolation-org-b-${RUN_TAG}`, status: "active" },
+      {
+        display_name: `DB-02 RPC Isolation Org A ${RUN_TAG}`,
+        slug: `db02-rpc-isolation-org-a-${RUN_TAG}`,
+        status: "active",
+      },
+      {
+        display_name: `DB-02 RPC Isolation Org B ${RUN_TAG}`,
+        slug: `db02-rpc-isolation-org-b-${RUN_TAG}`,
+        status: "active",
+      },
     ])
     .select("id, slug");
 
   if (orgsError || !orgs || orgs.length !== 2) {
-    throw new Error(`No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`);
+    throw new Error(
+      `No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`,
+    );
   }
-  orgA = orgs.find((org) => org.slug.startsWith("db02-rpc-isolation-org-a"))!.id;
-  orgB = orgs.find((org) => org.slug.startsWith("db02-rpc-isolation-org-b"))!.id;
+  orgA = orgs.find((org) =>
+    org.slug.startsWith("db02-rpc-isolation-org-a"),
+  )!.id;
+  orgB = orgs.find((org) =>
+    org.slug.startsWith("db02-rpc-isolation-org-b"),
+  )!.id;
 
   // Suscripcion activa para A: shopify_financial_summary depende de
   // shopify_order_facts, cuya RLS exige can_access_org, que a su vez exige
   // has_valid_subscription (mismo hallazgo real que en BE-01).
   const { error: subscriptionError } = await admin
     .from("service_subscriptions")
-    .insert({ organization_id: orgA, plan_code: "db02-rpc-isolation-test", status: "active" });
+    .insert({
+      organization_id: orgA,
+      plan_code: "db02-rpc-isolation-test",
+      status: "active",
+    });
   if (subscriptionError) {
-    throw new Error(`No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`);
+    throw new Error(
+      `No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`,
+    );
   }
 
   const email = `db02-rpc-isolation-owner-a-${RUN_TAG}@ecomscaling.test`;
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password: TEST_PASSWORD,
-    email_confirm: true,
-  });
+  const { data: created, error: createError } =
+    await admin.auth.admin.createUser({
+      email,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
   if (createError || !created.user) {
-    throw new Error(`No se pudo crear el usuario de prueba: ${createError?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba: ${createError?.message}`,
+    );
   }
   ownerAUserId = created.user.id;
 
@@ -93,28 +120,40 @@ before(async () => {
     .from("organization_members")
     .insert({ organization_id: orgA, user_id: ownerAUserId, role: "owner" });
   if (memberError) {
-    throw new Error(`No se pudo crear la membership de prueba: ${memberError.message}`);
+    throw new Error(
+      `No se pudo crear la membership de prueba: ${memberError.message}`,
+    );
   }
 
   ownerAClient = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: session, error: signInError } = await ownerAClient.auth.signInWithPassword({
-    email,
-    password: TEST_PASSWORD,
-  });
+  const { data: session, error: signInError } =
+    await ownerAClient.auth.signInWithPassword({
+      email,
+      password: TEST_PASSWORD,
+    });
   if (signInError || !session.session) {
-    throw new Error(`No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`,
+    );
   }
 
   // Datos reales de la organizacion B, que el usuario de A nunca deberia ver.
   const { data: connection, error: connectionError } = await admin
     .from("integration_connections")
-    .insert({ organization_id: orgB, provider: "shopify", provider_account_id: `db02-rpc-isolation-b-${RUN_TAG}.myshopify.com`, status: "connected" })
+    .insert({
+      organization_id: orgB,
+      provider: "shopify",
+      provider_account_id: `db02-rpc-isolation-b-${RUN_TAG}.myshopify.com`,
+      status: "connected",
+    })
     .select("id")
     .single();
   if (connectionError || !connection) {
-    throw new Error(`No se pudo crear la conexion de prueba: ${connectionError?.message}`);
+    throw new Error(
+      `No se pudo crear la conexion de prueba: ${connectionError?.message}`,
+    );
   }
 
   const { data: store, error: storeError } = await admin
@@ -129,7 +168,9 @@ before(async () => {
     .select("id")
     .single();
   if (storeError || !store) {
-    throw new Error(`No se pudo crear la tienda de prueba: ${storeError?.message}`);
+    throw new Error(
+      `No se pudo crear la tienda de prueba: ${storeError?.message}`,
+    );
   }
   storeBId = store.id;
 
@@ -156,7 +197,9 @@ before(async () => {
     )
     .select("id");
   if (ordersError || !orders) {
-    throw new Error(`No se pudieron sembrar pedidos de la organizacion B: ${ordersError?.message}`);
+    throw new Error(
+      `No se pudieron sembrar pedidos de la organizacion B: ${ordersError?.message}`,
+    );
   }
   orderBIds = orders.map((order) => order.id);
 
@@ -174,7 +217,9 @@ before(async () => {
     .select("id")
     .single();
   if (productError || !product) {
-    throw new Error(`No se pudo crear el producto de prueba: ${productError?.message}`);
+    throw new Error(
+      `No se pudo crear el producto de prueba: ${productError?.message}`,
+    );
   }
   productBId = product.id;
 
@@ -189,7 +234,9 @@ before(async () => {
     .select("id")
     .single();
   if (variantError || !variant) {
-    throw new Error(`No se pudo crear la variante de prueba: ${variantError?.message}`);
+    throw new Error(
+      `No se pudo crear la variante de prueba: ${variantError?.message}`,
+    );
   }
 
   const { data: inventoryItem, error: inventoryItemError } = await admin
@@ -206,7 +253,9 @@ before(async () => {
     .select("id")
     .single();
   if (inventoryItemError || !inventoryItem) {
-    throw new Error(`No se pudo crear el inventory item de prueba: ${inventoryItemError?.message}`);
+    throw new Error(
+      `No se pudo crear el inventory item de prueba: ${inventoryItemError?.message}`,
+    );
   }
 
   const { error: productCostError } = await admin.from("product_costs").insert({
@@ -218,7 +267,9 @@ before(async () => {
     valid_from: "2020-01-01",
   });
   if (productCostError) {
-    throw new Error(`No se pudo crear el coste de producto de prueba: ${productCostError.message}`);
+    throw new Error(
+      `No se pudo crear el coste de producto de prueba: ${productCostError.message}`,
+    );
   }
 
   const { data: location, error: locationError } = await admin
@@ -232,47 +283,64 @@ before(async () => {
     .select("id")
     .single();
   if (locationError || !location) {
-    throw new Error(`No se pudo crear la ubicacion de prueba: ${locationError?.message}`);
+    throw new Error(
+      `No se pudo crear la ubicacion de prueba: ${locationError?.message}`,
+    );
   }
 
-  const { error: stockError } = await admin.from("shopify_inventory_current_state").insert({
-    organization_id: orgB,
-    inventory_item_id: inventoryItem.id,
-    location_id: location.id,
-    available_quantity: 42,
-    on_hand_quantity: 42,
-  });
-  if (stockError) {
-    throw new Error(`No se pudo sembrar el stock de prueba: ${stockError.message}`);
-  }
-
-  const { error: orderItemsError } = await admin.from("shopify_order_items").insert(
-    orderBIds.map((orderId, index) => ({
+  const { error: stockError } = await admin
+    .from("shopify_inventory_current_state")
+    .insert({
       organization_id: orgB,
-      order_id: orderId,
-      product_id: productBId,
-      variant_id: variant.id,
-      external_line_item_id: `db02-rpc-isolation-line-${RUN_TAG}-${index}`,
-      title: `DB-02 RPC Isolation Product ${RUN_TAG}`,
-      quantity_original: 1,
-      quantity_current: 1,
-      unit_price: 200,
-      original_line_total: 200,
-      current_line_total: 200,
-    })),
-  );
+      inventory_item_id: inventoryItem.id,
+      location_id: location.id,
+      available_quantity: 42,
+      on_hand_quantity: 42,
+    });
+  if (stockError) {
+    throw new Error(
+      `No se pudo sembrar el stock de prueba: ${stockError.message}`,
+    );
+  }
+
+  const { error: orderItemsError } = await admin
+    .from("shopify_order_items")
+    .insert(
+      orderBIds.map((orderId, index) => ({
+        organization_id: orgB,
+        order_id: orderId,
+        product_id: productBId,
+        variant_id: variant.id,
+        external_line_item_id: `db02-rpc-isolation-line-${RUN_TAG}-${index}`,
+        title: `DB-02 RPC Isolation Product ${RUN_TAG}`,
+        quantity_original: 1,
+        quantity_current: 1,
+        unit_price: 200,
+        original_line_total: 200,
+        current_line_total: 200,
+      })),
+    );
   if (orderItemsError) {
-    throw new Error(`No se pudieron sembrar las lineas de pedido de prueba: ${orderItemsError.message}`);
+    throw new Error(
+      `No se pudieron sembrar las lineas de pedido de prueba: ${orderItemsError.message}`,
+    );
   }
 
   // Cuenta e insight de Meta reales de B, para meta_spend_summary.
   const { data: metaConnection, error: metaConnectionError } = await admin
     .from("integration_connections")
-    .insert({ organization_id: orgB, provider: "meta_ads", provider_account_id: `db02-rpc-isolation-meta-${RUN_TAG}`, status: "connected" })
+    .insert({
+      organization_id: orgB,
+      provider: "meta_ads",
+      provider_account_id: `db02-rpc-isolation-meta-${RUN_TAG}`,
+      status: "connected",
+    })
     .select("id")
     .single();
   if (metaConnectionError || !metaConnection) {
-    throw new Error(`No se pudo crear la conexion de Meta de prueba: ${metaConnectionError?.message}`);
+    throw new Error(
+      `No se pudo crear la conexion de Meta de prueba: ${metaConnectionError?.message}`,
+    );
   }
 
   const { data: adAccount, error: adAccountError } = await admin
@@ -286,7 +354,9 @@ before(async () => {
     .select("id")
     .single();
   if (adAccountError || !adAccount) {
-    throw new Error(`No se pudo crear la cuenta publicitaria de prueba: ${adAccountError?.message}`);
+    throw new Error(
+      `No se pudo crear la cuenta publicitaria de prueba: ${adAccountError?.message}`,
+    );
   }
 
   const { data: insightRow, error: insightRowError } = await admin
@@ -304,18 +374,24 @@ before(async () => {
     .select("id")
     .single();
   if (insightRowError || !insightRow) {
-    throw new Error(`No se pudo crear la fila de insight de Meta de prueba: ${insightRowError?.message}`);
+    throw new Error(
+      `No se pudo crear la fila de insight de Meta de prueba: ${insightRowError?.message}`,
+    );
   }
 
-  const { error: actionMetricError } = await admin.from("meta_insight_action_metrics").insert({
-    organization_id: orgB,
-    insight_row_id: insightRow.id,
-    metric_name: "actions",
-    action_type: "purchase",
-    value: 5,
-  });
+  const { error: actionMetricError } = await admin
+    .from("meta_insight_action_metrics")
+    .insert({
+      organization_id: orgB,
+      insight_row_id: insightRow.id,
+      metric_name: "actions",
+      action_type: "purchase",
+      value: 5,
+    });
   if (actionMetricError) {
-    throw new Error(`No se pudo crear la metrica de accion de Meta de prueba: ${actionMetricError.message}`);
+    throw new Error(
+      `No se pudo crear la metrica de accion de Meta de prueba: ${actionMetricError.message}`,
+    );
   }
 });
 
@@ -324,7 +400,10 @@ after(async () => {
     await admin.auth.admin.deleteUser(ownerAUserId);
   }
   if (orgA || orgB) {
-    await admin.from("organizations").delete().in("id", [orgA, orgB].filter(Boolean));
+    await admin
+      .from("organizations")
+      .delete()
+      .in("id", [orgA, orgB].filter(Boolean));
   }
 });
 
@@ -337,9 +416,20 @@ test("shopify_sales_summary con target_organization_id=B llamado por un usuario 
 
   assert.equal(error, null);
   const row = (data as Array<{ orders_count: number; net_sales: number }>)[0];
-  assert.ok(row, "la funcion deberia devolver una fila (agregacion sobre cero filas visibles)");
-  assert.equal(Number(row.orders_count), 0, "no deberia contar los 5 pedidos reales de B");
-  assert.equal(Number(row.net_sales), 0, "no deberia sumar las ventas reales de B (5 x 200 EUR)");
+  assert.ok(
+    row,
+    "la funcion deberia devolver una fila (agregacion sobre cero filas visibles)",
+  );
+  assert.equal(
+    Number(row.orders_count),
+    0,
+    "no deberia contar los 5 pedidos reales de B",
+  );
+  assert.equal(
+    Number(row.net_sales),
+    0,
+    "no deberia sumar las ventas reales de B (5 x 200 EUR)",
+  );
 });
 
 test("shopify_financial_summary con target_organization_id=B llamado por un usuario de A no devuelve datos financieros reales de B", async () => {
@@ -351,10 +441,27 @@ test("shopify_financial_summary con target_organization_id=B llamado por un usua
   });
 
   assert.equal(error, null);
-  const row = (data as Array<{ orders_count: number; net_sales: number; has_settings: boolean }>)[0];
-  assert.ok(row, "la funcion deberia devolver una fila (agregacion sobre cero filas visibles)");
-  assert.equal(Number(row.orders_count), 0, "no deberia contar los pedidos reales de B");
-  assert.equal(Number(row.net_sales), 0, "no deberia sumar las ventas reales de B");
+  const row = (
+    data as Array<{
+      orders_count: number;
+      net_sales: number;
+      has_settings: boolean;
+    }>
+  )[0];
+  assert.ok(
+    row,
+    "la funcion deberia devolver una fila (agregacion sobre cero filas visibles)",
+  );
+  assert.equal(
+    Number(row.orders_count),
+    0,
+    "no deberia contar los pedidos reales de B",
+  );
+  assert.equal(
+    Number(row.net_sales),
+    0,
+    "no deberia sumar las ventas reales de B",
+  );
 });
 
 test("shopify_top_products con target_organization_id=B llamado por un usuario de A no devuelve el producto real de B", async () => {
@@ -368,7 +475,11 @@ test("shopify_top_products con target_organization_id=B llamado por un usuario d
 
   assert.equal(error, null);
   const rows = data as Array<{ product_id: string; revenue: number }>;
-  assert.equal(rows.length, 0, "no deberia devolver ninguna fila (el producto real de B existe pero es invisible)");
+  assert.equal(
+    rows.length,
+    0,
+    "no deberia devolver ninguna fila (el producto real de B existe pero es invisible)",
+  );
 });
 
 test("shopify_stock_summary con target_organization_id=B llamado por un usuario de A no devuelve el stock real de B", async () => {
@@ -379,10 +490,23 @@ test("shopify_stock_summary con target_organization_id=B llamado por un usuario 
   });
 
   assert.equal(error, null);
-  const row = (data as Array<{ tracked_items: number; total_available: number }>)[0];
-  assert.ok(row, "la funcion deberia devolver una fila (agregacion sobre cero filas visibles)");
-  assert.equal(Number(row.tracked_items), 0, "no deberia contar el item de inventario real de B");
-  assert.equal(Number(row.total_available), 0, "no deberia sumar las 42 unidades reales de B");
+  const row = (
+    data as Array<{ tracked_items: number; total_available: number }>
+  )[0];
+  assert.ok(
+    row,
+    "la funcion deberia devolver una fila (agregacion sobre cero filas visibles)",
+  );
+  assert.equal(
+    Number(row.tracked_items),
+    0,
+    "no deberia contar el item de inventario real de B",
+  );
+  assert.equal(
+    Number(row.total_available),
+    0,
+    "no deberia sumar las 42 unidades reales de B",
+  );
 });
 
 test("shopify_margin_summary con target_organization_id=B llamado por un usuario de A no devuelve el margen real de B", async () => {
@@ -395,22 +519,36 @@ test("shopify_margin_summary con target_organization_id=B llamado por un usuario
 
   assert.equal(error, null);
   const row = (data as Array<{ revenue: number; cogs: number }>)[0];
-  assert.ok(row, "la funcion deberia devolver una fila (agregacion sobre cero filas visibles)");
-  assert.equal(Number(row.revenue), 0, "no deberia sumar los 1000 EUR reales de ingresos de B (5 lineas x 200 EUR)");
+  assert.ok(
+    row,
+    "la funcion deberia devolver una fila (agregacion sobre cero filas visibles)",
+  );
+  assert.equal(
+    Number(row.revenue),
+    0,
+    "no deberia sumar los 1000 EUR reales de ingresos de B (5 lineas x 200 EUR)",
+  );
   assert.equal(Number(row.cogs), 0, "no deberia sumar el coste real de B");
 });
 
 test("shopify_stock_risk_products con target_organization_id=B llamado por un usuario de A no devuelve el producto en riesgo real de B", async () => {
-  const { data, error } = await ownerAClient.rpc("shopify_stock_risk_products", {
-    target_organization_id: orgB,
-    period_start: PERIOD_START,
-    period_end: PERIOD_END,
-    target_store_id: null,
-  });
+  const { data, error } = await ownerAClient.rpc(
+    "shopify_stock_risk_products",
+    {
+      target_organization_id: orgB,
+      period_start: PERIOD_START,
+      period_end: PERIOD_END,
+      target_store_id: null,
+    },
+  );
 
   assert.equal(error, null);
   const rows = data as Array<{ product_id: string }>;
-  assert.equal(rows.length, 0, "no deberia devolver el producto real de B (5 unidades vendidas, 42 en stock)");
+  assert.equal(
+    rows.length,
+    0,
+    "no deberia devolver el producto real de B (5 unidades vendidas, 42 en stock)",
+  );
 });
 
 test("meta_spend_summary con target_organization_id=B llamado por un usuario de A no devuelve el gasto real de B", async () => {
@@ -424,8 +562,16 @@ test("meta_spend_summary con target_organization_id=B llamado por un usuario de 
   const rows = data as Array<{ spend: number; purchases: number }> | null;
   const row = rows?.[0];
   if (row) {
-    assert.equal(Number(row.spend), 0, "no deberia sumar los 100 EUR reales de gasto de B");
-    assert.equal(Number(row.purchases), 0, "no deberia contar las 5 compras reales de B");
+    assert.equal(
+      Number(row.spend),
+      0,
+      "no deberia sumar los 100 EUR reales de gasto de B",
+    );
+    assert.equal(
+      Number(row.purchases),
+      0,
+      "no deberia contar las 5 compras reales de B",
+    );
   }
   // Si no hay fila (agregacion con `group by` sobre cero filas puede no
   // devolver ninguna), tambien es un resultado seguro: no hay dato real de B.
@@ -440,6 +586,13 @@ test("control positivo: el mismo usuario si ve datos reales (aunque vacios) al p
 
   assert.equal(error, null);
   const row = (data as Array<{ orders_count: number }>)[0];
-  assert.ok(row, "un miembro real de la organizacion deberia poder ejecutar la funcion sobre su propia org sin error");
-  assert.equal(Number(row.orders_count), 0, "A no tiene pedidos propios sembrados en este test, 0 es el resultado correcto (no un bloqueo)");
+  assert.ok(
+    row,
+    "un miembro real de la organizacion deberia poder ejecutar la funcion sobre su propia org sin error",
+  );
+  assert.equal(
+    Number(row.orders_count),
+    0,
+    "A no tiene pedidos propios sembrados en este test, 0 es el resultado correcto (no un bloqueo)",
+  );
 });

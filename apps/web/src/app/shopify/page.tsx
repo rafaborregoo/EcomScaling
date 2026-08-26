@@ -7,6 +7,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
 import {
+  AsyncState,
   Banner,
   Button,
   EmptyState,
@@ -130,11 +131,12 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
       params.set("connectionId", selectedConnectionId);
     }
 
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/shopify/metrics?${params.toString()}`,
-    );
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/shopify/metrics?${params.toString()}`,
+      );
 
-    if (!response.ok) {
+      if (!response.ok) {
       const body = (await response.json().catch(() => null)) as {
         error?: string;
         message?: string;
@@ -145,10 +147,13 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           .filter(Boolean)
           .join(" - "),
       );
-      return;
-    }
+        return;
+      }
 
-    setMetrics((await response.json()) as ShopifyMetrics);
+      setMetrics((await response.json()) as ShopifyMetrics);
+    } catch {
+      setMetricsError("No se pudieron cargar las mÃ©tricas de Shopify. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+    }
   }, [organization, periodDays, selectedConnectionId]);
 
   async function saveCost(event: FormEvent) {
@@ -161,7 +166,8 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setIsSavingCost(true);
     setCostFeedback(null);
 
-    const response = await apiFetch(
+    try {
+      const response = await apiFetch(
       `/v1/organizations/${organization.id}/shopify/product-costs`,
       {
         method: "POST",
@@ -171,7 +177,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           unitCost: Number(costUnitCost),
         }),
       },
-    );
+      );
 
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as {
@@ -184,15 +190,18 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           .filter(Boolean)
           .join(" - "),
       );
-      setIsSavingCost(false);
       return;
     }
 
     setCostFeedback("Coste guardado.");
     setCostSku("");
     setCostUnitCost("");
-    setIsSavingCost(false);
     void loadMetrics();
+    } catch {
+      setCostFeedback("No se pudo guardar el coste. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+    } finally {
+      setIsSavingCost(false);
+    }
   }
 
   useEffect(() => {
@@ -244,17 +253,23 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   if (isLoading) {
     return (
       <div className="border-t border-ink/20 pt-5">
-        <LoadingBlock label="Cargando datos Shopify..." />
+        <AsyncState status="loading" loadingLabel="Cargando datos Shopify..." />
       </div>
     );
   }
 
   if (error) {
-    return <ErrorBlock>{error}</ErrorBlock>;
+    return <AsyncState status="error" error={error} />;
   }
 
   if (!overview) {
-    return null;
+    return (
+      <AsyncState
+        status="empty"
+        emptyTitle="No hay datos Shopify disponibles"
+        emptyHint="Conecta una tienda o selecciona otra conexión activa."
+      />
+    );
   }
 
   if (!overview.connection) {

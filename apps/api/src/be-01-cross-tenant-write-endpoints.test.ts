@@ -13,7 +13,7 @@
  * chequeo de organizacion corre primero, no que el recurso no exista.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test -w @ecomscaling/api`.
+ * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -24,9 +24,13 @@ import { buildApp } from "./server.js";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 const TEST_PASSWORD = "Be01-Cross-Tenant-Write-P4ssword-9!";
@@ -42,26 +46,43 @@ before(async () => {
   const { data: orgs, error: orgsError } = await admin
     .from("organizations")
     .insert([
-      { display_name: `BE-01 Cross-Tenant Write Org A ${RUN_TAG}`, slug: `be01-cross-tenant-write-org-a-${RUN_TAG}`, status: "active" },
-      { display_name: `BE-01 Cross-Tenant Write Org B ${RUN_TAG}`, slug: `be01-cross-tenant-write-org-b-${RUN_TAG}`, status: "active" },
+      {
+        display_name: `BE-01 Cross-Tenant Write Org A ${RUN_TAG}`,
+        slug: `be01-cross-tenant-write-org-a-${RUN_TAG}`,
+        status: "active",
+      },
+      {
+        display_name: `BE-01 Cross-Tenant Write Org B ${RUN_TAG}`,
+        slug: `be01-cross-tenant-write-org-b-${RUN_TAG}`,
+        status: "active",
+      },
     ])
     .select("id, slug");
 
   if (orgsError || !orgs || orgs.length !== 2) {
-    throw new Error(`No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`);
+    throw new Error(
+      `No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`,
+    );
   }
-  orgA = orgs.find((org) => org.slug.startsWith("be01-cross-tenant-write-org-a"))!.id;
-  orgB = orgs.find((org) => org.slug.startsWith("be01-cross-tenant-write-org-b"))!.id;
+  orgA = orgs.find((org) =>
+    org.slug.startsWith("be01-cross-tenant-write-org-a"),
+  )!.id;
+  orgB = orgs.find((org) =>
+    org.slug.startsWith("be01-cross-tenant-write-org-b"),
+  )!.id;
 
   const email = `be01-cross-tenant-write-owner-a-${RUN_TAG}@ecomscaling.test`;
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password: TEST_PASSWORD,
-    email_confirm: true,
-  });
+  const { data: created, error: createError } =
+    await admin.auth.admin.createUser({
+      email,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
 
   if (createError || !created.user) {
-    throw new Error(`No se pudo crear el usuario de prueba: ${createError?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba: ${createError?.message}`,
+    );
   }
   ownerAUserId = created.user.id;
 
@@ -70,26 +91,39 @@ before(async () => {
     .insert({ organization_id: orgA, user_id: ownerAUserId, role: "owner" });
 
   if (memberError) {
-    throw new Error(`No se pudo crear la membership de prueba: ${memberError.message}`);
+    throw new Error(
+      `No se pudo crear la membership de prueba: ${memberError.message}`,
+    );
   }
 
-  const { error: subscriptionError } = await admin.from("service_subscriptions").insert({
-    organization_id: orgA,
-    plan_code: "be01-cross-tenant-write-test",
-    status: "active",
-  });
+  const { error: subscriptionError } = await admin
+    .from("service_subscriptions")
+    .insert({
+      organization_id: orgA,
+      plan_code: "be01-cross-tenant-write-test",
+      status: "active",
+    });
 
   if (subscriptionError) {
-    throw new Error(`No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`);
+    throw new Error(
+      `No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`,
+    );
   }
 
-  const anon: SupabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: session, error: signInError } = await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
+  const anon: SupabaseClient = createClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+    },
+  );
+  const { data: session, error: signInError } =
+    await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
 
   if (signInError || !session.session) {
-    throw new Error(`No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`,
+    );
   }
   ownerAAccessToken = session.session.access_token;
 
@@ -105,7 +139,10 @@ after(async () => {
     await admin.auth.admin.deleteUser(ownerAUserId);
   }
   if (orgA || orgB) {
-    await admin.from("organizations").delete().in("id", [orgA, orgB].filter(Boolean));
+    await admin
+      .from("organizations")
+      .delete()
+      .in("id", [orgA, orgB].filter(Boolean));
   }
 });
 
@@ -135,7 +172,8 @@ const CROSS_TENANT_WRITE_ROUTES: Array<{
   },
   {
     method: "PATCH",
-    path: (id) => `/v1/organizations/${id}/milestones/${FAKE_RESOURCE_ID}/status`,
+    path: (id) =>
+      `/v1/organizations/${id}/milestones/${FAKE_RESOURCE_ID}/status`,
     body: { status: "completed" },
     label: "milestones/:milestoneId/status",
   },
@@ -147,25 +185,29 @@ const CROSS_TENANT_WRITE_ROUTES: Array<{
   },
   {
     method: "PATCH",
-    path: (id) => `/v1/organizations/${id}/strategic-plan/phases/${FAKE_RESOURCE_ID}`,
+    path: (id) =>
+      `/v1/organizations/${id}/strategic-plan/phases/${FAKE_RESOURCE_ID}`,
     body: { name: "fase cross-tenant" },
     label: "strategic-plan/phases/:phaseId (edit)",
   },
   {
     method: "POST",
-    path: (id) => `/v1/organizations/${id}/milestones/${FAKE_RESOURCE_ID}/tasks`,
+    path: (id) =>
+      `/v1/organizations/${id}/milestones/${FAKE_RESOURCE_ID}/tasks`,
     body: { title: "tarea cross-tenant" },
     label: "milestones/:milestoneId/tasks (create)",
   },
   {
     method: "POST",
-    path: (id) => `/v1/organizations/${id}/strategic-plan/${FAKE_RESOURCE_ID}/phases`,
+    path: (id) =>
+      `/v1/organizations/${id}/strategic-plan/${FAKE_RESOURCE_ID}/phases`,
     body: { name: "fase cross-tenant" },
     label: "strategic-plan/:planId/phases (create)",
   },
   {
     method: "POST",
-    path: (id) => `/v1/organizations/${id}/strategic-plan/phases/${FAKE_RESOURCE_ID}/milestones`,
+    path: (id) =>
+      `/v1/organizations/${id}/strategic-plan/phases/${FAKE_RESOURCE_ID}/milestones`,
     body: { name: "hito cross-tenant" },
     label: "strategic-plan/phases/:phaseId/milestones (create)",
   },

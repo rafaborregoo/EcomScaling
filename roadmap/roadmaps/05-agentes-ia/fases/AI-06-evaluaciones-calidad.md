@@ -1,16 +1,43 @@
 # AI-06 - Evaluaciones y calidad IA
 
+> **Correccion canonica 2026-08-24:** la evidencia vigente es 53/53 tests de `packages/ai` y
+> cobertura de saneamiento, evidencia, citas, costes y herramientas. Las cifras inferiores de
+> 30/30 o 29/29 son snapshots historicos, no el resultado actual.
+
+> **Incremento de ingeniería de prompts 2026-08-24:** `buildAgentSystemPrompt` (`packages/ai/src/index.ts`)
+> añade una política común a las ejecuciones Anthropic y OpenAI: usar solo contexto verificado,
+> separar hechos/inferencias, abstenerse ante evidencia insuficiente, exigir evidencia/fuentes y
+> mantener la aprobación humana para escrituras. La suite directa vigente pasa 53/53.
+
+> **Corrección de contrato 2026-08-24:** `checkOutputSanity` también rechaza hallazgos sin evidencia,
+> recomendaciones sin acción/impacto y fuentes sin referencia. El schema sigue siendo la validación de
+> forma; esta guarda evita que una salida formalmente válida llegue a aprobación sin trazabilidad mínima.
+
+> **Contrato canónico 2026-08-24:** `agentPromptSectionsSchema` y `renderAgentPromptSections` fijan
+> `ROLE`, `GOAL`, `CONTEXT`, `INPUT`, `RULES / CONSTRAINTS`, `TOOLS`, `OUTPUT`,
+> `FAILURE BEHAVIOUR` y `EXAMPLES` opcional. La suite directa vigente pasa 53/53.
+
+> **Corrección vigente 2026-08-26:** el alcance de evaluación ya no se limita a
+> A01/A02/A06/A08. El dataset versionado y el runner offline cubren los diez
+> agentes activos, incluyendo casos de datos ausentes, abstención, tenant y
+> prompt injection directa/indirecta. La promoción exige cobertura completa y
+> ausencia de fallos críticos; shadow/live queda condicionado a proveedores.
+
 ## Estado
+
+> Verificacion vigente 2026-08-24: `npx tsx --test packages/ai/src/index.test.ts`
+> pasa 53/53 tests, incluyendo evidencia minima, recomendaciones accionables,
+> fuentes, coste/tool budget, tools activas, replay y sanitizacion Klaviyo.
 
 - **Estado real:** `foundational_work_in_progress`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** AI-00
 - **Prioridad:** P0 — no se recomienda anadir agentes nuevos antes de tener una primera version seria de
   este archivo. `checkOutputSanity` es una guarda de sanidad estructural (texto vacio, repeticion
   corrupta, titulos vacios); no es groundedness (que cada afirmacion importante este respaldada por una
   metrica/consulta/cita/documento concreto) — son cosas distintas y este archivo cubre solo la primera.
-- **Evidencia:** `checkOutputSanity` (`packages/ai/src/index.ts`), 30 tests en
+- **Evidencia:** `checkOutputSanity` (`packages/ai/src/index.ts`), 50 tests en
   `packages/ai/src/index.test.ts` (`npm run test -w @ecomscaling/ai`, en CI; conteo actualizado 2026-07-23
   tras anadir deteccion de apertura incoherente, ver mas abajo -- antes 15).
 - **Lo que ya funciona**: la guarda corre justo despues de la validacion de schema en `runAgentTurn` y
@@ -21,7 +48,7 @@
   reales que motivaron su creacion (A02: answer vacio/texto corrupto; A06: answer/title vacios tras agotar
   tool calls). Rollback de prompt/version ya existe de facto via `agent_versions.is_active`.
 - **Dataset de A02 ampliado a 5 escenarios, 2026-07-22** (`apps/api/src/eval-a02-monitor.ts`, `npm run
-  eval:a02 -w @ecomscaling/api`): los 3 originales (organizacion sin datos, tienda con ventas pero sin
+eval:a02 -w @ecomscaling/api`): los 3 originales (organizacion sin datos, tienda con ventas pero sin
   configuracion financiera, tienda sana) mas los 2 que pedia explicitamente este documento --
   **stock roto** (producto real con 40 unidades vendidas/30d y 2 disponibles, seedeado con el arbol
   Shopify completo: location/product/variant/inventory_item/inventory_current_state, no un mock) y
@@ -40,7 +67,7 @@
   quedar en silencio dentro del ruido de checks individuales. Cierra el entregable "Presupuesto maximo de
   coste y latencia" de este mismo documento, que llevaba pendiente desde el diseño original.
 - **Dataset de A01 anadido, 2026-07-23** (`apps/api/src/eval-a01-call-analyst.ts`, `npm run eval:a01 -w
-  @ecomscaling/api`): 3 escenarios, los que este mismo documento pedia explicitamente para A01 --
+@ecomscaling/api`): 3 escenarios, los que este mismo documento pedia explicitamente para A01 --
   **tareas claras** (transcripcion con 2 pendientes explicitos con dueño y plazo -- el agente debe
   proponer tareas con `owner` correcto), **sin tareas accionables** (checkin informativo sin problemas --
   el agente no deberia inventar tareas de la nada) y **tarea sin responsable claro** (problema real
@@ -52,7 +79,7 @@
   ejecucion tecnica no), no una alucinacion real -- confirma el mismo patron que A02: los checks soft son
   ruidosos por diseño. Coste total: $0.084. No corre en CI (cuesta dinero real).
 - **Dataset de A06 anadido, 2026-07-23** (`apps/api/src/eval-a06-stock-planner.ts`, `npm run eval:a06 -w
-  @ecomscaling/api` -- correccion de nombre: A06 es el planificador de stock, no el gestor de conocimiento,
+@ecomscaling/api` -- correccion de nombre: A06 es el planificador de stock, no el gestor de conocimiento,
   ese es A08, que sigue sin dataset): 3 escenarios, mismo patron que A02 -- **sin datos** (tienda conectada
   sin ningun producto/stock sembrado, el agente no deberia inventar cifras ni proponer una cantidad de
   reposicion inventada), **stock roto** (producto real con 40 unidades vendidas/30d y 2 disponibles,
@@ -66,7 +93,7 @@
   cantidades de reposicion fabricadas. Segunda corrida real: **3/3 escenarios pasan, 0 fallos hard, 0/5
   fallos soft**. Coste total: $0.06.
 - **Dataset de A08 anadido, 2026-07-23** (`apps/api/src/eval-a08-knowledge-manager.ts`, `npm run eval:a08 -w
-  @ecomscaling/api`): 2 escenarios -- **catalogo vacio** (organizacion sin ningun documento propio; el
+@ecomscaling/api`): 2 escenarios -- **catalogo vacio** (organizacion sin ningun documento propio; el
   catalogo global tampoco tenia filas activas al momento de escribir el eval, confirmado por SQL directa
   contra el proyecto real) y **duplicados obvios** (2 documentos organization-scoped sobre el mismo tema con
   contenido casi identico, mas 1 documento claramente distinto). Correccion real durante el desarrollo: el

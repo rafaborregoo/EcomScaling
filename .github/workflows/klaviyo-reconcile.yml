@@ -36,10 +36,9 @@ jobs:
       KLAVIYO_CLIENT_SECRET: ${{ secrets.KLAVIYO_CLIENT_SECRET }}
       KLAVIYO_REDIRECT_URI: ${{ secrets.KLAVIYO_REDIRECT_URI }}
       KLAVIYO_SCOPES: ${{ secrets.KLAVIYO_SCOPES }}
-      # Sin esta variable el allowlist queda vacio y el cron habilita Klaviyo
-      # aunque la API desplegada lo tenga restringido: los dos entornos tienen
-      # que compartir el mismo gate.
-      INTEGRATION_FEATURE_FLAGS: ${{ secrets.INTEGRATION_FEATURE_FLAGS }}
+      # Este cron declara su propio gate; no hereda un allowlist global que
+      # pudiera activar accidentalmente otro proveedor.
+      INTEGRATION_FEATURE_FLAGS: klaviyo
 
     steps:
       - name: Checkout repository

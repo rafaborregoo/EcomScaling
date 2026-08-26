@@ -1,23 +1,39 @@
 # Objetivo global de EcomScaling
 
-> Estado canonico vigente 2026-08-02: hay 61 migraciones locales/remotas alineadas, con
+> Estado canonico vigente 2026-08-24: hay 64 migraciones locales/remotas alineadas, con
 > `supabase db push --linked --include-all --dry-run` al dia y `supabase db lint` sin errores.
 > Las cifras 55/56/59/60 que aparecen mas abajo pertenecen a auditorias historicas y quedan
 > supersedidas por esta correccion y por `ESTADO_GLOBAL.md`.
+
+> Evidencia de cierre parcial 2026-08-24: gates de producto/UI/accesibilidad/enlaces pasan; contratos
+> de integraciones 14/14 y suite IA 50/50 pasan con runners directos. El CI manual genera SBOM,
+> construye y escanea API/worker con Trivy. Shopify es el unico conector operativo; Meta/Klaviyo/
+> Instagram siguen preparados sin datos ficticios. El objetivo global permanece abierto por el
+> restore drill, validaciones externas y gaps de profundidad/APM que este documento exige verificar.
 
 > Correccion operativa 2026-08-02: los feature flags de integraciones son un allowlist real en
 > rutas HTTP, callbacks OAuth, sincronizaciones internas y reconciliacion programada. Meta Ads y
 > Klaviyo pueden permanecer preparados sin credenciales reales, pero no se ejecutan por un bypass
 > interno cuando el proveedor esta desactivado.
 
-> Actualizacion vigente 2026-08-02: se aplico en produccion la migracion DB-04 de scope por conexion
-> para fingerprints de webhooks Shopify. Hay 61 migraciones locales/remotas alineadas; dry-run y
+> Observabilidad vigente 2026-08-24: el API registra requests HTTP y runs/coste
+> IA con etiquetas de baja cardinalidad, sin prompts ni datos de tenant. Esto
+> cubre el piloto en una instancia; la agregacion compartida y APM se activan
+> cuando exista la infraestructura externa correspondiente.
+
+> Actualizacion vigente 2026-08-20: se aplico en produccion la foundation DB-10 de Instagram, aditiva
+> y sin datos. Hay 64 migraciones locales/remotas alineadas; dry-run y
 > lint de Supabase pasan.
 
 > Verificacion adicional 2026-08-02: el catalogo UI vigente centraliza tambien `Drawer`,
 > `RouterProvider`, `Alert`, `Modal` y `Toast` en `apps/web/src/components/ui`; el typecheck web y
 > la suite API completa pasan. `packages/ui` queda como historial sustituido por ADR-0015, sin crear
 > un segundo catalogo que pueda divergir.
+
+> Evidencia de gates 2026-08-20: CI verifica que no haya imports HeroUI fuera del catálogo UI
+> (`scripts/assert-ui-catalog-surface.mjs`) y que DB-10 conserve sus seis tablas con RLS,
+> políticas tenant, grants de lectura y ninguna mutación de datos de negocio
+> (`scripts/assert-instagram-foundation.mjs`).
 
 > Nota histórica supersedida: una auditoría intermedia registró 59 migraciones locales y remotas.
 > DB-09 usa `20260802140000_db_09_klaviyo_foundation.sql` y los alineamientos `20260802150000`,
@@ -27,7 +43,7 @@
 > (`20260802152000`) y el total vigente pasó a 60 antes de los forward-fixes posteriores.
 
 > Nota histórica supersedida: una auditoría intermedia registró 132 archivos Markdown y 59 migraciones;
-> el estado vigente es el de la cabecera (170 Markdown y 61 migraciones locales/remotas alineadas) y no hay migraciones
+> el estado vigente es el de la cabecera (134 Markdown y 64 migraciones locales/remotas alineadas) y no hay migraciones
 > pendientes según el dry-run. Klaviyo ya tiene DB-09 aplicada y un vertical slice parcial de OAuth,
 > credenciales cifradas, sync agregado, Reporting API, métrica de conversión y reconciliación programada.
 > Siguen pendientes la validación externa, el backfill profundo, el reporting visual y las pruebas con
@@ -140,7 +156,14 @@ El objetivo se considera alcanzado cuando:
 - [Agentes IA](../roadmap/roadmaps/05-agentes-ia/README.md)
 - [Seguridad, QA y observabilidad](../roadmap/roadmaps/06-seguridad-qa-observabilidad/README.md)
 
-## Auditoria documental vigente (2026-08-02, revisión ampliada)
+## Auditoria documental vigente (2026-08-20, revisión ampliada)
+
+Actualización de implementación 2026-08-20: el dashboard ya consume el endpoint de operaciones para
+ordenar una superficie adaptativa determinista (`AdaptiveFocus`) con alertas críticas, tareas vencidas,
+tareas urgentes, estado de conectores y KPIs. El runtime IA conserva el control del contenido narrado,
+pero nunca decide ni muta el layout. Además, el bloque `Resumen ejecutivo IA` reutiliza A02 en modo
+compacto y muestra evidencia, fuentes, confianza, completitud y warnings; las propuestas siguen en
+shadow/revisión humana.
 
 Se revisaron los 170 archivos Markdown del repositorio y se corrigieron las contradicciones operativas
 que afectaban a la ejecucion del piloto. La jerarquia de verdad es: codigo y migraciones aplicadas,
@@ -149,7 +172,7 @@ tests/evidencias reproducibles, este documento y despues los roadmaps historicos
 - **Corrección vigente Klaviyo/DB-09:** el vertical slice de persistencia, reporting, selección de métrica,
   sincronización y reconciliación programada ya está implementado parcialmente; no debe describirse como
   únicamente `not_available`. La falta de credenciales solo bloquea su validación externa y los datos reales.
-- **Corrección vigente de migraciones:** hay 61 archivos locales alineados con 61 versiones remotas; las
+- **Corrección histórica de migraciones:** hubo 62 archivos locales alineados con 62 versiones remotas; las
   referencias históricas a 55/56 migraciones quedan supersedidas.
 
 - No se exige staging para el pipeline normal ni para el Piloto 1; los fixtures RLS quedan fuera del
@@ -159,10 +182,10 @@ tests/evidencias reproducibles, este documento y despues los roadmaps historicos
   se hara una extraccion atomica a un paquete compartido, no se mantendran dos catalogos.
 - Meta Ads ya dispone de catalogo y seleccion de activos en el portal; la falta de credenciales reales
   solo deja pendiente la validacion externa de OAuth/Graph API y no justifica datos inventados.
-- Klaviyo ya tiene configuración opcional y primitives OAuth/PKCE aislados (`packages/config` y
-  `apps/api/src/klaviyo-oauth.ts`) fijados a una revisión explícita; el vertical slice de persistencia,
-  reporting y sincronización sigue pendiente y se mantiene visible como `not_available`.
-- La verificacion vigente de migraciones confirma 61 archivos locales alineados con 61 versiones
+- Klaviyo ya tiene configuración opcional, primitives OAuth/PKCE, persistencia alineada, idempotencia,
+  sync agregado, reporting y reconciliación; la conexión real, el backfill profundo y el reporting visual
+  siguen pendientes y deben mostrarse con estados honestos, nunca como datos conectados.
+- La verificacion historica de migraciones confirma 62 archivos locales alineados con 62 versiones
   remotas; `supabase db push --dry-run` devuelve `Remote database is up to date`. AI-14 se aplico como
   `20260802130100_ai_14_abstention_quality_tools.sql` despues de corregir un timestamp duplicado.
 

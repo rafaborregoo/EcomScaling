@@ -17,6 +17,10 @@ import {
   runAgentTurnOpenAI,
   VoyageEmbeddingProvider,
   createToolReplayFixture,
+  createOptionalLangSmithTraceable,
+  resolveLangSmithRuntimeConfig,
+  resolveAgentOrchestrationMode,
+  runOperationThroughLangGraph,
   getToolContract,
   getToolDefinition,
   type AgentInput,
@@ -33,16 +37,39 @@ import type {
 } from "@ecomscaling/contracts";
 import { INTEGRATION_CATALOG } from "@ecomscaling/integrations";
 import { createLogger } from "@ecomscaling/observability";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { apiMetrics } from "./metrics.js";
+import {
+  type AuthContext,
+  createUserScopedClient,
+  requireOperationalOrganization,
+} from "./auth-context.js";
 import { executeGatewayQuery, SQL_GATEWAY_SCHEMA_DOC } from "./sql-gateway.js";
 import { recordAuditLog } from "./audit-log.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
 import { executeKnowledgeSearch } from "./knowledge.js";
+import { createSingleFlight } from "./single-flight.js";
 
 type ApiEnv = LoadedApiEnv;
 
 const logger = createLogger("ai-runtime");
+
+function recordAiRunMetrics(
+  agentCode: string,
+  status: string,
+  estimatedCostUsd?: number,
+) {
+  // Operational, low-cardinality labels only. Never expose tenant ids,
+  // prompts, context blocks or model output through Prometheus labels.
+  apiMetrics.increment("ai_runs_total", { agent_code: agentCode, status });
+  if (estimatedCostUsd !== undefined) {
+    apiMetrics.increment(
+      "ai_estimated_cost_usd_total",
+      { agent_code: agentCode },
+      estimatedCostUsd,
+    );
+  }
+}
 
 function hasConfiguredAiProvider(env: ApiEnv): boolean {
   return Boolean(env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY);
@@ -70,8 +97,191 @@ const AGENT_TASK_CATEGORY: Record<
 // AI-00/AI-06 (R-011): presupuesto real por turno, no solo registrado.
 // Primera version deliberadamente simple (un limite plano para todos los
 // agentes, no por agente/organizacion) -- AI-09 ya añade el limite diario por
-// organizacion; afinacion por plan/agente y model routing siguen pendientes.
+// organizacion y el circuit breaker persistido por tenant; afinacion por
+// plan/agente y model routing siguen pendientes.
 const DEFAULT_AGENT_BUDGET = { maxCostUsd: 1, maxToolCalls: 10 };
+
+type PlanBudgetPolicy = {
+  dailyBudgetUsd?: number;
+  maxCostUsd?: number;
+  maxToolCalls?: number;
+  complexityMultiplier?: number;
+};
+
+type PlanBudgetConfig = Record<string, PlanBudgetPolicy>;
+
+function parsePlanBudgetConfig(raw: string | undefined): PlanBudgetConfig {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
+    const config: PlanBudgetConfig = {};
+    for (const [planCode, value] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const candidate = value as Record<string, unknown>;
+      const policy: PlanBudgetPolicy = {};
+      if (
+        typeof candidate.dailyBudgetUsd === "number" &&
+        Number.isFinite(candidate.dailyBudgetUsd) &&
+        candidate.dailyBudgetUsd > 0
+      ) {
+        policy.dailyBudgetUsd = Math.min(candidate.dailyBudgetUsd, 1000);
+      }
+      if (
+        typeof candidate.maxCostUsd === "number" &&
+        Number.isFinite(candidate.maxCostUsd) &&
+        candidate.maxCostUsd > 0
+      ) {
+        policy.maxCostUsd = Math.min(candidate.maxCostUsd, 10);
+      }
+      if (
+        typeof candidate.maxToolCalls === "number" &&
+        Number.isInteger(candidate.maxToolCalls) &&
+        candidate.maxToolCalls > 0
+      ) {
+        policy.maxToolCalls = Math.min(candidate.maxToolCalls, 100);
+      }
+      if (
+        typeof candidate.complexityMultiplier === "number" &&
+        Number.isFinite(candidate.complexityMultiplier) &&
+        candidate.complexityMultiplier > 0
+      ) {
+        policy.complexityMultiplier = Math.min(
+          candidate.complexityMultiplier,
+          4,
+        );
+      }
+      if (Object.keys(policy).length > 0) config[planCode] = policy;
+    }
+    return config;
+  } catch {
+    logger.info("ai_plan_budget_config_invalid", {
+      message: "AI_PLAN_BUDGETS_JSON no es JSON valido; se usan los defaults.",
+    });
+    return {};
+  }
+}
+
+function resolveOrganizationPlanCode(
+  context: AuthContext,
+  organizationId: string,
+) {
+  const subscription = context.subscriptions.find(
+    (item) =>
+      item.organization_id === organizationId &&
+      ["active", "trialing"].includes(item.status),
+  );
+  return subscription?.plan_code ?? "default";
+}
+
+type AgentRoutingPolicy = {
+  anthropicModel?: string;
+  openaiModel?: string;
+  maxCostUsd?: number;
+  maxToolCalls?: number;
+};
+
+type AgentRoutingConfig = Record<string, AgentRoutingPolicy>;
+
+function parseAgentRoutingConfig(raw: string | undefined): AgentRoutingConfig {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    const config: AgentRoutingConfig = {};
+    for (const [agentCode, value] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const candidate = value as Record<string, unknown>;
+      const policy: AgentRoutingPolicy = {};
+      if (
+        typeof candidate.anthropicModel === "string" &&
+        candidate.anthropicModel.trim()
+      ) {
+        policy.anthropicModel = candidate.anthropicModel.trim();
+      }
+      if (
+        typeof candidate.openaiModel === "string" &&
+        candidate.openaiModel.trim()
+      ) {
+        policy.openaiModel = candidate.openaiModel.trim();
+      }
+      if (
+        typeof candidate.maxCostUsd === "number" &&
+        Number.isFinite(candidate.maxCostUsd) &&
+        candidate.maxCostUsd > 0
+      ) {
+        policy.maxCostUsd = Math.min(candidate.maxCostUsd, 10);
+      }
+      if (
+        typeof candidate.maxToolCalls === "number" &&
+        Number.isInteger(candidate.maxToolCalls) &&
+        candidate.maxToolCalls > 0
+      ) {
+        policy.maxToolCalls = Math.min(candidate.maxToolCalls, 100);
+      }
+      if (Object.keys(policy).length > 0) config[agentCode] = policy;
+    }
+    return config;
+  } catch {
+    logger.info("ai_model_routing_config_invalid", {
+      message: "AI_MODEL_ROUTING_JSON no es JSON valido; se usan los defaults.",
+    });
+    return {};
+  }
+}
+
+export function resolveAgentBudget(
+  agentCode: string,
+  routingConfig: AgentRoutingConfig = {},
+  planPolicy: PlanBudgetPolicy = {},
+) {
+  const multiplier = planPolicy.complexityMultiplier ?? 1;
+  return {
+    maxCostUsd:
+      routingConfig[agentCode]?.maxCostUsd ??
+      Math.min(
+        (planPolicy.maxCostUsd ?? DEFAULT_AGENT_BUDGET.maxCostUsd) * multiplier,
+        10,
+      ),
+    maxToolCalls:
+      routingConfig[agentCode]?.maxToolCalls ??
+      Math.min(
+        Math.ceil(
+          (planPolicy.maxToolCalls ?? DEFAULT_AGENT_BUDGET.maxToolCalls) *
+            multiplier,
+        ),
+        100,
+      ),
+  };
+}
+
+export function resolvePlanBudget(
+  planCode: string,
+  rawConfig: string | undefined,
+) {
+  const config = parsePlanBudgetConfig(rawConfig);
+  return config[planCode] ?? config.default ?? {};
+}
+
+export function resolveProviderModel(
+  agentCode: string,
+  provider: "anthropic" | "openai",
+  fallbackModel: string,
+  routingConfig: AgentRoutingConfig = {},
+) {
+  const policy = routingConfig[agentCode];
+  return provider === "anthropic"
+    ? (policy?.anthropicModel ?? fallbackModel)
+    : (policy?.openaiModel ?? fallbackModel);
+}
 
 // AI-13: el piloto nunca sale de shadow por inferencia del modelo. El cambio
 // a live tendra que ser una activacion explicita con sus propias guardas.
@@ -103,6 +313,68 @@ export function shouldRequireHumanApproval(
 // presupuesto sin limite mientras se escalan clientes reales. Plano para todas
 // las organizaciones por ahora; ajustar por organizacion/plan sigue pendiente.
 const DEFAULT_ORGANIZATION_DAILY_BUDGET_USD = 20;
+const PROVIDER_CIRCUIT_FAILURE_THRESHOLD = 3;
+const PROVIDER_CIRCUIT_WINDOW_MS = 5 * 60 * 1000;
+
+/** Pure policy used by the fail-closed provider circuit breaker. */
+export function shouldOpenProviderCircuit(
+  recentFailedRuns: number,
+  threshold: number = PROVIDER_CIRCUIT_FAILURE_THRESHOLD,
+) {
+  return recentFailedRuns >= threshold;
+}
+
+/**
+ * Stops new agent turns after repeated provider failures for one tenant.
+ * `agent_runs` is already the durable audit stream, so this does not require
+ * a new table or a mutable process-local counter (important with several API
+ * instances). Validation failures and budget failures use different statuses
+ * and do not open this circuit.
+ */
+export async function checkOrganizationProviderCircuit(
+  supabase: SupabaseClient,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<
+  | { ok: true; recentFailedRuns: number }
+  | { ok: false; statusCode: number; error: string; message: string }
+> {
+  const since = new Date(now.getTime() - PROVIDER_CIRCUIT_WINDOW_MS);
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("status", "failed")
+    .gte("started_at", since.toISOString())
+    .limit(PROVIDER_CIRCUIT_FAILURE_THRESHOLD);
+
+  if (error) {
+    logger.error("organization_provider_circuit_check_failed", {
+      organization_id: organizationId,
+      error: error.message,
+    });
+    return {
+      ok: false,
+      statusCode: 503,
+      error: "organization_provider_circuit_unavailable",
+      message:
+        "No se pudo comprobar la salud del proveedor IA. El agente queda pausado hasta recuperar la comprobación.",
+    };
+  }
+
+  const recentFailedRuns = data?.length ?? 0;
+  if (shouldOpenProviderCircuit(recentFailedRuns)) {
+    return {
+      ok: false,
+      statusCode: 503,
+      error: "organization_provider_circuit_open",
+      message:
+        "El proveedor IA ha fallado varias veces recientemente. Los agentes quedan pausados durante unos minutos para evitar bucles y coste innecesario.",
+    };
+  }
+
+  return { ok: true, recentFailedRuns };
+}
 
 /**
  * Suma `estimated_cost_usd` de los runs de la organizacion desde el inicio
@@ -249,12 +521,15 @@ function describeAgentTurnFailure(error: unknown): {
 // reintentar ahi con otro proveedor no cambiaria el resultado deseado) --
 // reintenta el mismo turno con OpenAI si hay OPENAI_API_KEY configurada. Sin
 // key, el comportamiento es identico al anterior: el fallo de Anthropic es el
-// fallo final. El presupuesto diario por organizacion se valida antes de entrar
-// aqui; el routing por plan/agente sigue pendiente de AI-09.
-async function runAgentTurnWithFallback<TOutput>(
+// fallo final. El presupuesto diario y el circuit breaker por organizacion se
+// validan antes de entrar aqui. AI-09 conserva como pendiente solo el routing
+// por plan/organizacion; el override por agente ya se resuelve aqui.
+async function runAgentTurnWithFallbackCore<TOutput>(
   env: ApiEnv,
   params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey">,
 ): Promise<Awaited<ReturnType<typeof runAgentTurn<TOutput>>>> {
+  const routingConfig = parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON);
+  const agentCode = params.input.agent_code;
   if (!env.ANTHROPIC_API_KEY) {
     if (!env.OPENAI_API_KEY) {
       throw new Error(
@@ -265,7 +540,12 @@ async function runAgentTurnWithFallback<TOutput>(
     return await runAgentTurnOpenAI<TOutput>({
       ...params,
       apiKey: env.OPENAI_API_KEY,
-      model: env.OPENAI_MODEL ?? "gpt-4.1",
+      model: resolveProviderModel(
+        agentCode,
+        "openai",
+        env.OPENAI_MODEL ?? "gpt-4.1",
+        routingConfig,
+      ),
     });
   }
 
@@ -273,6 +553,12 @@ async function runAgentTurnWithFallback<TOutput>(
     return await runAgentTurn<TOutput>({
       ...params,
       apiKey: env.ANTHROPIC_API_KEY,
+      model: resolveProviderModel(
+        agentCode,
+        "anthropic",
+        params.model,
+        routingConfig,
+      ),
     });
   } catch (error) {
     const isJudgmentOnAnthropicResponse =
@@ -292,9 +578,33 @@ async function runAgentTurnWithFallback<TOutput>(
     return await runAgentTurnOpenAI<TOutput>({
       ...params,
       apiKey: env.OPENAI_API_KEY,
-      model: env.OPENAI_MODEL ?? "gpt-4.1",
+      model: resolveProviderModel(
+        agentCode,
+        "openai",
+        env.OPENAI_MODEL ?? "gpt-4.1",
+        routingConfig,
+      ),
     });
   }
+}
+
+async function runAgentTurnWithFallback<TOutput>(
+  env: ApiEnv,
+  params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey">,
+): Promise<Awaited<ReturnType<typeof runAgentTurn<TOutput>>>> {
+  const tracedTurn = createOptionalLangSmithTraceable(
+    "ecomscaling.agent_turn",
+    () => {
+      const operation = () =>
+        runAgentTurnWithFallbackCore<TOutput>(env, params);
+      return resolveAgentOrchestrationMode(env.AI_ORCHESTRATION_MODE) ===
+        "langgraph"
+        ? runOperationThroughLangGraph(operation)
+        : operation();
+    },
+    resolveLangSmithRuntimeConfig(env),
+  );
+  return tracedTurn();
 }
 
 async function resolveAgentCodeForRun(
@@ -331,19 +641,7 @@ async function resolveAgentCodeForRun(
 }
 
 function requireMembership(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find(
-    (item) => item.organization_id === organizationId,
-  );
-
-  if (!membership) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
-    };
-  }
-
-  return { ok: true as const, membership };
+  return requireOperationalOrganization(context, organizationId);
 }
 
 /**
@@ -366,6 +664,13 @@ function buildAgentTools(
         (name): name is string => typeof name === "string",
       )
     : [];
+  const unavailableToolNames = allowedToolNames.filter((name) => {
+    const definition = getToolDefinition(name);
+    return Boolean(
+      definition &&
+        (definition.status === "planned" || definition.status === "disabled"),
+    );
+  });
 
   const recordToolCall = async (
     toolName: string,
@@ -387,6 +692,9 @@ function buildAgentTools(
 
   const tools: AgentToolDefinition[] = [];
   let systemPrompt = systemPromptBase;
+  if (unavailableToolNames.length > 0) {
+    systemPrompt = `${systemPrompt}\n\n[CAPACIDADES NO DISPONIBLES TODAVIA]\nLas siguientes tools estan declaradas para una futura conexion, pero no tienen executor operativo en este entorno: ${unavailableToolNames.join(", ")}. No intentes invocarlas ni inventes sus datos. Declara la falta de datos y utiliza request_missing_data o escalate_to_human si necesitas desbloquear la respuesta.`;
+  }
 
   const parseToolInput = (toolName: string, input: Record<string, unknown>) => {
     const contract = getToolContract(toolName);
@@ -682,7 +990,7 @@ function buildAgentTools(
     tools.push({
       name: "sql_select",
       description:
-        "Ejecuta UNA sentencia SELECT (o WITH) de solo lectura sobre las vistas del esquema documentado, ya filtradas a la organizacion activa. Maximo 200 filas: agrega en SQL en vez de listar filas sueltas.",
+        "Ejecuta UNA sentencia SELECT (o WITH) de solo lectura sobre las vistas del esquema documentado, ya filtradas a la organizacion activa. Maximo 200 filas y con guard de coste estimado: agrega en SQL en vez de listar filas sueltas.",
       inputSchema: {
         type: "object",
         properties: {
@@ -718,6 +1026,7 @@ function buildAgentTools(
             ? {
                 rows_returned: result.rows?.length ?? 0,
                 tables_used: result.tablesUsed,
+                estimated_cost: result.estimatedCost ?? null,
               }
             : { error: result.error },
           !result.ok,
@@ -729,6 +1038,7 @@ function buildAgentTools(
         const output = {
           rows,
           row_limit: result.rowLimit ?? null,
+          estimated_cost: result.estimatedCost ?? null,
           truncated:
             typeof result.rowLimit === "number" &&
             rows.length >= result.rowLimit,
@@ -908,7 +1218,7 @@ function buildAgentTools(
         const asOf = new Date().toISOString();
         const { data, error } = await supabase
           .from("integration_connections")
-          .select("provider, status, last_sync_at, last_error_at")
+          .select("provider, status, last_sync_at, last_error_at, updated_at")
           .eq("organization_id", organizationId);
 
         if (error) {
@@ -951,21 +1261,20 @@ function buildAgentTools(
             (connection) => connection.provider === provider.id,
           );
           const connected =
-            connections.find(
-              (connection) =>
-                connection.status === "connected" ||
-                connection.status === "syncing",
-            ) ??
-            connections[0] ??
-            null;
+            [...connections].sort((a, b) => {
+              const aTime = new Date(a.updated_at ?? 0).getTime();
+              const bTime = new Date(b.updated_at ?? 0).getTime();
+              return bTime - aTime;
+            })[0] ?? null;
           const lastSyncAt = connected?.last_sync_at ?? null;
           return {
             provider: provider.id,
             available: provider.available,
             connection_status: connected?.status ?? "not_connected",
             data_available:
-              connected?.status === "connected" ||
-              connected?.status === "syncing",
+              (connected?.status === "connected" ||
+                connected?.status === "syncing") &&
+              Boolean(lastSyncAt),
             last_sync_at: lastSyncAt,
             freshness_seconds: lastSyncAt
               ? Math.max(
@@ -1363,12 +1672,24 @@ async function runGenericDiagnosticAgent(
 
   const supabase = createServiceClient(env);
 
+  const planPolicy = resolvePlanBudget(
+    resolveOrganizationPlanCode(context, organizationId),
+    env.AI_PLAN_BUDGETS_JSON,
+  );
   const dailyBudgetCheck = await checkOrganizationDailyBudget(
     supabase,
     organizationId,
+    planPolicy.dailyBudgetUsd,
   );
   if (dailyBudgetCheck.ok === false) {
     return dailyBudgetCheck;
+  }
+  const providerCircuitCheck = await checkOrganizationProviderCircuit(
+    supabase,
+    organizationId,
+  );
+  if (providerCircuitCheck.ok === false) {
+    return providerCircuitCheck;
   }
 
   const { data: agentVersion, error: versionError } = await supabase
@@ -1491,7 +1812,11 @@ async function runGenericDiagnosticAgent(
       input,
       contextBlocks,
       tools,
-      budget: DEFAULT_AGENT_BUDGET,
+      budget: resolveAgentBudget(
+        input.agent_code,
+        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+        planPolicy,
+      ),
     });
 
     await recordStep(
@@ -1547,6 +1872,8 @@ async function runGenericDiagnosticAgent(
       })
       .eq("id", runId);
 
+    recordAiRunMetrics(agentCode, "succeeded", turn.estimatedCostUsd);
+
     return {
       ok: true as const,
       data: {
@@ -1574,6 +1901,8 @@ async function runGenericDiagnosticAgent(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+
+    recordAiRunMetrics(agentCode, status);
 
     return {
       ok: false as const,
@@ -1621,6 +1950,9 @@ async function resolveStoreScope(
 }
 
 const DIAGNOSTIC_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+const diagnosticSingleFlight = createSingleFlight<
+  Awaited<ReturnType<typeof runMonitorAgent>>
+>();
 
 /**
  * Diagnostico listo para mostrar sin friccion (consultor-first: no hay boton
@@ -1646,6 +1978,13 @@ async function getCachedDiagnostic(
   }
 
   const supabase = createServiceClient(env);
+
+  const runtimePresentation = {
+    orchestration_mode: resolveAgentOrchestrationMode(
+      env.AI_ORCHESTRATION_MODE,
+    ),
+    langsmith_tracing: resolveLangSmithRuntimeConfig(env).tracing,
+  } as const;
 
   let query = supabase
     .from("agent_runs")
@@ -1704,6 +2043,7 @@ async function getCachedDiagnostic(
         output: output.output,
         generated_at: cachedGeneratedAt,
         from_cache: true,
+        runtime: runtimePresentation,
         envelope: buildAgentOutputEnvelope({
           runId: latestRun.id,
           agentCode,
@@ -1727,7 +2067,8 @@ async function getCachedDiagnostic(
     };
   }
 
-  const fresh = await runFresh();
+  const diagnosticKey = `${organizationId}:${agentCode}:${storeId ?? "all"}:${lookbackDays}`;
+  const fresh = await diagnosticSingleFlight(diagnosticKey, runFresh);
 
   if (fresh.ok === false) {
     return fresh;
@@ -1743,6 +2084,7 @@ async function getCachedDiagnostic(
     ok: true as const,
     data: {
       ...fresh.data,
+      runtime: runtimePresentation,
       generated_at: freshGeneratedAt,
       from_cache: false,
       envelope: buildAgentOutputEnvelope({
@@ -2370,12 +2712,25 @@ export async function runCallAnalyst(
 
   const supabase = createServiceClient(env);
 
+  const planPolicy = resolvePlanBudget(
+    resolveOrganizationPlanCode(context, organizationId),
+    env.AI_PLAN_BUDGETS_JSON,
+  );
   const dailyBudgetCheck = await checkOrganizationDailyBudget(
     supabase,
     organizationId,
+    planPolicy.dailyBudgetUsd,
   );
   if (dailyBudgetCheck.ok === false) {
     return dailyBudgetCheck;
+  }
+
+  const providerCircuitCheck = await checkOrganizationProviderCircuit(
+    supabase,
+    organizationId,
+  );
+  if (providerCircuitCheck.ok === false) {
+    return providerCircuitCheck;
   }
 
   const { data: agentVersion, error: versionError } = await supabase
@@ -2537,7 +2892,11 @@ export async function runCallAnalyst(
         jsonSchema: callSummaryJsonSchema as unknown as Record<string, unknown>,
         schema: callSummaryOutputSchema,
       },
-      budget: DEFAULT_AGENT_BUDGET,
+      budget: resolveAgentBudget(
+        input.agent_code,
+        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+        planPolicy,
+      ),
     });
 
     await recordStep(
@@ -2601,6 +2960,12 @@ export async function runCallAnalyst(
       })
       .eq("id", runId);
 
+    recordAiRunMetrics(
+      "a01_analista_llamadas",
+      "succeeded",
+      turn.estimatedCostUsd,
+    );
+
     return {
       ok: true as const,
       data: {
@@ -2627,6 +2992,8 @@ export async function runCallAnalyst(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+
+    recordAiRunMetrics("a01_analista_llamadas", status);
 
     return {
       ok: false as const,
@@ -2725,11 +3092,22 @@ export async function runMarketingContentDraft(
   }
 
   const supabase = createServiceClient(env);
+  const planPolicy = resolvePlanBudget(
+    resolveOrganizationPlanCode(context, organizationId),
+    env.AI_PLAN_BUDGETS_JSON,
+  );
   const dailyBudgetCheck = await checkOrganizationDailyBudget(
     supabase,
     organizationId,
+    planPolicy.dailyBudgetUsd,
   );
   if (dailyBudgetCheck.ok === false) return dailyBudgetCheck;
+
+  const providerCircuitCheck = await checkOrganizationProviderCircuit(
+    supabase,
+    organizationId,
+  );
+  if (providerCircuitCheck.ok === false) return providerCircuitCheck;
 
   const { data: agentVersion, error: versionError } = await supabase
     .from("agent_versions")
@@ -2839,7 +3217,11 @@ export async function runMarketingContentDraft(
         >,
         schema: klaviyoEmailOutputSchema,
       },
-      budget: DEFAULT_AGENT_BUDGET,
+      budget: resolveAgentBudget(
+        input.agent_code,
+        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+        planPolicy,
+      ),
     });
 
     const sanitizedOutput = klaviyoEmailOutputSchema.parse({
@@ -2942,6 +3324,12 @@ export async function runMarketingContentDraft(
       })
       .eq("id", runId);
 
+    recordAiRunMetrics(
+      "a11_generador_marketing",
+      "succeeded",
+      turn.estimatedCostUsd,
+    );
+
     return {
       ok: true as const,
       data: {
@@ -2968,6 +3356,8 @@ export async function runMarketingContentDraft(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+
+    recordAiRunMetrics("a11_generador_marketing", status);
 
     return {
       ok: false as const,
@@ -3349,13 +3739,26 @@ export async function runConsultantChatTurn(
   }
 
   const supabase = createServiceClient(env);
+  const planPolicy = resolvePlanBudget(
+    resolveOrganizationPlanCode(context, organizationId),
+    env.AI_PLAN_BUDGETS_JSON,
+  );
 
   const dailyBudgetCheck = await checkOrganizationDailyBudget(
     supabase,
     organizationId,
+    planPolicy.dailyBudgetUsd,
   );
   if (dailyBudgetCheck.ok === false) {
     return dailyBudgetCheck;
+  }
+
+  const providerCircuitCheck = await checkOrganizationProviderCircuit(
+    supabase,
+    organizationId,
+  );
+  if (providerCircuitCheck.ok === false) {
+    return providerCircuitCheck;
   }
 
   const { data: agentVersion, error: versionError } = await supabase
@@ -3538,7 +3941,11 @@ export async function runConsultantChatTurn(
         jsonSchema: chatJsonSchema as unknown as Record<string, unknown>,
         schema: chatOutputSchema,
       },
-      budget: DEFAULT_AGENT_BUDGET,
+      budget: resolveAgentBudget(
+        input.agent_code,
+        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+        planPolicy,
+      ),
     });
 
     await recordStep(
@@ -3587,6 +3994,12 @@ export async function runConsultantChatTurn(
       })
       .eq("id", runId);
 
+    recordAiRunMetrics(
+      "a09_copiloto_consultor",
+      "succeeded",
+      turn.estimatedCostUsd,
+    );
+
     return {
       ok: true as const,
       data: {
@@ -3621,6 +4034,8 @@ export async function runConsultantChatTurn(
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+
+    recordAiRunMetrics("a09_copiloto_consultor", status);
 
     // FE-06: `status` expuesto ademas de `detail` para que el frontend pueda
     // distinguir presupuesto agotado / salida rechazada / fallo generico sin

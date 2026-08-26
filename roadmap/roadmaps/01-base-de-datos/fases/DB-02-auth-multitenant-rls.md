@@ -2,6 +2,12 @@
 
 ## Estado
 
+> Verificacion vigente 2026-08-24: las 64 migraciones locales/remotas estan
+> alineadas y los gates de esquema pasan. La evidencia funcional vigente sigue
+> siendo 17/17 tests de aislamiento general y 8/8 pruebas de RPC metricas en
+> proyecto aislado (validacion documentada); falta repetir esa suite aislada
+> de forma reproducible para poder reclasificar la fase como `done`.
+
 - **Estado real:** `verification_pending` (mucho mas cerca de `done`, ver correcciones abajo).
 - **Responsable:** sin asignar
 - **Ultima validacion:** 2026-07-23
@@ -9,7 +15,7 @@
 - **Bloqueador:** ninguno
 - **Evidencia:**
   - Migracion: `supabase/migrations/20260715123333_db_02_auth_multitenant_rls.sql`, aplicada en remoto el 2026-07-15.
-  - Tests: `node --test apps/api/src/rls-tenant-isolation.test.ts` — **17/17 pass** (ampliado 2026-07-21, antes 11/11). Cubre lo de siempre (aislamiento de lectura) mas 6 tests nuevos: escritura cross-tenant rechazada en `integration_connections` (insert), `organizations` (update), `organization_members` (insert); el trigger `enforce_task_alert_same_org` rechaza enlazar una tarea de A con una alerta de B; una organizacion suspendida corta el acceso de su propio owner en caliente (sin re-login); desactivar la membresia de un usuario corta su acceso sin afectar a otros miembros de la misma organizacion.
+  - Tests remotos: `test:remote` en un proyecto aislado — **17/17 pass** (ampliado 2026-07-21, antes 11/11). Cubre lo de siempre (aislamiento de lectura) mas 6 tests nuevos: escritura cross-tenant rechazada en `integration_connections` (insert), `organizations` (update), `organization_members` (insert); el trigger `enforce_task_alert_same_org` rechaza enlazar una tarea de A con una alerta de B; una organizacion suspendida corta el acceso de su propio owner en caliente (sin re-login); desactivar la membresia de un usuario corta su acceso sin afectar a otros miembros de la misma organizacion. La suite requiere el guard de proyecto aislado y no se ejecuta contra producción.
   - `supabase db advisors --linked --type security --level warn`: sin warnings nuevos tras esta ronda.
   - **Funciones `SECURITY DEFINER` de `private`** (todas con `set search_path = ''` explicito, confirmado en el codigo fuente de la migracion -- no vulnerables a search_path hijacking): `is_platform_admin()`, `is_active_org_member(org_id)`, `current_member_role(org_id)`, `is_assigned_consultant(org_id)`, `has_valid_subscription(org_id)`, `can_access_org(org_id)` (compone las 3 anteriores), `can_manage_org(org_id)` (platform_admin o rol owner/manager). Todas `grant execute ... to authenticated`, ninguna a `anon`.
 - **Correcciones a la auditoria anterior (2026-07-20), que subestimaba lo ya construido:**

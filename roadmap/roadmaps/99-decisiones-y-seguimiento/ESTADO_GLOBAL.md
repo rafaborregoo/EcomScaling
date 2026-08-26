@@ -1,5 +1,493 @@
 # Estado global
 
+Correccion de evidencia 2026-08-26: `npx tsx --test packages/ai/src/index.test.ts` termina en
+57/57. Las cifras inferiores que aparecen en notas historicas quedan superseded por esta ejecucion.
+
+Shopify, el copiloto, el panel de agentes y las notificaciones completan ahora el contrato
+transversal de resiliencia de UI: los errores de transporte son visibles, los estados ocupados
+se liberan siempre y la interfaz no refleja mutaciones no confirmadas por el backend.
+
+El panel de Consultor aplica ahora el mismo contrato de estados a la administracion
+multi-tenant: carga de acceso y tiendas, altas de miembros/asignaciones, edicion de clientes,
+eliminacion y restauracion. Las excepciones de red son visibles, los botones se liberan siempre
+y ningun cambio local se presenta como aplicado sin confirmacion remota.
+
+## Corrección vigente 2026-08-26 - Robustez de UI, conectores y RAG
+
+El Dashboard ya limpia en `finally` las cargas de Shopify, métricas Meta/Shopify,
+configuración financiera y operaciones cuando `apiFetch` falla por red; las 12 rutas
+del portal mantienen loading/error/empty y los gates de UI/accesibilidad pasan.
+Las métricas de Shopify y Meta se solicitan además en paralelo con aislamiento por
+proveedor, evitando que un timeout de Meta retrase o elimine un resultado válido de
+Shopify.
+La pantalla de Integraciones aplica la misma garantía a sus cargas de estado,
+métricas e informes Klaviyo y activos Meta: captura errores de red, elimina datos
+obsoletos y libera siempre los estados de carga, incluidos los cambios de conexión.
+Las acciones de OAuth, reintento de sincronización y guardado de selecciones usan
+la misma disciplina: los botones se desbloquean en `finally` y sólo se refleja
+`syncing` después de una respuesta remota exitosa.
+Conocimiento/RAG aplica el mismo contrato a carga de documentos, ingestión y
+búsqueda semántica; una organización ausente deja la vista en estado vacío y un
+fallo de red no borra resultados/documentos válidos de otra operación.
+El componente reutilizable `AiDiagnosticSection` extiende esa garantía a todos
+los diagnósticos IA: carga, regeneración y aprobación para crear tareas liberan
+siempre sus estados y sólo mutan el output tras confirmación remota.
+Operaciones/Tareas aplica el mismo criterio a carga, evaluación de reglas,
+estados de tareas/alertas y comentarios: los errores de transporte son visibles,
+no generan éxitos falsos y conservan el payload operativo disponible.
+Mi Camino centraliza las mutaciones de planes estratégicos en un helper común;
+activar, editar y añadir fases/hitos/tareas sólo recargan tras éxito confirmado y
+mantienen abiertos los formularios cuando falla la red.
+Marketing/Contenido aplica el mismo contrato a generación, aprobación humana,
+edición e historial de borradores; nunca cierra una edición ni presenta una
+decisión como aplicada sin respuesta remota confirmada.
+Llamadas/Consultor aplica la misma disciplina a registro, análisis, resúmenes,
+aprobaciones, notas y tareas; el helper común libera siempre el busy state y no
+presenta una acción IA como exitosa si falla el transporte.
+Configuración financiera y cobertura Shopify también quedan protegidas: los
+formularios conservan sus valores ante fallos, los gastos bloquean duplicados
+durante la operación y sólo se recarga la configuración después de éxito remoto.
+Los triggers y reconciliadores de Shopify, Meta y Klaviyo usan claims condicionales
+para evitar sincronizaciones duplicadas. El RAG centraliza su perfil versionado de
+modelo, dimensiones y chunking. Estos avances no alteran los bloqueadores externos
+de credenciales, App Review ni el restore aislado de Supabase.
+
+## Corrección vigente 2026-08-26 - Readiness real de Supabase
+
+La API y la web alcanzan correctamente Supabase: Auth health y una consulta
+real del Data API público devuelven 200, el service role devuelve 200 y el host
+PostgreSQL responde por TCP. El 401 del índice raíz de PostgREST era un falso
+positivo del chequeo. El CLI y `psql` no están instalados, y el MCP de Supabase
+devuelve falta de permisos. La URL oficial del MCP ya está añadida en
+`.mcp.json`, pendiente sólo de su autorización OAuth. `SUPABASE_MIGRATION_READINESS.md` deja documentada la secuencia segura
+para autorizar gestión, corregir la clave pública, comparar migraciones,
+ejecutar advisors, aplicar DDL y regenerar tipos. No se declara la base remota
+alineada hasta completar esas comprobaciones.
+
+La CLI `2.109.1` vía `npx` sí pudo listar el historial remoto usando la URL de
+PostgreSQL: el proyecto está aplicado hasta `20260824120000` y hay siete
+migraciones posteriores locales pendientes. La conexión de gestión existe;
+queda revisar advisors y autorizar explícitamente su aplicación, sin asumir
+que producción ya las tiene.
+
+`db push --dry-run` se probó sin modificar la base y falla antes de ejecutar por
+`EUNKNOWN: uv_spawn` en Windows. Se conserva como bloqueo de tooling operativo;
+la conectividad y el historial remoto sí están verificados.
+
+La generación remota de tipos por CLI tampoco completó porque el daemon Docker
+Linux no está activo; los tipos locales existentes se mantienen y no se declara
+regeneración remota verificada.
+
+## Corrección vigente 2026-08-26 - Validación navegable y fallback AI-26
+
+La validación local con Supabase/API activos confirmó que Dashboard, Integraciones,
+Conocimiento y Agentes cargan sin errores de consola. Se corrigieron breadcrumbs que
+renderizaban `href=""` y la lectura de `agent_outputs` ausente en la tabla de agentes.
+
+El endpoint de readiness de evaluaciones reconoce `PGRST205`, la respuesta de PostgREST
+cuando AI-26 aún no está en el schema cache, y devuelve `local_prepared` sin simular
+evidencia remota. Los errores de permisos continúan elevándose como error real.
+
+La carga concurrente de las tres tarjetas de diagnóstico del dashboard ya está protegida
+con single-flight por organización, agente, tienda y período. Así, una apertura simultánea
+no duplica llamadas LLM antes de escribir el cache de 24 horas. La prueba directa pasa 3/3.
+
+La observabilidad local incorpora `evaluateHttpSlo` y el endpoint interno protegido
+`/health/slo`: calcula error rate y p95 a partir de las métricas del proceso y
+devuelve estados `ok`, `degraded`, `critical` o `no_traffic`. Evidencia: observabilidad
+9/9 y endpoint API 3/3. La agregación multiinstancia sigue siendo responsabilidad de
+Redis/APM cuando se habilite infraestructura compartida.
+
+El resumen multi-tienda del dashboard limita las peticiones Shopify a cuatro concurrentes,
+conserva el orden de las tiendas y convierte errores individuales en estado vacío sin dejar
+el loading bloqueado. Evidencia: test directo 2/2 y typecheck web correcto.
+
+## Corrección vigente 2026-08-26 - Documentación histórica de IA y threat model
+
+La auditoría de la cola detectó referencias antiguas que describían evals sólo
+para A01/A02/A06/A08 y filas de SQO-04 sin controles. AI-06/AI-12 ahora dejan
+como vigente la matriz offline de los diez agentes, el catálogo de tools y el
+release gate; SQO-04 aclara que anti-injection, SBOM y Trivy ya tienen controles
+locales. Las ejecuciones live y la validación operativa siguen separadas.
+
+## Corrección vigente 2026-08-26 - RAG y memoria contra indirect prompt injection
+
+AI-04 y AI-07 ya reflejan que documentos, Playbook, notas, conectores y
+resultados de tools se tratan como contexto no confiable y se delimitan para
+evitar instrucciones indirectas. La matriz de evals de los diez agentes y el
+release gate cubren la propiedad; los gaps restantes son de estructura de
+corpus/chunking/autoridad y de validación live de embeddings.
+
+## Corrección vigente 2026-08-26 - Chunking estructural y autoridad RAG
+
+El RAG ahora conserva encabezados, listas y tablas durante el chunking y
+repite el contexto de sección al cortar bloques largos. El retrieval híbrido
+aplica un boost pequeño y explícito por autoridad documental, manteniendo los
+filtros de tenant, tienda y audiencia. La suite de `packages/ai` pasa 56/56 y
+su typecheck pasa; la migración queda lista para aplicarse cuando se ejecute el
+despliegue de Supabase.
+
+La revisión de tipos confirma que `packages/db/src/database.types.ts` ya incluye
+las columnas `authority`/`audience` y las firmas de `knowledge_search` y
+`knowledge_search_hybrid`; no hay desalineación local. Las pruebas RAG/API
+dirigidas pasan 5/5.
+
+## Corrección vigente 2026-08-26 - Runbook de evals y degradación IA
+
+Se añadió `RB-010-ai-eval-failed-or-degraded.md` y se incorporó al catálogo de
+`SQO-06`. Define la contención cuando falla cualquier eval de los diez agentes,
+el rollback a una versión aprobada, el tratamiento de prompt injection y datos
+ausentes, la interacción con circuit breaker/timeouts y la validación offline,
+shadow y live. También obliga a conservar evidencia y `traceId` redactados sin
+activar versiones que no superen el release gate.
+
+## Corrección vigente 2026-08-26 - Contratos de conectores verificados
+
+Las pruebas contractuales directas de Meta, Klaviyo y Shopify pasan 15/15:
+batch/deduplicación/idempotencia y modos de Insights de Meta; paginación segura,
+Reporting API, `Retry-After` y permisos de Klaviyo; y validación de payloads de
+webhook Shopify. La cobertura sigue siendo contractual/offline: no se presenta
+como validación de cuentas reales ni sustituye App Review, scopes o credenciales.
+
+## Corrección vigente 2026-08-26 - Matriz ejecutable de validación externa
+
+`INT-08-EXTERNAL-CONNECTOR-VALIDATION-MATRIX.md` convierte los bloqueadores
+externos en un checklist ejecutable: OAuth y scopes efectivos, identidad,
+sync inicial/incremental, idempotencia, errores transitorios, recuperación,
+freshness, tenant, UI, agentes y observabilidad. Define evidencia y criterios
+de promoción separados para Shopify, Meta Ads, Klaviyo e Instagram, sin
+simular ninguna respuesta de proveedor.
+
+## Corrección vigente 2026-08-26 - Estados de producto completos
+
+El verificador `assert-product-state-surface.mjs` encontró y se corrigió el
+último gap: `apps/web/src/app/camino/page.tsx` y
+`apps/web/src/app/integraciones/page.tsx` usan ahora `ErrorBlock` explícito.
+La superficie completa confirma 12 rutas con loading, error y empty states;
+el typecheck directo de la web también pasa.
+
+## Corrección vigente 2026-08-26 - Threat model y testing de agentes sincronizados
+
+`SQO-04` y `SQO-01` ya reflejan la situación actual: prompt injection directa e
+indirecta tiene controles en el contexto no confiable, dataset versionado y
+evals offline para los diez agentes, con release gate y evidencia preparados.
+Sólo quedan pendientes las ejecuciones `shadow/live` con proveedores y datos
+reales, además de fixtures contractuales externos.
+
+## Corrección vigente 2026-08-26 - Cola de roadmaps sincronizada
+
+`roadmap/ROADMAP_QUEUE.md` refleja ahora AI-16 a AI-31 como implementación local
+parcial preparada, con sus bloqueos remotos separados. El siguiente bloque local
+es UI/UX y accesibilidad; la cola ya no trata los evals, prompts, RAG, tools o
+readiness de agentes como trabajo de diseño pendiente.
+
+## Corrección vigente 2026-08-26 - Stack de orquestación IA verificado
+
+LangGraph está integrado detrás de `AI_ORCHESTRATION_MODE=langgraph` como opt-in
+para shadow/piloto; LangSmith se activa sólo con `LANGSMITH_TRACING=true` y
+`LANGSMITH_API_KEY`, con redacción y sin payloads por defecto. El modo directo
+sigue siendo el fallback seguro. Evidencia: LangGraph 2/2, LangSmith 2/2 y
+configuración 20/20.
+
+## Corrección vigente 2026-08-26 - Routing y presupuesto IA verificados
+
+El runtime mantiene routing opcional por `agent_code`, fallback Anthropic →
+OpenAI, presupuesto por turno, presupuesto por plan con multiplicador de
+complejidad y circuit breaker fail-closed por organización. Evidencia local:
+routing 2/2 y AI-09 5/5. No requiere claves para validar sus reglas.
+
+## Corrección vigente 2026-08-26 - Shopify custom app habilitada correctamente
+
+La readiness de Shopify considera configurada la app personalizada cuando
+existen `SHOPIFY_CUSTOM_*`, aunque la app pública siga pendiente de revisión.
+Así la UI no deshabilita OAuth para la vía custom que el backend ya soporta.
+La app pública mantiene su configuración independiente para el cambio futuro.
+Evidencia local: `integrations-configuration.test.ts` 3/3 y typecheck de API.
+
+## Corrección vigente 2026-08-26 - Readiness de recuperación operacional
+
+`recoverableErrorVerified` se deriva ahora de los sync runs reales: un fallo o
+partial seguido por un éxito en la misma conexión. La readiness puede cerrarse
+cuando el conector se recupera de verdad, pero no se simula antes de tener ese
+historial. Evidencia local: `integrations-configuration.test.ts` 5/5 y typecheck
+de API.
+
+## Corrección vigente 2026-08-26 - Resiliencia RAG y OAuth
+
+`VoyageEmbeddingProvider` y los intercambios OAuth de Klaviyo/Shopify usan la
+política común de proveedores: `AbortSignal`, timeout, retries sólo para fallos
+transitorios, backoff exponencial y status HTTP conservado para no reintentar
+credenciales inválidas. Evidencia local: AI index 55/55, Klaviyo OAuth 4/4 y
+typecheck de API correcto. `apps/api/src/embedding-batching.ts` es reutilizado
+por la ingesta y el alta manual, limita a dos embeddings simultáneos y conserva
+el orden de chunks; `memory-ingestion.test.ts` pasa 2/2. No requiere
+credenciales reales para dejar el flujo preparado.
+
+## Corrección vigente 2026-08-26 - Agentes preparados con prompts persistidos
+
+A03, A05 y A07 ya tienen definición, prompt canónico de nueve secciones y versión
+declarativa de futuras tools. Permanecen inactivos hasta conectar y validar
+Meta/Instagram, evitando activar agentes cuyo runtime aún no tiene esas
+herramientas. Evidencia: migración AI-22 y `agent-prepared-prompts.test.ts`.
+
+## Corrección vigente 2026-08-26 - Contratos de tools futuras
+
+La capa AI ya registra los contratos de lectura que necesitarán A03/A05/A07 para
+Meta Ads e Instagram, con paginación, fechas, provenance y clasificación de
+connector. El estado `planned` mantiene la autorización cerrada hasta que exista
+executor, conexión y scopes aprobados. Evidencia: AI-23 y 6/6 tests de AI.
+
+## Corrección vigente 2026-08-26 - Fathom publica frescura real
+
+El consumidor de eventos Fathom actualiza `last_sync_at` únicamente después de
+procesar el evento y materializar la llamada; también limpia los errores previos.
+Los fallos registran `last_error_at` y un mensaje truncado, manteniendo la conexión
+conectada para permitir reintentos y evitando presentar una reautorización falsa.
+La readiness webhook-only y la salud de Integraciones ya consumen estas señales.
+Evidencia local: `fathom-webhook-handler.test.ts` 4/4 y typecheck de API.
+
+## Corrección vigente 2026-08-26 - Fan-out de I/O acotado
+
+La reconciliación periódica de Meta ya no espera secuencialmente todas las cuentas
+ni crea una tarea por cuenta: utiliza `mapWithConcurrency` con límite 3, devuelve
+los resultados en el orden original y conserva el aislamiento de errores por
+conexión. Evidencia local: `meta-sync-concurrency.test.ts` 2/2 y typecheck de API.
+
+## Corrección vigente 2026-08-26 - Insights Meta en batch
+
+La sincronización de insights de Meta construye payloads tenant-bound, descarta
+registros sin `ad_id` o fecha, deduplica por `ad_id:metric_date` y realiza batch
+upsert de filas y acciones. Esto elimina el patrón de una escritura de red por
+fila sin cambiar las claves de idempotencia. Evidencia local:
+`meta-sync-batch.test.ts` 3/3 y typecheck de API.
+
+## Corrección vigente 2026-08-26 - Concurrencia común de conectores
+
+El helper `apps/api/src/async-concurrency.ts` centraliza el límite de workers de
+I/O y conserva el orden. Meta reconcilia hasta 3 conexiones y Klaviyo hasta 2;
+Shopify y Klaviyo mantienen sus batch upserts existentes. La configuración evita
+fan-out ilimitado y reduce esperas secuenciales sin alterar la idempotencia.
+Evidencia local: suites de batch/concurrencia 5/5 y typecheck de API.
+
+## Corrección vigente 2026-08-26 - Notificaciones robustas
+
+`NotificationsBell` incorpora estado de error accesible, reintento, cierre por
+Escape y un contador que solo cambia cuando el elemento estaba sin leer. Se evita
+el loading permanente ante errores de red y se mantienen los estados loading/empty
+reutilizables. Evidencia local: typecheck de web correcto.
+
+> **FE-01 actualizado 2026-08-24:** el dashboard incorpora `OnboardingChecklist`, una ruta visual reutilizable para conectar Shopify, validar la primera sincronizacion y preparar Meta/Klaviyo sin mostrar datos simulados. `IntegrationStatusBadge` centraliza los estados de disponibilidad, configuracion y salud sin presentar “preparado” como “conectado”; su lógica pura tiene 4 tests directos. Typecheck web y formato pasan.
+> `PortalShell` tambien comunica suspension de organizacion, suscripcion no activa y reautorizacion pendiente de Shopify.
+> Backend tambien aplica `requireOperationalOrganization` a configuracion financiera, costes Shopify, operaciones y llamadas; test directo 4/4.
+> El runtime de agentes IA y planes estrategicos tambien reutilizan el guard para bloquear efectos en tenants no operativos.
+> Meta, Klaviyo y conocimiento/RAG por organizacion tambien validan el guard antes de persistir o cambiar configuracion.
+> Shopify valida el mismo guard en inicio de OAuth y trigger de sync; el callback sigue protegido por state, HMAC y comprobaciones del proveedor.
+> Los workers de Shopify, Meta y Klaviyo también revalidan el tenant y la suscripción inmediatamente antes de persistir datos.
+
+> **Meta OAuth actualizado 2026-08-24:** el callback verifica `debug_token`, valida el app id y compara permisos concedidos con `META_SCOPES`; si faltan scopes no persiste el token ni activa la conexión. Los scopes almacenados son los concedidos por Meta.
+> **Klaviyo OAuth actualizado 2026-08-24:** autorización con scopes separados por espacios y persistencia del `scope` concedido; respuestas sin permisos verificables no activan la conexión.
+> **Instagram actualizado 2026-08-24:** contrato reutilizable de `facebook_login`/`instagram_login` con hosts, scopes, dependencia de Página y limitaciones; test de catálogo 9/9. El adapter real continúa correctamente no disponible.
+
+> **INT-00/INT-02/INT-03/INT-05 actualizado 2026-08-24:** cada proveedor expone `provider.configuration.status` (`configured`, `credentials_missing`, `feature_disabled`, `not_implemented`) y la UI habilita OAuth solo cuando corresponde. Test de contrato de activación 1/1; no requiere credenciales reales.
+
+## Matriz canonica vigente 2026-08-24
+
+Esta matriz prevalece sobre las tablas historicas inferiores del documento:
+
+| Fase                                            | Estado vigente                                            | Evidencia resumida                                                                                         |
+| ----------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| DB-07 alertas/tareas/Mi Camino                  | `done`                                                    | Triggers de historial y aislamiento, tareas idempotentes, enlaces Mi Camino y tests reales documentados.   |
+| DB-08 llamadas/runtime IA                       | `done`                                                    | Transcripcion actual unica, RLS published-only, aprobacion y trazabilidad de runs.                         |
+| BE-01 identidad/tenancy                         | `done`                                                    | Auditoria de rutas, suspension, consultor asignado y escrituras cross-tenant con tests reales.             |
+| BE-05 operaciones                               | `done`                                                    | Alertas/tareas auditables y resumen ligado a la version correcta de transcripcion; 4 tests de visibilidad. |
+| AI-00 contratos/runtime                         | `done`                                                    | Suite IA 53/53, prompt estructurado, política común, presupuestos, tools, trazas y aprobación humana.      |
+| OPS-01 piloto Shopify                           | `verification_pending`                                    | Shopify operativo; falta backup configurado y restore drill real.                                          |
+| INT-02 Meta / INT-03 Klaviyo / INT-05 Instagram | `blocked` / `implemented_partial` / `implemented_partial` | Contratos y UI preparados; faltan credenciales, permisos y validacion externa.                             |
+
+> Correccion vigente 2026-08-24: DB-07 (alertas/tareas/Mi Camino) y DB-08
+> (llamadas/runtime IA) cumplen sus criterios funcionales y se reclasifican
+> como `done`; la division editorial en subfases queda como deuda no
+> bloqueante. La reconciliacion Shopify tambien clasifica `exact`, `warning` y
+> `mismatch` con tests directos 4/4. BE-01 tenancy tambien cumple sus
+> criterios y se reclasifica como `done`; BE-05 operaciones tambien cierra sus
+> criterios tras los 4 tests de visibilidad de resumenes. El typecheck del API
+> y web pasa. AI-00 contratos/runtime base tambien cumple sus criterios y se
+> reclasifica como `done`; AI-03 y AI-04 conservan gaps de endurecimiento y
+> diseño de retrieval, respectivamente.
+
+> **Auditoria vigente 2026-08-24:** las 64 migraciones locales/remotas siguen
+> alineadas; el schema generado, los gates de portal/UI/accesibilidad y enlaces
+> Markdown pasan. Los tests actuales de contratos de integraciones pasan 14/14
+> con `node:test` y la suite de contratos/calidad IA pasa 53/53 con `tsx`.
+> Shopify es el unico conector operativo; Meta/Klaviyo/Instagram conservan
+> estados preparados o bloqueados por validacion externa, sin datos inventados.
+
+> **Incremento de cola 2026-08-24:** `roadmap/ROADMAP_QUEUE.md` es ahora la cola
+> canónica de ejecución por bloques. El bloque AI-05 sigue `in_progress`: la política
+> `buildAgentSystemPrompt` se aplica antes del prompt específico en Anthropic y OpenAI,
+> exige contexto verificado, separación de hechos/inferencias, abstención ante datos
+> insuficientes, evidencia/fuentes y aprobación humana. Verificado con 53/53 tests de
+> `packages/ai` y typecheck del paquete.
+
+> **Decisión IA 2026-08-24:** [ADR-0017](../../../docs/decisions/ADR-0017-rag-y-fine-tuning.md)
+> fija RAG como fuente de conocimiento vivo y fine-tuning como experimento posterior para
+> comportamiento estable. No se entrenará con datos actuales, secretos ni PII de clientes.
+
+> **AI-13 vigente 2026-08-24:** la migración `20260824120000_ai_13_canonical_prompt_sections.sql`
+> está aplicada local y remotamente. A01, A02, A04, A06, A09 y A11 tienen nuevas versiones
+> activas con las nueve secciones canónicas; las versiones anteriores permanecen auditables.
+
+> **FE-08 vigente 2026-08-24:** `AsyncState` centraliza los estados loading/error/empty y ya se
+> usa en Integraciones; `ErrorBlock` expone `role="alert"`. El gate de accesibilidad pasa,
+> el typecheck web pasa y ESLint queda en 0 errores y 13 warnings conocidos de hooks.
+> La misma abstracción se extendió al estado de carga inicial del `PortalShell`.
+> También se aplica a Configuración, Shopify y Diagnóstico Shopify.
+> La cobertura se amplió a Conocimiento, Tareas, Llamadas, Marketing, Consultor, Agentes y Mi Camino;
+> los estados internos de operaciones específicas siguen siendo explícitos y no se mezclan con la carga de página.
+
+> Evidencia adicional vigente 2026-08-24: el registro process-local del API
+> expone `http_requests_total`, `ai_runs_total` y
+> `ai_estimated_cost_usd_total`; la cobertura IA incluye diagnosticos, A01,
+> A11 y A09/chat. No se presentan estas metricas como agregacion multi-
+> instancia: worker, sync y APM compartido siguen pendientes de infraestructura
+> **SQO-02 actualizado 2026-08-24:** el mismo registro expone también el histograma
+> `http_request_duration_ms` con buckets, `_count` y `_sum` por método/ruta/estado;
+> la suite de observabilidad pasa 6/6 y el typecheck del API pasa. La limitación
+> multiinstancia permanece explícita.
+> El chequeo operativo también sanitiza los detalles antes de publicarlos en el
+> artifact/issue de GitHub, incluyendo tokens embebidos en mensajes de error;
+> `ops-health-check.test.ts` pasa 1/1.
+> Los workflows de salud, alertas y reconciliación Shopify también hacen preflight
+> de secretos; salud valida el schema del artifact. Sus cron siguen preparados,
+> pero desactivados por decisión operativa hasta autorizar automatización de producción.
+> externa.
+
+> Correccion AI-09 2026-08-21: ademas de `AI_MODEL_ROUTING_JSON`, el runtime admite
+> `AI_PLAN_BUDGETS_JSON` para aplicar limites diarios, coste por turno, numero de tools y
+> multiplicador de complejidad por plan. El `plan_code` se obtiene de la suscripcion activa del
+> tenant; la politica permanece server-side y los defaults siguen siendo seguros si falta o es invalida.
+
+## Evidencia vigente 2026-08-24
+
+- El dashboard ya dispone de una composición adaptativa determinista (`AdaptiveFocus`) alimentada por
+  `/v1/organizations/:organizationId/operations`: prioriza alertas críticas, tareas vencidas y urgentes,
+  después la salud de Shopify/Meta y los KPIs disponibles. Mantiene estados loading/error/empty y no
+  permite que el modelo cambie el layout.
+- A02 ya se presenta en el dashboard como `Resumen ejecutivo IA` reutilizando `AiDiagnosticSection` en
+  variante compacta: responde desde cache cuando existe y comunica fuentes, groundedness, completitud,
+  confianza, warnings y propuestas pendientes sin ejecutar escrituras.
+- El runtime IA ahora comprueba un circuit breaker fail-closed por organización antes de sus cuatro puntos
+  de entrada. Tres runs `failed` en los últimos cinco minutos abren el circuito durante esa ventana;
+  los fallos de validación de salida y de presupuesto no lo activan. El estado se lee de `agent_runs`,
+  por lo que no depende de memoria local ni de una sola instancia API.
+- AI-09 ya admite `AI_MODEL_ROUTING_JSON` como configuración opcional: permite elegir modelo Anthropic/OpenAI
+  y budget por agente, con límites saneados y defaults conservadores si falta o es inválido. No requiere
+  migración ni claves; la política automática por plan/complejidad queda pendiente.
+- El typegen real de Supabase está integrado en `packages/db/src/database.types.ts` y exportado desde
+  `packages/db/src/index.ts`. El endpoint de Management API/MCP requiere privilegios que la cuenta no
+  tiene, pero el CLI oficial funciona mediante `SUPABASE_DB_URL` y la validación TypeScript pasa.
+- Esta nota supersede las cifras históricas de migraciones o typegen de entradas anteriores; la fuente
+  ejecutable actual continúa siendo `supabase/migrations/` y la verificación enlazada de producción.
+
+> **Corrección de tabla histórica 2026-08-20:** las filas ejecutivas antiguas que todavía muestran
+> DB-09/BE-06/INT-03 como `planned`, INT-02 sin acción canónica o INT-05 sin foundation son
+> snapshots históricos del roadmap. La verdad vigente está en las correcciones de esta cabecera:
+> DB-09/INT-03 están en `implemented_partial`, Meta está bloqueado solo por validación externa e
+> Instagram tiene foundation DB-10 aplicada. No usar esas filas antiguas para decidir el estado actual.
+
+> **Estados canónicos de integraciones 2026-08-20:** DB-09/INT-03 = `implemented_partial`;
+> DB-10/INT-05 = `implemented_partial` (foundation/contrato, sin OAuth-sync real); DB-06/INT-02 =
+> `blocked_external_validation`. Las filas históricas equivalentes que aparecen más abajo quedan
+> expresamente supersedidas por este bloque.
+
+> Gate DB-10 2026-08-20: `scripts/assert-instagram-foundation.mjs` está conectado a CI y verifica
+> seis tablas con RLS/políticas/grants, además de rechazar mutaciones de datos de negocio en la
+> migration de foundation.
+
+> Correccion de seeds 2026-08-20: ademas del opt-in explicito, los seeds de
+> Supabase y Shopify comparan el destino con sus referencias/dominio de
+> produccion y abortan antes de cualquier escritura si coinciden. CI verifica
+> ambas barreras.
+
+> Correccion AI-00A 2026-08-20: `get_budget_status` pertenece al nucleo del
+> runtime, no al conector Meta; asi los limites diarios siguen operativos en el
+> piloto Shopify-only. La regresion de Tool Layer deja la suite AI aislada en
+> 47/47.
+
+> Correccion DB-10 2026-08-20: `20260820110000_db_10_instagram_foundation.sql`
+> esta aplicada en remoto. El estado vigente es 64 migraciones locales/remotas
+> alineadas; las seis tablas Instagram estan vacias y protegidas por RLS.
+
+> Correccion SQO-04 2026-08-20: el threat model es `implemented_partial`, no
+> `planned`; la matriz de 17 amenazas y sus controles/tests es vigente. Los gaps
+> que dependen de infraestructura o conectores futuros siguen explicitamente
+> abiertos.
+
+> Correccion SQO-05/06 2026-08-20: se crearon las fases documentales de
+> disaster recovery y runbooks operativos. SQO-05 queda `verification_pending`
+> por el drill de restore aislado; SQO-06 queda `implemented_partial` con 9
+> runbooks y checklist de salud. No se afirma evidencia externa inexistente.
+
+> Corrección de conectores 2026-08-20: Meta Ads queda `blocked_external_validation`,
+> no por falta de esquema local: la acción de compra canónica y su selección
+> auditable están implementadas en DB-06/BE-04. Klaviyo queda
+> `implemented_partial` con OAuth, sync, Reporting API, backfill incremental y
+> reconciliación reciente; falta validación externa y profundidad funcional. Cada
+> workflow declara un gate fijo por proveedor, y el default sin flags solo permite
+> Shopify. No se generan activos, campañas, insights o perfiles ficticios.
+
+> Seguridad de tests 2026-08-20: el `test` normal de API ejecuta únicamente la
+> suite unitaria/contractual sin I/O remoto. Las suites RLS y cross-tenant que
+> crean fixtures requieren `test:remote` más `RUN_REMOTE_MUTATION_TESTS=1`, un
+> `SUPABASE_TEST_PROJECT_REF` que coincida con `SUPABASE_URL` y que sea distinto
+> de `SUPABASE_PRODUCTION_PROJECT_REF`; así no pueden apuntar accidentalmente a
+> producción.
+
+> El workflow CI también ejecuta `scripts/assert-safe-test-surface.mjs`, que
+> impide que la suite mutable vuelva accidentalmente al comando `test` normal.
+
+> Verificacion de base de datos 2026-08-20: `supabase migration list --linked`
+> devuelve 64 migraciones con `local == remote`; `supabase db push --linked
+--dry-run` confirma que la base remota está al día y `supabase db lint` no
+> encuentra errores en `public`. No se escribieron datos durante esta comprobación.
+
+> Seguridad de dependencias 2026-08-19: Next.js y `eslint-config-next` actualizados
+> a `16.3.1`, `nanoid` fijado a `3.3.18` mediante override transitivo y
+> `node scripts/audit-guard.mjs` pasa con 0 vulnerabilidades high/critical de
+> produccion. El build web con Next 16.3.1 genera las 18 rutas estaticas; los
+> typechecks de web y API tambien pasan.
+
+> BE-00 operacion 2026-08-19: el daemon Docker se inicio localmente y los
+> Dockerfiles de API y worker se construyeron con exito (`ecomscaling-api:verify`
+> y `ecomscaling-worker:verify`). Las imagenes compilan, hacen prune de dev
+> dependencies, usan usuario no-root y declaran healthcheck. El escaneo manual
+> de runtime ya esta limpio; queda automatizarlo en CI y
+> arrancar integrado con Supabase/Redis reales.
+
+> Escaneo Docker 2026-08-19: Docker Scout sobre la etapa final `runtime` de
+> API y worker devuelve 0 paquetes vulnerables critical/high. El escaneo global
+> conserva hallazgos de herramientas del builder que no llegan a runtime; queda
+> como hardening de CI separado del riesgo de producción.
+
+> Verificacion de suites 2026-08-19: API contractual 43/43, worker 13/13, web
+> 5/5, AI 47/47, config 15/15, integraciones 8/8 y observabilidad 5/5.
+
+> La automatizacion del escaneo Docker requiere Docker ID/PAT en CI: el
+> contenedor oficial de Scout rechaza la ejecucion sin autenticacion. Se
+> mantiene como dependencia externa explicita y no como un falso verde.
+
+> Smoke runtime Docker 2026-08-19: API responde `/health` 200 con variables
+> sinteticas; worker pasa su healthcheck contra Redis 7 efimero. Los recursos
+> locales fueron eliminados al terminar y no hubo acceso a datos de negocio.
+
+> Las correcciones históricas posteriores a esta cabecera son contexto y no
+> sustituyen la matriz canónica vigente. En particular, Klaviyo ya no debe
+> describirse como un vertical slice inexistente: OAuth, persistencia, sync,
+> reporting e idempotencia están preparados; siguen fuera de verificación la
+> cuenta real, el backfill profundo, el reporting visual completo y el envío.
+> BE-00 ya tiene builds y smoke runtime locales; queda integración con servicios
+> reales y automatización de Scout con credenciales CI.
+
 > **Preparacion de alta de cliente 2026-08-03.** Tres huecos que solo se habrian
 > notado con un cliente ya conectado quedan cerrados, sin credenciales externas:
 >
@@ -20,7 +508,7 @@
 >    Meta emite en paralelo para la misma conversion: una cuenta con pixel +
 >    CAPI habria mostrado ROAS inflado 2-3x sin que nada fallase. La migracion
 >    `20260803120000_int_02_canonical_purchase_action_type.sql` (**aplicada
->    2026-08-03**; historial en 62 migraciones locales/remotas alineadas) fija
+>    2026-08-03**; historial en 64 migraciones locales/remotas alineadas) fija
 >    un `action_type` canonico por cuenta con
 >    procedencia auditable, y `GET/PUT .../meta/purchase-action-types` permiten
 >    revisarlo contra los tipos realmente observados. Cierra el pendiente
@@ -38,18 +526,16 @@
 > ejecutarse en ningun sitio: ya hay `npm run test -w web` y un paso en CI.
 > Evidencia: web 5/5, `api:test:unit` 43/43, typecheck y lint del monorepo.
 >
-> **Escaneo de dependencias 2026-08-03 (BE-00).** `npm audit` no se habia
+> **Escaneo de dependencias 2026-08-03 (BE-00, nota historica).** `npm audit` no se habia
 > corrido nunca: **17 vulnerabilidades, 13 high**. La causa principal era
 > `@vercel/node` en `dependencies` de `apps/api` usado solo para dos
 > `import type`; sustituidos por los tipos de `node:http` cae toda la cadena de
 > build de Vercel (`undici`, `path-to-regexp`, `js-yaml`, `minimatch`...) del
 > arbol de produccion: 17 → 6. `npm audit fix` sin `--force` resolvio otras
 > tres, incluida `find-my-way`, el router de Fastify en produccion: 6 → 3. Las
-> 3 que quedan son del arbol de Next, sin version parcheada, aceptadas y
-> documentadas. CI ejecuta `scripts/audit-guard.mjs`, que falla solo si
-> aparece una high/critical nueva o si una aceptada deja de aparecer (senal de
-> que hay parche y toca quitarla de la lista). Verificado: typecheck de los
-> tres apps, `api:test:unit` 42/42, worker 13/13 y `next build` completo.
+> 3 que quedaban eran del arbol de Next. Esta nota queda supersedida por la
+> verificacion 2026-08-19: Next 16.3.1, override de `nanoid` 3.3.18 y 0
+> vulnerabilidades high/critical; el guard ya no mantiene excepciones.
 >
 > **Crones rotos por secretos no declarados 2026-08-03 (OPS-00).** `loadApiEnv`
 > exige las credenciales de Shopify siempre, aunque el proceso no toque
@@ -100,15 +586,15 @@ migration list --linked` devuelve 61 entradas con `local == remote`, incluida
 > divergentes y se alinearon los estados de fallo. Typecheck web y Prettier de
 > las superficies afectadas pasan.
 
-## Matriz canonica vigente — 2026-08-02
+## Matriz canonica vigente — 2026-08-19
 
 Esta matriz tiene prioridad sobre las tablas historicas de este documento. Los estados antiguos se
 conservan para explicar decisiones, pero no describen el estado actual:
 
-> **Overrides canónicos 2026-08-02.** Las filas históricas inferiores que
+> **Overrides canónicos 2026-08-19.** Las filas históricas inferiores que
 > todavía conserven estados anteriores quedan superseded por esta lista:
-> `BE-00=implemented_partial` (health/readiness y CI activos; falta drill de
-> Docker/SIGTERM), `BE-01=current` (aislamiento y escritura cross-tenant
+> `BE-00=implemented_partial` (health/readiness, builds y smoke runtime activos;
+> falta integracion con servicios reales y automatizacion de Scout en CI), `BE-01=current` (aislamiento y escritura cross-tenant
 > verificados), `BE-02=implemented_partial` (contratos, feature flags y
 > adaptadores), `BE-03=pilot_ready` para Shopify, `BE-05=functionally_complete`
 > con decisión documental pendiente, `BE-06=implemented_partial` para Klaviyo,
@@ -123,7 +609,7 @@ conservan para explicar decisiones, pero no describen el estado actual:
 | Area                           | Estado vigente                | Evidencia / limite real                                                                                                      |
 | ------------------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | DB-09 / INT-03 / BE-06 Klaviyo | `implemented_partial`         | OAuth PKCE, sync, Reporting API, reconciliacion reciente, UI y contratos preparados; falta cuenta real y validacion externa. |
-| DB-04 / INT-01 Shopify         | `pilot_ready`                 | OAuth, sync, webhooks, reintentos, reconciliacion, metricas y diagnostico; 61 migraciones alineadas.                         |
+| DB-04 / INT-01 Shopify         | `pilot_ready`                 | OAuth, sync, webhooks, reintentos, reconciliacion, metricas y diagnostico; 64 migraciones alineadas.                         |
 | INT-02 / BE-04 Meta Ads        | `blocked_external_validation` | Adaptadores, OAuth, discovery, metricas y UI preparados; falta App Review/credenciales reales.                               |
 | INT-05 Instagram               | `prepared_dependency`         | Contrato y estados honestos preparados sobre Meta; sin sincronizacion real hasta permisos externos.                          |
 | AI runtime                     | `shadow_pilot`                | Evidencia, trazas, coste, aislamiento y aprobacion humana; no se activa `live` por inferencia.                               |
@@ -138,7 +624,7 @@ conservan para explicar decisiones, pero no describen el estado actual:
 > Migracion DB-04 2026-08-02: `20260802153000_db_04_webhook_fingerprint_connection_scope.sql`
 > aplicada en produccion. La unicidad de fingerprints queda aislada por `provider + connection_id`;
 > dry-run remoto indica al dia y `supabase db lint` no encuentra errores. El historial vigente queda
-> en 61 migraciones locales/remotas alineadas.
+> en 64 migraciones locales/remotas alineadas, incluida `20260803120000_int_02_canonical_purchase_action_type.sql`.
 
 > **Auditoría de escrituras sensibles 2026-08-02.** Se verificaron y reforzaron las mutaciones
 > de operaciones y Mi Camino: mantienen guardas de membresía/capacidad y ahora registran actor,
@@ -177,6 +663,11 @@ conservan para explicar decisiones, pero no describen el estado actual:
 > Correccion INT-00 2026-08-02: el parser de `INTEGRATION_FEATURE_FLAGS`
 > acepta los nombres cortos (`meta_ads`) y los nombres canonicos del catalogo
 > (`integration.meta_ads`). La regresion del paquete de integraciones pasa 6/6.
+
+> Correccion INT-00 2026-08-20: si `INTEGRATION_FEATURE_FLAGS` está vacío,
+> solo se habilita Shopify por defecto. Meta Ads y Klaviyo requieren opt-in
+> explícito; Instagram continúa bloqueado por el catálogo. Esto evita que un
+> entorno sin flags active conectores todavía no validados.
 
 > Verificacion de datos demo 2026-08-02: los fixtures/mock encontrados quedan
 > limitados a tests/evals; no hay fallback de metricas simuladas en las rutas de
@@ -248,16 +739,16 @@ conservan para explicar decisiones, pero no describen el estado actual:
 > fallido para reintento, sin romper la deduplicacion concurrente. `db-04-webhook-idempotency.test.ts`
 > pasa 3/3 contra Supabase real.
 
-> Correccion vigente de auditoria 2026-08-02: los bloques posteriores que mencionan 59 o 60
-> migraciones son historicos y quedan supersedidos. El estado comprobado actualmente es 61
-> migraciones locales/remotas alineadas y 170 archivos Markdown fuera de dependencias generadas.
+> Correccion vigente de auditoria 2026-08-19: los bloques posteriores que mencionan 59, 60 o 61
+> migraciones son historicos y quedan supersedidos. El estado comprobado actualmente es 62
+> migraciones locales/remotas alineadas y 134 archivos Markdown fuera de dependencias generadas.
 
 > Nota histórica supersedida: hubo un estado intermedio de 59 migraciones locales y remotas alineadas. DB-09 usa la foundation
 > `20260802140000_db_09_klaviyo_foundation.sql` más los alineamientos `20260802150000`, `20260802150100`
 > y `20260802151000`; todos están aplicados.
 
 > Actualización de verificación: `20260802152000_db_09_klaviyo_enum_compatibility.sql` también está
-> aplicada; ese fue un estado intermedio: el total vigente comprobado es 61 migraciones locales/remotas alineadas.
+> aplicada; ese fue un estado intermedio: el total vigente comprobado es 64 migraciones locales/remotas alineadas.
 
 > Corrección DB-09/runtime 2026-08-02: tras auditar el esquema real de producción se añadieron y
 > aplicaron tres migraciones aditivas (estado intermedio de 59 migraciones alineadas). El contrato Klaviyo ahora cubre
@@ -392,7 +883,7 @@ conservan para explicar decisiones, pero no describen el estado actual:
 
 ## Contrato de objetivo
 
-La matriz de evidencia del piloto está en [`docs/AUDITORIA_ESTADO_REAL_PILOTO.md`](../../../docs/AUDITORIA_ESTADO_REAL_PILOTO.md); los estados `prepared` e `implemented_partial` no equivalen a validación con credenciales o datos externos.
+La matriz de evidencia del piloto está en [`docs/AUDITORIA_ESTADO_REAL_PILOTO.md`](../../../docs/AUDITORIA_ESTADO_REAL_PILOTO.md); los estados `prepared` e `implemented_partial` no equivalen a validación con credenciales o datos externos. La checklist ejecutable de bloqueadores externos y activación está en [`BLOQUEADORES_EXTERNOS_Y_ACTIVACION.md`](./BLOQUEADORES_EXTERNOS_Y_ACTIVACION.md).
 
 Este estado global se evalúa contra el [objetivo global del SaaS y Definition of Done](../../../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md).
 La meta no es marcar Meta Ads, Klaviyo o Instagram como conectados sin credenciales: es dejar sus
@@ -609,8 +1100,9 @@ Ver estado detallado por conector en `roadmap/roadmaps/04-integraciones/fases/IN
 - **INT-02 (Meta Ads)**: implementacion real (OAuth, sync, insights) verificada en `meta-sync.ts` — las
   `actions`/`action_values`/`purchase_roas` ya se guardan como filas separadas por `action_type`, sin
   colapsar a una columna de compras (el riesgo que mas se suele senalar en integraciones de Meta esta bien
-  resuelto). Gaps reales: Insights solo a nivel `ad` (hardcodeado), sin modo asincrono, sin
-  `canonical_purchase_action_type` documentado por cuenta. Bloqueado por Meta App Review, igual que BE-04.
+  resuelto). Insights sigue a nivel `ad` (hardcodeado) y `action_report_time` requiere una decisión
+  explícita; el modo asíncrono ya está preparado y se activa solo con `META_INSIGHTS_MODE=async`, con
+  polling acotado y timeout. Bloqueado por Meta App Review, igual que BE-04.
 - **INT-03 (Klaviyo)**: sin codigo. La guia de referencia en este repo (`Klaviyo/EcomScaling_IA_Guia_...md`)
   esta escrita sobre `api_revision 2026-04-15`; reauditar contra la revision vigente antes de programar.
 - **INT-04 (Loom/Fathom)**: Loom manual esta completo y en uso (link + transcripcion manual -> A01 analista
@@ -691,7 +1183,10 @@ un JSON con schema correcto puede seguir siendo un diagnostico incorrecto, caro 
   adelante en un `answer`/`summary` largo pasaba sin deteccion. Anadida `hasBrokenWordMidText`
   (`packages/ai/src/index.ts`) con la misma heuristica sobre todos los saltos de linea del texto, exigiendo
   minuscula tras el salto para no confundir parrafos/listas legitimos que arrancan con mayuscula. 4 tests
-  nuevos, 29/29 pasan en `packages/ai`.
+  nuevos, 29/29 pasan en `packages/ai`. **Ampliado 2026-08-24**: la decisión de release ya es
+  ejecutable en `packages/ai/src/release-gate.ts`; exige score global y por dimensión, límites de
+  tasas de seguridad, coste/latencia opcionales y bloquea cualquier fallo crítico o evidencia ausente.
+  3 tests puros cubren activación permitida, bloqueo por regresión/fallo crítico y ausencia de evidencia.
 - **AI-07 (memoria acumulativa)**: `implemented_prod_secret_pending` (ver
   AI-07-memoria-acumulativa-consultor-experto.md). Descartado el diseño original (informes de IA
   re-ingeridos como RAG encadenado). Implementado el 2026-07-22 sobre las 3 fuentes (resumenes de llamada
@@ -717,6 +1212,10 @@ un JSON con schema correcto puede seguir siendo un diagnostico incorrecto, caro 
   punta). Pendiente real: `VOYAGE_API_KEY` en el secret de produccion de GitHub Actions (sin ella el cron
   `memory-ingestion.yml` no procesa filas, quedan en `pending`), y las "dos superficies" de `/conocimiento`
   (sigue siendo una tabla plana sin distinguir memoria de documentos subidos a mano).
+- **AI-07 endurecimiento local 2026-08-24**: la cola de memoria ahora reclama filas con estado
+  `processing`, recupera claims obsoletos y borra chunks parciales antes de reindexar. La migración
+  `20260824130000_ai_07_memory_queue_claims.sql` está preparada localmente; el gate remoto queda
+  pendiente de aplicar la migración y repetir la validación end-to-end.
 - **AI-08/09/10 (propuestas, no creadas)**: outcomes de recomendaciones (aceptada/rechazada -> KPI antes/
   despues), model routing y presupuesto real, y formato universal de evidencia — ver
   `roadmap/roadmaps/05-agentes-ia/README.md`. Son la pieza que mas cambiaria la ventaja competitiva real
@@ -855,3 +1354,246 @@ anterior (2026-07-20).
 - **Correccion AI-04/DB-11 2026-08-02**: la migración `20260801100000_ai_04_knowledge_hybrid_search.sql`
   ya fue aplicada al proyecto enlazado y `db lint` volvió a pasar; la nota anterior que la marcaba como
   pendiente queda supersedida.
+
+## Correccion canonica de estado 2026-08-21
+
+## Correcciones vigentes 2026-08-24
+
+- **AI-03/AI-04:** el SQL Gateway ya bloquea `WITH RECURSIVE`, `pg_*`, `pg_sleep` y funciones de
+  expansion; su suite pasa 31/31. El RPC RAG hibrido esta aplicado y el eval adversarial documental
+  de prompt injection esta verificado. Las filas historicas que indiquen lo contrario quedan supersedidas.
+- **SQO-01/AI-06:** el CI manual ejecuta lint, typecheck, build, tests, SBOM y Trivy; la suite IA vigente
+  pasa 50/50. Las cifras historicas inferiores de tests o de lint ausente no representan el estado actual.
+- **Base remota verificada en esta ronda:** `npx supabase migration list --linked` devuelve 63 entradas
+  con `local == remote`; no se ejecuto `db push` ni se escribieron datos durante la comprobacion.
+- **Integridad remota verificada:** `npx supabase db lint --linked` no encuentra errores en `ai`,
+  `extensions`, `private` ni `public`; `npx supabase db push --linked --dry-run` confirma que la base
+  remota esta al dia y no se ejecuta ninguna escritura.
+- **Gate transversal vigente:** typecheck API/web, 12 rutas con loading/error/empty, accesibilidad,
+  catalogo UI, web 5/5, schema generado, API unitario 53/53, IA 50/50, integraciones 14/14,
+  SQL Gateway 31/31 y auditoria de dependencias pasan en la verificacion actual.
+- **Gates adicionales vigentes:** `assert-instagram-foundation.mjs` confirma seis tablas con RLS,
+  politicas tenant y grants de lectura; `assert-safe-seed-surface.mjs` confirma que los seeds demo
+  mantienen barreras contra destinos de produccion.
+- **Build web vigente:** `npx next build` desde `apps/web` pasa con Next 16.3.1, TypeScript,
+  generacion de 18 paginas estaticas y optimizacion final.
+- **Build de servicios vigente:** `npx tsc -p apps/api/tsconfig.json` y
+  `npx tsc -p apps/worker/tsconfig.json` completan correctamente. Esto verifica artefactos TypeScript;
+  no se presenta como despliegue ni como prueba de contenedores en runtime.
+- **Paquetes compartidos:** los typechecks directos de `ai`, `config`, `contracts`, `db`, `domain`,
+  `integrations` y `observability` pasan 7/7.
+- **Lint web vigente:** ejecutado desde `apps/web` con `npx eslint .`; termina sin errores y con 13
+  warnings conocidos de hooks React (`set-state-in-effect` y una dependencia de efecto). CI no los
+  trata como fallos; quedan como hardening UX/performance pendiente, no como ausencia de lint.
+- **Observabilidad worker:** `worker_jobs_total` ya se registra por nombre/estado reutilizando
+  `@ecomscaling/observability`; el test de workflows del worker queda reproducible desde cualquier cwd
+  y la suite del worker pasa 14/14. Sigue pendiente el backend compartido multi-instancia.
+- **Supply-chain vigente:** `node scripts/audit-guard.mjs` pasa en esta ronda con 0 vulnerabilidades
+  `high/critical` en dependencias de producción. El CI manual conserva además SBOM CycloneDX y
+  escaneo Trivy de las imágenes API/worker; no se interpreta como sustituto de una revisión periódica.
+- El escaneo de imagenes Docker ya no queda pendiente: el workflow CI manual genera SBOM CycloneDX, construye API/worker y ejecuta Trivy para HIGH/CRITICAL no corregidas. No publica ni despliega automaticamente.
+- AI-09 queda en `implemented_partial`: routing opcional, presupuesto por turno/organizacion y circuit breaker fail-closed por tenant implementados; limites comerciales por plan y APM externa siguen pendientes.
+- Las cifras historicas de la suite IA `47/47` quedan supersedidas por la verificacion vigente del 2026-08-24: `packages/ai/src/index.test.ts` pasa 50/50; los contratos de integraciones pasan 14/14 con `npx tsx --test`.
+- INT-04/Fathom ya no es "sin una linea de codigo": existe el verificador de firma, parser y dedupe key del webhook. La API key de prueba y la validacion externa siguen pendientes; Loom manual permanece operativo.
+- INT-03/Klaviyo ya no es "sin codigo": existe el vertical slice de OAuth PKCE, sync, Reporting API, reconciliacion, backfill, UI y contratos; falta cuenta real para validacion externa.
+- INT-05/Instagram ya no es "sin codigo": existe foundation de schema/RLS, adapter explicito `not_available`, catalogo y estados de UI; OAuth y sync reales esperan credenciales/permisos Meta.
+
+Las notas historicas anteriores a este bloque no deben interpretarse como el estado ejecutable actual.
+La evidencia vigente es la siguiente:
+
+- **INT-03/DB-09/BE-06 Klaviyo:** existe vertical slice de OAuth PKCE, almacenamiento cifrado,
+  sync, Reporting API, seleccion de metrica, reconciliacion y backfill progresivo. La idempotencia
+  del sync incremental usa ventanas UTC de 6 horas. El workflow automatico permanece desactivado
+  hasta disponer de credenciales y cuenta real; el worker queda disponible para ejecucion manual.
+- **INT-05/DB-10 Instagram:** existe foundation de base de datos con seis tablas, RLS, politicas
+  tenant-scoped, grants de lectura y adapter explicito `not_available`; no se fabrican cuentas,
+  insights ni publicaciones sin credenciales Meta y permisos aprobados.
+- **INT-02 Meta Ads:** OAuth, catalogo/seleccion de activos, sync estructural e Insights sync/async
+  estan preparados. `META_INSIGHTS_MODE=async` es opt-in y no se activa sin credenciales validas.
+- **AI-00/AI-09/AI-12:** los entry points A01, A02, A04, A06, A09 y A11 persisten `execution_mode`
+  en `shadow`; presupuesto por turno/organizacion, routing opcional y circuit breaker estan cableados.
+  Las propuestas requieren revision humana de consultor o `platform_admin` antes de materializarse.
+- **FE-00/FE-08:** el catalogo unico y reutilizable es `apps/web/src/components/ui` sobre HeroUI v3,
+  conforme a ADR-0015. `packages/ui` fue eliminado deliberadamente; reintroducirlo crearia una
+  segunda fuente y contradiciria la decision arquitectonica vigente.
+- **INT-01 Shopify:** el sync incremental, webhooks, deduplicacion/reintentos, reconciliacion de
+  conexiones atascadas, conteos y desinstalacion estan implementados. Desde 2026-08-21 los payloads
+  JSON malformados se rechazan con `400 invalid_json_payload` despues de validar HMAC.
+- **DB/CI:** las 64 migraciones locales y remotas estan alineadas; el esquema generado, enlaces
+  Markdown, guard de catalogo UI, foundation Instagram, typecheck web/API/worker y contratos de
+  portal pasan en las verificaciones directas actuales. Las validaciones externas que requieren
+  cuentas Meta/Klaviyo/Instagram, App Review, backup/restore aislado y auditoria visual completa
+  siguen siendo pendientes honestos, no se simulan.
+- **AI-08:** la fase tiene contrato preparado en `AI-08-outcomes-recomendaciones.md`, enlazando
+  `agent_outputs` → `agent_approvals` → `tasks.metadata.agent_output_id`. No se crea aún una tabla
+  de outcomes ni se calculan KPIs porque falta una definición de éxito aprobada; mostrar ausencia
+  de medición es más correcto que inventar resultados.
+
+## Corrección vigente 2026-08-24 — SQO-03
+
+La política de retención de `audit_logs` queda decidida en
+[`ADR-0018`](../../../docs/decisions/ADR-0018-retencion-audit-logs.md): durante el pre-piloto se
+conservan sin purga temporal automática; la política definitiva y su job verificable deben revisarse
+antes de activar el primer cliente real. No se ha ejecutado ninguna eliminación.
+
+## Corrección vigente 2026-08-24 — AI-09 routing
+
+`AI_MODEL_ROUTING_JSON` ya permite seleccionar un modelo distinto por agente y proveedor, con fallback
+al modelo de la versión activa cuando no existe override. `apps/api/src/ai-model-routing.test.ts` cubre
+los dos caminos. El routing por plan/organización sigue pendiente de decisión de producto y no se activa
+por inferencia.
+
+## Corrección vigente 2026-08-24 — INT activation gate y stack de agentes
+
+`evaluateIntegrationActivation` centraliza los nueve requisitos de cierre de un conector y evita
+que cada integración interprete de forma distinta cuándo está lista. Además, la decisión de IA se
+revisó: se preparará una adopción incremental de LangChain para componentes de agentes, LangGraph
+para orquestación con estado y aprobación humana, y LangSmith para trazas/evaluaciones opcionales.
+El runtime propio, los contratos de seguridad y el RAG en Supabase siguen siendo la autoridad hasta
+que un piloto no mutante demuestre paridad.
+
+`AI_ORCHESTRATION_MODE=direct` permanece como default. `langgraph` ya está disponible como opt-in
+explícito para shadow/piloto y ejecuta el turno protegido sin alterar su resultado ni sus guardas.
+Los diagnósticos exponen ese modo y el estado booleano de LangSmith sin secretos; la UI los muestra
+con el componente reutilizable `AgentRuntimeStatusBadge`.
+
+## Correccion vigente 2026-08-26 - INT-07 readiness cableada
+
+El endpoint de Integraciones expone `activation.ready` y `activation.missing`
+calculados por capacidades del proveedor; la UI los muestra mediante
+`IntegrationActivationChecklist`. La prueba API de configuración, los tests
+UI y los typechecks API/web/integrations pasan, sin exponer secretos.
+
+## Correccion vigente 2026-08-26 - INT-07 activation por capacidades
+
+El cierre de conectores ya no aplica requisitos imposibles de forma universal:
+Fathom webhook-only omite OAuth, scopes, asset y sync inicial, mientras Meta
+mantiene sus gates completos. La suite de integraciones pasa 14/14 y el
+typecheck del paquete pasa.
+
+## Correccion vigente 2026-08-26 - INT-06 estados de integracion
+
+La UI ya no presenta como saludable una conexión `connected` cuya salud sea
+`stale`, `degraded` o `reauthorization_required`; el componente reutilizable
+prioriza esos estados y mantiene acciones honestas para Meta/Klaviyo/Instagram.
+La regresion UI pasa 6/6 y los typechecks web e integrations pasan.
+
+## Correccion vigente 2026-08-26 - FE-08 evidencia del copiloto
+
+El copiloto embebido conserva fuentes y warnings por respuesta mediante el
+componente reutilizable `AiEvidence`; los estados `Fuentes verificadas`,
+`Evidencia parcial` y `Sin evidencia` son deterministas. La logica pura pasa
+1/1 test y el typecheck web pasa.
+
+## Correccion vigente 2026-08-26 - AI-21 dataset de evals
+
+`AGENT_EVAL_DATASET_VERSION=2026-08-26.v1` contiene un fixture por cada uno
+de los diez agentes activos y ejecuta grounding, abstencion, consistencia y
+anti-injection sin conectores, empresas reales ni Supabase. Sus tests pasan 5/5
+y el typecheck de `packages/ai` permanece correcto.
+
+## Correccion vigente 2026-08-24 - AI-20 evidence evals
+
+`evaluateAgentEvidenceContract` y `evaluateEvidenceConsistency` se ejecutan en
+la matriz offline de los diez agentes. Verifican grounding tenant-bound,
+abstencion cuando faltan fuentes, referencias disponibles, ausencia de fugas
+cross-tenant y contradicciones con hechos estructurados. La suite de este
+bloque pasa 9/9 y el typecheck de `packages/ai` pasa. La evaluacion semantica
+de texto libre requiere un dataset versionado y claves, por lo que no se simula.
+
+## Correccion vigente 2026-08-24 - AI-19 SQL Gateway evals
+
+La matriz offline `apps/api/src/be-07-sql-gateway-evals.test.ts` cubre cinco
+categorias: analitica segura, escrituras, cross-schema, abuso de recursos y
+frontera del parser. Su verificacion pasa 2/2 y no ejecuta SQL ni consulta
+Supabase. Complementa los tests remotos de RLS/tenant, que siguen siendo un
+gate separado.
+
+## Corrección vigente 2026-08-24 — resiliencia, UI y conectores
+
+El runtime de IA aplica timeout abortable, retries transitorios, backoff con jitter y circuit breaker
+por organización. Meta, Klaviyo y Shopify tienen además límites de red propios: 15 s por petición,
+reintentos acotados para red/timeout/429/5xx y respeto de `Retry-After`. Fathom sigue siendo webhook
+preparado, sin cliente saliente ni validación externa inventada.
+
+La UI mantiene `Meta` y `Klaviyo` como `Preparado` hasta tener credenciales, scopes y respuesta real.
+`OnboardingChecklist` separa carga de métricas y configuración financiera, marca el paso activo con
+`aria-current` y las 12 rutas autenticadas cumplen loading/error/empty en el contrato directo.
+
+Las métricas locales están limitadas a 5.000 series por proceso; `/health/metrics` no se interpreta como
+agregación multiinstancia. La agregación compartida y el drill de restore siguen siendo gates de
+infraestructura externa. Las migraciones AI-03/AI-07 y el type overlay de la cola están preparados
+localmente; la aplicación remota y el typegen oficial continúan pendientes por permisos MCP.
+
+## AI-24 — Guard de capacidades futuras
+
+Las tools preparadas de Meta e Instagram tienen contratos declarativos, pero
+siguen en estado `planned`. El runtime no las expone hasta disponer de executor
+operativo y añade una instrucción de abstención cuando una versión las declara.
+El Tool Layer cubre esta frontera con `tool_not_implemented` y el test de
+identificación de capacidades futuras pasa dentro de la suite local.
+
+## AI-25 — Cobertura de evals en activación
+
+El release gate ahora puede exigir los códigos de todos los agentes requeridos,
+comprobar cuáles fueron realmente evaluados y bloquear fallos deterministas de
+eval. La matriz y el dataset offline cubren los diez agentes del catálogo; la
+evaluación semántica con proveedor real permanece correctamente como gate
+posterior y no se presenta como validada.
+
+## AI-26 — Evidencia durable de evaluaciones
+
+La migración local `20260826140000_ai_26_agent_eval_evidence.sql` prepara la
+persistencia auditable de evaluaciones por versión, dataset, modo y agente,
+separada de cualquier empresa real. Incluye RLS de plataforma, unicidad y
+overlay local de tipos. Falta únicamente aplicar la migración y regenerar el
+typegen oficial cuando Supabase permita la operación remota.
+
+La funciÃ³n privada `record_agent_version_evaluation` mantiene `SECURITY DEFINER`
+con `search_path = pg_catalog, public, private`, evitando resoluciones inseguras
+cuando la migraciÃ³n se promueva al proyecto remoto.
+
+El serializador puro `packages/ai/src/agent-eval-evidence.ts` ya convierte la
+matriz de resultados en filas de evaluación y resultados por agente, marcando
+fallos de forma auditable y sin escribir directamente en la base de datos.
+La RPC privada `record_agent_version_evaluation` y su wrapper API realizan la
+persistencia atómica e idempotente cuando el worker tenga acceso service role.
+
+El runner `apps/api/src/agent-eval-runner.ts` ya recorre las versiones activas,
+ejecuta la matriz offline de los diez agentes y genera la evidencia asociada a
+cada versión sin claves ni organizaciones reales. Su ejecución cron y los modos
+`shadow`/`live` siguen condicionados a infraestructura y datasets posteriores.
+El entrypoint de worker y `agent-evals.yml` permiten lanzarlo manualmente; el
+schedule automático sigue desactivado de forma intencionada.
+
+La página `/agentes` muestra ahora el estado de readiness de evaluaciones con un
+componente reutilizable: 10/10 agentes cubiertos por la matriz offline,
+preparación offline explícita y validación live pendiente. No se presenta ningún
+resultado externo sin evidencia.
+
+El endpoint protegido `/v1/agents/eval-readiness` lee AI-26 cuando está
+disponible y degrada a `local_prepared` si la migración aún no llegó a Supabase.
+La UI consume ese estado y mantiene separadas preparación offline y validación
+live.
+
+El contrato `packages/ai/src/live-eval-contract.ts` deja preparada la transición
+a `shadow`/`live` con provider inyectable y controles de evidencia, abstención,
+coste, latencia y trazabilidad. Sin claves no ejecuta llamadas ni presenta
+resultados semánticos como validados.
+
+El contrato genera además un caso base de datos ausentes para cada uno de los
+diez agentes, de modo que la futura ejecución `shadow/live` no pueda omitir
+silenciosamente un agente.
+
+Los resultados provider-backed también tienen adaptador hacia AI-26: el score,
+coste, latencia y `traceId` por caso quedan listos para persistencia atómica,
+pero no se consideran válidos hasta ejecutarse con un proveedor real.
+## Corrección vigente 2026-08-26 - Regiones accesibles en evidencia y activación
+
+La revisión de accesibilidad de los componentes reutilizables de UI corrigió
+`IntegrationActivationChecklist` y `AiEvidence`: ambos exponen ahora una
+región etiquetada para tecnologías asistivas, conservan el lenguaje visual
+existente y generan títulos ARIA únicos con `useId` cuando se renderizan varias
+veces en una pantalla. El typecheck directo de `apps/web` pasa. La validación
+visual/manual con navegador y lector de pantalla real sigue pendiente por ser
+una comprobación operativa, no un bloqueo para seguir implementando.

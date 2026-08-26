@@ -17,7 +17,7 @@
  * contra el Supabase remoto real y confirmando que solo uno gana.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY. Ejecutar
- * con `npm run test -w @ecomscaling/api`.
+ * con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -26,9 +26,13 @@ import { loadApiEnv } from "@ecomscaling/config";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 const CREDENTIAL_KIND = "shopify_offline_access_token";
@@ -49,7 +53,9 @@ before(async () => {
     .single();
 
   if (orgError || !org) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${orgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${orgError?.message}`,
+    );
   }
   orgId = org.id;
 
@@ -65,7 +71,9 @@ before(async () => {
     .single();
 
   if (connectionError || !connection) {
-    throw new Error(`No se pudo crear la conexion de prueba: ${connectionError?.message}`);
+    throw new Error(
+      `No se pudo crear la conexion de prueba: ${connectionError?.message}`,
+    );
   }
   connectionId = connection.id;
 
@@ -83,7 +91,9 @@ before(async () => {
     });
 
   if (credentialError) {
-    throw new Error(`No se pudo crear la credencial de prueba: ${credentialError.message}`);
+    throw new Error(
+      `No se pudo crear la credencial de prueba: ${credentialError.message}`,
+    );
   }
 });
 
@@ -125,5 +135,9 @@ test("dos claims concurrentes de refresh sobre la misma credencial: exactamente 
 
 test("un claim ya tomado y fresco bloquea un tercer intento inmediato", async () => {
   const won = await attemptClaim();
-  assert.equal(won, false, "el claim ya esta tomado por el test anterior y todavia no es stale (CLAIM_STALE_MS=20s)");
+  assert.equal(
+    won,
+    false,
+    "el claim ya esta tomado por el test anterior y todavia no es stale (CLAIM_STALE_MS=20s)",
+  );
 });

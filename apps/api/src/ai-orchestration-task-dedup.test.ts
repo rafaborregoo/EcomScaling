@@ -10,7 +10,7 @@
  * mismo titulo).
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY. Ejecutar
- * con `npm run test -w @ecomscaling/api`.
+ * con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -22,9 +22,13 @@ import type { AuthContext } from "./auth-context.js";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 
@@ -48,7 +52,9 @@ function makeAgentOutput(proposedWrites: Array<Record<string, unknown>>) {
     .single()
     .then(async ({ data: run, error: runError }) => {
       if (runError || !run) {
-        throw new Error(`No se pudo crear el run de prueba: ${runError?.message}`);
+        throw new Error(
+          `No se pudo crear el run de prueba: ${runError?.message}`,
+        );
       }
 
       const { data: output, error: outputError } = await admin
@@ -72,7 +78,9 @@ function makeAgentOutput(proposedWrites: Array<Record<string, unknown>>) {
         .single();
 
       if (outputError || !output) {
-        throw new Error(`No se pudo crear la salida de prueba: ${outputError?.message}`);
+        throw new Error(
+          `No se pudo crear la salida de prueba: ${outputError?.message}`,
+        );
       }
 
       return output.id;
@@ -90,7 +98,9 @@ before(async () => {
     .select("id")
     .single();
   if (orgError || !org) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${orgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${orgError?.message}`,
+    );
   }
   orgId = org.id;
 
@@ -100,10 +110,15 @@ before(async () => {
     email_confirm: true,
   });
   if (userError || !user.user) {
-    throw new Error(`No se pudo crear el usuario de prueba: ${userError?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba: ${userError?.message}`,
+    );
   }
   userId = user.user.id;
-  await admin.from("profiles").update({ platform_role: "platform_admin" }).eq("id", userId);
+  await admin
+    .from("profiles")
+    .update({ platform_role: "platform_admin" })
+    .eq("id", userId);
 
   const { data: agentVersion, error: agentVersionError } = await admin
     .from("agent_versions")
@@ -112,7 +127,9 @@ before(async () => {
     .limit(1)
     .maybeSingle();
   if (agentVersionError || !agentVersion) {
-    throw new Error(`No se encontro una version de agente activa para el test: ${agentVersionError?.message}`);
+    throw new Error(
+      `No se encontro una version de agente activa para el test: ${agentVersionError?.message}`,
+    );
   }
   agentVersionId = agentVersion.id;
 
@@ -126,13 +143,28 @@ before(async () => {
     created_by: userId,
   });
   if (taskError) {
-    throw new Error(`No se pudo crear la tarea existente de prueba: ${taskError.message}`);
+    throw new Error(
+      `No se pudo crear la tarea existente de prueba: ${taskError.message}`,
+    );
   }
 
   context = {
     user: { id: userId },
-    profile: { id: userId, full_name: null, avatar_url: null, platform_role: "platform_admin", is_active: true },
-    memberships: [{ organization_id: orgId, role: "owner", accessSource: "membership", organization: null }],
+    profile: {
+      id: userId,
+      full_name: null,
+      avatar_url: null,
+      platform_role: "platform_admin",
+      is_active: true,
+    },
+    memberships: [
+      {
+        organization_id: orgId,
+        role: "owner",
+        accessSource: "membership",
+        organization: null,
+      },
+    ],
     subscriptions: [],
   };
 });
@@ -146,14 +178,37 @@ after(async () => {
 
 test("no duplica una tarea cuando otro agente ya propuso el mismo titulo (normalizado)", async () => {
   const outputId = await makeAgentOutput([
-    { kind: "task", title: "  REVISAR margen bruto de la tienda  ", priority: "high" },
-    { kind: "task", title: "Renegociar plazo con proveedor X", priority: "medium" },
+    {
+      kind: "task",
+      title: "  REVISAR margen bruto de la tienda  ",
+      priority: "high",
+    },
+    {
+      kind: "task",
+      title: "Renegociar plazo con proveedor X",
+      priority: "medium",
+    },
   ]);
 
-  const result = await decideAgentOutput(env, context, orgId, outputId, "approved", undefined);
-  assert.equal((result as { ok: boolean }).ok, true, `se esperaba exito: ${JSON.stringify(result)}`);
+  const result = await decideAgentOutput(
+    env,
+    context,
+    orgId,
+    outputId,
+    "approved",
+    undefined,
+  );
+  assert.equal(
+    (result as { ok: boolean }).ok,
+    true,
+    `se esperaba exito: ${JSON.stringify(result)}`,
+  );
   const success = result as { ok: true; data: { tasks_created: number } };
-  assert.equal(success.data.tasks_created, 1, "solo la tarea genuinamente nueva debe crearse");
+  assert.equal(
+    success.data.tasks_created,
+    1,
+    "solo la tarea genuinamente nueva debe crearse",
+  );
 
   const { data: matchingTasks, error } = await admin
     .from("tasks")
@@ -161,14 +216,22 @@ test("no duplica una tarea cuando otro agente ya propuso el mismo titulo (normal
     .eq("organization_id", orgId)
     .ilike("title", "%margen bruto de la tienda%");
   assert.equal(error, null);
-  assert.equal(matchingTasks?.length, 1, "no debe existir una segunda fila duplicada de la misma tarea");
+  assert.equal(
+    matchingTasks?.length,
+    1,
+    "no debe existir una segunda fila duplicada de la misma tarea",
+  );
 
   const { data: newTask } = await admin
     .from("tasks")
     .select("id")
     .eq("organization_id", orgId)
     .eq("title", "Renegociar plazo con proveedor X");
-  assert.equal(newTask?.length, 1, "la tarea genuinamente nueva si debe crearse");
+  assert.equal(
+    newTask?.length,
+    1,
+    "la tarea genuinamente nueva si debe crearse",
+  );
 });
 
 test("un consultor no puede aprobar una salida de otra organizacion", async () => {

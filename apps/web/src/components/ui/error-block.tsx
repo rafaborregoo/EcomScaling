@@ -5,10 +5,12 @@ import { Alert } from "@heroui/react";
 
 export function ErrorBlock({ children }: { children: ReactNode }) {
   return (
-    <Alert status="danger">
-      <Alert.Content>
-        <Alert.Description>{children}</Alert.Description>
-      </Alert.Content>
-    </Alert>
+    <div role="alert" aria-live="assertive">
+      <Alert status="danger">
+        <Alert.Content>
+          <Alert.Description>{children}</Alert.Description>
+        </Alert.Content>
+      </Alert>
+    </div>
   );
 }

@@ -34,7 +34,7 @@
  * | break_even_monthly_revenue | 304,40 / ((1000−240−26,20−20)/1000)       | 426,45 |
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY.
- * Ejecutar con `npm run test -w @ecomscaling/api`.
+ * Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";

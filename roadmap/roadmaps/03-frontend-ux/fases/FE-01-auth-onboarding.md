@@ -1,6 +1,39 @@
 # FE-01 - Auth y onboarding
 
+Incremento de resiliencia 2026-08-26: el formulario de login siempre libera `isSubmitting` tras
+resolver la autenticaciÃ³n y el bootstrap, tambiÃ©n cuando aplica el fallback de redirecciÃ³n. El
+usuario no queda con el botÃ³n bloqueado por una excepciÃ³n de contexto.
+
+> **Incremento de calidad 2026-08-24:** la lógica del recorrido vive en
+> `apps/web/src/components/onboarding-checklist-state.ts` y tiene tests puros. El estado financiero
+> ya no reutiliza por error el loading de métricas; los conectores futuros siguen mostrando una
+> preparación honesta hasta disponer de credenciales, scopes y respuesta real.
+
 ## Estado
+
+> Incremento 2026-08-24: el dashboard ya muestra `OnboardingChecklist`, un recorrido reutilizable
+> y honesto para conectar Shopify, validar la primera sincronizacion y entender que Meta/Klaviyo
+> estan preparados pero dependen de credenciales y permisos reales.
+
+> Correccion de estado: el gap de recorrido Shopify → datos → modelo financiero ya no es solo una
+> recomendacion documental. La superficie esta implementada; permanece pendiente la validacion visual
+> en navegador y la decision futura sobre signup/invitaciones propias.
+
+> Incremento adicional 2026-08-24: `PortalShell` muestra estados accionables para organización
+> suspendida, suscripción no activa y Shopify que requiere reautorización. No se permite interpretar
+> un estado degradado como cuenta operativa.
+
+> Cierre backend 2026-08-24: `requireOperationalOrganization` centraliza la protección de operaciones
+> y rechaza organización suspendida/cancelada/en purga o suscripción no activa. Está aplicado a
+> configuración financiera, costes Shopify, operaciones y llamadas; 4 tests unitarios pasan.
+
+> Auditoría ampliada: runtime de agentes IA y planes estratégicos reutilizan el mismo guard; una
+> suspensión tampoco permite crear propuestas, editar drafts ni modificar hitos.
+
+> Verificacion vigente 2026-08-24: typecheck web limpio y los gates de estados
+> de producto y accesibilidad pasan. El piloto mantiene aprovisionamiento B2B
+> manual, sin signup ni reset de contraseña, compatible con el modelo
+> consultor-first; el autoservicio queda como decisión posterior.
 
 - **Estado real:** `functionally_minimal_gaps_confirmed` — **auditado contra codigo real 2026-07-22**,
   reemplaza el `implementation_unknown` anterior (que no habia leido el codigo, solo el documento).
@@ -63,4 +96,3 @@ Permitir acceso seguro y guiar al cliente hasta conectar datos reales.
 - El cliente solo ve su organizacion.
 - El consultor no puede entrar en cuentas no asignadas.
 - El usuario entiende que debe conectar Shopify antes del dashboard.
-

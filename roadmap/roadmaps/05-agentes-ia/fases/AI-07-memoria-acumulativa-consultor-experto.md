@@ -1,5 +1,21 @@
 # AI-07 - Memoria acumulativa y consultor experto
 
+> Correccion UX 2026-08-21: `/conocimiento` separa ahora mediante selector las superficies
+> `human_authored` (documentos del workspace) y memoria derivada (`human_approved_ai`/
+> `human_decision`), usando los campos reales `origin`, `authority` y `audience` del contrato.
+> No se duplican fetches ni se inventan documentos.
+>
+> Correccion ACL 2026-08-21: la UI oculta la ingesta a miembros sin capacidad de gestion y replica
+> la regla server-side (`platform_admin`/`consultant` o membresia `owner`/`manager`); el backend
+> sigue siendo la autoridad y la lectura/busqueda permanece disponible.
+
+> **Corrección vigente 2026-08-26:** la frontera de memoria no confiable está
+> reforzada también para indirect prompt injection: documentos, notas,
+> resultados de conectores y herramientas se delimitan como datos, nunca como
+> instrucciones. La matriz offline de agentes y el release gate cubren esta
+> propiedad; la validación live de embeddings y proveedores sigue pendiente en
+> entornos con credenciales reales.
+
 ## Estado
 
 - **Estado real:** `implemented_live_validation_pending` (implementado 2026-07-22 siguiendo el contrato

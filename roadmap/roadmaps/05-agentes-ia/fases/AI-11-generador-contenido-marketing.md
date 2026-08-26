@@ -1,5 +1,10 @@
 # AI-11 - Generador de contenido de marketing (email/flows/pop-ups) para Klaviyo
 
+> **Corrección vigente 2026-08-20:** las referencias inferiores que describen INT-03 como `planned`
+> son históricas. Klaviyo está en `implemented_partial`; A11 crea drafts sanitizados y revisables,
+> pero publicación/envío y validación con una cuenta real siguen protegidos por credenciales, scopes,
+> aprobación humana e idempotencia.
+
 > Aclaracion vigente 2026-08-02: INT-03/DB-09/BE-06 ya tienen el vertical slice de lectura
 > preparado y el reporting expuesto; las menciones historicas que los describen como inexistentes o
 > `planned` quedan supersedidas. La dependencia real de la Fase B es disponer de una cuenta Klaviyo
@@ -25,12 +30,14 @@
 > **Corrección de estado:** la descripción histórica inmediatamente anterior que habla de una fase
 > sin agente, persistencia ni UI queda supersedida. La Fase A vigente es `implemented_partial`; solo
 > la publicación/envío y el aprendizaje con resultados reales pertenecen a la Fase B pendiente.
-- **Ultima validacion:** 2026-08-02
+
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** AI-00 (runtime/contratos comunes), INT-03/DB-09/BE-06 (Klaviyo — solo para la Fase B,
   ver abajo), AI-10 (envolvente comun de salida, si ya existe cuando se implemente este agente)
 - **Bloqueador:** ninguno para la Fase A (generador). La Fase B (aprendizaje de resultados reales) esta
-  bloqueada por que INT-03/DB-09/BE-06 no tienen ni una linea de codigo hoy (confirmado:
-  `grep -rl klaviyo apps/api/src` no devuelve nada salvo referencias de categoria).
+  condicionada a una cuenta Klaviyo conectada y a validar Reporting API, backfill y resultados externos.
+  INT-03/DB-09/BE-06 ya tienen un vertical slice parcial de OAuth, persistencia, sync agregado,
+  reporting y reconciliacion; no debe describirse como inexistente.
 
 > **Implementacion parcial 2026-08-02:** la Fase A ya incluye el agente A11, persistencia de
 > drafts, aprobacion, preview seguro y UI en `/marketing`. Sigue sin publicar ni enviar contenido
@@ -48,7 +55,7 @@ Klaviyo) para mejorar las sugerencias siguientes, en vez de generar contenido a 
 El generador de HTML no necesita ningun dato de Klaviyo para funcionar — es generacion de contenido a
 partir de contexto que da el consultor (producto, oferta, tono, audiencia). El aprendizaje de resultados
 si necesita datos reales de rendimiento, que hoy no existen en ningun sitio del sistema porque la
-integracion de lectura de Klaviyo (INT-03) sigue `planned`. Tratarlo como una sola fase generaria la
+  integracion de lectura de Klaviyo (INT-03) sigue `implemented_partial`, con validacion externa pendiente. Tratarlo como una sola fase generaria la
 tentacion de construir el generador y despues bloquearlo esperando la integracion — mejor declarar
 explicitamente que son entregables independientes con una dependencia de una via.
 
@@ -71,7 +78,7 @@ explicitamente que son entregables independientes con una dependencia de una via
 - UI: nueva superficie en `/conocimiento` o una pagina propia (a decidir, ver Fuera de alcance) con
   selector de tipo de contenido, formulario de contexto, preview del HTML renderizado, boton "copiar HTML".
 
-### Fase B — Aprendizaje de resultados reales (bloqueada por INT-03/DB-09/BE-06)
+### Fase B — Aprendizaje de resultados reales (pendiente de datos externos)
 
 - Depende de que exista `klaviyo_report_runs`/`klaviyo_report_values` (DB-09, tablas ya nombradas en el
   documento de esa fase) con datos reales de la Reporting API de Klaviyo, usando el
@@ -80,8 +87,8 @@ explicitamente que son entregables independientes con una dependencia de una via
   (asunto, tipo de oferta, dia/hora de envio, tasa de apertura/clic/conversion) para sugerir mejoras
   concretas, no genericas ("prueba asuntos mas cortos" sin datos que lo respalden).
 - Sin Fase A funcionando primero, no hay contenido generado por el sistema que correlacionar con
-  resultados — por eso Fase B no puede empezar antes que Fase A, independientemente de cuando este lista
-  la integracion Klaviyo.
+  resultados — por eso Fase B no puede validarse hasta disponer de una cuenta Klaviyo conectada y datos
+  reales, aunque la base tecnica de la integracion ya este preparada.
 
 ## Tipos de contenido cubiertos (decidido 2026-07-22)
 

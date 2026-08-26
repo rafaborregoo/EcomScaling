@@ -11,10 +11,11 @@ import {
 } from "@ecomscaling/contracts";
 import {
   createLogger,
-  createMetricsRegistry,
+  evaluateHttpSlo,
   redactSensitiveText,
 } from "@ecomscaling/observability";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+import { apiMetrics } from "./metrics.js";
 import { listAccountActions } from "./actions.js";
 import {
   deleteOrganization,
@@ -45,6 +46,9 @@ import {
 } from "./shopify-overview.js";
 import { getShopifyMetrics } from "./shopify-metrics.js";
 import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
+import { handleFathomWebhookRequest } from "./fathom-webhook-handler.js";
+import { processQueuedFathomWebhookEvents } from "./fathom-webhook-handler.js";
+import type { FathomWebhookHeaders } from "./fathom-webhook.js";
 import { reconcileAllShopifyConnections } from "./shopify-reconcile.js";
 import {
   listProductCosts,
@@ -72,6 +76,7 @@ import {
   handleKlaviyoOAuthCallback,
   listKlaviyoConversionMetrics,
   selectKlaviyoConversionMetric,
+  triggerKlaviyoSync,
 } from "./klaviyo.js";
 import { listKlaviyoReports, runKlaviyoReport } from "./klaviyo-sync.js";
 import { getMetaMetrics } from "./meta-metrics.js";
@@ -106,6 +111,7 @@ import {
   runStockPlannerAgent,
   runTaskPlannerAgent,
 } from "./ai-runtime.js";
+import { getAgentEvalReadiness } from "./agent-eval-readiness.js";
 import {
   createKnowledgeDocument,
   listKnowledgeDocuments,
@@ -141,7 +147,6 @@ import {
 } from "./strategic-plans.js";
 
 const logger = createLogger("api");
-const metrics = createMetricsRegistry();
 
 export function sendAuthFailure(
   reply: {
@@ -458,11 +463,21 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.addHook("onResponse", async (request, reply) => {
     const route =
       request.routeOptions.url ?? request.url.split("?")[0] ?? "unknown";
-    metrics.increment("http_requests_total", {
+    apiMetrics.increment("http_requests_total", {
       method: request.method,
       route,
       status_code: reply.statusCode,
     });
+    apiMetrics.observe(
+      "http_request_duration_ms",
+      {
+        method: request.method,
+        route,
+        status_code: reply.statusCode,
+      },
+      reply.elapsedTime,
+      [5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000],
+    );
 
     const organizationId = (
       request.params as { organizationId?: string } | undefined
@@ -512,7 +527,19 @@ export async function buildApp(): Promise<FastifyInstance> {
 
     return reply
       .type("text/plain; version=0.0.4; charset=utf-8")
-      .send(`${metrics.toPrometheus()}\n`);
+      .send(`${apiMetrics.toPrometheus()}\n`);
+  });
+
+  app.get("/health/slo", async (request, reply) => {
+    if (!env.INTERNAL_API_SECRET) {
+      return reply
+        .code(503)
+        .send({ error: "internal_api_secret_not_configured" });
+    }
+    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
+    return evaluateHttpSlo(apiMetrics.snapshot());
   });
 
   // Readiness: puede el proceso servir trafico de verdad ahora mismo. A
@@ -1425,6 +1452,25 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.post<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/sync",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await triggerKlaviyoSync(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.connectionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(202).send(result.data);
+    },
+  );
+
   app.put<{
     Params: { organizationId: string };
     Body: {
@@ -2184,6 +2230,17 @@ export async function buildApp(): Promise<FastifyInstance> {
       return result.data;
     },
   );
+
+  app.get("/v1/agents/eval-readiness", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+    if (!["platform_admin", "consultant"].includes(auth.context.profile.platform_role)) {
+      return reply.code(403).send({ error: "agent_eval_readiness_access_denied" });
+    }
+    return reply.send(await getAgentEvalReadiness(env));
+  });
 
   // AI-02: diagnostico automatico, sin boton de "aprobar para ver" (RLS ya deja
   // ver pending_approval a consultor/admin). Devuelve el ultimo run fresco
@@ -3091,6 +3148,19 @@ export async function buildApp(): Promise<FastifyInstance> {
 
       return reply.code(result.statusCode).send(result.body);
     });
+
+    webhookScope.post<{ Params: { connectionId: string } }>(
+      "/v1/fathom/webhooks/:connectionId",
+      async (request, reply) => {
+        const result = await handleFathomWebhookRequest(
+          env,
+          request.params.connectionId,
+          request.headers as FathomWebhookHeaders,
+          request.body as Buffer,
+        );
+        return reply.code(result.statusCode).send(result.body);
+      },
+    );
   });
 
   app.post("/v1/internal/operations/run-rules", async (request, reply) => {
@@ -3127,6 +3197,24 @@ export async function buildApp(): Promise<FastifyInstance> {
     });
 
     return reply.code(202).send({ status: "reconciliation_started" });
+  });
+
+  app.post("/v1/internal/fathom/process-queued", async (request, reply) => {
+    if (!env.INTERNAL_API_SECRET) {
+      return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+    }
+    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
+    try {
+      const result = await processQueuedFathomWebhookEvents(env, 10);
+      return reply.code(200).send(result);
+    } catch (error) {
+      return reply.code(503).send({
+        error: "fathom_queue_processing_failed",
+        detail: error instanceof Error ? error.message : "unknown_error",
+      });
+    }
   });
 
   return app;

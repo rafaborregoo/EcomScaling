@@ -1,5 +1,12 @@
 # RB-005 - Migracion fallida (aplicacion parcial o drift de version)
 
+> Correccion vigente 2026-08-24: el hallazgo de 46 archivos/44 filas y 10
+> versiones divergentes pertenece a una fotografia historica y queda
+> supersedido. La comprobacion actual confirma 64 migraciones locales/remotas
+> alineadas y `db push --linked --dry-run` sin pendientes. No ejecutar
+> `migration repair` basandose en la tabla historica inferior; primero repetir
+> `migration list --linked` y confirmar el estado real.
+
 ## Contexto operativo real
 
 No hay CI que aplique migraciones (`ci.yml` no tiene ningun paso de `supabase db push`/`migration up`) ni
@@ -29,18 +36,18 @@ los 46 archivos de `supabase/migrations/` contra las 44 filas que Supabase tiene
 10 migraciones tienen el mismo nombre pero una version (timestamp del nombre de archivo) distinta a la
 registrada en remoto:
 
-| Archivo local | Version en archivo | Version registrada en remoto |
-| --- | --- | --- |
-| `ai_09_budget_status` | `20260722190000` | `20260721065422` |
-| `db_12_pending_deletion_enum` | `20260722200000` | `20260721065437` |
-| `db_13_soft_delete_lifecycle` | `20260722200100` | `20260721065449` |
-| `db_01_enum_labels_helper` | `20260722210000` | `20260721065509` |
-| `db_01_enum_labels_search_path_fix` | `20260722210100` | `20260721065535` |
-| `be_07_gateway_lock_timeout` | `20260722220000` | `20260721094718` |
-| `db_07_task_status_history_visibility_fix` | `20260722230000` | `20260722074047` |
-| `ai_07_memoria_acumulativa` | `20260722240000` | `20260722170759` |
-| `ai_07_knowledge_documents_source_types` | `20260722241000` | `20260722170938` |
-| `fe_03_strategic_plans_draft_visibility_fix` | `20260722250000` | `20260722214617` |
+| Archivo local                                | Version en archivo | Version registrada en remoto |
+| -------------------------------------------- | ------------------ | ---------------------------- |
+| `ai_09_budget_status`                        | `20260722190000`   | `20260721065422`             |
+| `db_12_pending_deletion_enum`                | `20260722200000`   | `20260721065437`             |
+| `db_13_soft_delete_lifecycle`                | `20260722200100`   | `20260721065449`             |
+| `db_01_enum_labels_helper`                   | `20260722210000`   | `20260721065509`             |
+| `db_01_enum_labels_search_path_fix`          | `20260722210100`   | `20260721065535`             |
+| `be_07_gateway_lock_timeout`                 | `20260722220000`   | `20260721094718`             |
+| `db_07_task_status_history_visibility_fix`   | `20260722230000`   | `20260722074047`             |
+| `ai_07_memoria_acumulativa`                  | `20260722240000`   | `20260722170759`             |
+| `ai_07_knowledge_documents_source_types`     | `20260722241000`   | `20260722170938`             |
+| `fe_03_strategic_plans_draft_visibility_fix` | `20260722250000`   | `20260722214617`             |
 
 Causa mas probable: estos archivos se aplicaron primero con su timestamp original (las versiones de la
 columna derecha), y se renombraron **despues** en el repositorio local para reordenarlos junto a
@@ -114,7 +121,7 @@ a diferencia de `create or replace function`/`create index if not exists`, que s
    simple si no se puede usar `migration repair`: renombrar el archivo local para que coincida con la
    version ya registrada en remoto, en vez de al reves — es la operacion sin riesgo porque no toca el
    proyecto real.
-3. Tras cualquiera de los dos casos, correr `npm run test -w @ecomscaling/api` completo (105 tests,
+3. Tras cualquiera de los dos casos, correr `test:remote` completo en un proyecto de pruebas aislado (105 tests,
    incluye RLS/RPC/aislamiento) para confirmar que el schema resultante sigue siendo el esperado por el
    codigo — no solo que la migracion "se aplico sin error".
 
@@ -156,7 +163,7 @@ los archivos locales en el momento del incidente, y el archivo de la migracion c
 
 - **Resuelto 2026-07-23**: Rafa autorizo explicitamente la correccion puntual. Se ejecutaron los 10
   `UPDATE supabase_migrations.schema_migrations SET version = <version local> WHERE version = <version
-  remota anterior> AND name = <nombre>` contra el proyecto real (`cthjwpeygpzwdmjkxeqa`), verificados uno a
+remota anterior> AND name = <nombre>` contra el proyecto real (`cthjwpeygpzwdmjkxeqa`), verificados uno a
   uno con `list_migrations`: las 10 filas ahora tienen la misma version que su archivo local. Suite completa
   de `apps/api` (105 tests) sigue pasando tras el cambio -- confirma que fue puramente metadato, sin tocar
   schema. No hubo bloqueo del clasificador esta vez (la autorizacion explicita del usuario fue lo que
@@ -165,9 +172,10 @@ los archivos locales en el momento del incidente, y el archivo de la migracion c
   reordenar migraciones del mismo dia, usar un sufijo de segundos/minutos distinto desde el principio en vez
   de renombrar retroactivamente.
 - **Resuelto 2026-07-23**: politica de migraciones escrita —
-  [`ADR-0014-migration-policy.md`](../../../docs/decisions/ADR-0014-migration-policy.md). Define quien
+  [`ADR-0014-migration-policy.md`](../../../../docs/decisions/ADR-0014-migration-policy.md). Define quien
   aplica (hoy, cualquiera con acceso, equipo de una persona), con que mecanismo (CLI o MCP, indistinto sin
   staging que proteger), y deja explicito que no hay revision formal por PR todavia.
+
 ## Rollout pendiente: AI-04 hybrid search (2026-08-01)
 
 La migración `20260801100000_ai_04_knowledge_hybrid_search.sql` está en local y todavía no aplicada en

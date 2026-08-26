@@ -2,10 +2,30 @@
 
 ## Estado
 
-- **Estado real:** `verification_pending` (los Dockerfiles existen; falta ejecutar un build real porque
-  Docker Desktop/WSL2 no está disponible en este entorno).
+> Correccion adicional 2026-08-24: existe metricas minima de API en
+> `packages/observability` (`http_requests_total`) y `/health/metrics`.
+> El gap pendiente es instrumentar worker/sync/coste IA y un backend compartido;
+> no es correcto describir toda la superficie como "solo logs".
+
+> Actualizacion 2026-08-24: el registro del API tambien agrega contadores de
+> runs IA (`ai_runs_total`) y coste estimado (`ai_estimated_cost_usd_total`)
+> para diagnosticos, A01, A11 y A09/chat, sin etiquetas de tenant ni contenido
+> sensible. El worker tambien cuenta `worker_jobs_total` por nombre/estado y
+> conserva correlacion en logs; ambos registros siguen siendo process-local.
+
+> **Build vigente 2026-08-24:** `npx tsc -p apps/api/tsconfig.json` y
+> `npx tsc -p apps/worker/tsconfig.json` completan correctamente. Esto no
+> sustituye la prueba de arranque integrado con Supabase/Redis reales.
+
+> Correccion vigente 2026-08-24: aunque no se ejecuta Docker localmente por
+> ausencia de Docker Desktop, el CI manual ya construye ambos Dockerfiles y
+> ejecuta Trivy sobre las imagenes resultantes. Sigue pendiente validar el
+> arranque integrado con Supabase/Redis en un entorno operativo.
+
+- **Estado real:** `implemented_partial` (los dos Dockerfiles se construyen correctamente y el runtime
+  pasa el escaneo local; queda el arranque integrado con Supabase/Redis reales y automatizar Scout en CI).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-08-02
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** ninguna
 - **Bloqueador:** ninguno
 - **Evidencia:**
@@ -73,16 +93,43 @@
     que es donde el comportamiento real importa.
   - Sin definicion de proveedor de cola mas alla de BullMQ+Redis, reintentos/backoff/DLQ formales.
   - ~~Sin escaneo de dependencias/imagenes en CI~~ — **dependencias cerrado 2026-08-03** (paso
-    `Dependency audit` en `ci.yml` sobre `scripts/audit-guard.mjs`); el escaneo de **imagenes** Docker
-    sigue pendiente y depende de que los Dockerfiles se prueben de verdad (ver siguiente accion).
+    `Dependency audit` en `ci.yml` sobre `scripts/audit-guard.mjs`); el workflow CI manual genera SBOM,
+    construye las imagenes Docker y las escanea con Trivy. El build local no se ejecuta en cada revision.
   - ~~Sin correlation ID propagado end-to-end~~ — **cerrado 2026-08-03** (ver SQO-02): faltaba
     `exposedHeaders` en el CORS del API y arrastrar el id hasta el mensaje de error de `apps/web`. El
     formato de error estandar del API si existe (`error`/`message`/`detail`, `apps/web/src/lib/api-error.ts`).
-  - Sin metricas minimas de API/worker (solo logs).
-- **Siguiente accion:** que Rafa confirme que ambos Dockerfiles construyen y arrancan de verdad
+  - ~~Sin metricas minimas de API/worker (solo logs)~~ — **corregido parcialmente 2026-08-24**:
+    el API ya expone `http_requests_total` mediante `/health/metrics`; el worker
+    cuenta `worker_jobs_total` con el paquete comun y conserva correlacion y logs
+    estructurados, pero ambos registros siguen siendo process-local y aun no hay
+    backend compartido multi-instancia.
+- **Siguiente accion:** validar el arranque de ambos contenedores en el entorno operativo cuando se
+  habilite el flujo de despliegue; el control de build/scan ya existe en CI manual.
   (`docker build` y `docker run` contra `.env.local`) antes de reclasificar a `done`.
 
-## Escaneo de dependencias 2026-08-03
+## Escaneo de dependencias 2026-08-03 (historial supersedido)
+
+> **Estado vigente 2026-08-19:** Next.js 16.3.1 y `eslint-config-next` 16.3.1
+> estan instalados; el override raiz fija `nanoid` 3.3.18. `node
+scripts/audit-guard.mjs` devuelve 0 vulnerabilidades high/critical de
+> produccion. El escaneo manual de la etapa final ya esta realizado; queda
+> automatizarlo en CI.
+
+> **Escaneo de imagenes 2026-08-19:** Docker Scout `v1.23.1`, filtrando la
+> etapa final `runtime` y severidad critical/high, devuelve 0 paquetes
+> vulnerables para `ecomscaling-api:verify` y `ecomscaling-worker:verify`.
+> Un escaneo de todas las etapas encuentra paquetes de herramientas del builder
+> que no se copian a runtime; se conserva como deuda de hardening del pipeline,
+> no como vulnerabilidad de la imagen desplegable.
+
+> La automatización con el contenedor oficial `docker/scout-cli` requiere
+> Docker ID/PAT en CI; sin esa credencial Scout rechaza la ejecución. No se
+> añade un job que dependa de un secreto externo todavía no provisionado.
+
+> **Smoke runtime 2026-08-19:** la imagen API arranca con configuracion
+> sintetica y responde `/health` 200. La imagen worker arranca en una red Docker
+> efimera con Redis 7 y pasa su `HEALTHCHECK`. No se contactaron Supabase ni
+> datos de negocio.
 
 Correccion sobre el propio hallazgo: si existia un job `dependency-scan` en `ci.yml` con
 `npm audit --omit=dev --audit-level=high`. Lo que pasaba es que fallaba en cada ejecucion, asi que en la
@@ -135,5 +182,5 @@ Tener procesos arrancables y verificables antes de implementar negocio.
 ## Actualizacion 2026-08-01
 
 - El gap de dependencias queda cubierto en `.github/workflows/ci.yml`: `dependency-scan` instala desde lockfile y bloquea vulnerabilidades de severidad alta o critica en dependencias de produccion mediante `npm audit --omit=dev --audit-level=high`.
-- En pull requests, `dependency-review` bloquea cambios que introduzcan dependencias con alertas conocidas. El escaneo de imagenes Docker sigue pendiente porque los Dockerfiles aun no se han construido en este entorno.
+- En pull requests, `dependency-review` bloquea cambios que introduzcan dependencias con alertas conocidas. El CI manual genera SBOM y construye/escanea las imagenes Docker de API y worker con Trivy; no se ejecuta un build Docker local en cada revision.
 - API y worker pueden construirse como contenedores sin depender de archivos fuera del monorepo.

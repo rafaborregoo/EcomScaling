@@ -1,15 +1,17 @@
 # EcomScaling IA
+
 ## Documento Maestro de Agentes y Automatizaciones
+
 Arquitectura, contexto empresarial, conexión con Supabase, guardrails y evolución por fases
 
 VERSIÓN 0.2 · 14 JULIO 2026 · DOCUMENTO VIVO
 
-*Propósito: diseñar, probar, conectar y optimizar cada agente antes de su despliegue en producción.*
+_Propósito: diseñar, probar, conectar y optimizar cada agente antes de su despliegue en producción._
 
 # Control del documento
 
 | **Versión** | **Fecha**  | **Estado**                     | **Cambios principales**                                                                                               |
-|-------------|------------|--------------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| ----------- | ---------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | 0.1         | 14/07/2026 | Base inicial                   | Catálogo de agentes, fases, runtime común, contexto, herramientas, conexión con base de datos y criterios de calidad. |
 | 0.2         | 14/07/2026 | Revisión alineada con briefing | Contexto adaptativo y amplio, SQL analítico de solo lectura, monitorización 24/7 y política de generación de tareas.  |
 
@@ -66,7 +68,7 @@ El objetivo de este documento es impedir que la inteligencia artificial se const
 ## 1.2 Agentes frente a automatizaciones deterministas
 
 | **Componente**                         | **Clasificación**         | **Motivo**                                                    |
-|----------------------------------------|---------------------------|---------------------------------------------------------------|
+| -------------------------------------- | ------------------------- | ------------------------------------------------------------- |
 | Sincronización Shopify, Meta y Klaviyo | Worker determinista       | Debe ser repetible, idempotente y no necesita razonamiento.   |
 | Cálculo de métricas financieras        | Motor determinista        | Las fórmulas deben ser exactas y versionadas.                 |
 | Evaluación de umbrales y reglas        | Motor de reglas           | La misma entrada debe producir siempre el mismo resultado.    |
@@ -81,13 +83,35 @@ El objetivo de este documento es impedir que la inteligencia artificial se const
 Para enseñar al cliente un prototipo sencillo, el entorno más práctico es Langflow: permite construir flujos arrastrando nodos, conectar un modelo, añadir herramientas y ejecutar el flujo desde una interfaz visual. Dify es una alternativa adecuada cuando se quiere enseñar un chat, un flujo RAG y una aplicación funcional con menos código. LangSmith Studio se reservará para la implementación técnica y depuración del runtime de producción.
 
 | **Herramienta**  | **Uso recomendado en EcomScaling**                                            | **Decisión**                                                       |
-|------------------|-------------------------------------------------------------------------------|--------------------------------------------------------------------|
+| ---------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | Langflow         | Demo visual de agentes, RAG y herramientas. Útil en reuniones con el cliente. | Recomendada para prototipo visual.                                 |
 | Dify             | Prototipo de chat y workflows publicables con rapidez.                        | Alternativa si se prioriza una demo funcional inmediata.           |
 | LangSmith Studio | Visualización, trazas y debugging de agentes implementados con LangGraph.     | Recomendada más adelante para desarrollo.                          |
 | n8n              | Webhooks, notificaciones y procesos externos.                                 | Solo para automatizaciones concretas, no como núcleo del producto. |
 
 Regla: el prototipo visual sirve para validar la experiencia y explicar el flujo, pero no sustituye el runtime seguro conectado a Supabase.
+
+## 2.1 Decisión del runtime real: SDK directo, RAG y fine-tuning
+
+El núcleo de ejecución de modelos sigue usando los SDK directos de Anthropic y OpenAI detrás de
+contratos propios de prompts, tools, salidas, presupuestos, fallback y auditoría. LangChain y
+LangGraph ya están incorporados mediante adaptadores aislados para el piloto de orquestación; no
+reemplazan esos contratos ni la autoridad del backend.
+El RAG se ejecuta mediante la capa de conocimiento multi-tenant sobre Supabase/Postgres/pgvector;
+las tools consultan datos vivos y no se confunden con conocimiento recuperado.
+
+La estrategia de calidad es prompts estructurados en nueve secciones, RAG gobernado, evaluaciones y
+feedback humano. El fine-tuning queda para una fase posterior y solo se aprobará con dataset
+versionado, privacidad revisada, baseline reproducible y mejora medida. No se usará fine-tuning para
+datos cambiantes, autorización o aislamiento entre organizaciones.
+
+La decisión técnica completa y sus condiciones de reapertura están en
+`roadmap/roadmaps/05-agentes-ia/ADR_PROVEEDORES_ORQUESTACION_RAG_Y_FINE_TUNING.md`.
+
+La adopción ya está preparada de forma incremental: `@langchain/core` y `@langchain/langgraph`
+implementan el adaptador del primer grafo de diagnóstico no mutante en `@ecomscaling/ai`, mientras
+`langsmith` aporta tracing opt-in con redacción y sin payloads por defecto. El runtime propio,
+Supabase/RAG y los gates de seguridad siguen siendo la autoridad.
 
 # 3. Arquitectura común del runtime
 
@@ -118,7 +142,7 @@ Figura 1. Arquitectura común con contexto adaptativo, SQL analítico de solo le
 ## 3.2 Contrato común de entrada
 
 | **Campo**          | **Obligatorio** | **Descripción**                                                      |
-|--------------------|-----------------|----------------------------------------------------------------------|
+| ------------------ | --------------- | -------------------------------------------------------------------- |
 | run_id             | Sí              | Identificador único de ejecución.                                    |
 | agent_id / version | Sí              | Agente y versión concreta.                                           |
 | organization_id    | Sí              | Tenant resuelto por backend; nunca elegido libremente por el modelo. |
@@ -153,7 +177,7 @@ Figura 1. Arquitectura común con contexto adaptativo, SQL analítico de solo le
 ## 4.1 Contexto base y contexto ampliable
 
 | **Capa**       | **Contenido**                                           | **Origen**                                                                  |
-|----------------|---------------------------------------------------------|-----------------------------------------------------------------------------|
+| -------------- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
 | Identidad      | Usuario, rol, organización y permisos.                  | profiles, organization_members, consultant_assignments                      |
 | Negocio        | Moneda, timezone, configuración financiera y objetivos. | organizations, organization_financial_settings, organization_metric_targets |
 | Operación      | Tareas, alertas, plan y campañas.                       | tasks, alerts, strategic_plans, marketing_campaigns                         |
@@ -182,7 +206,7 @@ El Copiloto del Consultor puede comparar varias organizaciones únicamente cuand
 El objetivo no es limitar al agente a un contexto pequeño, sino darle el contexto suficiente y ampliarlo de forma controlada. La expansión puede ocurrir en varias rondas de consulta antes de generar la respuesta.
 
 | **Nivel**                          | **Cuándo se usa**                                  | **Datos disponibles**                                                                  | **Ejemplo**                                              |
-|------------------------------------|----------------------------------------------------|----------------------------------------------------------------------------------------|----------------------------------------------------------|
+| ---------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------- |
 | C0 — Seguridad e identidad         | Siempre                                            | Usuario, rol, organization_id, permisos y suscripción                                  | Validar que la consulta pertenece a la empresa correcta. |
 | C1 — Módulo actual                 | Pregunta acotada                                   | Datos del módulo, periodo y entidades implicadas                                       | Analizar el ROAS de los últimos 7 días.                  |
 | C2 — Contexto cruzado              | La respuesta depende de varias áreas               | Shopify + Meta + Klaviyo + tareas + plan                                               | Decidir si subir inversión sin ignorar margen o stock.   |
@@ -202,7 +226,7 @@ No se permite SQL libre de escritura: INSERT, UPDATE, DELETE, ALTER, DROP, funci
 La aplicación debe generar tareas accionables, tal como exige el briefing. La autonomía depende del origen y del riesgo:
 
 | **Origen**            | **Puede crear tarea**                  | **Aprobación**                         | **Regla**                                                             |
-|-----------------------|----------------------------------------|----------------------------------------|-----------------------------------------------------------------------|
+| --------------------- | -------------------------------------- | -------------------------------------- | --------------------------------------------------------------------- |
 | Regla determinista    | Sí, automática                         | No, si la regla está aprobada          | ROAS bajo, stock 0, campaña ausente, flow sin envíos.                 |
 | Analista de llamadas  | Sí, como propuesta                     | Sí, consultor obligatorio              | El briefing exige revisión antes de publicar resumen y tareas.        |
 | Monitor IA            | Sí, pendiente o visible según política | Según severidad y madurez              | Debe deduplicar, citar evidencia y evitar spam.                       |
@@ -212,7 +236,7 @@ La aplicación debe generar tareas accionables, tal como exige el briefing. La a
 # 5. Catálogo general de agentes y servicios
 
 | **ID** | **Agente**                             | **Fase** | **Estado**  | **Usuario**         | **Función**                                                                       |
-|--------|----------------------------------------|----------|-------------|---------------------|-----------------------------------------------------------------------------------|
+| ------ | -------------------------------------- | -------- | ----------- | ------------------- | --------------------------------------------------------------------------------- |
 | A00    | Orquestador / Consultor EcomScaling IA | Fase 3   | Definido    | Cliente y consultor | Responde con contexto empresarial adaptativo, consulta datos y coordina acciones. |
 | A01    | Analista de llamadas                   | Fase 1   | Prioridad 1 | Consultor           | Resumen, decisiones y tareas en borrador.                                         |
 | A02    | Monitor y diagnóstico del negocio      | Fase 1   | Definido    | Cliente y consultor | Monitoriza 24/7, detecta riesgos/oportunidades y genera tareas accionables.       |
@@ -227,7 +251,7 @@ La aplicación debe generar tareas accionables, tal como exige el briefing. La a
 ## 5.1 Servicios no agentes que alimentan el sistema
 
 | **ID** | **Servicio**          | **Responsabilidad**                                               |
-|--------|-----------------------|-------------------------------------------------------------------|
+| ------ | --------------------- | ----------------------------------------------------------------- |
 | S01    | Shopify Sync Worker   | Productos, variantes, pedidos, reembolsos, inventario y métricas. |
 | S02    | Meta Sync Worker      | Activos publicitarios, creatividades e Insights.                  |
 | S03    | Klaviyo Sync Worker   | Flows, campañas, formularios, audiencias y reporting.             |
@@ -242,7 +266,7 @@ La aplicación debe generar tareas accionables, tal como exige el briefing. La a
 # 6. Roadmap por fases
 
 | **Fase**                           | **Objetivo**                                                                | **Agentes**                              | **Criterio de salida**                                                                                                           |
-|------------------------------------|-----------------------------------------------------------------------------|------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| ---------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Fase 0 — Fundaciones               | Runtime, auditoría, tools, contexto y pruebas.                              | Ningún agente en producción.             | RLS validada, tablas de runs creadas y herramientas seguras disponibles.                                                         |
 | Fase 1 — MVP                       | Valor inmediato con llamadas, monitorización, alertas y tareas accionables. | A01, A02, versión limitada de A03 y A04. | Shadow mode inicial; tareas automáticas solo para reglas aprobadas y tareas IA con evidencia, deduplicación y control de riesgo. |
 | Fase 2 — Retención y planificación | Campañas, stock y cockpit del consultor.                                    | A05, A06, A09.                           | Propuestas útiles, forecasts contrastados y creación controlada de borradores/tareas.                                            |
@@ -256,7 +280,7 @@ Las siguientes fichas constituyen la línea base. Cada agente se actualizará de
 ## A01 — Analista de llamadas
 
 | **Fase**              | Fase 1 — Primer agente                                              |
-|-----------------------|---------------------------------------------------------------------|
+| --------------------- | ------------------------------------------------------------------- |
 | **Estado actual**     | Definido; pendiente de prompt, esquema JSON y dataset de evaluación |
 | **Usuario principal** | Consultor y platform_admin                                          |
 | **Tipo**              | Agente especializado con human-in-the-loop                          |
@@ -354,7 +378,7 @@ Pregunta: ¿No leemos los datos y métricas para conseguir mas context en la lla
 ## A02 — Monitor y diagnóstico del negocio
 
 | **Fase**              | Fase 1                                                      |
-|-----------------------|-------------------------------------------------------------|
+| --------------------- | ----------------------------------------------------------- |
 | **Estado actual**     | Definido; pendiente de fórmulas canónicas y tool contracts  |
 | **Usuario principal** | Cliente, consultor y platform_admin                         |
 | **Tipo**              | Agente analista de solo lectura                             |
@@ -453,7 +477,7 @@ Monitorizar la tienda de forma periódica, explicar su salud, detectar problemas
 ## A03 — Analista de Meta Ads y creatividades
 
 | **Fase**              | Fase 1 limitada / Fase 3 completa                                |
-|-----------------------|------------------------------------------------------------------|
+| --------------------- | ---------------------------------------------------------------- |
 | **Estado actual**     | Definido; pendiente de nomenclatura oficial y métricas canónicas |
 | **Usuario principal** | Cliente y consultor                                              |
 | **Tipo**              | Agente analista especializado                                    |
@@ -551,7 +575,7 @@ Pregunta: al recibir dicha respuesta el consultor podrá crear tareas con la inf
 ## A04 — Generador y priorizador de tareas
 
 | **Fase**              | Fase 1/2                                    |
-|-----------------------|---------------------------------------------|
+| --------------------- | ------------------------------------------- |
 | **Estado actual**     | Definido; pendiente de scoring determinista |
 | **Usuario principal** | Cliente y consultor                         |
 | **Tipo**              | Motor de scoring + agente explicador        |
@@ -638,7 +662,7 @@ Convertir alertas y hallazgos de agentes en tareas concretas, deduplicarlas y or
 ## A05 — Estratega de campañas
 
 | **Fase**              | Fase 2                                       |
-|-----------------------|----------------------------------------------|
+| --------------------- | -------------------------------------------- |
 | **Estado actual**     | Definido; pendiente de calendario y playbook |
 | **Usuario principal** | Cliente y consultor                          |
 | **Tipo**              | Agente generador con contexto                |
@@ -733,7 +757,7 @@ Proponer campañas coherentes con el histórico, margen, stock, estacionalidad y
 ## A06 — Planificador inteligente de stock
 
 | **Fase**              | Fase 2                                                         |
-|-----------------------|----------------------------------------------------------------|
+| --------------------- | -------------------------------------------------------------- |
 | **Estado actual**     | Definido; motor matemático pendiente                           |
 | **Usuario principal** | Cliente y consultor                                            |
 | **Tipo**              | Motor determinista + agente explicador                         |
@@ -828,7 +852,7 @@ Ninguna escritura directa. Solo respuesta o propuesta.
 ## A07 — Analista de Instagram
 
 | **Fase**              | Fase 3                              |
-|-----------------------|-------------------------------------|
+| --------------------- | ----------------------------------- |
 | **Estado actual**     | Definido; pendiente de datos reales |
 | **Usuario principal** | Cliente y consultor                 |
 | **Tipo**              | Agente analista de contenido        |
@@ -913,7 +937,7 @@ Ninguna escritura directa. Solo respuesta o propuesta.
 ## A08 — Gestor de conocimiento
 
 | **Fase**              | Fase 3                                               |
-|-----------------------|------------------------------------------------------|
+| --------------------- | ---------------------------------------------------- |
 | **Estado actual**     | Definido; pendiente de pipeline RAG                  |
 | **Usuario principal** | Consultor y platform_admin                           |
 | **Tipo**              | Agente de ingestión y gobernanza                     |
@@ -1008,7 +1032,7 @@ Clasificar, dividir, versionar y preparar documentos para RAG sin mezclar conoci
 ## A09 — Copiloto del consultor
 
 | **Fase**              | Fase 2/3                                                |
-|-----------------------|---------------------------------------------------------|
+| --------------------- | ------------------------------------------------------- |
 | **Estado actual**     | Definido; pendiente de cockpit y políticas multiempresa |
 | **Usuario principal** | Consultor y platform_admin                              |
 | **Tipo**              | Agente multiempresa de solo lectura y preparación       |
@@ -1097,7 +1121,7 @@ Ninguna escritura directa. Solo respuesta o propuesta.
 ## A00 — Orquestador / Consultor EcomScaling IA
 
 | **Fase**              | Fase 3                                                        |
-|-----------------------|---------------------------------------------------------------|
+| --------------------- | ------------------------------------------------------------- |
 | **Estado actual**     | Definido a alto nivel; se implementa después de especialistas |
 | **Usuario principal** | Cliente, consultor y platform_admin                           |
 | **Tipo**              | Orquestador conversacional con tools y subagentes             |
@@ -1196,7 +1220,7 @@ Responder preguntas transversales seleccionando herramientas y agentes especiali
 La base actual dispone de conversaciones y mensajes, pero para operar agentes de forma profesional deben añadirse tablas de ejecución y trazabilidad una vez cerrados los contratos de las fichas anteriores.
 
 | **Tabla propuesta**     | **Función**                            | **Relaciones principales**                                                                |
-|-------------------------|----------------------------------------|-------------------------------------------------------------------------------------------|
+| ----------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
 | agent_definitions       | Catálogo estable de agentes.           | ID lógico, fase, propietario y estado.                                                    |
 | agent_versions          | Versiones del agente y configuración.  | agent_definition_id, prompt_version_id, model y output_schema.                            |
 | prompt_versions         | Prompts versionados y checksum.        | Tipo de prompt, contenido, autor y vigencia.                                              |
@@ -1228,7 +1252,7 @@ La base actual dispone de conversaciones y mensajes, pero para operar agentes de
 ## 8.2 Escrituras permitidas por madurez
 
 | **Nivel**                | **Comportamiento**                          | **Escritura**                       |
-|--------------------------|---------------------------------------------|-------------------------------------|
+| ------------------------ | ------------------------------------------- | ----------------------------------- |
 | L0 — Definido            | Solo documentación.                         | Ninguna.                            |
 | L1 — Prototipo           | Datos ficticios o sandbox.                  | Ninguna en producción.              |
 | L2 — Shadow mode         | Ejecuta con datos reales, resultado oculto. | Solo auditoría.                     |
@@ -1261,7 +1285,7 @@ La base actual dispone de conversaciones y mensajes, pero para operar agentes de
 ## 9.2 Métricas comunes
 
 | **Categoría** | **Métricas**                                                                        |
-|---------------|-------------------------------------------------------------------------------------|
+| ------------- | ----------------------------------------------------------------------------------- |
 | Calidad       | Exactitud, completitud, groundedness, aceptación sin edición y tasa de alucinación. |
 | Negocio       | Tiempo ahorrado, tareas ejecutadas, alertas resueltas y mejora posterior del KPI.   |
 | Seguridad     | Errores de permiso, intentos bloqueados, PII expuesta y escrituras no autorizadas.  |
@@ -1271,7 +1295,7 @@ La base actual dispone de conversaciones y mensajes, pero para operar agentes de
 ## 9.3 Registro de decisiones
 
 | **ID**     | **Fecha**  | **Decisión**                                            | **Motivo**                                                                                            | **Impacto**                                                               |
-|------------|------------|---------------------------------------------------------|-------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| ---------- | ---------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | ADR-AI-001 | 14/07/2026 | Separar agentes de motores deterministas.               | Exactitud, coste y auditabilidad.                                                                     | Los agentes interpretan; los motores calculan.                            |
 | ADR-AI-002 | 14/07/2026 | Comenzar por A01 Analista de llamadas.                  | Entrada y salida acotadas, valor inmediato y revisión humana.                                         | Primer agente del MVP.                                                    |
 | ADR-AI-003 | 14/07/2026 | Usar prototipo visual separado del runtime.             | Facilitar demostración sin comprometer seguridad.                                                     | Langflow/Dify para demo; backend propio para producción.                  |
@@ -1284,7 +1308,7 @@ La base actual dispone de conversaciones y mensajes, pero para operar agentes de
 Duplicar esta ficha cuando se cree un agente nuevo o se publique una versión mayor de uno existente.
 
 | **Agent ID y nombre**     |     |
-|---------------------------|-----|
+| ------------------------- | --- |
 | **Versión**               |     |
 | **Fase y madurez**        |     |
 | **Responsable**           |     |

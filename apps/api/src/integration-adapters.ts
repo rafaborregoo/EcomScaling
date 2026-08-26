@@ -149,6 +149,7 @@ function createUnavailableAdapter(
     buildAuthorizationUrl: unavailable,
     exchangeAuthorizationCode: unavailable,
     refreshCredentials: unavailable,
+    discoverAssets: unavailable,
     runInitialSync: unavailable,
     runIncrementalSync: unavailable,
     getConnectionHealth: async (connection) =>

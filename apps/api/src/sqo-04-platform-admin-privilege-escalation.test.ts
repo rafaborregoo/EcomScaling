@@ -14,7 +14,7 @@
  * el chequeo de rol corre primero, no que el recurso no exista.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test -w @ecomscaling/api`.
+ * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,9 +25,13 @@ import { buildApp } from "./server.js";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 const TEST_PASSWORD = "Sqo04-Privilege-Escalation-P4ssword-9!";
@@ -50,19 +54,24 @@ before(async () => {
     .single();
 
   if (orgError || !org) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${orgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${orgError?.message}`,
+    );
   }
   orgId = org.id;
 
   const email = `sqo04-privilege-escalation-owner-${RUN_TAG}@ecomscaling.test`;
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password: TEST_PASSWORD,
-    email_confirm: true,
-  });
+  const { data: created, error: createError } =
+    await admin.auth.admin.createUser({
+      email,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
 
   if (createError || !created.user) {
-    throw new Error(`No se pudo crear el usuario de prueba: ${createError?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba: ${createError?.message}`,
+    );
   }
   ownerUserId = created.user.id;
 
@@ -74,14 +83,20 @@ before(async () => {
     .select("platform_role")
     .eq("id", ownerUserId)
     .maybeSingle();
-  assert.equal(profile?.platform_role, "user", "precondicion del test: el usuario debe tener platform_role 'user'");
+  assert.equal(
+    profile?.platform_role,
+    "user",
+    "precondicion del test: el usuario debe tener platform_role 'user'",
+  );
 
   const { error: memberError } = await admin
     .from("organization_members")
     .insert({ organization_id: orgId, user_id: ownerUserId, role: "owner" });
 
   if (memberError) {
-    throw new Error(`No se pudo crear la membership de prueba: ${memberError.message}`);
+    throw new Error(
+      `No se pudo crear la membership de prueba: ${memberError.message}`,
+    );
   }
 
   // private.can_access_org() exige is_active_org_member() Y
@@ -89,23 +104,34 @@ before(async () => {
   // organization_members vacia y resolveAuthContext corta con 409
   // membership_missing antes de llegar a requirePlatformAdmin (descubierto
   // corriendo este mismo test: los 8 casos fallaban con 409, no 403).
-  const { error: subscriptionError } = await admin.from("service_subscriptions").insert({
-    organization_id: orgId,
-    plan_code: "sqo04-privilege-escalation-test",
-    status: "active",
-  });
+  const { error: subscriptionError } = await admin
+    .from("service_subscriptions")
+    .insert({
+      organization_id: orgId,
+      plan_code: "sqo04-privilege-escalation-test",
+      status: "active",
+    });
 
   if (subscriptionError) {
-    throw new Error(`No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`);
+    throw new Error(
+      `No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`,
+    );
   }
 
-  const anon: SupabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: session, error: signInError } = await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
+  const anon: SupabaseClient = createClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+    },
+  );
+  const { data: session, error: signInError } =
+    await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
 
   if (signInError || !session.session) {
-    throw new Error(`No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`,
+    );
   }
   ownerAccessToken = session.session.access_token;
 
@@ -145,18 +171,26 @@ const PLATFORM_ADMIN_ONLY_ROUTES: Array<{
   {
     method: "PUT",
     path: (id) => `/v1/consultant/organizations/${id}/assignments`,
-    body: { consultant_user_id: FAKE_RESOURCE_ID, is_primary: true, is_active: true },
+    body: {
+      consultant_user_id: FAKE_RESOURCE_ID,
+      is_primary: true,
+      is_active: true,
+    },
     label: "PUT consultant/organizations/:organizationId/assignments",
   },
   {
     method: "DELETE",
-    path: (id) => `/v1/consultant/organizations/${id}/stores/${FAKE_RESOURCE_ID}`,
-    label: "DELETE consultant/organizations/:organizationId/stores/:connectionId",
+    path: (id) =>
+      `/v1/consultant/organizations/${id}/stores/${FAKE_RESOURCE_ID}`,
+    label:
+      "DELETE consultant/organizations/:organizationId/stores/:connectionId",
   },
   {
     method: "POST",
-    path: (id) => `/v1/consultant/organizations/${id}/stores/${FAKE_RESOURCE_ID}/restore`,
-    label: "POST consultant/organizations/:organizationId/stores/:connectionId/restore",
+    path: (id) =>
+      `/v1/consultant/organizations/${id}/stores/${FAKE_RESOURCE_ID}/restore`,
+    label:
+      "POST consultant/organizations/:organizationId/stores/:connectionId/restore",
   },
   {
     method: "DELETE",

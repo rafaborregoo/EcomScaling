@@ -6,11 +6,13 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
+  AsyncState,
   Badge,
   Banner,
   Button,
   Card,
   EmptyState,
+  ErrorBlock,
   Field,
   Input,
   LoadingBlock,
@@ -53,23 +55,34 @@ function ShopifyCoverageSection({
 
     async function load() {
       setIsLoading(true);
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/shopify/overview`,
-      );
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organizationId}/shopify/overview`,
+        );
 
-      if (cancelled) {
-        return;
+        if (cancelled) {
+          return;
+        }
+
+        if (!response.ok) {
+          setError(await readShopifyOverviewError(response));
+          setOverview(null);
+        } else {
+          setOverview((await response.json()) as ShopifyOverviewLite);
+          setError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setOverview(null);
+          setError(
+            "No se pudo cargar la cobertura de Shopify por un error de red. Reintenta.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
-
-      if (!response.ok) {
-        setError(await readShopifyOverviewError(response));
-        setOverview(null);
-      } else {
-        setOverview((await response.json()) as ShopifyOverviewLite);
-        setError(null);
-      }
-
-      setIsLoading(false);
     }
 
     void load();
@@ -79,11 +92,16 @@ function ShopifyCoverageSection({
   }, [organizationId]);
 
   if (isLoading) {
-    return <LoadingBlock label="Cargando cobertura de datos..." />;
+    return (
+      <AsyncState
+        status="loading"
+        loadingLabel="Cargando cobertura de datos..."
+      />
+    );
   }
 
   if (error) {
-    return <Banner tone="danger">{error}</Banner>;
+    return <AsyncState status="error" error={error} />;
   }
 
   if (!overview) {
@@ -198,6 +216,8 @@ function FinancialConfigSection({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAddingExpense, setIsAddingExpense] = useState(false);
+  const [busyExpenseId, setBusyExpenseId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   const [paymentFeePct, setPaymentFeePct] = useState("");
@@ -212,26 +232,35 @@ function FinancialConfigSection({
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/financial-config`,
-    );
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config`,
+      );
 
-    if (!response.ok) {
-      setError(await readApiError(response));
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      const data = (await response.json()) as FinancialConfigResponse;
+      setConfig(data);
+      setPaymentFeePct(String(data.settings?.payment_fee_pct ?? ""));
+      setPaymentFeeFixed(String(data.settings?.payment_fee_fixed ?? ""));
+      setDefaultShippingCost(String(data.settings?.default_shipping_cost ?? ""));
+      setError(null);
+    } catch {
+      setError(
+        "No se pudo cargar la configuración financiera por un error de red. Reintenta.",
+      );
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    const data = (await response.json()) as FinancialConfigResponse;
-    setConfig(data);
-    setPaymentFeePct(String(data.settings?.payment_fee_pct ?? ""));
-    setPaymentFeeFixed(String(data.settings?.payment_fee_fixed ?? ""));
-    setDefaultShippingCost(String(data.settings?.default_shipping_cost ?? ""));
-    setError(null);
-    setIsLoading(false);
   }, [organizationId]);
 
   useEffect(() => {
+    // Sincroniza la pantalla con el endpoint remoto al montar o cambiar de
+    // organizacion; no es estado derivado de otro valor local.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadConfig();
   }, [loadConfig]);
 
@@ -239,73 +268,90 @@ function FinancialConfigSection({
     event.preventDefault();
     setIsSaving(true);
     setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/settings`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            paymentFeePct: paymentFeePct === "" ? 0 : Number(paymentFeePct),
+            paymentFeeFixed: paymentFeeFixed === "" ? 0 : Number(paymentFeeFixed),
+            defaultShippingCost:
+              defaultShippingCost === "" ? 0 : Number(defaultShippingCost),
+          }),
+        },
+      );
 
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/financial-config/settings`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paymentFeePct: paymentFeePct === "" ? 0 : Number(paymentFeePct),
-          paymentFeeFixed: paymentFeeFixed === "" ? 0 : Number(paymentFeeFixed),
-          defaultShippingCost:
-            defaultShippingCost === "" ? 0 : Number(defaultShippingCost),
-        }),
-      },
-    );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
 
-    if (!response.ok) {
-      setError(await readApiError(response));
+      setSavedAt(new Date().toLocaleTimeString());
+      void loadConfig();
+    } catch {
+      setError(
+        "No se pudo guardar la configuración financiera por un error de red. Reintenta.",
+      );
+    } finally {
       setIsSaving(false);
-      return;
     }
-
-    setSavedAt(new Date().toLocaleTimeString());
-    setIsSaving(false);
-    void loadConfig();
   }
 
   async function addExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setIsAddingExpense(true);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/fixed-expenses`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: expenseName,
+            amount: Number(expenseAmount),
+            billingPeriod: expensePeriod,
+          }),
+        },
+      );
 
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/financial-config/fixed-expenses`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: expenseName,
-          amount: Number(expenseAmount),
-          billingPeriod: expensePeriod,
-        }),
-      },
-    );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
 
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
+      setExpenseName("");
+      setExpenseAmount("");
+      void loadConfig();
+    } catch {
+      setError("No se pudo añadir el gasto por un error de red. Reintenta.");
+    } finally {
+      setIsAddingExpense(false);
     }
-
-    setExpenseName("");
-    setExpenseAmount("");
-    void loadConfig();
   }
 
   async function removeExpense(expenseId: string) {
     setError(null);
+    setBusyExpenseId(expenseId);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/fixed-expenses/${expenseId}`,
+        { method: "DELETE" },
+      );
 
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/financial-config/fixed-expenses/${expenseId}`,
-      { method: "DELETE" },
-    );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
 
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
+      void loadConfig();
+    } catch {
+      setError("No se pudo quitar el gasto por un error de red. Reintenta.");
+    } finally {
+      setBusyExpenseId(null);
     }
-
-    void loadConfig();
   }
 
   if (isLoading) {
@@ -323,7 +369,7 @@ function FinancialConfigSection({
 
   return (
     <div className="space-y-4">
-      {error ? <Banner tone="danger">{error}</Banner> : null}
+      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {!canManage ? (
         <Banner tone="warn">
@@ -419,7 +465,9 @@ function FinancialConfigSection({
                 ]}
               />
             </div>
-            <Button type="submit">Añadir gasto</Button>
+            <Button type="submit" disabled={isAddingExpense}>
+              {isAddingExpense ? "Añadiendo..." : "Añadir gasto"}
+            </Button>
           </form>
         ) : null}
 
@@ -453,8 +501,9 @@ function FinancialConfigSection({
                       size="sm"
                       type="button"
                       onClick={() => void removeExpense(expense.id)}
+                      disabled={busyExpenseId === expense.id}
                     >
-                      Quitar
+                      {busyExpenseId === expense.id ? "Quitando..." : "Quitar"}
                     </Button>
                   ) : null}
                 </div>

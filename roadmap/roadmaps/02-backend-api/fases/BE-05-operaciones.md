@@ -2,16 +2,32 @@
 
 ## Estado
 
+> Correccion vigente 2026-08-24: el caso de una transcripcion nueva tras un
+> resumen aprobado ya esta resuelto en la lectura de `/llamadas`: el resumen
+> publicado solo se selecciona si su `transcript_id` coincide con la
+> transcripcion actual (y los historicos sin `transcript_id` solo aplican a la
+> version 1). No se invalida ni se sobrescribe el historico; la nueva version
+> requiere un resumen y aprobacion independientes.
+
+> Verificacion automatizada 2026-08-24: la regla de visibilidad se extrajo a
+> `apps/web/src/app/llamadas/summary-visibility.ts` y tiene 4 tests directos,
+> cubriendo resumen actual, resumen antiguo, compatibilidad version 1 y estados
+> no publicados.
+
+> Cierre funcional 2026-08-24: junto con la evidencia de DB-07/DB-08, los
+> criterios de alertas idempotentes, historial de tareas y aprobacion previa a
+> publicar resumenes quedan cubiertos. La division en subdominios es editorial.
+
 > Correccion 2026-08-02: el gap de asociar un resumen a la transcripcion exacta queda cerrado con la
 > migracion `20260802100000_be_05_call_summary_transcript_binding.sql`. Los flujos manual y A01 guardan
 > `call_ai_summaries.transcript_id`; la UI no presenta como vigente un resumen publicado de una version
 > posterior. Las filas históricas conservan `NULL` y no se sobrescriben.
 
-- **Estado real:** `functionally_complete_verification_pending` (funciona, pero el documento no
+- **Estado real:** `done` (funciona, pero el documento no
   demuestra cobertura integral — "validado con datos reales" sin organizacion/entorno/caso concretos no
   es evidencia verificable).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-07, DB-08
 - **Bloqueador:** ninguno
 - **Endpoints reales de llamadas** (`apps/api/src/server.ts`, prefijo `/v1/organizations/:organizationId`):
@@ -45,8 +61,8 @@
   - Documento agrupa 4 subdominios (motor de alertas, tareas/notificaciones, llamadas, Mi Camino) —
     recomendado dividir en BE-05A (motor de alertas), BE-05B (tareas/notificaciones), BE-05C (llamadas),
     BE-05D (planes estrategicos) para auditar cada uno por separado.
-- **Siguiente accion:** decidir y documentar que pasa con un resumen aprobado cuando llega una
-  transcripcion nueva, y anadir tests automatizados que reemplacen la validacion manual como evidencia.
+- **Siguiente accion:** ninguna para los criterios de cierre; dividir el documento
+  en BE-05A/B/C/D queda como deuda editorial no bloqueante.
 
 ## Objetivo
 

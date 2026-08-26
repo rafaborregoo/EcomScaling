@@ -4,8 +4,12 @@
 // corre en un job de worker aparte (mismo patron que ops-health-check-once.ts).
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { chunkText, VoyageEmbeddingProvider } from "@ecomscaling/ai";
+import {
+  chunkText,
+  VoyageEmbeddingProvider,
+} from "@ecomscaling/ai";
 import { createLogger } from "@ecomscaling/observability";
+import { embedChunksInOrder, EMBEDDING_BATCH_CONCURRENCY, EMBEDDING_BATCH_SIZE } from "./embedding-batching.js";
 
 // Tipo estructural minimo (no LoadedApiEnv completo): cada punto de entrada
 // que encola (calls.ts, operations.ts, ai-runtime.ts) tiene su propio tipo de
@@ -14,13 +18,16 @@ type EnqueueEnv = { SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
 type ProcessEnv = EnqueueEnv & { VOYAGE_API_KEY?: string };
 
 const logger = createLogger("memory-ingestion");
-const EMBEDDING_BATCH_SIZE = 64;
 const MAX_ATTEMPTS = 5;
 const QUEUE_BATCH_SIZE = 20;
+const STALE_CLAIM_MS = 10 * 60 * 1000;
 
-export type MemorySourceType = "call_summary" | "internal_note" | "ai_output_decision";
-export type MemoryAudience = "client_visible" | "consultant_only" | "system_only";
-export type MemoryOrigin = "human_authored" | "human_approved_ai" | "human_decision";
+export type MemorySourceType =
+  "call_summary" | "internal_note" | "ai_output_decision";
+export type MemoryAudience =
+  "client_visible" | "consultant_only" | "system_only";
+export type MemoryOrigin =
+  "human_authored" | "human_approved_ai" | "human_decision";
 export type MemoryAuthority = "canonical" | "operational" | "contextual";
 
 function createServiceClient(env: EnqueueEnv) {
@@ -53,7 +60,10 @@ export interface EnqueueMemoryIngestionInput {
  * source_entity_id, source_version) -- volver a llamar con los mismos valores
  * no duplica nada.
  */
-export async function enqueueMemoryIngestion(env: EnqueueEnv, input: EnqueueMemoryIngestionInput) {
+export async function enqueueMemoryIngestion(
+  env: EnqueueEnv,
+  input: EnqueueMemoryIngestionInput,
+) {
   const supabase = createServiceClient(env);
   const sourceVersion = input.sourceVersion ?? 1;
 
@@ -88,7 +98,8 @@ export async function enqueueMemoryIngestion(env: EnqueueEnv, input: EnqueueMemo
         content: input.content,
       },
       {
-        onConflict: "organization_id,source_type,source_entity_id,source_version",
+        onConflict:
+          "organization_id,source_type,source_entity_id,source_version",
         ignoreDuplicates: true,
       },
     )
@@ -141,10 +152,16 @@ export async function enqueueMemoryIngestion(env: EnqueueEnv, input: EnqueueMemo
       queueId: queueRow.id,
       organization_id: input.organizationId,
     });
-    return { ok: false as const, error: documentError?.message ?? "document_placeholder_failed" };
+    return {
+      ok: false as const,
+      error: documentError?.message ?? "document_placeholder_failed",
+    };
   }
 
-  await supabase.from("memory_ingestion_queue").update({ document_id: document.id }).eq("id", queueRow.id);
+  await supabase
+    .from("memory_ingestion_queue")
+    .update({ document_id: document.id })
+    .eq("id", queueRow.id);
 
   return { ok: true as const, queueId: queueRow.id, documentId: document.id };
 }
@@ -168,18 +185,58 @@ export async function processMemoryIngestionQueue(env: ProcessEnv) {
 
   const { data: rows, error } = await supabase
     .from("memory_ingestion_queue")
-    .select("id, organization_id, store_id, title, content, document_id, attempts")
-    .or(`status.eq.pending,and(status.eq.failed,attempts.lt.${MAX_ATTEMPTS})`)
+    .select(
+      "id, organization_id, store_id, title, content, document_id, attempts, status, processing_started_at",
+    )
+    .or(
+      `status.eq.pending,and(status.eq.failed,attempts.lt.${MAX_ATTEMPTS}),and(status.eq.processing,processing_started_at.lt.${new Date(Date.now() - STALE_CLAIM_MS).toISOString()}),and(status.eq.processing,processing_started_at.is.null)`,
+    )
     .order("created_at", { ascending: true })
     .limit(QUEUE_BATCH_SIZE);
 
   if (error) {
-    logger.error("memory_ingestion_queue_load_failed", { error: error.message });
+    logger.error("memory_ingestion_queue_load_failed", {
+      error: error.message,
+    });
     return result;
   }
 
   for (const row of rows ?? []) {
+    const claimAttempts = row.attempts + 1;
+    let claimQuery = supabase
+      .from("memory_ingestion_queue")
+      .update({
+        status: "processing",
+        processing_started_at: new Date().toISOString(),
+        attempts: claimAttempts,
+      })
+      .eq("id", row.id)
+      .eq("status", row.status);
+
+    if (row.status === "processing") {
+      claimQuery = row.processing_started_at
+        ? claimQuery.eq("processing_started_at", row.processing_started_at)
+        : claimQuery.is("processing_started_at", null);
+    }
+
+    const { data: claim, error: claimError } = await claimQuery
+      .select("id")
+      .maybeSingle();
+
+    if (claimError || !claim) {
+      result.skipped += 1;
+      continue;
+    }
+
     if (!row.document_id) {
+      await supabase
+        .from("memory_ingestion_queue")
+        .update({
+          status: "failed",
+          last_error: "memory_document_missing",
+          processing_started_at: null,
+        })
+        .eq("id", row.id);
       result.skipped += 1;
       continue;
     }
@@ -191,23 +248,37 @@ export async function processMemoryIngestionQueue(env: ProcessEnv) {
         throw new Error("contenido_vacio_tras_chunking");
       }
 
-      const vectors: number[][] = [];
-      for (let offset = 0; offset < chunks.length; offset += EMBEDDING_BATCH_SIZE) {
-        const batch = chunks.slice(offset, offset + EMBEDDING_BATCH_SIZE);
-        const embedded = await embeddings.embed(batch, "document");
-        vectors.push(...embedded);
-      }
-
-      const { error: chunksError } = await supabase.from("knowledge_chunks").insert(
-        chunks.map((chunk, index) => ({
-          document_id: row.document_id,
-          organization_id: row.organization_id,
-          chunk_index: index,
-          content: chunk,
-          token_count: Math.ceil(chunk.length / 4),
-          embedding: JSON.stringify(vectors[index]),
-        })),
+      // Voyage es I/O-bound: mantenemos como máximo dos peticiones simultáneas
+      // y mapWithConcurrency conserva el orden para que chunk_index siga siendo
+      // determinista aunque las respuestas lleguen en distinto orden.
+      const vectors = await embedChunksInOrder(
+        chunks,
+        embeddings,
+        EMBEDDING_BATCH_SIZE,
+        EMBEDDING_BATCH_CONCURRENCY,
       );
+
+      // Un retry tras un fallo parcial debe poder reconstruir el documento sin
+      // chocar con (document_id, chunk_index), y nunca deja una mezcla de
+      // embeddings viejos y nuevos.
+      const { error: deleteChunksError } = await supabase
+        .from("knowledge_chunks")
+        .delete()
+        .eq("document_id", row.document_id);
+      if (deleteChunksError) throw new Error(deleteChunksError.message);
+
+      const { error: chunksError } = await supabase
+        .from("knowledge_chunks")
+        .insert(
+          chunks.map((chunk, index) => ({
+            document_id: row.document_id,
+            organization_id: row.organization_id,
+            chunk_index: index,
+            content: chunk,
+            token_count: Math.ceil(chunk.length / 4),
+            embedding: JSON.stringify(vectors[index]),
+          })),
+        );
 
       if (chunksError) {
         throw new Error(chunksError.message);
@@ -220,12 +291,18 @@ export async function processMemoryIngestionQueue(env: ProcessEnv) {
 
       await supabase
         .from("memory_ingestion_queue")
-        .update({ status: "processed", processed_at: new Date().toISOString(), attempts: row.attempts + 1 })
+        .update({
+          status: "processed",
+          processed_at: new Date().toISOString(),
+          processing_started_at: null,
+          attempts: claimAttempts,
+        })
         .eq("id", row.id);
 
       result.processed += 1;
     } catch (processError) {
-      const message = processError instanceof Error ? processError.message : "unknown_error";
+      const message =
+        processError instanceof Error ? processError.message : "unknown_error";
 
       await supabase
         .from("knowledge_documents")
@@ -234,10 +311,19 @@ export async function processMemoryIngestionQueue(env: ProcessEnv) {
 
       await supabase
         .from("memory_ingestion_queue")
-        .update({ status: "failed", last_error: message.slice(0, 500), attempts: row.attempts + 1 })
+        .update({
+          status: "failed",
+          processing_started_at: null,
+          last_error: message.slice(0, 500),
+          attempts: claimAttempts,
+        })
         .eq("id", row.id);
 
-      logger.error("memory_ingestion_row_failed", { queueId: row.id, organization_id: row.organization_id, error: message });
+      logger.error("memory_ingestion_row_failed", {
+        queueId: row.id,
+        organization_id: row.organization_id,
+        error: message,
+      });
       result.failed += 1;
     }
   }

@@ -6,6 +6,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
+  AsyncState,
   Badge,
   Button,
   Card,
@@ -571,24 +572,57 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const organizationId = organization?.id ?? null;
 
   const loadPlan = useCallback(async () => {
-    if (!organizationId) return;
-    setIsLoading(true);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/strategic-plan`,
-    );
-    if (!response.ok) {
-      setError(await readApiError(response));
+    if (!organizationId) {
+      setPayload(null);
+      setError(null);
       setIsLoading(false);
       return;
     }
-    setPayload((await response.json()) as PlanResponse);
-    setError(null);
-    setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/strategic-plan`,
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setPayload((await response.json()) as PlanResponse);
+      setError(null);
+    } catch {
+      setError(
+        "No se pudo cargar el plan estratégico por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }, [organizationId]);
 
   useEffect(() => {
     void loadPlan();
   }, [loadPlan]);
+
+  async function submitPlanMutation(
+    path: string,
+    init: RequestInit,
+    successMessage: string,
+  ): Promise<boolean> {
+    try {
+      const response = await apiFetch(path, init);
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return false;
+      }
+      toast.success(successMessage);
+      void loadPlan();
+      return true;
+    } catch {
+      setError(
+        "No se pudo completar la operación del plan por un error de red. Reintenta.",
+      );
+      return false;
+    }
+  }
 
   async function createPlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -613,56 +647,52 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
     setIsSubmitting(true);
     setError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/strategic-plan`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: planName, phases }),
-      },
-    );
-    if (!response.ok) {
-      setError(await readApiError(response));
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/strategic-plan`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: planName, phases }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setPlanName("");
+      setPlanOutline("");
+      toast.success("Plan creado en borrador.");
+      void loadPlan();
+    } catch {
+      setError(
+        "No se pudo crear el plan por un error de red. Revisa la conexión y reintenta.",
+      );
+    } finally {
       setIsSubmitting(false);
-      return;
     }
-    setPlanName("");
-    setPlanOutline("");
-    setIsSubmitting(false);
-    toast.success("Plan creado en borrador.");
-    void loadPlan();
   }
 
   async function activatePlan(planId: string) {
     if (!organization) return;
-    const response = await apiFetch(
+    await submitPlanMutation(
       `/v1/organizations/${organization.id}/strategic-plan/${planId}/activate`,
       { method: "POST" },
+      "Plan activado.",
     );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
-    }
-    toast.success("Plan activado.");
-    void loadPlan();
   }
 
   async function changeMilestoneStatus(milestoneId: string, status: string) {
     if (!organization) return;
-    const response = await apiFetch(
+    await submitPlanMutation(
       `/v1/organizations/${organization.id}/milestones/${milestoneId}/status`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       },
+      "Estado del hito actualizado.",
     );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
-    }
-    toast.success("Estado del hito actualizado.");
-    void loadPlan();
   }
 
   async function editMilestone(
@@ -670,7 +700,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     payload2: { name: string; description: string; targetDate: string },
   ) {
     if (!organization) return;
-    const response = await apiFetch(
+    return submitPlanMutation(
       `/v1/organizations/${organization.id}/milestones/${milestoneId}`,
       {
         method: "PATCH",
@@ -681,13 +711,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           targetDate: payload2.targetDate || null,
         }),
       },
+      "Hito actualizado.",
     );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
-    }
-    toast.success("Hito actualizado.");
-    void loadPlan();
   }
 
   async function editPhase(
@@ -695,7 +720,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     payload2: { name: string; description: string },
   ) {
     if (!organization) return;
-    const response = await apiFetch(
+    return submitPlanMutation(
       `/v1/organizations/${organization.id}/strategic-plan/phases/${phaseId}`,
       {
         method: "PATCH",
@@ -705,13 +730,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           description: payload2.description || null,
         }),
       },
+      "Fase actualizada.",
     );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
-    }
-    toast.success("Fase actualizada.");
-    void loadPlan();
   }
 
   async function addMilestoneTask(
@@ -724,7 +744,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     },
   ) {
     if (!organization) return;
-    const response = await apiFetch(
+    return submitPlanMutation(
       `/v1/organizations/${organization.id}/milestones/${milestoneId}/tasks`,
       {
         method: "POST",
@@ -736,13 +756,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           dueAt: payload2.dueAt || null,
         }),
       },
+      "Tarea creada y enlazada al hito.",
     );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
-    }
-    toast.success("Tarea creada y enlazada al hito.");
-    void loadPlan();
   }
 
   async function addMilestone(
@@ -750,7 +765,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     payload2: { name: string; description: string; targetDate: string },
   ) {
     if (!organization) return;
-    const response = await apiFetch(
+    return submitPlanMutation(
       `/v1/organizations/${organization.id}/strategic-plan/phases/${phaseId}/milestones`,
       {
         method: "POST",
@@ -761,18 +776,13 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           targetDate: payload2.targetDate || null,
         }),
       },
+      "Hito creado.",
     );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
-    }
-    toast.success("Hito creado.");
-    void loadPlan();
   }
 
   async function addPhase(payload2: { name: string; description: string }) {
     if (!organization || !plan) return;
-    const response = await apiFetch(
+    const saved = await submitPlanMutation(
       `/v1/organizations/${organization.id}/strategic-plan/${plan.id}/phases`,
       {
         method: "POST",
@@ -782,14 +792,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           description: payload2.description || null,
         }),
       },
+      "Fase creada.",
     );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
+    if (saved) {
+      setIsAddingPhase(false);
     }
-    toast.success("Fase creada.");
-    setIsAddingPhase(false);
-    void loadPlan();
   }
 
   const plan = payload?.plan ?? null;
@@ -814,7 +821,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {isLoading ? (
-        <LoadingBlock label="Cargando plan..." />
+        <AsyncState status="loading" loadingLabel="Cargando plan..." />
       ) : plan ? (
         <>
           <Card
@@ -930,8 +937,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           submitLabel="Guardar"
                           onCancel={() => setEditingPhaseId(null)}
                           onSubmit={async (payload) => {
-                            await editPhase(phase.id, payload);
-                            setEditingPhaseId(null);
+                            if (await editPhase(phase.id, payload)) {
+                              setEditingPhaseId(null);
+                            }
                           }}
                         />
                       </div>
@@ -947,8 +955,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           submitLabel="Crear hito"
                           onCancel={() => setAddingMilestonePhaseId(null)}
                           onSubmit={async (payload) => {
-                            await addMilestone(phase.id, payload);
-                            setAddingMilestonePhaseId(null);
+                            if (await addMilestone(phase.id, payload)) {
+                              setAddingMilestonePhaseId(null);
+                            }
                           }}
                         />
                       </div>
@@ -1019,11 +1028,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                     submitLabel="Guardar"
                                     onCancel={() => setEditingMilestoneId(null)}
                                     onSubmit={async (payload) => {
-                                      await editMilestone(
-                                        milestone.id,
-                                        payload,
-                                      );
-                                      setEditingMilestoneId(null);
+                                      if (
+                                        await editMilestone(
+                                          milestone.id,
+                                          payload,
+                                        )
+                                      ) {
+                                        setEditingMilestoneId(null);
+                                      }
                                     }}
                                   />
                                 </div>
@@ -1036,11 +1048,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                       setAddingTaskMilestoneId(null)
                                     }
                                     onSubmit={async (payload) => {
-                                      await addMilestoneTask(
-                                        milestone.id,
-                                        payload,
-                                      );
-                                      setAddingTaskMilestoneId(null);
+                                      if (
+                                        await addMilestoneTask(
+                                          milestone.id,
+                                          payload,
+                                        )
+                                      ) {
+                                        setAddingTaskMilestoneId(null);
+                                      }
                                     }}
                                   />
                                 </div>

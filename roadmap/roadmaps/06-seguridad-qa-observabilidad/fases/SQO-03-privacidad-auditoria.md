@@ -2,9 +2,17 @@
 
 ## Estado
 
+> Auditoria vigente 2026-08-24: `recordAuditLog` sigue siendo el punto comun
+> de escritura y hay 47 invocaciones distribuidas en las operaciones sensibles
+> de consultoria, llamadas, IA, finanzas, integraciones, conocimiento,
+> operaciones, Meta y Shopify. La cobertura de cambios sensibles esta
+> implementada; lo que bloquea el cierre no es la instrumentacion sino definir
+> retenciones, exportacion/borrado por organizacion, inventario de subencargados
+> y un restore drill real.
+
 - **Estado real:** `in_progress` (corregido 2026-07-20, ver abajo)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-02
 - **`audit_logs` conectado 2026-07-20 (R-013)**: nuevo helper `recordAuditLog` (`apps/api/src/audit-log.ts`)
   como unico punto de escritura, cableado en las escrituras sensibles ya existentes que antes no dejaban

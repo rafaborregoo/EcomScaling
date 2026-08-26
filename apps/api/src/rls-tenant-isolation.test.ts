@@ -8,8 +8,8 @@
  * reales de clientes.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY apuntando al proyecto remoto (no hay Supabase
- * local en este entorno). Ejecutar con `npm run test -w @ecomscaling/api`.
+ * SUPABASE_PUBLISHABLE_KEY apuntando a un proyecto de pruebas aislado (no hay
+ * Supabase local en este entorno). Ejecutar con `npm run test:remote -w @ecomscaling/api`.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -18,9 +18,13 @@ import { loadApiEnv } from "@ecomscaling/config";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 function anonClient(): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
@@ -42,14 +46,21 @@ async function createTestUser(label: string): Promise<TestUser> {
   });
 
   if (error || !data.user) {
-    throw new Error(`No se pudo crear el usuario de prueba ${label}: ${error?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba ${label}: ${error?.message}`,
+    );
   }
 
   const client = anonClient();
-  const { error: signInError } = await client.auth.signInWithPassword({ email, password: TEST_PASSWORD });
+  const { error: signInError } = await client.auth.signInWithPassword({
+    email,
+    password: TEST_PASSWORD,
+  });
 
   if (signInError) {
-    throw new Error(`No se pudo iniciar sesion como ${label}: ${signInError.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como ${label}: ${signInError.message}`,
+    );
   }
 
   return { id: data.user.id, email, client };
@@ -80,13 +91,23 @@ before(async () => {
   const { data: orgs, error: orgsError } = await admin
     .from("organizations")
     .insert([
-      { display_name: `RLS Test Org A ${RUN_TAG}`, slug: `rls-test-org-a-${RUN_TAG}`, status: "active" },
-      { display_name: `RLS Test Org B ${RUN_TAG}`, slug: `rls-test-org-b-${RUN_TAG}`, status: "active" },
+      {
+        display_name: `RLS Test Org A ${RUN_TAG}`,
+        slug: `rls-test-org-a-${RUN_TAG}`,
+        status: "active",
+      },
+      {
+        display_name: `RLS Test Org B ${RUN_TAG}`,
+        slug: `rls-test-org-b-${RUN_TAG}`,
+        status: "active",
+      },
     ])
     .select("id, slug");
 
   if (orgsError || !orgs || orgs.length !== 2) {
-    throw new Error(`No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`);
+    throw new Error(
+      `No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`,
+    );
   }
 
   orgA = orgs.find((org) => org.slug.startsWith("rls-test-org-a"))!.id;
@@ -101,8 +122,14 @@ before(async () => {
   ]);
 
   const [consultantRoleResult, adminRoleResult] = await Promise.all([
-    admin.from("profiles").update({ platform_role: "consultant" }).eq("id", consultantA.id),
-    admin.from("profiles").update({ platform_role: "platform_admin" }).eq("id", platformAdmin.id),
+    admin
+      .from("profiles")
+      .update({ platform_role: "consultant" })
+      .eq("id", consultantA.id),
+    admin
+      .from("profiles")
+      .update({ platform_role: "platform_admin" })
+      .eq("id", platformAdmin.id),
   ]);
 
   if (consultantRoleResult.error || adminRoleResult.error) {
@@ -111,37 +138,64 @@ before(async () => {
     );
   }
 
-  const { error: membersError } = await admin.from("organization_members").insert([
-    { organization_id: orgA, user_id: ownerA.id, role: "owner", is_active: true },
-    { organization_id: orgA, user_id: ownerA2.id, role: "owner", is_active: true },
-    { organization_id: orgB, user_id: ownerB.id, role: "owner", is_active: true },
-  ]);
+  const { error: membersError } = await admin
+    .from("organization_members")
+    .insert([
+      {
+        organization_id: orgA,
+        user_id: ownerA.id,
+        role: "owner",
+        is_active: true,
+      },
+      {
+        organization_id: orgA,
+        user_id: ownerA2.id,
+        role: "owner",
+        is_active: true,
+      },
+      {
+        organization_id: orgB,
+        user_id: ownerB.id,
+        role: "owner",
+        is_active: true,
+      },
+    ]);
 
   if (membersError) {
-    throw new Error(`No se pudieron crear memberships de prueba: ${membersError.message}`);
+    throw new Error(
+      `No se pudieron crear memberships de prueba: ${membersError.message}`,
+    );
   }
 
   // can_access_org exige membership activa Y suscripcion valida (trial/active)
   // para un miembro normal (no aplica a consultor asignado ni platform_admin,
   // que acceden por otras clausulas). Sin esto un owner no ve ni su propia org.
-  const { error: subscriptionsError } = await admin.from("service_subscriptions").insert([
-    { organization_id: orgA, plan_code: "rls-test", status: "active" },
-    { organization_id: orgB, plan_code: "rls-test", status: "active" },
-  ]);
+  const { error: subscriptionsError } = await admin
+    .from("service_subscriptions")
+    .insert([
+      { organization_id: orgA, plan_code: "rls-test", status: "active" },
+      { organization_id: orgB, plan_code: "rls-test", status: "active" },
+    ]);
 
   if (subscriptionsError) {
-    throw new Error(`No se pudieron crear las suscripciones de prueba: ${subscriptionsError.message}`);
+    throw new Error(
+      `No se pudieron crear las suscripciones de prueba: ${subscriptionsError.message}`,
+    );
   }
 
-  const { error: assignmentError } = await admin.from("consultant_assignments").insert({
-    organization_id: orgA,
-    consultant_user_id: consultantA.id,
-    is_primary: true,
-    is_active: true,
-  });
+  const { error: assignmentError } = await admin
+    .from("consultant_assignments")
+    .insert({
+      organization_id: orgA,
+      consultant_user_id: consultantA.id,
+      is_primary: true,
+      is_active: true,
+    });
 
   if (assignmentError) {
-    throw new Error(`No se pudo asignar el consultor de prueba: ${assignmentError.message}`);
+    throw new Error(
+      `No se pudo asignar el consultor de prueba: ${assignmentError.message}`,
+    );
   }
 
   const { data: taskRow, error: taskError } = await admin
@@ -158,7 +212,9 @@ before(async () => {
     .single();
 
   if (taskError || !taskRow) {
-    throw new Error(`No se pudo crear la tarea de prueba: ${taskError?.message}`);
+    throw new Error(
+      `No se pudo crear la tarea de prueba: ${taskError?.message}`,
+    );
   }
   taskB = taskRow.id;
 
@@ -174,7 +230,9 @@ before(async () => {
     .single();
 
   if (alertError || !alertRow) {
-    throw new Error(`No se pudo crear la alerta de prueba: ${alertError?.message}`);
+    throw new Error(
+      `No se pudo crear la alerta de prueba: ${alertError?.message}`,
+    );
   }
   alertB = alertRow.id;
 
@@ -189,7 +247,9 @@ before(async () => {
     .maybeSingle();
 
   if (agentVersionError || !agentVersion) {
-    throw new Error(`No se encontro la version del agente A02 para el test: ${agentVersionError?.message}`);
+    throw new Error(
+      `No se encontro la version del agente A02 para el test: ${agentVersionError?.message}`,
+    );
   }
   a02VersionId = agentVersion.id;
 
@@ -216,7 +276,16 @@ before(async () => {
     .insert({
       run_id: runRow.id,
       organization_id: orgA,
-      output: { answer: "pendiente de aprobacion", findings: [], recommendations: [], sources: [], proposed_writes: [], approval_required: true, confidence: "low", warnings: [] },
+      output: {
+        answer: "pendiente de aprobacion",
+        findings: [],
+        recommendations: [],
+        sources: [],
+        proposed_writes: [],
+        approval_required: true,
+        confidence: "low",
+        warnings: [],
+      },
       approval_required: true,
       status: "pending_approval",
     })
@@ -224,7 +293,9 @@ before(async () => {
     .single();
 
   if (outputError || !outputRow) {
-    throw new Error(`No se pudo crear la salida IA de prueba: ${outputError?.message}`);
+    throw new Error(
+      `No se pudo crear la salida IA de prueba: ${outputError?.message}`,
+    );
   }
   pendingOutputA = outputRow.id;
 
@@ -233,11 +304,18 @@ before(async () => {
   // conexiones"). Datos privados de orgB para probar que orgA no los ve.
   const { data: financialRow, error: financialError } = await admin
     .from("organization_financial_settings")
-    .insert({ organization_id: orgB, currency_code: "EUR", payment_fee_pct: 2.5, vat_pct: 21 })
+    .insert({
+      organization_id: orgB,
+      currency_code: "EUR",
+      payment_fee_pct: 2.5,
+      vat_pct: 21,
+    })
     .select("id")
     .single();
   if (financialError || !financialRow) {
-    throw new Error(`No se pudo crear la configuracion financiera de prueba: ${financialError?.message}`);
+    throw new Error(
+      `No se pudo crear la configuracion financiera de prueba: ${financialError?.message}`,
+    );
   }
   financialSettingsB = financialRow.id;
 
@@ -247,7 +325,9 @@ before(async () => {
     .select("id")
     .single();
   if (expenseError || !expenseRow) {
-    throw new Error(`No se pudo crear el gasto fijo de prueba: ${expenseError?.message}`);
+    throw new Error(
+      `No se pudo crear el gasto fijo de prueba: ${expenseError?.message}`,
+    );
   }
   fixedExpenseB = expenseRow.id;
 
@@ -257,7 +337,9 @@ before(async () => {
     .select("id")
     .single();
   if (connectionError || !connectionRow) {
-    throw new Error(`No se pudo crear la conexion de prueba: ${connectionError?.message}`);
+    throw new Error(
+      `No se pudo crear la conexion de prueba: ${connectionError?.message}`,
+    );
   }
   connectionB = connectionRow.id;
 
@@ -273,7 +355,9 @@ before(async () => {
     .select("id")
     .single();
   if (syncRunError || !syncRunRow) {
-    throw new Error(`No se pudo crear el sync run de prueba: ${syncRunError?.message}`);
+    throw new Error(
+      `No se pudo crear el sync run de prueba: ${syncRunError?.message}`,
+    );
   }
   syncRunB = syncRunRow.id;
 
@@ -293,23 +377,28 @@ before(async () => {
     .select("id")
     .single();
   if (internalTaskError || !internalTaskRow) {
-    throw new Error(`No se pudo crear la tarea interna de prueba: ${internalTaskError?.message}`);
+    throw new Error(
+      `No se pudo crear la tarea interna de prueba: ${internalTaskError?.message}`,
+    );
   }
   internalTaskA = internalTaskRow.id;
 
-  const { data: internalTaskHistoryRow, error: internalTaskHistoryError } = await admin
-    .from("task_status_history")
-    .insert({
-      organization_id: orgA,
-      task_id: internalTaskA,
-      new_status: "in_progress",
-      changed_by: consultantA.id,
-      reason: "Nota interna del consultor no apta para el cliente",
-    })
-    .select("id")
-    .single();
+  const { data: internalTaskHistoryRow, error: internalTaskHistoryError } =
+    await admin
+      .from("task_status_history")
+      .insert({
+        organization_id: orgA,
+        task_id: internalTaskA,
+        new_status: "in_progress",
+        changed_by: consultantA.id,
+        reason: "Nota interna del consultor no apta para el cliente",
+      })
+      .select("id")
+      .single();
   if (internalTaskHistoryError || !internalTaskHistoryRow) {
-    throw new Error(`No se pudo crear el historial de la tarea interna: ${internalTaskHistoryError?.message}`);
+    throw new Error(
+      `No se pudo crear el historial de la tarea interna: ${internalTaskHistoryError?.message}`,
+    );
   }
   internalTaskHistoryA = internalTaskHistoryRow.id;
 
@@ -318,12 +407,24 @@ before(async () => {
   const { data: plansRows, error: plansError } = await admin
     .from("strategic_plans")
     .insert([
-      { organization_id: orgA, name: "Plan en borrador", status: "draft", created_by: consultantA.id },
-      { organization_id: orgA, name: "Plan activo", status: "active", created_by: consultantA.id },
+      {
+        organization_id: orgA,
+        name: "Plan en borrador",
+        status: "draft",
+        created_by: consultantA.id,
+      },
+      {
+        organization_id: orgA,
+        name: "Plan activo",
+        status: "active",
+        created_by: consultantA.id,
+      },
     ])
     .select("id, status");
   if (plansError || !plansRows || plansRows.length !== 2) {
-    throw new Error(`No se pudieron crear los planes estrategicos de prueba: ${plansError?.message}`);
+    throw new Error(
+      `No se pudieron crear los planes estrategicos de prueba: ${plansError?.message}`,
+    );
   }
   draftPlanA = plansRows.find((plan) => plan.status === "draft")!.id;
   activePlanA = plansRows.find((plan) => plan.status === "active")!.id;
@@ -342,34 +443,52 @@ after(async () => {
 });
 
 test("un cliente no ve la organizacion de otro cliente", async () => {
-  const { data, error } = await ownerA.client.from("organizations").select("id").eq("id", orgB);
+  const { data, error } = await ownerA.client
+    .from("organizations")
+    .select("id")
+    .eq("id", orgB);
   assert.equal(error, null);
   assert.deepEqual(data, []);
 });
 
 test("un cliente si ve su propia organizacion", async () => {
-  const { data, error } = await ownerA.client.from("organizations").select("id").eq("id", orgA);
+  const { data, error } = await ownerA.client
+    .from("organizations")
+    .select("id")
+    .eq("id", orgA);
   assert.equal(error, null);
   assert.equal(data?.length, 1);
 });
 
 test("un cliente no ve tareas de otra organizacion", async () => {
-  const { data, error } = await ownerA.client.from("tasks").select("id").eq("id", taskB);
+  const { data, error } = await ownerA.client
+    .from("tasks")
+    .select("id")
+    .eq("id", taskB);
   assert.equal(error, null);
   assert.deepEqual(data, []);
 });
 
 test("un cliente no ve alertas de otra organizacion", async () => {
-  const { data, error } = await ownerA.client.from("alerts").select("id").eq("id", alertB);
+  const { data, error } = await ownerA.client
+    .from("alerts")
+    .select("id")
+    .eq("id", alertB);
   assert.equal(error, null);
   assert.deepEqual(data, []);
 });
 
 test("un consultor solo ve las organizaciones que tiene asignadas", async () => {
-  const { data: visibleA } = await consultantA.client.from("organizations").select("id").eq("id", orgA);
+  const { data: visibleA } = await consultantA.client
+    .from("organizations")
+    .select("id")
+    .eq("id", orgA);
   assert.equal(visibleA?.length, 1);
 
-  const { data: visibleB, error } = await consultantA.client.from("organizations").select("id").eq("id", orgB);
+  const { data: visibleB, error } = await consultantA.client
+    .from("organizations")
+    .select("id")
+    .eq("id", orgB);
   assert.equal(error, null);
   assert.deepEqual(visibleB, []);
 });
@@ -384,13 +503,23 @@ test("platform_admin ve ambas organizaciones", async () => {
 });
 
 test("un cliente NO ve una salida IA pendiente de aprobacion de su propia organizacion", async () => {
-  const { data, error } = await ownerA.client.from("agent_outputs").select("id").eq("id", pendingOutputA);
+  const { data, error } = await ownerA.client
+    .from("agent_outputs")
+    .select("id")
+    .eq("id", pendingOutputA);
   assert.equal(error, null);
-  assert.deepEqual(data, [], "el cliente no debe ver salidas pending_approval (AI-00/AI-02)");
+  assert.deepEqual(
+    data,
+    [],
+    "el cliente no debe ver salidas pending_approval (AI-00/AI-02)",
+  );
 });
 
 test("el consultor asignado SI ve la salida IA pendiente de aprobacion", async () => {
-  const { data, error } = await consultantA.client.from("agent_outputs").select("id").eq("id", pendingOutputA);
+  const { data, error } = await consultantA.client
+    .from("agent_outputs")
+    .select("id")
+    .eq("id", pendingOutputA);
   assert.equal(error, null);
   assert.equal(data?.length, 1);
 });
@@ -402,7 +531,12 @@ test("las conversaciones del copiloto (A09) son privadas por usuario, no por org
   // produccion, la conversacion la crea el backend con service role.
   const { data: conversation, error: insertError } = await admin
     .from("ai_conversations")
-    .insert({ organization_id: orgA, user_id: ownerA.id, agent_code: "a09_copiloto_consultor", title: "Test" })
+    .insert({
+      organization_id: orgA,
+      user_id: ownerA.id,
+      agent_code: "a09_copiloto_consultor",
+      title: "Test",
+    })
     .select("id")
     .single();
 
@@ -421,7 +555,11 @@ test("las conversaciones del copiloto (A09) son privadas por usuario, no por org
     .select("id")
     .eq("id", conversation!.id);
   assert.equal(otherError, null);
-  assert.deepEqual(visibleToOther, [], "otro miembro de la misma organizacion no debe ver la conversacion");
+  assert.deepEqual(
+    visibleToOther,
+    [],
+    "otro miembro de la misma organizacion no debe ver la conversacion",
+  );
 });
 
 // SQO-00 (gap identificado 2026-07-22, cerrado 2026-07-27): "llamadas y agent
@@ -430,15 +568,29 @@ test("las conversaciones del copiloto (A09) son privadas por usuario, no por org
 // published/approved dentro de la MISMA organizacion; estos prueban
 // aislamiento cross-tenant real (org B intentando leer datos de org A).
 test("un cliente de otra organizacion no ve un agent_run ajeno", async () => {
-  const { data, error } = await ownerB.client.from("agent_runs").select("id").eq("id", agentRunA);
+  const { data, error } = await ownerB.client
+    .from("agent_runs")
+    .select("id")
+    .eq("id", agentRunA);
   assert.equal(error, null);
-  assert.deepEqual(data, [], "agent_runs de otra organizacion no debe ser visible cross-tenant");
+  assert.deepEqual(
+    data,
+    [],
+    "agent_runs de otra organizacion no debe ser visible cross-tenant",
+  );
 });
 
 test("un cliente de otra organizacion no ve un agent_output ajeno (independiente de su status)", async () => {
-  const { data, error } = await ownerB.client.from("agent_outputs").select("id").eq("id", pendingOutputA);
+  const { data, error } = await ownerB.client
+    .from("agent_outputs")
+    .select("id")
+    .eq("id", pendingOutputA);
   assert.equal(error, null);
-  assert.deepEqual(data, [], "agent_outputs de otra organizacion no debe ser visible cross-tenant");
+  assert.deepEqual(
+    data,
+    [],
+    "agent_outputs de otra organizacion no debe ser visible cross-tenant",
+  );
 });
 
 test("un cliente de otra organizacion no ve una llamada de consultoria ajena", async () => {
@@ -456,7 +608,11 @@ test("un cliente de otra organizacion no ve una llamada de consultoria ajena", a
 
   const { data: transcript, error: transcriptError } = await admin
     .from("call_transcripts")
-    .insert({ call_id: call!.id, organization_id: orgA, content: "Transcripcion de prueba cross-tenant" })
+    .insert({
+      call_id: call!.id,
+      organization_id: orgA,
+      content: "Transcripcion de prueba cross-tenant",
+    })
     .select("id")
     .single();
   assert.equal(transcriptError, null);
@@ -466,12 +622,17 @@ test("un cliente de otra organizacion no ve una llamada de consultoria ajena", a
     .select("id")
     .eq("id", call!.id);
   assert.equal(callVisibleError, null);
-  assert.deepEqual(callVisible, [], "consulting_calls de otra organizacion no debe ser visible cross-tenant");
+  assert.deepEqual(
+    callVisible,
+    [],
+    "consulting_calls de otra organizacion no debe ser visible cross-tenant",
+  );
 
-  const { data: transcriptVisible, error: transcriptVisibleError } = await ownerB.client
-    .from("call_transcripts")
-    .select("id")
-    .eq("id", transcript!.id);
+  const { data: transcriptVisible, error: transcriptVisibleError } =
+    await ownerB.client
+      .from("call_transcripts")
+      .select("id")
+      .eq("id", transcript!.id);
   assert.equal(transcriptVisibleError, null);
   assert.deepEqual(
     transcriptVisible,
@@ -514,7 +675,10 @@ test("un owner no puede conectar una integracion (Shopify) en otra organizacion"
 
   // RLS deniega por el WITH CHECK (can_manage_org(orgB) es false para
   // ownerA); segun el driver esto llega como error o como 0 filas insertadas.
-  assert.ok(error || (data?.length ?? 0) === 0, "se pudo insertar una conexion en la organizacion de otro cliente");
+  assert.ok(
+    error || (data?.length ?? 0) === 0,
+    "se pudo insertar una conexion en la organizacion de otro cliente",
+  );
 });
 
 test("un owner no puede renombrar la organizacion de otro cliente", async () => {
@@ -525,16 +689,29 @@ test("un owner no puede renombrar la organizacion de otro cliente", async () => 
     .select("id");
 
   assert.equal(error, null);
-  assert.deepEqual(data, [], "el UPDATE no debe afectar ninguna fila de la organizacion de otro cliente");
+  assert.deepEqual(
+    data,
+    [],
+    "el UPDATE no debe afectar ninguna fila de la organizacion de otro cliente",
+  );
 
-  const { data: unchanged } = await admin.from("organizations").select("display_name").eq("id", orgB).single();
+  const { data: unchanged } = await admin
+    .from("organizations")
+    .select("display_name")
+    .eq("id", orgB)
+    .single();
   assert.notEqual(unchanged?.display_name, "Hackeado por owner A");
 });
 
 test("un owner no puede anadirse a si mismo como miembro de otra organizacion", async () => {
   const { data, error } = await ownerA.client
     .from("organization_members")
-    .insert({ organization_id: orgB, user_id: ownerA.id, role: "owner", is_active: true })
+    .insert({
+      organization_id: orgB,
+      user_id: ownerA.id,
+      role: "owner",
+      is_active: true,
+    })
     .select("id");
 
   assert.ok(
@@ -559,7 +736,10 @@ test("el trigger de integridad rechaza una tarea que enlaza una alerta de otra o
     created_by: ownerA.id,
   });
 
-  assert.ok(error, "se esperaba que el trigger enforce_task_alert_same_org rechazara el enlace cross-tenant");
+  assert.ok(
+    error,
+    "se esperaba que el trigger enforce_task_alert_same_org rechazara el enlace cross-tenant",
+  );
   assert.match(error!.message, /same organization/);
 });
 
@@ -575,11 +755,21 @@ test("un owner pierde acceso a su organizacion en cuanto se suspende (en calient
   assert.equal(suspendError, null);
 
   try {
-    const { data, error } = await ownerA.client.from("organizations").select("id").eq("id", orgA);
+    const { data, error } = await ownerA.client
+      .from("organizations")
+      .select("id")
+      .eq("id", orgA);
     assert.equal(error, null);
-    assert.deepEqual(data, [], "el owner sigue viendo su organizacion suspendida");
+    assert.deepEqual(
+      data,
+      [],
+      "el owner sigue viendo su organizacion suspendida",
+    );
   } finally {
-    await admin.from("organizations").update({ status: "active" }).eq("id", orgA);
+    await admin
+      .from("organizations")
+      .update({ status: "active" })
+      .eq("id", orgA);
   }
 });
 
@@ -605,7 +795,12 @@ test("el cliente no ve un resumen de llamada en borrador, pero si en cuanto se p
 
   const { data: summary, error: summaryError } = await admin
     .from("call_ai_summaries")
-    .insert({ call_id: call!.id, organization_id: orgA, summary: "Resumen de prueba", status: "draft" })
+    .insert({
+      call_id: call!.id,
+      organization_id: orgA,
+      summary: "Resumen de prueba",
+      status: "draft",
+    })
     .select("id")
     .single();
   assert.equal(summaryError, null);
@@ -615,22 +810,37 @@ test("el cliente no ve un resumen de llamada en borrador, pero si en cuanto se p
     .select("id")
     .eq("id", summary!.id);
   assert.equal(draftError, null);
-  assert.deepEqual(draftVisible, [], "el cliente no debe ver un resumen en borrador");
+  assert.deepEqual(
+    draftVisible,
+    [],
+    "el cliente no debe ver un resumen en borrador",
+  );
 
   const { data: draftVisibleToConsultant } = await consultantA.client
     .from("call_ai_summaries")
     .select("id")
     .eq("id", summary!.id);
-  assert.equal(draftVisibleToConsultant?.length, 1, "el consultor asignado si debe ver el borrador");
+  assert.equal(
+    draftVisibleToConsultant?.length,
+    1,
+    "el consultor asignado si debe ver el borrador",
+  );
 
-  await admin.from("call_ai_summaries").update({ status: "published" }).eq("id", summary!.id);
+  await admin
+    .from("call_ai_summaries")
+    .update({ status: "published" })
+    .eq("id", summary!.id);
 
   const { data: publishedVisible, error: publishedError } = await ownerA.client
     .from("call_ai_summaries")
     .select("id")
     .eq("id", summary!.id);
   assert.equal(publishedError, null);
-  assert.equal(publishedVisible?.length, 1, "el cliente debe ver el resumen una vez publicado");
+  assert.equal(
+    publishedVisible?.length,
+    1,
+    "el cliente debe ver el resumen una vez publicado",
+  );
 });
 
 // BE-01 (gap: "sin test de invalidacion inmediata al suspender una
@@ -644,9 +854,16 @@ test("un consultor pierde acceso en cuanto se desactiva su asignacion (en calien
   assert.equal(deactivateError, null);
 
   try {
-    const { data, error } = await consultantA.client.from("organizations").select("id").eq("id", orgA);
+    const { data, error } = await consultantA.client
+      .from("organizations")
+      .select("id")
+      .eq("id", orgA);
     assert.equal(error, null);
-    assert.deepEqual(data, [], "el consultor sigue viendo la organizacion tras desactivar su asignacion");
+    assert.deepEqual(
+      data,
+      [],
+      "el consultor sigue viendo la organizacion tras desactivar su asignacion",
+    );
   } finally {
     await admin
       .from("consultant_assignments")
@@ -665,12 +882,26 @@ test("un miembro pierde acceso en cuanto su membresia se desactiva (en caliente,
   assert.equal(deactivateError, null);
 
   try {
-    const { data, error } = await ownerA2.client.from("organizations").select("id").eq("id", orgA);
+    const { data, error } = await ownerA2.client
+      .from("organizations")
+      .select("id")
+      .eq("id", orgA);
     assert.equal(error, null);
-    assert.deepEqual(data, [], "el miembro desactivado sigue viendo la organizacion");
+    assert.deepEqual(
+      data,
+      [],
+      "el miembro desactivado sigue viendo la organizacion",
+    );
 
-    const { data: stillActive } = await ownerA.client.from("organizations").select("id").eq("id", orgA);
-    assert.equal(stillActive?.length, 1, "desactivar a ownerA2 no debe afectar el acceso de ownerA");
+    const { data: stillActive } = await ownerA.client
+      .from("organizations")
+      .select("id")
+      .eq("id", orgA);
+    assert.equal(
+      stillActive?.length,
+      1,
+      "desactivar a ownerA2 no debe afectar el acceso de ownerA",
+    );
   } finally {
     await admin
       .from("organization_members")
@@ -695,7 +926,10 @@ test("un cliente no ve la configuracion financiera de otra organizacion", async 
 });
 
 test("un cliente no ve los gastos fijos de otra organizacion", async () => {
-  const { data, error } = await ownerA.client.from("fixed_expenses").select("id").eq("id", fixedExpenseB);
+  const { data, error } = await ownerA.client
+    .from("fixed_expenses")
+    .select("id")
+    .eq("id", fixedExpenseB);
   assert.equal(error, null);
   assert.deepEqual(data, []);
 });
@@ -729,7 +963,11 @@ test("un owner no puede actualizar la conexion de otra organizacion", async () =
     .eq("id", connectionB)
     .select("id");
   assert.equal(error, null);
-  assert.deepEqual(data, [], "el UPDATE no debe afectar la conexion de otro cliente");
+  assert.deepEqual(
+    data,
+    [],
+    "el UPDATE no debe afectar la conexion de otro cliente",
+  );
 
   const { data: unchanged } = await admin
     .from("integration_connections")
@@ -740,7 +978,10 @@ test("un owner no puede actualizar la conexion de otra organizacion", async () =
 });
 
 test("un cliente no ve los sync runs de otra organizacion", async () => {
-  const { data, error } = await ownerA.client.from("integration_sync_runs").select("id").eq("id", syncRunB);
+  const { data, error } = await ownerA.client
+    .from("integration_sync_runs")
+    .select("id")
+    .eq("id", syncRunB);
   assert.equal(error, null);
   assert.deepEqual(data, []);
 });
@@ -758,7 +999,10 @@ test("un cliente no ve los sync runs de otra organizacion", async () => {
 // pudiera ver la tarea. Corregido en la migracion
 // db_07_task_status_history_visibility_fix.
 test("un cliente no ve una tarea interna del consultor", async () => {
-  const { data, error } = await ownerA.client.from("tasks").select("id").eq("id", internalTaskA);
+  const { data, error } = await ownerA.client
+    .from("tasks")
+    .select("id")
+    .eq("id", internalTaskA);
   assert.equal(error, null);
   assert.deepEqual(data, []);
 });
@@ -769,7 +1013,11 @@ test("un cliente no ve el historial de estado de una tarea interna del consultor
     .select("id")
     .eq("id", internalTaskHistoryA);
   assert.equal(error, null);
-  assert.deepEqual(data, [], "el cliente no debe ver el historial de una tarea que no puede ver");
+  assert.deepEqual(
+    data,
+    [],
+    "el cliente no debe ver el historial de una tarea que no puede ver",
+  );
 });
 
 test("el consultor asignado SI ve el historial de estado de una tarea interna", async () => {
@@ -790,21 +1038,30 @@ test("un cliente no ve un plan estrategico en borrador, pero si uno activo", asy
     .select("id")
     .eq("id", draftPlanA);
   assert.equal(draftError, null);
-  assert.deepEqual(draftVisible, [], "el cliente no debe ver un plan en borrador");
+  assert.deepEqual(
+    draftVisible,
+    [],
+    "el cliente no debe ver un plan en borrador",
+  );
 
   const { data: activeVisible, error: activeError } = await ownerA.client
     .from("strategic_plans")
     .select("id")
     .eq("id", activePlanA);
   assert.equal(activeError, null);
-  assert.equal(activeVisible?.length, 1, "el cliente si debe ver un plan activo");
+  assert.equal(
+    activeVisible?.length,
+    1,
+    "el cliente si debe ver un plan activo",
+  );
 });
 
 test("el consultor asignado y el platform_admin SI ven un plan estrategico en borrador", async () => {
-  const { data: forConsultant, error: consultantError } = await consultantA.client
-    .from("strategic_plans")
-    .select("id")
-    .eq("id", draftPlanA);
+  const { data: forConsultant, error: consultantError } =
+    await consultantA.client
+      .from("strategic_plans")
+      .select("id")
+      .eq("id", draftPlanA);
   assert.equal(consultantError, null);
   assert.equal(forConsultant?.length, 1);
 
@@ -822,5 +1079,8 @@ test("el schema private no esta expuesto via API (integration_credentials)", asy
     .from("integration_credentials")
     .select("id")
     .limit(1);
-  assert.ok(error, "el schema private no deberia responder consultas via el cliente publico");
+  assert.ok(
+    error,
+    "el schema private no deberia responder consultas via el cliente publico",
+  );
 });

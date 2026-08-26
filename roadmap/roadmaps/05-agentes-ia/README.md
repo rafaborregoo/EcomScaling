@@ -17,6 +17,14 @@ El estado se expone de forma tenant-scoped en
 con loading, error y empty state. El endpoint solo responde para memberships
 de la organización solicitada.
 
+### Correccion AI-09 (2026-08-24)
+
+La nota anterior queda supersedida en la parte de circuit breaker: el routing
+opcional por agente/proveedor, el presupuesto por turno y organizacion, y el
+circuit breaker fail-closed por tenant ya estan implementados y cubiertos por
+tests. Permanecen como trabajo futuro los limites comerciales por plan y la
+agregacion APM externa.
+
 ### Correccion AI-13 (2026-08-02)
 
 El modo `shadow` queda persistido y auditable en `agent_runs.execution_mode`;
@@ -49,8 +57,8 @@ conexión y reporting real de Klaviyo.
 | AI-05  | `fases/AI-05-agentes-especialistas.md`                 | F11-F14          | Meta, stock, campanas, Instagram y copiloto consultor.                                                                                                                                                                                                                                                                                 |
 | AI-06  | `fases/AI-06-evaluaciones-calidad.md`                  | F8-F14           | Evals, datasets, seguridad y regression tests.                                                                                                                                                                                                                                                                                         |
 | AI-07  | `fases/AI-07-memoria-acumulativa-consultor-experto.md` | F13-F14          | Informes periodicos auto-ingeridos como RAG; el agente acumula historial real por cliente.                                                                                                                                                                                                                                             |
-| AI-08  | _(no creado todavia)_                                  | F14+             | Propuesto, `planned`: vincular recomendaciones con acciones, aceptacion/rechazo, KPI antes/despues — la pieza que falta para que el sistema aprenda de resultados, no solo de resumenes. Ver riesgo de diseño en AI-07.                                                                                                                |
-| AI-09  | _(no creado todavia)_                                  | F14+             | Propuesto, `planned`: model routing por agente, presupuesto por organizacion y circuit breakers. Ya existe presupuesto plano por turno y fallback Anthropic/OpenAI; falta el control por organizacion/modelo.                                                                                                                          |
+| AI-08  | `fases/AI-08-outcomes-recomendaciones.md`               | F14+             | `contract_ready` — contrato de vinculo recommendation → decision → tarea y diseño de medicion before/after preparados. La persistencia de outcomes queda condicionada a definir el KPI canonico; no se inventan resultados. |
+| AI-09  | `fases/AI-09-routing-presupuesto-circuit-breaker.md`    | F14+             | `implemented_partial` — routing opcional por agente/proveedor, presupuesto por turno y por organización, y circuit breaker fail-closed por tenant ya implementados. Quedan límites por plan y agregación APM externa. |
 | AI-10  | `fases/AI-10-evidencia-comun.md`                       | F14+             | `implemented_partial` (corregido 2026-07-23, antes `planned` por un doc desactualizado) — envolvente comun IA-frontend (`AgentOutputEnvelope`, `AgentSourceReference`, `AgentProposal`) ya implementada y en uso real por A02/A04/A06/A08/A09; `freshness.status` cableado de punta a punta pero solo produce `"fresh"` hoy.           |
 | AI-11  | `fases/AI-11-generador-contenido-marketing.md`         | F11-F12          | `implemented_partial` — generador de HTML de campañas/flows/pop-ups para Klaviyo (copiar-pegar, sin envio via API); Fase A persistida, editable, versionada y con aprobación/preview; Fase B (aprendizaje de resultados reales) bloqueada por INT-03/DB-09/BE-06.                                                                                                               |
 | AI-12  | `fases/AI-12-ingenieria-de-agentes.md`                 | transversal      | `in_progress` — pedido explicito de Rafa: mapea las 10 disciplinas estandar de ingenieria de agentes (harness, loop, context, tool design, memoria, orquestacion, guardrails, evals, human-in-the-loop, observabilidad) contra el estado real del proyecto. No reemplaza ninguna fase existente, es una lente transversal sobre ellas. |

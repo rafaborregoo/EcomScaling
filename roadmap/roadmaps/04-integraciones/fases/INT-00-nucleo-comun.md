@@ -1,11 +1,36 @@
 # INT-00 - Nucleo comun de integraciones
 
+> **Claim atómico de sincronización 2026-08-26:** los triggers de Shopify, Meta Ads y Klaviyo
+> condicionan la transición a `syncing` al estado leído y devuelven `409` si otra petición ya ganó
+> la carrera. Así se evita duplicar syncs al conectar una cuenta real o al pulsar varias veces la UI.
+
+> **Actualización 2026-08-26:** los endpoints de token de Klaviyo y Shopify
+> también usan la política común de resiliencia (timeout, retries, backoff y
+> señal de cancelación). Los errores HTTP conservan su status para no reintentar
+> credenciales inválidas y sí reintentar fallos transitorios.
+
+> **Estado vigente 2026-08-24:** el contrato `IntegrationAdapter` ya se usa con Shopify y Meta Ads;
+> Klaviyo e Instagram tienen adapters honestos no disponibles. La fase queda en
+> `implemented_partial`: lo pendiente es la suite contractual transversal y la validacion externa de
+> conectores, no la existencia del contrato base.
+
+> **Corrección vigente 2026-08-20:** el allowlist de integración es restrictivo:
+> sin flags solo Shopify queda habilitado; Meta Ads y Klaviyo requieren opt-in
+> explícito. Los workflows de reconciliación declaran además su propio flag fijo
+> (`shopify`, `meta_ads` o `klaviyo`) para impedir activaciones cruzadas.
+
 > Corrección de evidencia 2026-08-02: `INTEGRATION_FEATURE_FLAGS` ya se aplica en el hook HTTP
 > compartido de `apps/api/src/server.ts`, no solo en el catálogo/UI. Las rutas OAuth, sync, assets,
 > métricas y reporting de Meta/Klaviyo responden `integration_feature_disabled` cuando el proveedor
 > está fuera del allowlist; Shopify permanece operativo según su configuración.
 
 ## Estado
+
+> Correccion vigente 2026-08-24: la suite contractual transversal ya existe en
+> `packages/integrations/src/index.test.ts`, `apps/api/src/integration-adapters.test.ts`
+> y `integration-feature-flag-routes.test.ts`. El gap restante es validacion con
+> cuentas reales y ampliar runners futuros; no falta el contrato base. Ejecutada
+> con `npx tsx --test` el 2026-08-24: 14/14 tests pasan.
 
 > **Estado actualizado 2026-08-01:** la interfaz `IntegrationAdapter` ya está implementada en
 > `apps/api/src/integration-adapters.ts` para Shopify y Meta Ads, incluyendo OAuth, refresh/health,
@@ -14,9 +39,9 @@
 > posteriores que describen este contrato como "todavía no implementado" quedan superseded por esta
 > actualización; se conservan para explicar la decisión y evolución.
 
-- **Estado real:** `in_progress`
+- **Estado real:** `implemented_partial`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-22
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-04
 - **Bloqueador:** ninguno
 - **Evidencia:** `supabase/migrations/20260715151041_db_04_integraciones_comunes.sql` (tablas
@@ -33,17 +58,18 @@
 > preparación y activación es [`../CONTRATO_PREPARACION_CONECTORES.md`](../CONTRATO_PREPARACION_CONECTORES.md).
 > Shopify es operativo; Meta está preparado con validación externa pendiente; Klaviyo e
 > Instagram conservan un adapter contractual no disponible y no generan datos ficticios.
-  - `integration_connections.status`: `pending | connected | syncing | error | disconnected | revoked`
-    (constraint real en la migracion). No incluye `reauthorization_required` ni `degraded` como estados de
-    DB — Shopify resuelve "reautorizacion necesaria" comparando scopes requeridos vs concedidos en tiempo
-    de lectura, no como columna (ver INT-01).
-  - `integration_sync_runs.status`: `queued | running | succeeded | failed | cancelled | retrying`.
-  - `private.webhook_events.status`: `received | ignored_duplicate | queued | processed | failed`.
-  - `provider` esta fijado por constraint en las tres tablas a
-    `'shopify' | 'meta_ads' | 'klaviyo' | 'instagram' | 'fathom' | 'loom'` — el enum de proveedores ya
-    cubre los seis conectores del roadmap, aunque solo Shopify y Meta tienen codigo.
-  - Endpoint `GET /v1/organizations/:organizationId/integrations` agrega estado real de todas las
-    conexiones sin exponer tokens ni payloads externos.
+
+- `integration_connections.status`: `pending | connected | syncing | error | disconnected | revoked`
+  (constraint real en la migracion). No incluye `reauthorization_required` ni `degraded` como estados de
+  DB — Shopify resuelve "reautorizacion necesaria" comparando scopes requeridos vs concedidos en tiempo
+  de lectura, no como columna (ver INT-01).
+- `integration_sync_runs.status`: `queued | running | succeeded | failed | cancelled | retrying`.
+- `private.webhook_events.status`: `received | ignored_duplicate | queued | processed | failed`.
+- `provider` esta fijado por constraint en las tres tablas a
+  `'shopify' | 'meta_ads' | 'klaviyo' | 'instagram' | 'fathom' | 'loom'` — el enum de proveedores ya
+  cubre los seis conectores del roadmap, aunque solo Shopify y Meta tienen codigo.
+- Endpoint `GET /v1/organizations/:organizationId/integrations` agrega estado real de todas las
+  conexiones sin exponer tokens ni payloads externos.
 - **Que falta:**
   - La interfaz completa `IntegrationAdapter` ya existe como contrato TypeScript, pero todavía no está implementada
     por OAuth/health/webhooks de Shopify y Meta. La subinterfaz ejecutable `IntegrationSyncAdapter` sí está usada
@@ -85,15 +111,27 @@ interface IntegrationAdapter {
   readonly provider: IntegrationProvider;
   readonly capabilities: IntegrationCapabilities;
 
-  buildAuthorizationUrl(context: IntegrationAuthorizationContext): Promise<AuthorizationUrlResult>;
-  exchangeAuthorizationCode(input: AuthorizationCallbackInput): Promise<CredentialExchangeResult>;
-  refreshCredentials?(connection: IntegrationConnection): Promise<CredentialRefreshResult>;
-  discoverAssets?(connection: IntegrationConnection): Promise<DiscoveredAsset[]>;
+  buildAuthorizationUrl(
+    context: IntegrationAuthorizationContext,
+  ): Promise<AuthorizationUrlResult>;
+  exchangeAuthorizationCode(
+    input: AuthorizationCallbackInput,
+  ): Promise<CredentialExchangeResult>;
+  refreshCredentials?(
+    connection: IntegrationConnection,
+  ): Promise<CredentialRefreshResult>;
+  discoverAssets?(
+    connection: IntegrationConnection,
+  ): Promise<DiscoveredAsset[]>;
   runInitialSync(input: IntegrationSyncInput): Promise<IntegrationSyncResult>;
-  runIncrementalSync(input: IntegrationSyncInput): Promise<IntegrationSyncResult>;
+  runIncrementalSync(
+    input: IntegrationSyncInput,
+  ): Promise<IntegrationSyncResult>;
   verifyWebhook?(request: RawWebhookRequest): Promise<VerifiedWebhook>;
   processWebhook?(webhook: VerifiedWebhook): Promise<WebhookProcessingResult>;
-  getConnectionHealth(connection: IntegrationConnection): Promise<IntegrationHealth>;
+  getConnectionHealth(
+    connection: IntegrationConnection,
+  ): Promise<IntegrationHealth>;
 }
 
 type IntegrationCapabilities = {
@@ -108,15 +146,15 @@ type IntegrationCapabilities = {
 
 ### Mapeo real por proveedor (que funcion de hoy cubre cada metodo)
 
-| Metodo del adaptador | Shopify (hoy) | Meta (hoy) |
-| --- | --- | --- |
-| `buildAuthorizationUrl` | `createShopifyConnectionAuthUrl` (`shopify.ts`) + `buildShopifyAuthorizeUrl` (`shopify-oauth.ts`) | `createMetaConnectionAuthUrl` (`meta.ts`) + `buildMetaAuthUrl` (`meta-oauth.ts`) |
-| `exchangeAuthorizationCode` | `handleShopifyOAuthCallback` (`shopify.ts`) + `exchangeShopifyCodeForToken` (`shopify-oauth.ts`), valida HMAC con `verifyShopifyHmac` | `handleMetaOAuthCallback` (`meta.ts`) + `exchangeMetaCodeForLongLivedToken` (`meta-oauth.ts`) |
-| `refreshCredentials` | `refreshShopifyOfflineToken` (`shopify-oauth.ts`) | `getValidMetaAccessToken` (`meta.ts`) — resuelve token valido, no hay refresh explicito de token largo aun |
-| `discoverAssets` | No aplica (una tienda = una conexion, sin descubrimiento de activos) | `discoverMetaAssets` (`meta.ts`) — hoy sincroniza toda la estructura descubierta, sin seleccion explicita (ver INT-02) |
-| `runInitialSync` / `runIncrementalSync` | `triggerShopifySync` (`shopify.ts`), bloques via `sync_scope` | `triggerMetaSync` (`meta.ts`) |
-| `verifyWebhook`/`processWebhook` | `shopify-webhook-handler.ts`/`shopify-webhooks.ts` (dual secret publico/custom) | No implementado — Meta no tiene webhooks todavia |
-| `getConnectionHealth` | Derivado de scopes concedidos vs. requeridos + `STALE_SYNCING_MS` (`shopify.ts:29`) | No implementado como funcion propia |
+| Metodo del adaptador                    | Shopify (hoy)                                                                                                                         | Meta (hoy)                                                                                                             |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `buildAuthorizationUrl`                 | `createShopifyConnectionAuthUrl` (`shopify.ts`) + `buildShopifyAuthorizeUrl` (`shopify-oauth.ts`)                                     | `createMetaConnectionAuthUrl` (`meta.ts`) + `buildMetaAuthUrl` (`meta-oauth.ts`)                                       |
+| `exchangeAuthorizationCode`             | `handleShopifyOAuthCallback` (`shopify.ts`) + `exchangeShopifyCodeForToken` (`shopify-oauth.ts`), valida HMAC con `verifyShopifyHmac` | `handleMetaOAuthCallback` (`meta.ts`) + `exchangeMetaCodeForLongLivedToken` (`meta-oauth.ts`)                          |
+| `refreshCredentials`                    | `refreshShopifyOfflineToken` (`shopify-oauth.ts`)                                                                                     | `getValidMetaAccessToken` (`meta.ts`) — resuelve token valido, no hay refresh explicito de token largo aun             |
+| `discoverAssets`                        | No aplica (una tienda = una conexion, sin descubrimiento de activos)                                                                  | `discoverMetaAssets` (`meta.ts`) — hoy sincroniza toda la estructura descubierta, sin seleccion explicita (ver INT-02) |
+| `runInitialSync` / `runIncrementalSync` | `triggerShopifySync` (`shopify.ts`), bloques via `sync_scope`                                                                         | `triggerMetaSync` (`meta.ts`)                                                                                          |
+| `verifyWebhook`/`processWebhook`        | `shopify-webhook-handler.ts`/`shopify-webhooks.ts` (dual secret publico/custom)                                                       | No implementado — Meta no tiene webhooks todavia                                                                       |
+| `getConnectionHealth`                   | Derivado de scopes concedidos vs. requeridos + `STALE_SYNCING_MS` (`shopify.ts:29`)                                                   | No implementado como funcion propia                                                                                    |
 
 Esta tabla confirma el diagnostico: **la forma ya existe de facto**, pero como codigo paralelo sin
 interfaz compartida — extraer `IntegrationAdapter` a `packages/integrations` (o equivalente) es refactor de
@@ -150,11 +188,23 @@ sync, fallos recientes, y freshness — el mismo calculo que Shopify ya hace ad-
 
 ```ts
 type IntegrationErrorCode =
-  | "AUTHORIZATION_DENIED" | "INVALID_AUTHORIZATION_STATE" | "INVALID_CALLBACK_SIGNATURE"
-  | "CREDENTIALS_MISSING" | "TOKEN_EXPIRED" | "TOKEN_REFRESH_FAILED" | "REAUTHORIZATION_REQUIRED"
-  | "PERMISSION_MISSING" | "ASSET_NOT_SELECTED" | "EXTERNAL_RESOURCE_NOT_FOUND" | "RATE_LIMITED"
-  | "EXTERNAL_API_UNAVAILABLE" | "INVALID_WEBHOOK_SIGNATURE" | "WEBHOOK_REPLAY_REJECTED"
-  | "SYNC_PARTIAL_FAILURE" | "SYNC_PERMANENT_FAILURE" | "DATA_RECONCILIATION_MISMATCH";
+  | "AUTHORIZATION_DENIED"
+  | "INVALID_AUTHORIZATION_STATE"
+  | "INVALID_CALLBACK_SIGNATURE"
+  | "CREDENTIALS_MISSING"
+  | "TOKEN_EXPIRED"
+  | "TOKEN_REFRESH_FAILED"
+  | "REAUTHORIZATION_REQUIRED"
+  | "PERMISSION_MISSING"
+  | "ASSET_NOT_SELECTED"
+  | "EXTERNAL_RESOURCE_NOT_FOUND"
+  | "RATE_LIMITED"
+  | "EXTERNAL_API_UNAVAILABLE"
+  | "INVALID_WEBHOOK_SIGNATURE"
+  | "WEBHOOK_REPLAY_REJECTED"
+  | "SYNC_PARTIAL_FAILURE"
+  | "SYNC_PERMANENT_FAILURE"
+  | "DATA_RECONCILIATION_MISMATCH";
 
 class IntegrationError extends Error {
   integrationCode: IntegrationErrorCode;
@@ -202,9 +252,10 @@ completa de OAuth, health operativo y webhooks sigue pendiente de cablearse sobr
 usan estos adapters; Shopify expone verificacion/procesamiento de webhooks y ambos exponen OAuth, refresh
 y health derivado. El descubrimiento Meta aun persiste activos directamente y el contrato devuelve una
 lista vacia porque la seleccion de activos no existe como funcionalidad de producto; no se fabrican assets.
+
 ## Actualizacion 2026-08-01
 
 - `createIntegrationAdapters` expone el ciclo de vida comun para Shopify y Meta Ads, y tambien adapters de contrato para Klaviyo e Instagram.
 - Klaviyo e Instagram permanecen honestamente no disponibles: sus adapters devuelven `CREDENTIALS_MISSING` al intentar autorizar o sincronizar y derivan health `unknown` con `integration_not_available`; no crean conexiones, assets ni metricas ficticias.
 - Se anadio test contractual para ambos conectores futuros en `apps/api/src/integration-adapters.test.ts`. Activarlos requerira sustituir el adapter no disponible por un runner real, sin cambiar el dominio ni la UI.
-- `INTEGRATION_FEATURE_FLAGS` es un allowlist opcional reutilizable desde `@ecomscaling/integrations`; API y rutas de conexión/sync lo respetan. Si no se define, se conserva el catálogo actual (Shopify y Meta habilitados en código; Meta sigue necesitando credenciales). Un flag no puede activar un conector futuro que todavía no tenga implementación real.
+- `INTEGRATION_FEATURE_FLAGS` es un allowlist reutilizable desde `@ecomscaling/integrations`; API, UI y rutas de conexión/sync lo respetan. Si no se define, solo queda habilitado Shopify; Meta y Klaviyo requieren opt-in explícito y sus credenciales. Un flag no puede activar un conector futuro que todavía no tenga implementación real.

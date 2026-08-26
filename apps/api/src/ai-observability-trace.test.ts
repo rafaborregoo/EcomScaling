@@ -8,7 +8,7 @@
  * rutas/hooks que produccion) con usuarios autenticados de verdad.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test -w @ecomscaling/api`.
+ * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,9 +19,13 @@ import { buildApp } from "./server.js";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 const TEST_PASSWORD = "Ai12-Trace-Test-P4ssword-9!";
@@ -35,12 +39,21 @@ let consultantAccessToken = "";
 let runId = "";
 
 async function signIn(email: string): Promise<string> {
-  const anon: SupabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
+  const anon: SupabaseClient = createClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+    },
+  );
+  const { data: session, error } = await anon.auth.signInWithPassword({
+    email,
+    password: TEST_PASSWORD,
   });
-  const { data: session, error } = await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
   if (error || !session.session) {
-    throw new Error(`No se pudo iniciar sesion como ${email}: ${error?.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como ${email}: ${error?.message}`,
+    );
   }
   return session.session.access_token;
 }
@@ -48,11 +61,17 @@ async function signIn(email: string): Promise<string> {
 before(async () => {
   const { data: org, error: orgError } = await admin
     .from("organizations")
-    .insert({ display_name: `AI-12 Trace Test ${RUN_TAG}`, slug: `ai12-trace-test-${RUN_TAG}`, status: "active" })
+    .insert({
+      display_name: `AI-12 Trace Test ${RUN_TAG}`,
+      slug: `ai12-trace-test-${RUN_TAG}`,
+      status: "active",
+    })
     .select("id")
     .single();
   if (orgError || !org) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${orgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${orgError?.message}`,
+    );
   }
   orgId = org.id;
 
@@ -63,46 +82,64 @@ before(async () => {
     email_confirm: true,
   });
   if (ownerError || !owner.user) {
-    throw new Error(`No se pudo crear el owner de prueba: ${ownerError?.message}`);
+    throw new Error(
+      `No se pudo crear el owner de prueba: ${ownerError?.message}`,
+    );
   }
   ownerUserId = owner.user.id;
 
   const consultantEmail = `ai12-trace-consultant-${RUN_TAG}@ecomscaling.test`;
-  const { data: consultant, error: consultantError } = await admin.auth.admin.createUser({
-    email: consultantEmail,
-    password: TEST_PASSWORD,
-    email_confirm: true,
-  });
+  const { data: consultant, error: consultantError } =
+    await admin.auth.admin.createUser({
+      email: consultantEmail,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
   if (consultantError || !consultant.user) {
-    throw new Error(`No se pudo crear el consultor de prueba: ${consultantError?.message}`);
+    throw new Error(
+      `No se pudo crear el consultor de prueba: ${consultantError?.message}`,
+    );
   }
   consultantUserId = consultant.user.id;
-  await admin.from("profiles").update({ platform_role: "consultant" }).eq("id", consultantUserId);
+  await admin
+    .from("profiles")
+    .update({ platform_role: "consultant" })
+    .eq("id", consultantUserId);
 
   const { error: memberError } = await admin
     .from("organization_members")
     .insert({ organization_id: orgId, user_id: ownerUserId, role: "owner" });
   if (memberError) {
-    throw new Error(`No se pudo crear la membership de prueba: ${memberError.message}`);
+    throw new Error(
+      `No se pudo crear la membership de prueba: ${memberError.message}`,
+    );
   }
 
-  const { error: subscriptionError } = await admin.from("service_subscriptions").insert({
-    organization_id: orgId,
-    plan_code: "ai12-trace-test",
-    status: "active",
-  });
+  const { error: subscriptionError } = await admin
+    .from("service_subscriptions")
+    .insert({
+      organization_id: orgId,
+      plan_code: "ai12-trace-test",
+      status: "active",
+    });
   if (subscriptionError) {
-    throw new Error(`No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`);
+    throw new Error(
+      `No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`,
+    );
   }
 
-  const { error: assignmentError } = await admin.from("consultant_assignments").insert({
-    organization_id: orgId,
-    consultant_user_id: consultantUserId,
-    is_primary: true,
-    is_active: true,
-  });
+  const { error: assignmentError } = await admin
+    .from("consultant_assignments")
+    .insert({
+      organization_id: orgId,
+      consultant_user_id: consultantUserId,
+      is_primary: true,
+      is_active: true,
+    });
   if (assignmentError) {
-    throw new Error(`No se pudo asignar el consultor de prueba: ${assignmentError.message}`);
+    throw new Error(
+      `No se pudo asignar el consultor de prueba: ${assignmentError.message}`,
+    );
   }
 
   const { data: agentVersion, error: agentVersionError } = await admin
@@ -112,7 +149,9 @@ before(async () => {
     .limit(1)
     .maybeSingle();
   if (agentVersionError || !agentVersion) {
-    throw new Error(`No se encontro una version de agente activa para el test: ${agentVersionError?.message}`);
+    throw new Error(
+      `No se encontro una version de agente activa para el test: ${agentVersionError?.message}`,
+    );
   }
 
   const { data: run, error: runError } = await admin
@@ -132,37 +171,38 @@ before(async () => {
   }
   runId = run.id;
 
-  const [stepResult, toolCallResult, snapshotResult, queryRunResult] = await Promise.all([
-    admin.from("agent_run_steps").insert({
-      run_id: runId,
-      organization_id: orgId,
-      position: 1,
-      step_type: "model_response",
-      summary: "Paso de prueba",
-      duration_ms: 120,
-    }),
-    admin.from("agent_tool_calls").insert({
-      run_id: runId,
-      organization_id: orgId,
-      tool_name: "sql_select",
-      is_error: false,
-      duration_ms: 80,
-    }),
-    admin.from("agent_context_snapshots").insert({
-      run_id: runId,
-      organization_id: orgId,
-      context_level: "C1",
-      snapshot: { label: "Contexto de prueba" },
-    }),
-    admin.from("agent_query_runs").insert({
-      run_id: runId,
-      organization_id: orgId,
-      sql_text: "select 1",
-      rows_returned: 1,
-      duration_ms: 5,
-      was_rejected: false,
-    }),
-  ]);
+  const [stepResult, toolCallResult, snapshotResult, queryRunResult] =
+    await Promise.all([
+      admin.from("agent_run_steps").insert({
+        run_id: runId,
+        organization_id: orgId,
+        position: 1,
+        step_type: "model_response",
+        summary: "Paso de prueba",
+        duration_ms: 120,
+      }),
+      admin.from("agent_tool_calls").insert({
+        run_id: runId,
+        organization_id: orgId,
+        tool_name: "sql_select",
+        is_error: false,
+        duration_ms: 80,
+      }),
+      admin.from("agent_context_snapshots").insert({
+        run_id: runId,
+        organization_id: orgId,
+        context_level: "C1",
+        snapshot: { label: "Contexto de prueba" },
+      }),
+      admin.from("agent_query_runs").insert({
+        run_id: runId,
+        organization_id: orgId,
+        sql_text: "select 1",
+        rows_returned: 1,
+        duration_ms: 5,
+        was_rejected: false,
+      }),
+    ]);
 
   for (const [label, result] of [
     ["step", stepResult],
@@ -171,7 +211,9 @@ before(async () => {
     ["query_run", queryRunResult],
   ] as const) {
     if (result.error) {
-      throw new Error(`No se pudo sembrar ${label} de prueba: ${result.error.message}`);
+      throw new Error(
+        `No se pudo sembrar ${label} de prueba: ${result.error.message}`,
+      );
     }
   }
 

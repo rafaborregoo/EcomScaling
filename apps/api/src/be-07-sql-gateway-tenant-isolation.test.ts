@@ -10,7 +10,7 @@
  * capa de base de datos sola ya es suficiente.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY. Ejecutar
- * con `npm run test -w @ecomscaling/api`.
+ * con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,9 +19,13 @@ import { loadApiEnv } from "@ecomscaling/config";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 
@@ -35,12 +39,19 @@ async function createStore(organizationId: string, label: string) {
 
   const { data: connection, error: connectionError } = await admin
     .from("integration_connections")
-    .insert({ organization_id: organizationId, provider: "shopify", provider_account_id: shopDomain, status: "connected" })
+    .insert({
+      organization_id: organizationId,
+      provider: "shopify",
+      provider_account_id: shopDomain,
+      status: "connected",
+    })
     .select("id")
     .single();
 
   if (connectionError || !connection) {
-    throw new Error(`No se pudo crear la conexion de prueba (${label}): ${connectionError?.message}`);
+    throw new Error(
+      `No se pudo crear la conexion de prueba (${label}): ${connectionError?.message}`,
+    );
   }
 
   const { data: store, error: storeError } = await admin
@@ -56,7 +67,9 @@ async function createStore(organizationId: string, label: string) {
     .single();
 
   if (storeError || !store) {
-    throw new Error(`No se pudo crear la tienda de prueba (${label}): ${storeError?.message}`);
+    throw new Error(
+      `No se pudo crear la tienda de prueba (${label}): ${storeError?.message}`,
+    );
   }
 
   return store.id as string;
@@ -66,13 +79,23 @@ before(async () => {
   const { data: orgs, error: orgsError } = await admin
     .from("organizations")
     .insert([
-      { display_name: `BE-07 Gateway Org A ${RUN_TAG}`, slug: `be07-gateway-org-a-${RUN_TAG}`, status: "active" },
-      { display_name: `BE-07 Gateway Org B ${RUN_TAG}`, slug: `be07-gateway-org-b-${RUN_TAG}`, status: "active" },
+      {
+        display_name: `BE-07 Gateway Org A ${RUN_TAG}`,
+        slug: `be07-gateway-org-a-${RUN_TAG}`,
+        status: "active",
+      },
+      {
+        display_name: `BE-07 Gateway Org B ${RUN_TAG}`,
+        slug: `be07-gateway-org-b-${RUN_TAG}`,
+        status: "active",
+      },
     ])
     .select("id, slug");
 
   if (orgsError || !orgs || orgs.length !== 2) {
-    throw new Error(`No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`);
+    throw new Error(
+      `No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`,
+    );
   }
   orgA = orgs.find((org) => org.slug.startsWith("be07-gateway-org-a"))!.id;
   orgB = orgs.find((org) => org.slug.startsWith("be07-gateway-org-b"))!.id;
@@ -94,7 +117,11 @@ test("agent_sql_gateway con target_organization_id=A nunca devuelve la tienda de
 
   assert.equal(error, null);
   const rows = (data as { rows: unknown[] }).rows;
-  assert.deepEqual(rows, [], "el filtro de tenant de la vista ai.shopify_stores debe ganar sobre el WHERE del atacante");
+  assert.deepEqual(
+    rows,
+    [],
+    "el filtro de tenant de la vista ai.shopify_stores debe ganar sobre el WHERE del atacante",
+  );
 });
 
 test("agent_sql_gateway con target_organization_id=A solo devuelve las tiendas de A", async () => {
@@ -105,7 +132,9 @@ test("agent_sql_gateway con target_organization_id=A solo devuelve las tiendas d
   });
 
   assert.equal(error, null);
-  const ids = (data as { rows: Array<{ id: string }> }).rows.map((row) => row.id);
+  const ids = (data as { rows: Array<{ id: string }> }).rows.map(
+    (row) => row.id,
+  );
   assert.deepEqual(ids, [storeAId]);
 });
 
@@ -124,7 +153,9 @@ test("llamadas RPC consecutivas de A y B, alternadas, nunca filtran el GUC de te
     });
 
     assert.equal(error, null);
-    const ids = (data as { rows: Array<{ id: string }> }).rows.map((row) => row.id);
+    const ids = (data as { rows: Array<{ id: string }> }).rows.map(
+      (row) => row.id,
+    );
     assert.deepEqual(ids, [expectedStoreId]);
   };
 

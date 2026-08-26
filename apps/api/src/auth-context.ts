@@ -1,4 +1,8 @@
-import { createClient, type SupabaseClient, type SupabaseClientOptions } from "@supabase/supabase-js";
+import {
+  createClient,
+  type SupabaseClient,
+  type SupabaseClientOptions,
+} from "@supabase/supabase-js";
 import WebSocket from "ws";
 
 type ApiEnv = {
@@ -20,7 +24,8 @@ type Profile = {
 // forma de dato, sin campo que dijera de donde vino el acceso. accessSource
 // lo hace explicito sin cambiar el comportamiento de autorizacion existente
 // (nada consume este campo todavia, es aditivo).
-export type AccessSource = "membership" | "consultant_assignment" | "platform_admin";
+export type AccessSource =
+  "membership" | "consultant_assignment" | "platform_admin";
 
 type Membership = {
   organization_id: string;
@@ -64,8 +69,56 @@ export type AuthContextError = {
 };
 
 export type AuthContextResult =
-  | { ok: true; context: AuthContext }
-  | { ok: false; error: AuthContextError };
+  { ok: true; context: AuthContext } | { ok: false; error: AuthContextError };
+
+export function requireOperationalOrganization(
+  context: AuthContext,
+  organizationId: string,
+) {
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
+
+  if (!membership) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
+  }
+
+  const organizationStatus = membership.organization?.status;
+  if (
+    ["suspended", "cancelled", "pending_deletion"].includes(
+      organizationStatus ?? "",
+    )
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_not_operational",
+      message: `La organizacion no admite operaciones en estado ${organizationStatus}.`,
+    };
+  }
+
+  const subscription = context.subscriptions.find(
+    (item) => item.organization_id === organizationId,
+  );
+  if (
+    organizationStatus === "active" &&
+    subscription &&
+    !["active", "trial"].includes(subscription.status)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "subscription_not_active",
+      message: "La suscripcion de la organizacion no esta activa.",
+    };
+  }
+
+  return { ok: true as const, membership };
+}
 
 export function isAuthContextError(
   result: AuthContextResult,
@@ -73,10 +126,9 @@ export function isAuthContextError(
   return result.ok === false;
 }
 
-const realtimeTransport =
-  WebSocket as unknown as NonNullable<
-    NonNullable<SupabaseClientOptions<"public">["realtime"]>["transport"]
-  >;
+const realtimeTransport = WebSocket as unknown as NonNullable<
+  NonNullable<SupabaseClientOptions<"public">["realtime"]>["transport"]
+>;
 
 export function createUserScopedClient(env: ApiEnv, token: string) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
@@ -194,7 +246,11 @@ async function loadConsultantOrganizationIds(
     };
   }
 
-  return { ok: true as const, ids: [] as string[], accessSource: "membership" as const };
+  return {
+    ok: true as const,
+    ids: [] as string[],
+    accessSource: "membership" as const,
+  };
 }
 
 export async function resolveAuthContext(
@@ -275,12 +331,15 @@ export async function resolveAuthContext(
       error: {
         statusCode: 409,
         error: "membership_missing",
-        message: "The authenticated user has no active organization membership.",
+        message:
+          "The authenticated user has no active organization membership.",
       },
     };
   }
 
-  const organizationIds = allMemberships.map((membership) => membership.organization_id);
+  const organizationIds = allMemberships.map(
+    (membership) => membership.organization_id,
+  );
 
   const { data: organizations, error: organizationsError } = await supabase
     .from("organizations")
@@ -323,7 +382,10 @@ export async function resolveAuthContext(
         ) ?? null,
     }))
     .sort((a, b) =>
-      (a.organization?.display_name ?? "").localeCompare(b.organization?.display_name ?? "", "es"),
+      (a.organization?.display_name ?? "").localeCompare(
+        b.organization?.display_name ?? "",
+        "es",
+      ),
     );
 
   return {

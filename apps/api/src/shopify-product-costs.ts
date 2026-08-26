@@ -1,6 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import {
+  type AuthContext,
+  createUserScopedClient,
+  requireOperationalOrganization,
+} from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = {
@@ -17,17 +21,9 @@ function createServiceClient(env: ApiEnv) {
 }
 
 function assertCanManage(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find(
-    (item) => item.organization_id === organizationId,
-  );
-
-  if (!membership) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
-    };
-  }
+  const operational = requireOperationalOrganization(context, organizationId);
+  if (!operational.ok) return operational;
+  const { membership } = operational;
 
   if (
     context.profile.platform_role !== "platform_admin" &&

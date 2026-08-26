@@ -14,6 +14,7 @@ const apiEnvSchema = z.object({
   SHOPIFY_API_SECRET: z.string().min(1).optional(),
   SHOPIFY_SCOPES: z.string().min(1).optional(),
   SHOPIFY_REDIRECT_URI: z.string().url().optional(),
+  SHOPIFY_API_VERSION: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   // App Shopify de distribucion personalizada (custom distribution): permite conectar
   // tiendas reales de clientes antes de que la app publica pase la revision de Shopify.
   // Opcional: si no esta seteada, la opcion "app personalizada" no aparece en la UI.
@@ -26,13 +27,27 @@ const apiEnvSchema = z.object({
   META_APP_ID: z.string().min(1).optional(),
   META_APP_SECRET: z.string().min(1).optional(),
   META_REDIRECT_URI: z.string().url().optional(),
+  META_GRAPH_VERSION: z.string().regex(/^v\d+\.\d+$/).optional(),
   META_SCOPES: z.string().min(1).optional(),
+  // Meta Insights puede usar reportes asincronos para cuentas grandes. Se
+  // mantiene sync por defecto hasta activar esta opcion con una app real.
+  META_INSIGHTS_MODE: z.enum(["sync", "async"]).optional(),
+  // Ventana temporal con la que Meta atribuye acciones en Insights. Se deja
+  // opcional para conservar el comportamiento actual hasta validar Ads
+  // Manager con una cuenta real.
+  META_ACTION_REPORT_TIME: z
+    .enum(["impression", "conversion", "mixed"])
+    .optional(),
   // Klaviyo OAuth. Opcional hasta que exista una app aprobada; las tres
   // variables de aplicación deben llegar juntas para no habilitar un flujo roto.
   KLAVIYO_CLIENT_ID: z.string().min(1).optional(),
   KLAVIYO_CLIENT_SECRET: z.string().min(1).optional(),
   KLAVIYO_REDIRECT_URI: z.string().url().optional(),
   KLAVIYO_SCOPES: z.string().min(1).optional(),
+  // Fathom API key interna para registrar webhooks cuando exista una cuenta
+  // de prueba aprobada. Nunca se expone al frontend.
+  FATHOM_API_KEY: z.string().min(1).optional(),
+  FATHOM_WEBHOOK_SECRET: z.string().min(1).optional(),
   // Allowlist opcional de providers implementados, separado por comas.
   // Ejemplo: INTEGRATION_FEATURE_FLAGS=shopify,meta_ads
   INTEGRATION_FEATURE_FLAGS: z.string().min(1).optional(),
@@ -45,6 +60,21 @@ const apiEnvSchema = z.object({
   // de Anthropic sigue siendo un fallo, sin fallback (comportamiento actual).
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_MODEL: z.string().min(1).optional(),
+  // AI-09: JSON opcional para routing por agente/proveedor y budgets por turno.
+  // Sin esta variable se conservan los defaults actuales del runtime.
+  AI_MODEL_ROUTING_JSON: z.string().min(1).optional(),
+  // AI-09: limites diarios y por turno por plan comercial. Se mantiene
+  // server-side; el cliente nunca recibe este JSON.
+  AI_PLAN_BUDGETS_JSON: z.string().min(1).optional(),
+  // AI-14: direct por defecto; langgraph solo se activa explícitamente en un
+  // entorno de shadow/piloto tras validar paridad.
+  AI_ORCHESTRATION_MODE: z.enum(["direct", "langgraph"]).optional(),
+  // Observabilidad opcional de agentes. Nunca se activa solo por tener una
+  // API key: exige LANGSMITH_TRACING=true y pasa por el adaptador de @ecomscaling/ai.
+  LANGSMITH_TRACING: z.enum(["true", "false"]).optional(),
+  LANGSMITH_API_KEY: z.string().min(1).optional(),
+  LANGSMITH_PROJECT: z.string().min(1).optional(),
+  APP_ENV: z.string().min(1).optional(),
   // Embeddings para RAG (AI-04). Opcional: sin key, la ingestion/busqueda de
   // conocimiento devuelve 503 y la tool search_knowledge no se habilita.
   VOYAGE_API_KEY: z.string().min(1).optional(),
@@ -70,6 +100,7 @@ export type LoadedApiEnv = {
   SHOPIFY_API_SECRET: string;
   SHOPIFY_SCOPES: string;
   SHOPIFY_REDIRECT_URI: string;
+  SHOPIFY_API_VERSION?: string;
   SHOPIFY_CUSTOM_API_KEY?: string;
   SHOPIFY_CUSTOM_API_SECRET?: string;
   SHOPIFY_CUSTOM_SCOPES?: string;
@@ -77,15 +108,27 @@ export type LoadedApiEnv = {
   META_APP_ID?: string;
   META_APP_SECRET?: string;
   META_REDIRECT_URI?: string;
+  META_GRAPH_VERSION?: string;
   META_SCOPES?: string;
+  META_INSIGHTS_MODE?: "sync" | "async";
+  META_ACTION_REPORT_TIME?: "impression" | "conversion" | "mixed";
   KLAVIYO_CLIENT_ID?: string;
   KLAVIYO_CLIENT_SECRET?: string;
   KLAVIYO_REDIRECT_URI?: string;
   KLAVIYO_SCOPES?: string;
+  FATHOM_API_KEY?: string;
+  FATHOM_WEBHOOK_SECRET?: string;
   INTEGRATION_FEATURE_FLAGS?: string;
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  AI_MODEL_ROUTING_JSON?: string;
+  AI_PLAN_BUDGETS_JSON?: string;
+  AI_ORCHESTRATION_MODE?: "direct" | "langgraph";
+  LANGSMITH_TRACING?: "true" | "false";
+  LANGSMITH_API_KEY?: string;
+  LANGSMITH_PROJECT?: string;
+  APP_ENV?: string;
   VOYAGE_API_KEY?: string;
   INTERNAL_API_SECRET?: string;
   REDIS_URL?: string;
@@ -189,6 +232,9 @@ export function loadApiEnv(
     SHOPIFY_API_SECRET: env.SHOPIFY_API_SECRET,
     SHOPIFY_SCOPES: env.SHOPIFY_SCOPES,
     SHOPIFY_REDIRECT_URI: env.SHOPIFY_REDIRECT_URI,
+    ...(env.SHOPIFY_API_VERSION
+      ? { SHOPIFY_API_VERSION: env.SHOPIFY_API_VERSION }
+      : {}),
     ...(customFieldsSetCount === customFields.length
       ? {
           SHOPIFY_CUSTOM_API_KEY: env.SHOPIFY_CUSTOM_API_KEY!,
@@ -202,8 +248,17 @@ export function loadApiEnv(
           META_APP_ID: env.META_APP_ID!,
           META_APP_SECRET: env.META_APP_SECRET!,
           META_REDIRECT_URI: env.META_REDIRECT_URI!,
+          ...(env.META_GRAPH_VERSION
+            ? { META_GRAPH_VERSION: env.META_GRAPH_VERSION }
+            : {}),
           META_SCOPES:
             env.META_SCOPES ?? "ads_read,business_management,pages_show_list",
+          ...(env.META_INSIGHTS_MODE
+            ? { META_INSIGHTS_MODE: env.META_INSIGHTS_MODE }
+            : {}),
+          ...(env.META_ACTION_REPORT_TIME
+            ? { META_ACTION_REPORT_TIME: env.META_ACTION_REPORT_TIME }
+            : {}),
         }
       : {}),
     ...(klaviyoFieldsSetCount === klaviyoFields.length
@@ -213,9 +268,11 @@ export function loadApiEnv(
           KLAVIYO_REDIRECT_URI: env.KLAVIYO_REDIRECT_URI!,
           KLAVIYO_SCOPES:
             env.KLAVIYO_SCOPES ??
-            "accounts:read,flows:read,campaigns:read,forms:read,lists:read,segments:read,metrics:read",
+            "accounts:read flows:read campaigns:read forms:read lists:read segments:read metrics:read",
         }
       : {}),
+    ...(env.FATHOM_API_KEY ? { FATHOM_API_KEY: env.FATHOM_API_KEY } : {}),
+    ...(env.FATHOM_WEBHOOK_SECRET ? { FATHOM_WEBHOOK_SECRET: env.FATHOM_WEBHOOK_SECRET } : {}),
     ...(env.INTEGRATION_FEATURE_FLAGS
       ? { INTEGRATION_FEATURE_FLAGS: env.INTEGRATION_FEATURE_FLAGS }
       : {}),
@@ -224,6 +281,25 @@ export function loadApiEnv(
       : {}),
     ...(env.OPENAI_API_KEY ? { OPENAI_API_KEY: env.OPENAI_API_KEY } : {}),
     ...(env.OPENAI_MODEL ? { OPENAI_MODEL: env.OPENAI_MODEL } : {}),
+    ...(env.AI_MODEL_ROUTING_JSON
+      ? { AI_MODEL_ROUTING_JSON: env.AI_MODEL_ROUTING_JSON }
+      : {}),
+    ...(env.AI_PLAN_BUDGETS_JSON
+      ? { AI_PLAN_BUDGETS_JSON: env.AI_PLAN_BUDGETS_JSON }
+      : {}),
+    ...(env.AI_ORCHESTRATION_MODE
+      ? { AI_ORCHESTRATION_MODE: env.AI_ORCHESTRATION_MODE }
+      : {}),
+    ...(env.LANGSMITH_TRACING
+      ? { LANGSMITH_TRACING: env.LANGSMITH_TRACING }
+      : {}),
+    ...(env.LANGSMITH_API_KEY
+      ? { LANGSMITH_API_KEY: env.LANGSMITH_API_KEY }
+      : {}),
+    ...(env.LANGSMITH_PROJECT
+      ? { LANGSMITH_PROJECT: env.LANGSMITH_PROJECT }
+      : {}),
+    ...(env.APP_ENV ? { APP_ENV: env.APP_ENV } : {}),
     ...(env.VOYAGE_API_KEY ? { VOYAGE_API_KEY: env.VOYAGE_API_KEY } : {}),
     ...(env.INTERNAL_API_SECRET
       ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET }

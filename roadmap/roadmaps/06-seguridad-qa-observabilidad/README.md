@@ -1,11 +1,12 @@
 # Roadmap operativo - Seguridad, QA y observabilidad
 
-> Correccion 2026-08-02: SQO-04 ya no debe interpretarse como una matriz sin
-> controles. CI incorpora `gitleaks`, `npm audit --omit=dev --audit-level=high`
-> y `dependency-review`; el backend valida las URLs de resultados Shopify Bulk
-> contra `storage.googleapis.com`, y existen pruebas Fastify de IDOR/cross-tenant.
-> Siguen pendientes el escaneo de imagenes Docker, un test sistematico de cada
-> query `service_role` y la ampliacion de cobertura a toda ruta nueva.
+> Correccion 2026-08-24: SQO-04 ya no debe interpretarse como una matriz sin
+> controles. CI incorpora `gitleaks`, `npm audit --omit=dev --audit-level=high`,
+> `dependency-review`, SBOM CycloneDX y Trivy para las imagenes de API/worker;
+> el backend valida las URLs de resultados Shopify Bulk contra
+> `storage.googleapis.com`, y existen pruebas Fastify de IDOR/cross-tenant.
+> Siguen pendientes un test sistematico de cada query `service_role`, la
+> ampliacion de cobertura a toda ruta nueva y el drill de restore aislado.
 
 > Correccion operativa 2026-08-02: el cliente Redis de `@fastify/rate-limit`
 > registra sus errores asíncronos y conserva `skipOnError`; si Redis no existe
@@ -49,6 +50,12 @@
 > 5xx y la redaccion de credenciales se ejecutan tambien en el pipeline normal.
 > Regresion dirigida de observabilidad + API: 5/5.
 
+> **Endurecimiento de workflows 2026-08-24:** salud operativa, reglas de alertas y
+> reconciliacion Shopify validan sus secretos requeridos antes de ejecutar. Salud
+> valida tambien la forma del artifact de hallazgos antes de crear/actualizar un
+> issue. Los disparadores `schedule` permanecen preparados pero desactivados por
+> decision operativa hasta autorizar automatizacion de produccion.
+
 ## Objetivo
 
 Hacer que seguridad, pruebas y diagnostico no sean una fase final, sino un bloque obligatorio de cada vertical slice.
@@ -64,12 +71,12 @@ sea coherente con el código y las migraciones, tanto para Shopify operativo com
 > mitigados el SSRF concreto de Shopify Bulk y las superficies críticas de
 > IDOR, mientras los gaps restantes conservan owner/alcance explícitos.
 
-| Fase | Archivo | Relacion maestro | Resultado |
-| --- | --- | --- | --- |
-| SQO-00 | `fases/SQO-00-seguridad-base.md` | F1-F3 | Secret scanning, CORS, headers, permisos, RLS y matriz de acceso. |
-| SQO-01 | `fases/SQO-01-testing.md` | F1-F14 | Unit, DB/RLS, contract, worker, E2E, IA evals y carga. |
-| SQO-02 | `fases/SQO-02-observabilidad.md` | F1-F14 | Logs, metricas, tracing, alertas y panel interno de salud. |
-| SQO-03 | `fases/SQO-03-privacidad-auditoria.md` | F2-F14 | PII, GDPR, audit logs, retencion, backups e incidentes. |
-| SQO-04 | `fases/SQO-04-threat-model.md` | F1-F14 | `implemented_partial` — matriz de 17 amenazas mapeadas contra controles/tests reales; SSRF Shopify Bulk, IDOR organizacional, sanitizacion de errores 5xx y supply-chain tienen controles; quedan cobertura sistematica, imagenes Docker y runbooks. |
-| SQO-05 | *(no creado todavia)* | F1-F14 | Propuesto, `planned`: disaster recovery (RPO/RTO, backups, restore, caida de DB/Redis, rollback de despliegue). |
-| SQO-06 | *(no creado todavia)* | F1-F14 | Propuesto, `planned`: runbooks operativos (token expirado, sync atascado, cola bloqueada, coste IA disparado, posible fuga cross-tenant). |
+| Fase   | Archivo                                | Relacion maestro | Resultado                                                                                                                                                                                                                           |
+| ------ | -------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQO-00 | `fases/SQO-00-seguridad-base.md`       | F1-F3            | Secret scanning, CORS, headers, permisos, RLS y matriz de acceso.                                                                                                                                                                   |
+| SQO-01 | `fases/SQO-01-testing.md`              | F1-F14           | Unit, DB/RLS, contract, worker, E2E, IA evals y carga.                                                                                                                                                                              |
+| SQO-02 | `fases/SQO-02-observabilidad.md`       | F1-F14           | Logs, metricas, tracing, alertas y panel interno de salud.                                                                                                                                                                          |
+| SQO-03 | `fases/SQO-03-privacidad-auditoria.md` | F2-F14           | PII, GDPR, audit logs, retencion, backups e incidentes.                                                                                                                                                                             |
+| SQO-04 | `fases/SQO-04-threat-model.md`         | F1-F14           | `implemented_partial` — matriz de 17 amenazas mapeadas contra controles/tests reales; SSRF Shopify Bulk, IDOR organizacional, sanitizacion de errores 5xx y supply-chain tienen controles; quedan cobertura sistematica y runbooks. |
+| SQO-05 | `fases/SQO-05-disaster-recovery.md`    | F1-F14           | `verification_pending`: RPO/RTO, backup y procedimiento de restore documentados; falta drill aislado.                                                                                                                               |
+| SQO-06 | `fases/SQO-06-runbooks-operativos.md`  | F1-F14           | `implemented_partial`: catálogo de 9 runbooks y checklist de salud; falta evidencia del drill de restore.                                                                                                                           |

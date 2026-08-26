@@ -7,7 +7,7 @@
  * endpoints nuevos: PATCH fase, PATCH hito, POST tarea-y-enlace en un paso.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test -w @ecomscaling/api`.
+ * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -18,9 +18,13 @@ import { buildApp } from "./server.js";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 const TEST_PASSWORD = "Fe04-Mi-Camino-Tree-P4ssword-9!";
@@ -36,85 +40,135 @@ let milestoneId = "";
 before(async () => {
   const { data: org, error: orgError } = await admin
     .from("organizations")
-    .insert({ display_name: `FE-04 Mi Camino Tree Org ${RUN_TAG}`, slug: `fe04-mi-camino-tree-org-${RUN_TAG}`, status: "active" })
+    .insert({
+      display_name: `FE-04 Mi Camino Tree Org ${RUN_TAG}`,
+      slug: `fe04-mi-camino-tree-org-${RUN_TAG}`,
+      status: "active",
+    })
     .select("id")
     .single();
 
   if (orgError || !org) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${orgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${orgError?.message}`,
+    );
   }
   organizationId = org.id;
 
   const email = `fe04-mi-camino-tree-owner-${RUN_TAG}@ecomscaling.test`;
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password: TEST_PASSWORD,
-    email_confirm: true,
-  });
+  const { data: created, error: createError } =
+    await admin.auth.admin.createUser({
+      email,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
 
   if (createError || !created.user) {
-    throw new Error(`No se pudo crear el usuario de prueba: ${createError?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba: ${createError?.message}`,
+    );
   }
   ownerUserId = created.user.id;
 
   const { error: memberError } = await admin
     .from("organization_members")
-    .insert({ organization_id: organizationId, user_id: ownerUserId, role: "owner" });
+    .insert({
+      organization_id: organizationId,
+      user_id: ownerUserId,
+      role: "owner",
+    });
 
   if (memberError) {
-    throw new Error(`No se pudo crear la membership de prueba: ${memberError.message}`);
+    throw new Error(
+      `No se pudo crear la membership de prueba: ${memberError.message}`,
+    );
   }
 
-  const { error: subscriptionError } = await admin.from("service_subscriptions").insert({
-    organization_id: organizationId,
-    plan_code: "fe04-mi-camino-tree-test",
-    status: "active",
-  });
+  const { error: subscriptionError } = await admin
+    .from("service_subscriptions")
+    .insert({
+      organization_id: organizationId,
+      plan_code: "fe04-mi-camino-tree-test",
+      status: "active",
+    });
 
   if (subscriptionError) {
-    throw new Error(`No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`);
+    throw new Error(
+      `No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`,
+    );
   }
 
   const { data: plan, error: planError } = await admin
     .from("strategic_plans")
-    .insert({ organization_id: organizationId, name: "Plan de prueba", version: 1, status: "active", created_by: ownerUserId })
+    .insert({
+      organization_id: organizationId,
+      name: "Plan de prueba",
+      version: 1,
+      status: "active",
+      created_by: ownerUserId,
+    })
     .select("id")
     .single();
 
   if (planError || !plan) {
-    throw new Error(`No se pudo crear el plan de prueba: ${planError?.message}`);
+    throw new Error(
+      `No se pudo crear el plan de prueba: ${planError?.message}`,
+    );
   }
   planId = plan.id;
 
   const { data: phase, error: phaseError } = await admin
     .from("strategic_plan_phases")
-    .insert({ organization_id: organizationId, plan_id: planId, name: "Fase original", position: 1, status: "active" })
+    .insert({
+      organization_id: organizationId,
+      plan_id: planId,
+      name: "Fase original",
+      position: 1,
+      status: "active",
+    })
     .select("id")
     .single();
 
   if (phaseError || !phase) {
-    throw new Error(`No se pudo crear la fase de prueba: ${phaseError?.message}`);
+    throw new Error(
+      `No se pudo crear la fase de prueba: ${phaseError?.message}`,
+    );
   }
   phaseId = phase.id;
 
   const { data: milestone, error: milestoneError } = await admin
     .from("strategic_plan_milestones")
-    .insert({ organization_id: organizationId, phase_id: phaseId, name: "Hito original", position: 1, status: "pending" })
+    .insert({
+      organization_id: organizationId,
+      phase_id: phaseId,
+      name: "Hito original",
+      position: 1,
+      status: "pending",
+    })
     .select("id")
     .single();
 
   if (milestoneError || !milestone) {
-    throw new Error(`No se pudo crear el hito de prueba: ${milestoneError?.message}`);
+    throw new Error(
+      `No se pudo crear el hito de prueba: ${milestoneError?.message}`,
+    );
   }
   milestoneId = milestone.id;
 
-  const anon: SupabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: session, error: signInError } = await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
+  const anon: SupabaseClient = createClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+    },
+  );
+  const { data: session, error: signInError } =
+    await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
 
   if (signInError || !session.session) {
-    throw new Error(`No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`,
+    );
   }
   ownerAccessToken = session.session.access_token;
 
@@ -144,7 +198,11 @@ test("PATCH strategic-plan/phases/:phaseId edita nombre y descripcion de una fas
 
   assert.equal(response.statusCode, 200, response.body);
 
-  const { data: phase } = await admin.from("strategic_plan_phases").select("name, description").eq("id", phaseId).single();
+  const { data: phase } = await admin
+    .from("strategic_plan_phases")
+    .select("name, description")
+    .eq("id", phaseId)
+    .single();
   assert.equal(phase?.name, "Fase renombrada");
   assert.equal(phase?.description, "Descripcion nueva");
 });
@@ -154,7 +212,11 @@ test("PATCH milestones/:milestoneId edita nombre, descripcion y fecha objetivo d
     method: "PATCH",
     url: `/v1/organizations/${organizationId}/milestones/${milestoneId}`,
     headers: { authorization: `Bearer ${ownerAccessToken}` },
-    payload: { name: "Hito renombrado", description: "Nueva descripcion", targetDate: "2026-12-01" },
+    payload: {
+      name: "Hito renombrado",
+      description: "Nueva descripcion",
+      targetDate: "2026-12-01",
+    },
   });
 
   assert.equal(response.statusCode, 200, response.body);
@@ -174,7 +236,11 @@ test("POST milestones/:milestoneId/tasks crea la tarea y la enlaza al hito en un
     method: "POST",
     url: `/v1/organizations/${organizationId}/milestones/${milestoneId}/tasks`,
     headers: { authorization: `Bearer ${ownerAccessToken}` },
-    payload: { title: "Tarea creada desde Mi Camino", description: "Contexto del hito", priority: "high" },
+    payload: {
+      title: "Tarea creada desde Mi Camino",
+      description: "Contexto del hito",
+      priority: "high",
+    },
   });
 
   assert.equal(response.statusCode, 201, response.body);
@@ -208,11 +274,19 @@ test("GET strategic-plan devuelve el titulo real de las tareas enlazadas a cada 
 
   assert.equal(response.statusCode, 200, response.body);
   const body = JSON.parse(response.body) as {
-    plan: { strategic_plan_phases: Array<{ strategic_plan_milestones: Array<{ milestone_task_links: Array<{ tasks: { title: string } | null }> }> }> };
+    plan: {
+      strategic_plan_phases: Array<{
+        strategic_plan_milestones: Array<{
+          milestone_task_links: Array<{ tasks: { title: string } | null }>;
+        }>;
+      }>;
+    };
   };
 
   const links = body.plan.strategic_plan_phases.flatMap((phase) =>
-    phase.strategic_plan_milestones.flatMap((milestone) => milestone.milestone_task_links),
+    phase.strategic_plan_milestones.flatMap(
+      (milestone) => milestone.milestone_task_links,
+    ),
   );
   assert.ok(
     links.some((link) => link.tasks?.title === "Tarea creada desde Mi Camino"),
@@ -225,7 +299,10 @@ test("POST strategic-plan/:planId/phases crea una fase nueva con created_by, y G
     method: "POST",
     url: `/v1/organizations/${organizationId}/strategic-plan/${planId}/phases`,
     headers: { authorization: `Bearer ${ownerAccessToken}` },
-    payload: { name: "Fase anadida por el cliente", description: "creada a mano" },
+    payload: {
+      name: "Fase anadida por el cliente",
+      description: "creada a mano",
+    },
   });
 
   assert.equal(createResponse.statusCode, 201, createResponse.body);
@@ -245,10 +322,21 @@ test("POST strategic-plan/:planId/phases crea una fase nueva con created_by, y G
     headers: { authorization: `Bearer ${ownerAccessToken}` },
   });
   const body = JSON.parse(getResponse.body) as {
-    plan: { strategic_plan_phases: Array<{ id: string; created_by_origin: string | null }> };
+    plan: {
+      strategic_plan_phases: Array<{
+        id: string;
+        created_by_origin: string | null;
+      }>;
+    };
   };
-  const newPhase = body.plan.strategic_plan_phases.find((phase) => phase.id === created.id);
-  assert.equal(newPhase?.created_by_origin, "client", "el owner de prueba no es consultor/admin, su origen debe ser 'client'");
+  const newPhase = body.plan.strategic_plan_phases.find(
+    (phase) => phase.id === created.id,
+  );
+  assert.equal(
+    newPhase?.created_by_origin,
+    "client",
+    "el owner de prueba no es consultor/admin, su origen debe ser 'client'",
+  );
 });
 
 test("POST strategic-plan/phases/:phaseId/milestones crea un hito nuevo con created_by y position incremental", async () => {
@@ -268,5 +356,8 @@ test("POST strategic-plan/phases/:phaseId/milestones crea un hito nuevo con crea
     .eq("id", created.id)
     .single();
   assert.equal(milestoneRow?.created_by, ownerUserId);
-  assert.ok((milestoneRow?.position ?? 0) > 1, "la position debe ser incremental respecto al hito sembrado");
+  assert.ok(
+    (milestoneRow?.position ?? 0) > 1,
+    "la position debe ser incremental respecto al hito sembrado",
+  );
 });

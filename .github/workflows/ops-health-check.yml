@@ -50,11 +50,38 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate required runtime secrets
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY SUPABASE_JWT_SECRET; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required secret $key is not configured for ops health check." >&2
+              exit 1
+            fi
+          done
+
       - name: Build API and worker
         run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
 
       - name: Run health check
         run: npm run start:ops-health-check -w @ecomscaling/worker
+
+      - name: Validate health findings artifact
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const path = process.env.OPS_HEALTH_CHECK_OUTPUT;
+          const result = JSON.parse(fs.readFileSync(path, "utf8"));
+          if (result?.ok !== true || typeof result.checkedAt !== "string" || !Array.isArray(result.findings)) {
+            throw new Error("Invalid ops health findings artifact");
+          }
+          for (const finding of result.findings) {
+            if (!finding || typeof finding.type !== "string" || typeof finding.summary !== "string" ||
+                typeof finding.runbook !== "string" || !finding.details || typeof finding.details !== "object") {
+              throw new Error("Invalid finding shape in ops health findings artifact");
+            }
+          }
+          NODE
 
       - name: Create or update GitHub issue for open findings
         uses: actions/github-script@v7

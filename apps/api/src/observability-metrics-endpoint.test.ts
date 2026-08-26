@@ -62,3 +62,18 @@ test("x-request-id es legible por el navegador cross-origin", async () => {
     /x-request-id/i,
   );
 });
+
+test("expone SLO HTTP protegido y no lo mezcla con las métricas públicas", async () => {
+  const unauthorized = await app.inject({ method: "GET", url: "/health/slo" });
+  assert.equal(unauthorized.statusCode, 401);
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/health/slo",
+    headers: { "x-internal-secret": "metrics-test-secret" },
+  });
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as { status: string; violations: string[] };
+  assert.ok(["ok", "degraded", "critical", "no_traffic"].includes(body.status));
+  assert.ok(Array.isArray(body.violations));
+});

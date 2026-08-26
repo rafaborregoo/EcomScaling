@@ -59,6 +59,8 @@ function LoginPageContent() {
       router.push(isConsultant ? "/consultor" : "/dashboard");
     } catch {
       router.push("/dashboard");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 

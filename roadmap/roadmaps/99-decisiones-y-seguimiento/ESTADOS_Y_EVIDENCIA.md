@@ -6,14 +6,14 @@
 
 ## Taxonomia de estados
 
-| Estado | Significado | Requisito para entrar en este estado |
-| --- | --- | --- |
-| `planned` | Definido en el roadmap, sin trabajo iniciado. | Alcance y dependencias documentados. |
-| `in_progress` | Trabajo activo, sin cerrar. | Al menos un commit o migracion asociada. |
-| `blocked` | No puede avanzar por una dependencia externa (credenciales, aprobacion de terceros, otra fase). | Bloqueador nombrado explicitamente con quien/que lo resuelve. |
-| `verification_pending` | El trabajo existe (migracion aplicada / codigo desplegado) pero falta la prueba que demuestra que cumple el criterio de cierre (tests, evidencia real, validacion con datos reales). | Lista explicita de que evidencia falta. |
-| `done` | Criterios de cierre cumplidos con evidencia verificable. | Seccion de evidencia completa (ver formato abajo). |
-| `deprecated` | Sustituido, fusionado en otra fase o descartado. | Referencia al documento que lo reemplaza. |
+| Estado                 | Significado                                                                                                                                                                          | Requisito para entrar en este estado                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `planned`              | Definido en el roadmap, sin trabajo iniciado.                                                                                                                                        | Alcance y dependencias documentados.                          |
+| `in_progress`          | Trabajo activo, sin cerrar.                                                                                                                                                          | Al menos un commit o migracion asociada.                      |
+| `blocked`              | No puede avanzar por una dependencia externa (credenciales, aprobacion de terceros, otra fase).                                                                                      | Bloqueador nombrado explicitamente con quien/que lo resuelve. |
+| `verification_pending` | El trabajo existe (migracion aplicada / codigo desplegado) pero falta la prueba que demuestra que cumple el criterio de cierre (tests, evidencia real, validacion con datos reales). | Lista explicita de que evidencia falta.                       |
+| `done`                 | Criterios de cierre cumplidos con evidencia verificable.                                                                                                                             | Seccion de evidencia completa (ver formato abajo).            |
+| `deprecated`           | Sustituido, fusionado en otra fase o descartado.                                                                                                                                     | Referencia al documento que lo reemplaza.                     |
 
 Regla dura: **una fase no pasa a `done` solo porque el codigo o la migracion existen.** Si falta la prueba,
 el estado correcto es `verification_pending`, nunca `done`.
@@ -63,7 +63,7 @@ deuda documental reconocida, con ruta de correccion definida arriba.
 - **Bloqueador:** ninguno | <descripcion concreta>
 - **Evidencia:**
   - Migracion: `supabase/migrations/2026....sql` (aplicada en remoto el 2026-07-20)
-  - Tests: `npm run test -w @ecomscaling/api -- rls-tenant-isolation` — 11/11 pass (2026-07-20)
+  - Tests remotos: `test:remote` con proyecto aislado — 11/11 pass (2026-07-20; evidencia histórica).
   - PR/commit: <hash o "sin commitear, en working tree">
 - **Gaps identificados:** <lista concreta de lo que falta para `done`>
 - **Siguiente accion:** <accion concreta, no generica>

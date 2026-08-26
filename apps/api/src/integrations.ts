@@ -2,14 +2,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import {
   deriveIntegrationHealth,
+  evaluateIntegrationActivation,
   INTEGRATION_CATALOG,
   isIntegrationFeatureEnabled,
   type IntegrationHealth,
+  type IntegrationActivationReadiness,
 } from "@ecomscaling/integrations";
 
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
+  SHOPIFY_API_KEY?: string;
+  SHOPIFY_API_SECRET?: string;
+  SHOPIFY_SCOPES?: string;
+  SHOPIFY_REDIRECT_URI?: string;
   SHOPIFY_CUSTOM_API_KEY?: string;
   SHOPIFY_CUSTOM_API_SECRET?: string;
   SHOPIFY_CUSTOM_SCOPES?: string;
@@ -21,6 +27,8 @@ type ApiEnv = {
   KLAVIYO_CLIENT_SECRET?: string;
   KLAVIYO_REDIRECT_URI?: string;
   INTEGRATION_FEATURE_FLAGS?: string;
+  FATHOM_API_KEY?: string;
+  FATHOM_WEBHOOK_SECRET?: string;
 };
 
 function isCustomShopifyAppAvailable(env: ApiEnv) {
@@ -33,14 +41,25 @@ function isCustomShopifyAppAvailable(env: ApiEnv) {
 }
 
 type Provider = {
-  id: "shopify" | "meta_ads" | "klaviyo" | "instagram";
+  id: "shopify" | "meta_ads" | "klaviyo" | "instagram" | "fathom";
   name: string;
   phase: string;
   description: string;
   available: boolean;
   feature_flag: string;
   capabilities: (typeof INTEGRATION_CATALOG)[number]["capabilities"];
+  configuration: IntegrationConfiguration;
   health: IntegrationHealth;
+  activation: IntegrationActivationReadiness;
+};
+
+export type IntegrationConfiguration = {
+  status:
+    | "configured"
+    | "credentials_missing"
+    | "feature_disabled"
+    | "not_implemented";
+  reason: string;
 };
 
 type ConnectionRow = {
@@ -72,17 +91,83 @@ type SyncRunRow = {
   created_at: string;
 };
 
+export function deriveIntegrationActivation(
+  provider: Pick<Provider, "configuration" | "capabilities">,
+  connection: ConnectionRow | null,
+  latestSync: SyncRunRow | null,
+  health: IntegrationHealth,
+  recoveryVerified = false,
+): IntegrationActivationReadiness {
+  const evidence = {
+    credentialsValid: provider.configuration.status === "configured",
+    // A persisted connection was only created after the configured callback
+    // completed; this does not expose or persist the URI itself.
+    redirectUriExact: Boolean(connection && provider.capabilities.oauth),
+    scopesGranted: Boolean(
+      !provider.capabilities.oauth || (connection && connection.scopes.length > 0),
+    ),
+    providerResponseValid: Boolean(connection?.status === "connected"),
+    assetSelected: Boolean(
+      !provider.capabilities.assetSelection || connection?.provider_account_name,
+    ),
+    initialSyncSucceeded: Boolean(
+      !provider.capabilities.initialSync || latestSync?.status === "succeeded",
+    ),
+    freshnessAvailable: health.status === "healthy",
+    reauthorizationVerified: Boolean(
+      !provider.capabilities.oauth || connection?.status === "connected",
+    ),
+    recoverableErrorVerified: recoveryVerified,
+  };
+  return evaluateIntegrationActivation(evidence, provider.capabilities);
+}
+
+/**
+ * A successful run after a failed/partial run is durable evidence that the
+ * connector recovered. It is deliberately scoped to one connection and uses
+ * only run metadata, never provider payloads or credentials.
+ */
+export function hasRecoveredSync(
+  connectionId: string,
+  runs: readonly Pick<SyncRunRow, "connection_id" | "status" | "created_at">[],
+): boolean {
+  const connectionRuns = runs
+    .filter((run) => run.connection_id === connectionId)
+    .sort((left, right) => right.created_at.localeCompare(left.created_at));
+  const latest = connectionRuns[0];
+  if (!latest || latest.status !== "succeeded") return false;
+  return connectionRuns
+    .slice(1)
+    .some((run) => run.status === "failed" || run.status === "partial");
+}
+
 function buildProviders(env: ApiEnv): Provider[] {
   return INTEGRATION_CATALOG.map((provider) => {
     const available = isIntegrationFeatureEnabled(
       provider.id,
       env.INTEGRATION_FEATURE_FLAGS,
     );
+    const configuration = deriveIntegrationConfiguration(
+      provider.id,
+      available,
+      env,
+    );
+    const health = deriveIntegrationHealth({ available });
     return {
       ...provider,
       available,
       feature_flag: provider.featureFlag,
-      health: deriveIntegrationHealth({ available }),
+      configuration,
+      health,
+      activation: deriveIntegrationActivation(
+        {
+          configuration,
+          capabilities: provider.capabilities,
+        },
+        null,
+        null,
+        health,
+      ),
     };
   });
 }
@@ -93,6 +178,53 @@ function isMissingSchemaError(message: string) {
     message.includes("integration_sync_runs") ||
     message.includes("Could not find the table")
   );
+}
+
+/** Resolves connector activation truth without exposing secret values. */
+export function deriveIntegrationConfiguration(
+  providerId: Provider["id"],
+  available: boolean,
+  env: ApiEnv,
+): IntegrationConfiguration {
+  const credentialsConfigured =
+    providerId === "shopify"
+      ? Boolean(
+          (env.SHOPIFY_API_KEY &&
+            env.SHOPIFY_API_SECRET &&
+            env.SHOPIFY_SCOPES &&
+            env.SHOPIFY_REDIRECT_URI) ||
+            isCustomShopifyAppAvailable(env),
+        )
+      : providerId === "meta_ads"
+        ? Boolean(
+            env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI,
+          )
+        : providerId === "klaviyo"
+          ? Boolean(
+              env.KLAVIYO_CLIENT_ID &&
+              env.KLAVIYO_CLIENT_SECRET &&
+              env.KLAVIYO_REDIRECT_URI,
+            )
+          : providerId === "fathom"
+            ? Boolean(env.FATHOM_API_KEY && env.FATHOM_WEBHOOK_SECRET)
+            : false;
+
+  if (providerId === "instagram") {
+    return {
+      status: "not_implemented",
+      reason: "instagram_connector_not_implemented",
+    };
+  }
+  if (!available) {
+    return { status: "feature_disabled", reason: "feature_flag_disabled" };
+  }
+  if (!credentialsConfigured) {
+    return {
+      status: "credentials_missing",
+      reason: "provider_app_credentials_missing",
+    };
+  }
+  return { status: "configured", reason: "provider_app_configured" };
 }
 
 async function loadConnections(
@@ -246,13 +378,21 @@ export async function listIntegrations(
             env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI,
           ),
           klaviyo_app_available: Boolean(
-            env.KLAVIYO_CLIENT_ID && env.KLAVIYO_CLIENT_SECRET && env.KLAVIYO_REDIRECT_URI,
+            env.KLAVIYO_CLIENT_ID &&
+            env.KLAVIYO_CLIENT_SECRET &&
+            env.KLAVIYO_REDIRECT_URI,
           ),
-          providers: providers.map((provider) => ({
+      providers: providers.map((provider) => ({
             ...provider,
             connection: null,
             latest_sync: null,
             health: deriveIntegrationHealth({ available: provider.available }),
+            activation: deriveIntegrationActivation(
+              provider,
+              null,
+              null,
+              deriveIntegrationHealth({ available: provider.available }),
+            ),
           })),
         },
       };
@@ -290,7 +430,9 @@ export async function listIntegrations(
         env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI,
       ),
       klaviyo_app_available: Boolean(
-        env.KLAVIYO_CLIENT_ID && env.KLAVIYO_CLIENT_SECRET && env.KLAVIYO_REDIRECT_URI,
+        env.KLAVIYO_CLIENT_ID &&
+        env.KLAVIYO_CLIENT_SECRET &&
+        env.KLAVIYO_REDIRECT_URI,
       ),
       providers: providers.map((provider) => {
         const connection = pickBestConnection(
@@ -314,6 +456,22 @@ export async function listIntegrations(
             lastErrorAt: connection?.last_error_at ?? null,
             latestSyncStatus: latestSync?.status ?? null,
           }),
+          activation: deriveIntegrationActivation(
+            provider,
+            connection,
+            latestSync,
+            deriveIntegrationHealth({
+              available: provider.available,
+              connectionStatus: connection?.status ?? null,
+              lastSyncAt: connection?.last_sync_at ?? null,
+              lastErrorAt: connection?.last_error_at ?? null,
+              latestSyncStatus: latestSync?.status ?? null,
+            }),
+            Boolean(
+              connection &&
+                hasRecoveredSync(connection.id, latestRunsResult.data),
+            ),
+          ),
         };
       }),
     },

@@ -133,5 +133,20 @@ test("los conectores futuros exponen el contrato comun y fallan de forma honesta
       (error: unknown) =>
         error instanceof Error && error.message === expectedError,
     );
+
+    if (provider === "instagram") {
+      await assert.rejects(
+        () =>
+          adapter.discoverAssets!({
+            id: "instagram-connection",
+            organizationId: "org-1",
+            provider: "instagram",
+            status: "pending",
+          }),
+        (error: unknown) =>
+          error instanceof Error &&
+          error.message === "instagram_connector_not_enabled",
+      );
+    }
   }
 });

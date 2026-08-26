@@ -1,21 +1,39 @@
 # INT-05 - Instagram
 
+> **Matriz oficial de estrategias 2026-08-24:** el contrato compartido distingue `facebook_login` (host `graph.facebook.com`, Página de Facebook vinculada y scopes `instagram_basic`/`instagram_manage_*`) de `instagram_login` (host `graph.instagram.com`, scopes `instagram_business_*` y limitación de Ads/tagging). Ambos exigen cuenta profesional; ningún flujo se activa hasta credenciales y App Review.
+
+> Correccion UX 2026-08-21: la tarjeta de Integraciones muestra explicitamente `No disponible
+todavía`, explica la dependencia de Meta/Instagram Login y no ofrece OAuth ni datos simulados
+> mientras el adapter contractual permanezca unavailable.
+>
+> El adapter ya expone `discoverAssets` aunque responde `CREDENTIALS_MISSING` hasta activar el
+> conector real, manteniendo alineadas las capacidades y la interfaz futura.
+
+> **Correccion vigente 2026-08-20:** DB-10 ya tiene su foundation aplicada y el
+> adapter contractual no disponible sigue bloqueando OAuth/sync de forma honesta.
+> La UI y el dominio pueden consumir estados vacios sin que Instagram se anuncie
+> como conectado; la activacion futura reutilizara la estrategia OAuth autorizada
+> por Meta.
+
 ## Estado
 
-- **Estado real:** `planned`
+- **Estado real:** `implemented_partial` (contrato, adapter no disponible, UI y schema de preparacion).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-20
 - **Dependencias:** INT-00, INT-02 (Meta)
 - **Bloqueador:** ninguno propio; depende de que INT-02 amplie `META_SCOPES` con
   `instagram_basic`/`instagram_manage_insights` primero (hoy no los pide, ver INT-02) y de que la app de
   Meta este aprobada (mismo bloqueador que INT-02/BE-04).
-- **Codigo:** ninguno (`grep -rl instagram apps/api/src -i` no devuelve implementacion, solo el valor del
-  enum `provider` en las migraciones de DB-04).
+- **Codigo/evidencia:** adapter contractual no disponible en `apps/api/src/integration-adapters.ts`,
+  catálogo/capacidades en `packages/integrations/src/index.ts` y foundation de tablas en
+  `20260820110000_db_10_instagram_foundation.sql`. No existe todavía runner OAuth/sync real, por lo
+  que el conector devuelve estado no disponible y no crea datos.
 
 ## Decision de conexion
 
-Instagram se descubre desde la conexion Meta existente, **no** un segundo flujo OAuth independiente — es
-la decision de diseño, todavia sin implementar. Consecuencias:
+Instagram se descubre desde la conexion Meta existente, **no** un segundo flujo OAuth independiente para
+Facebook Login; Instagram Login queda como estrategia alternativa explícita. La decisión de dominio está
+preparada, pero el OAuth/sync real sigue pendiente de credenciales y scopes. Consecuencias:
 
 - Solo cuentas profesionales Business o Creator; sin soporte para cuentas personales.
 - La API de Insights de Instagram solo devuelve datos para media de cuentas profesionales, asi que una
@@ -73,11 +91,12 @@ comentarios/menciones, no para extraccion de media/Insights, que sigue siendo po
 - No se promete seguidores por post via API — solo entrada manual claramente diferenciada.
 - Rankings usan unicamente metricas soportadas por el tipo de media correspondiente.
 
-## Correccion de estado 2026-08-01
+## Correccion de estado 2026-08-20
 
-Instagram sigue `planned` y sin sincronizacion real. Ya existe el adapter contractual no disponible y
-la UI muestra el conector como no activable, sin crear conexiones, assets o metricas ficticias. La futura
-implementacion debe reutilizar el dominio y la UI existentes, y depender de la conexion Meta aprobada.
+Instagram está en `implemented_partial`: existe el adapter contractual no disponible, la foundation
+DB-10, el catálogo de capacidades y la UI de estados. Sigue sin sincronización OAuth real y no crea
+conexiones, assets o métricas ficticias; la activación futura reutilizará el dominio y la UI existentes
+y dependerá de una conexión Meta aprobada.
 
 - URLs/media se refrescan segun caducidad antes de mostrarse.
 

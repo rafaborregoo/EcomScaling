@@ -15,9 +15,9 @@
 | Instagram | reutiliza Meta                                                               | permisos + cuenta profesional (INT-05, no ejecuta) |
 
 `INTEGRATION_FEATURE_FLAGS` es un allowlist **global por proveedor**, no por organización: si está vacío
-se habilitan todos los proveedores disponibles del catálogo. Mientras Meta o Klaviyo no estén validados,
-mantenerlo explícito (`shopify`, o `shopify,meta_ads`) es lo que impide que un cron o un callback active
-un conector sin credenciales. Los mismos secretos deben existir en los workflows de reconciliación
+solo se habilita Shopify. Mientras Meta o Klaviyo no estén validados, mantenerlo explícito (`shopify`); al
+validar cada proveedor, añadirlo (`shopify,meta_ads` o `shopify,klaviyo`) para que el cron o callback pueda
+activarlo de forma controlada. Los mismos secretos deben existir en los workflows de reconciliación
 (`meta-reconcile.yml`, `klaviyo-reconcile.yml`), no solo en el servidor de la API.
 
 ## Secuencia por cliente

@@ -4,6 +4,19 @@
 > puedan activarse cuando existan credenciales, sin rediseñar el dominio, la interfaz
 > ni los agentes.
 
+## Verificacion vigente 2026-08-24
+
+El contrato y sus gates actuales pasan 14/14 tests con `npx tsx --test` en
+`packages/integrations` y API. La nota de 10/10 y 6/6 de las correcciones
+historicas queda supersedida; el alcance externo (credenciales, App Review y
+cuentas reales) permanece pendiente y no se simula.
+
+> **Contrato de activación vigente 2026-08-24:** `GET /v1/.../integrations` devuelve `provider.configuration` por conector con los estados `configured`, `credentials_missing`, `feature_disabled` o `not_implemented`. El backend no expone secretos; la UI habilita OAuth/sync únicamente cuando la app está configurada y el feature flag está activo. `integrations-configuration.test.ts` pasa 1/1 y los typechecks de API y web pasan.
+
+> **Permisos Meta concedidos 2026-08-24:** el callback inspecciona el token real con `debug_token`, comprueba que pertenece a la app configurada y compara los scopes concedidos con los solicitados. Si falta alguno, no guarda el token ni marca la conexión como conectada. La tabla de scopes y el payload cifrado conservan permisos reales, no solo los solicitados.
+
+> **Klaviyo OAuth actualizado 2026-08-24:** los scopes se normalizan a formato separado por espacios para la autorización; el callback exige y persiste el scope concedido por Klaviyo. Las respuestas sin scope o con permisos incompletos quedan en error accionable y no activan la conexión.
+
 ## Objetivo de producto
 
 EcomScaling debe ser plenamente utilizable con Shopify como única fuente operativa.
@@ -23,6 +36,8 @@ conexiones ficticias. La ausencia de credenciales es un estado de producto váli
 “Preparado” significa que el conector puede conectarse al contrato común y reutilizar
 las mismas pantallas, estados, auditoría y sincronización. No significa que se haya
 validado contra la API de un cliente real.
+
+> **Instagram actualizado 2026-08-24:** `packages/integrations` contiene la matriz reutilizable de las dos estrategias oficiales, con host, dependencia de Página, scopes y limitaciones. El futuro adapter debe elegir la estrategia por cuenta y no mezclar capacidades de ambas rutas.
 
 ## Invariantes
 

@@ -5,7 +5,10 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { isSummaryCurrentForTranscript } from "./summary-visibility";
 import {
+  AsyncState,
+  LoadingBlock,
   Heading,
   Accordion,
   Alert,
@@ -15,7 +18,6 @@ import {
   Field,
   Input,
   Link,
-  LoadingBlock,
   Select,
   Textarea,
   toast,
@@ -271,12 +273,8 @@ function CallDetail({
   const [taskTitleDraft, setTaskTitleDraft] = useState("");
 
   const currentTranscript = call.call_transcripts[0] ?? null;
-  const publishedSummary = call.call_ai_summaries.find(
-    (summary) =>
-      summary.status === "published" &&
-      (!currentTranscript ||
-        summary.transcript_id === currentTranscript.id ||
-        (summary.transcript_id === null && currentTranscript.version === 1)),
+  const publishedSummary = call.call_ai_summaries.find((summary) =>
+    isSummaryCurrentForTranscript(summary, currentTranscript),
   );
   const pendingSummaries = call.call_ai_summaries.filter(
     (summary) =>
@@ -287,20 +285,27 @@ function CallDetail({
   async function run(action: () => Promise<Response>, successMessage?: string) {
     setIsBusy(true);
     setError(null);
-    const response = await action();
+    try {
+      const response = await action();
 
-    if (!response.ok) {
-      setError(await readApiError(response));
-      setIsBusy(false);
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return false;
+      }
+
+      if (successMessage) {
+        toast.success(successMessage);
+      }
+      void onChanged();
+      return true;
+    } catch {
+      setError(
+        "No se pudo completar la acción de la llamada por un error de red. Reintenta.",
+      );
       return false;
+    } finally {
+      setIsBusy(false);
     }
-
-    setIsBusy(false);
-    if (successMessage) {
-      toast.success(successMessage);
-    }
-    onChanged();
-    return true;
   }
 
   async function markHeld() {
@@ -710,23 +715,33 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const loadCalls = useCallback(async () => {
     if (!organizationId) {
-      return;
-    }
-
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/calls`,
-    );
-
-    if (!response.ok) {
-      setError(await readApiError(response));
+      setCalls([]);
+      setError(null);
       setIsLoading(false);
       return;
     }
 
-    const payload = (await response.json()) as { calls: ConsultingCall[] };
-    setCalls(payload.calls);
-    setError(null);
-    setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/calls`,
+      );
+
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      const payload = (await response.json()) as { calls: ConsultingCall[] };
+      setCalls(payload.calls);
+      setError(null);
+    } catch {
+      setError(
+        "No se pudieron cargar las llamadas por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }, [organizationId]);
 
   useEffect(() => {
@@ -738,36 +753,41 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     event.preventDefault();
     setIsCreating(true);
     setCreateError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/calls`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: newTitle.trim(),
+            call_type: newType,
+            recording_url: newRecordingUrl.trim() || undefined,
+            recording_provider: newRecordingUrl.includes("loom.com")
+              ? "loom"
+              : newRecordingUrl.includes("fathom")
+                ? "fathom"
+                : undefined,
+          }),
+        },
+      );
 
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/calls`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newTitle.trim(),
-          call_type: newType,
-          recording_url: newRecordingUrl.trim() || undefined,
-          recording_provider: newRecordingUrl.includes("loom.com")
-            ? "loom"
-            : newRecordingUrl.includes("fathom")
-              ? "fathom"
-              : undefined,
-        }),
-      },
-    );
+      if (!response.ok) {
+        setCreateError(await readApiError(response));
+        return;
+      }
 
-    if (!response.ok) {
-      setCreateError(await readApiError(response));
+      setNewTitle("");
+      setNewRecordingUrl("");
+      setShowCreateForm(false);
+      void loadCalls();
+    } catch {
+      setCreateError(
+        "No se pudo registrar la llamada por un error de red. Reintenta.",
+      );
+    } finally {
       setIsCreating(false);
-      return;
     }
-
-    setNewTitle("");
-    setNewRecordingUrl("");
-    setShowCreateForm(false);
-    setIsCreating(false);
-    void loadCalls();
   }
 
   return (
@@ -825,7 +845,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {isLoading ? (
-        <LoadingBlock label="Cargando llamadas..." />
+          <LoadingBlock label="Cargando llamadas..." />
       ) : calls.length === 0 ? (
         <EmptyState
           title="Aún no hay llamadas registradas"

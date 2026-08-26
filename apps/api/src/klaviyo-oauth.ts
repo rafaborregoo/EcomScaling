@@ -1,8 +1,12 @@
 import crypto from "node:crypto";
 import type { LoadedApiEnv } from "@ecomscaling/config";
+import {
+  DEFAULT_AGENT_RESILIENCE_POLICY,
+  withAgentResilience,
+} from "@ecomscaling/ai";
 
 /** Pin the API contract instead of silently following Klaviyo's latest revision. */
-export const KLAVIYO_API_REVISION = "2026-04-15";
+export const KLAVIYO_API_REVISION = "2026-07-15";
 export const KLAVIYO_AUTHORIZE_URL = "https://www.klaviyo.com/oauth/authorize";
 export const KLAVIYO_TOKEN_URL = "https://a.klaviyo.com/oauth/token";
 export const KLAVIYO_REVOKE_URL = "https://a.klaviyo.com/oauth/revoke";
@@ -22,6 +26,25 @@ export type KlaviyoOAuthTokens = {
   scope?: string;
 };
 
+export function parseKlaviyoScopes(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/[\s,]+/)
+        .map((scope) => scope.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export function missingKlaviyoScopes(
+  requiredScopes: readonly string[],
+  grantedScopes: readonly string[],
+): string[] {
+  const granted = new Set(grantedScopes);
+  return requiredScopes.filter((scope) => !granted.has(scope));
+}
+
 export function resolveKlaviyoOAuthEnv(
   env: LoadedApiEnv,
 ): KlaviyoOAuthEnv | null {
@@ -37,9 +60,10 @@ export function resolveKlaviyoOAuthEnv(
     KLAVIYO_CLIENT_ID: env.KLAVIYO_CLIENT_ID,
     KLAVIYO_CLIENT_SECRET: env.KLAVIYO_CLIENT_SECRET,
     KLAVIYO_REDIRECT_URI: env.KLAVIYO_REDIRECT_URI,
-    KLAVIYO_SCOPES:
+    KLAVIYO_SCOPES: parseKlaviyoScopes(
       env.KLAVIYO_SCOPES ??
-      "accounts:read,flows:read,campaigns:read,forms:read,lists:read,segments:read,metrics:read",
+        "accounts:read flows:read campaigns:read forms:read lists:read segments:read metrics:read",
+    ).join(" "),
   };
 }
 
@@ -77,19 +101,27 @@ async function requestKlaviyoTokens(
   env: KlaviyoOAuthEnv,
   body: URLSearchParams,
 ): Promise<KlaviyoOAuthTokens> {
-  const response = await fetch(KLAVIYO_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Authorization: basicClientAuthorization(env),
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body,
-  });
-
-  if (!response.ok) {
-    throw new Error(`klaviyo_oauth_token_request_failed:${response.status}`);
-  }
+  const response = await withAgentResilience(
+    (signal) =>
+      fetch(KLAVIYO_TOKEN_URL, {
+        method: "POST",
+        signal,
+        headers: {
+          Authorization: basicClientAuthorization(env),
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        },
+        body,
+      }).then(async (result) => {
+        if (result.ok) return result;
+        const detail = await result.text().catch(() => "");
+        throw Object.assign(
+          new Error(`klaviyo_oauth_token_request_failed:${result.status}:${detail.slice(0, 300)}`),
+          { status: result.status },
+        );
+      }),
+    DEFAULT_AGENT_RESILIENCE_POLICY,
+  );
 
   const payload = (await response.json()) as Partial<KlaviyoOAuthTokens>;
   if (

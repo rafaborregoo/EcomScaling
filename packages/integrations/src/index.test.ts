@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   deriveIntegrationHealth,
+  getInstagramAuthStrategyContract,
+  INSTAGRAM_AUTH_STRATEGY_CONTRACTS,
   INTEGRATION_CATALOG,
   IntegrationError,
   isIntegrationFeatureEnabled,
@@ -10,7 +12,7 @@ import {
 test("el catálogo distingue implementación disponible de credenciales configuradas", () => {
   assert.deepEqual(
     INTEGRATION_CATALOG.map((provider) => provider.id),
-    ["shopify", "meta_ads", "klaviyo", "instagram"],
+    ["shopify", "meta_ads", "klaviyo", "instagram", "fathom"],
   );
 
   assert.equal(
@@ -32,6 +34,10 @@ test("el catálogo distingue implementación disponible de credenciales configur
     INTEGRATION_CATALOG.find((provider) => provider.id === "instagram")
       ?.available,
     false,
+  );
+  assert.equal(
+    INTEGRATION_CATALOG.find((provider) => provider.id === "fathom")?.available,
+    true,
   );
 });
 
@@ -129,6 +135,27 @@ test("el catalogo expone las dos estrategias oficiales de Instagram", () => {
   );
 });
 
+test("el contrato de Instagram separa hosts, dependencia de pagina y limitaciones", () => {
+  assert.equal(INSTAGRAM_AUTH_STRATEGY_CONTRACTS.length, 2);
+  assert.deepEqual(getInstagramAuthStrategyContract("facebook_login"), {
+    strategy: "facebook_login",
+    apiHost: "graph.facebook.com",
+    requiresLinkedFacebookPage: true,
+    supportedScopes: [
+      "instagram_basic",
+      "instagram_content_publish",
+      "instagram_manage_comments",
+      "instagram_manage_insights",
+    ],
+    limitations: ["professional_account_only"],
+  });
+  assert.ok(
+    getInstagramAuthStrategyContract("instagram_login").limitations.includes(
+      "ads_and_tagging_unavailable",
+    ),
+  );
+});
+
 test("declara refresh OAuth solo donde el adaptador lo soporta", () => {
   assert.equal(
     INTEGRATION_CATALOG.find((provider) => provider.id === "shopify")
@@ -149,6 +176,9 @@ test("declara refresh OAuth solo donde el adaptador lo soporta", () => {
 
 test("el allowlist distingue el conector implementado del no implementado", () => {
   assert.equal(isIntegrationFeatureEnabled("shopify"), true);
+  assert.equal(isIntegrationFeatureEnabled("meta_ads"), false);
+  assert.equal(isIntegrationFeatureEnabled("klaviyo"), false);
+  assert.equal(isIntegrationFeatureEnabled("fathom"), true);
   assert.equal(isIntegrationFeatureEnabled("meta_ads", "shopify"), false);
   assert.equal(
     isIntegrationFeatureEnabled("shopify", " SHOPIFY, META_ADS "),

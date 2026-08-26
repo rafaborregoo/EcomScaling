@@ -16,7 +16,7 @@
  * lance una excepcion).
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY. Ejecutar
- * con `npm run test -w @ecomscaling/api`.
+ * con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

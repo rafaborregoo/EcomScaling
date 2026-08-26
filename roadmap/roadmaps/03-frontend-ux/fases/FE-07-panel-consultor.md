@@ -2,6 +2,12 @@
 
 ## Estado
 
+> Verificacion vigente 2026-08-24: el panel mantiene CRUD protegido de
+> organizaciones/tiendas, restauracion soft-delete, busqueda y health score
+> determinista. Las mutaciones sensibles siguen limitadas por backend y los
+> gates de UI/accesibilidad pasan; saved views, acciones masivas e
+> impersonation auditado siguen fuera del piloto.
+
 - **Estado real:** `in_progress_core_product` (es correctamente el producto central ahora que la
   estrategia es consultor-first; ya tiene bastante mas de lo que este documento de 4 lineas sugiere).
 - **Responsable:** sin asignar
@@ -86,4 +92,3 @@ Dar a Ricardo y futuros consultores una vista de control transversal.
 - Solo se ven organizaciones asignadas salvo platform admin.
 - El panel prioriza clientes con riesgos reales.
 - Acciones sensibles quedan auditadas.
-

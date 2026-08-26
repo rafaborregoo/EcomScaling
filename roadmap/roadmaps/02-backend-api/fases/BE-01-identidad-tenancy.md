@@ -7,10 +7,16 @@
 
 ## Estado
 
-- **Estado real:** `verification_pending` (el propio documento reconocia que faltan verificaciones en
+> Cierre verificado 2026-08-24: la auditoria de tenancy cubre rutas de lectura
+> y escritura con tests reales de Fastify/Supabase, incluyendo manipulación de
+> organización, consultor no asignado, suspensión y endpoints menores. No queda
+> una acción funcional abierta; la invitación de usuarios Auth permanece fuera
+> del cierre porque requiere proveedor de identidad/correo real.
+
+- **Estado real:** `done` (el propio documento reconocia que faltan verificaciones en
   endpoints de negocio — no cumple su propio criterio de cierre).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-02
 - **Bloqueador:** ninguno
 - **Evidencia:**

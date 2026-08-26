@@ -1,12 +1,17 @@
 # BE-02 - Integrations core
 
+> Verificacion vigente 2026-08-24: el contrato comun de integraciones y los
+> adapters/feature flags pasan 14/14 tests directos con `node:test` mediante
+> `npx tsx --test`. Shopify queda operativo; Meta/Klaviyo/Instagram mantienen
+> estados honestos y no pueden ejecutarse cuando el proveedor esta desactivado.
+
 ## Estado
 
 - **Estado real:** `implemented_partial` (el contrato común de adaptadores y el catálogo de estados ya
   existen; Shopify y Meta tienen runners reales, mientras Klaviyo e Instagram exponen adapters no
   disponibles sin fingir conexión).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-08-02
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-04
 - **Bloqueador:** ninguno técnico para Shopify; la operación real de Meta/Klaviyo/Instagram depende de
   credenciales, App Review o runners que todavía no existen.

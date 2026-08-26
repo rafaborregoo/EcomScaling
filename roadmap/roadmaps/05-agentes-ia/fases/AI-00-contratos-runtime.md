@@ -13,9 +13,15 @@
 
 ## Estado
 
-- **Estado real:** `verification_pending`
+> Cierre verificado 2026-08-24: contratos de entrada/salida, aislamiento
+> tenant, presupuesto por turno, aprobación humana, trazas, versionado y
+> catálogo de tools están implementados y cubiertos por la suite IA 50/50 y
+> las pruebas de aprobación/trazas. El routing avanzado por plan/proveedor es
+> una extensión de AI-09, no un incumplimiento de los criterios base.
+
+- **Estado real:** `done`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-08a
 - **Bloqueador:** ninguno
 - **Evidencia:** `apps/api/src/ai-runtime.ts`, `packages/ai/src/index.ts`,
@@ -36,7 +42,9 @@
   corte por presupuesto queda en `agent_runs.status = "budget_exceeded"` (migracion
   `20260722190000_ai_09_budget_status.sql`), distinto de `failed`/`rejected_output`. Es una primera
   version deliberadamente simple: **un limite plano para todos los agentes**, no por agente ni por
-  organizacion — afinar eso es AI-09 (model routing/presupuesto), todavia no implementado.
+  organizacion — el limite diario y el circuit breaker fail-closed por tenant ya estan implementados;
+  el routing opcional por agente/proveedor y budget por turno se configura con `AI_MODEL_ROUTING_JSON`;
+  la politica automatica por plan sigue siendo AI-09.
 - **Por que sigue sin ser `done` (los 3 criterios de cierre actuales son necesarios pero no suficientes):**
   - **Cerrado 2026-07-27 -- maquina de estados formal.** Ver seccion propia mas abajo: `agent_runs.status`
     no necesita `queued`/`cancelled` hoy porque cada turno corre de forma sincrona dentro de una unica
@@ -44,11 +52,12 @@
     documentada, no requiere validacion de producto.
   - **Cerrado 2026-07-27 -- contrato de entrada (`AgentInput`).** Ver seccion propia mas abajo, extraido
     literal de `agentInputSchema` (`packages/ai/src/index.ts:15-30`).
-  - **No hay model routing por politica de coste** -- correctamente fuera de alcance de AI-00, es AI-09
-    (`planned`). El modelo viene fijado por `agent_versions.model` (**migrado 2026-07-28** de
+  - **Routing por política de coste**: AI-09 ya permite overrides opcionales por agente/proveedor y
+    budgets por turno mediante `AI_MODEL_ROUTING_JSON`. Sin esa variable, el modelo viene fijado por
+    `agent_versions.model` (**migrado 2026-07-28** de
     `claude-opus-4-8` a `claude-sonnet-5` para los 6 agentes activos -- peticion explicita de Rafa, mas
-    barato, `MODEL_PRICING` en `packages/ai/src/index.ts` ya lo tenia tarifado) -- sigue siendo el mismo
-    modelo plano para todos los agentes, no hay criterio de escalado ni modelo distinto por complejidad.
+    barato, `MODEL_PRICING` en `packages/ai/src/index.ts` ya lo tenia tarifado) -- el default sigue siendo
+    plano para todos los agentes y todavía no hay selector automático por complejidad ni budget por plan.
     **Si existe fallback de proveedor desde 2026-07-20** (R-020):
     `runAgentTurnWithFallback` (`apps/api/src/ai-runtime.ts`) reintenta con OpenAI
     (`runAgentTurnOpenAI`, `packages/ai/src/index.ts`) si Anthropic falla por disponibilidad y hay

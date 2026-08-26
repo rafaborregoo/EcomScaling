@@ -2,14 +2,26 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { z } from "zod";
 
+// Uso controlado: ALLOW_DEMO_SEED=true y SUPABASE_PRODUCTION_PROJECT_REF deben
+// estar definidos; el segundo valor se usa para rechazar el proyecto real.
+
 const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   // Guard explícito: este script hace upsert/delete lógico sobre datos de demo
   // y nunca debe ejecutarse por accidente contra el proyecto de producción.
   ALLOW_DEMO_SEED: z.literal("true"),
-  DEMO_USER_ID: z.string().uuid().default("95ca12f1-72b1-474c-ab53-73320f78d6a3"),
-  DEMO_CLIENT_USER_ID: z.string().uuid().default("40e2d772-02d3-4884-b8b6-755c22c0b561"),
+  // Segunda barrera: el proyecto de destino debe declararse y no puede ser el
+  // mismo que el proyecto productivo, aunque el flag anterior se haya activado.
+  SUPABASE_PRODUCTION_PROJECT_REF: z.string().regex(/^[a-z0-9]{10,30}$/),
+  DEMO_USER_ID: z
+    .string()
+    .uuid()
+    .default("95ca12f1-72b1-474c-ab53-73320f78d6a3"),
+  DEMO_CLIENT_USER_ID: z
+    .string()
+    .uuid()
+    .default("40e2d772-02d3-4884-b8b6-755c22c0b561"),
   DEMO_FULL_NAME: z.string().default("Rafa Borrego"),
   DEMO_CLIENT_FULL_NAME: z.string().default("Cliente Demo"),
   DEMO_ORG_NAME: z.string().default("EcomScaling Demo"),
@@ -19,6 +31,12 @@ const envSchema = z.object({
 });
 
 const env = envSchema.parse(process.env);
+const targetProjectRef = new URL(env.SUPABASE_URL).hostname.split(".")[0];
+if (targetProjectRef === env.SUPABASE_PRODUCTION_PROJECT_REF) {
+  throw new Error(
+    "DEMO_SEED_PRODUCTION_PROJECT_REFUSED: el seed demo requiere un proyecto Supabase distinto de produccion",
+  );
+}
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: {
     persistSession: false,
@@ -67,39 +85,46 @@ async function main() {
     throw new Error(`Organization seed failed: ${organizationError.message}`);
   }
 
-  const { error: membershipError } = await supabase.from("organization_members").upsert(
-    {
-      organization_id: organization.id,
-      user_id: env.DEMO_USER_ID,
-      role: "owner",
-      is_active: true,
-      joined_at: now,
-    },
-    { onConflict: "organization_id,user_id" },
-  );
+  const { error: membershipError } = await supabase
+    .from("organization_members")
+    .upsert(
+      {
+        organization_id: organization.id,
+        user_id: env.DEMO_USER_ID,
+        role: "owner",
+        is_active: true,
+        joined_at: now,
+      },
+      { onConflict: "organization_id,user_id" },
+    );
 
   if (membershipError) {
     throw new Error(`Membership seed failed: ${membershipError.message}`);
   }
 
-  const { data: existingSubscription, error: subscriptionLookupError } = await supabase
-    .from("service_subscriptions")
-    .select("id")
-    .eq("organization_id", organization.id)
-    .in("status", ["trial", "active"])
-    .maybeSingle();
+  const { data: existingSubscription, error: subscriptionLookupError } =
+    await supabase
+      .from("service_subscriptions")
+      .select("id")
+      .eq("organization_id", organization.id)
+      .in("status", ["trial", "active"])
+      .maybeSingle();
 
   if (subscriptionLookupError) {
-    throw new Error(`Subscription lookup failed: ${subscriptionLookupError.message}`);
+    throw new Error(
+      `Subscription lookup failed: ${subscriptionLookupError.message}`,
+    );
   }
 
   if (!existingSubscription) {
-    const { error: subscriptionError } = await supabase.from("service_subscriptions").insert({
-      organization_id: organization.id,
-      plan_code: "internal_test",
-      status: "active",
-      starts_at: now,
-    });
+    const { error: subscriptionError } = await supabase
+      .from("service_subscriptions")
+      .insert({
+        organization_id: organization.id,
+        plan_code: "internal_test",
+        status: "active",
+        starts_at: now,
+      });
 
     if (subscriptionError) {
       throw new Error(`Subscription seed failed: ${subscriptionError.message}`);
@@ -125,43 +150,52 @@ async function main() {
   );
 
   if (clientProfileError) {
-    throw new Error(`Client profile seed failed: ${clientProfileError.message}`);
+    throw new Error(
+      `Client profile seed failed: ${clientProfileError.message}`,
+    );
   }
 
-  const { data: clientOrganization, error: clientOrganizationError } = await supabase
-    .from("organizations")
-    .upsert(
-      {
-        display_name: env.DEMO_CLIENT_ORG_NAME,
-        slug: env.DEMO_CLIENT_ORG_SLUG,
-        timezone: "Europe/Madrid",
-        currency_code: "EUR",
-        status: "active",
-        activated_at: now,
-        created_by: env.DEMO_USER_ID,
-      },
-      { onConflict: "slug" },
-    )
-    .select("id")
-    .single();
+  const { data: clientOrganization, error: clientOrganizationError } =
+    await supabase
+      .from("organizations")
+      .upsert(
+        {
+          display_name: env.DEMO_CLIENT_ORG_NAME,
+          slug: env.DEMO_CLIENT_ORG_SLUG,
+          timezone: "Europe/Madrid",
+          currency_code: "EUR",
+          status: "active",
+          activated_at: now,
+          created_by: env.DEMO_USER_ID,
+        },
+        { onConflict: "slug" },
+      )
+      .select("id")
+      .single();
 
   if (clientOrganizationError) {
-    throw new Error(`Client organization seed failed: ${clientOrganizationError.message}`);
+    throw new Error(
+      `Client organization seed failed: ${clientOrganizationError.message}`,
+    );
   }
 
-  const { error: clientMembershipError } = await supabase.from("organization_members").upsert(
-    {
-      organization_id: clientOrganization.id,
-      user_id: env.DEMO_CLIENT_USER_ID,
-      role: "owner",
-      is_active: true,
-      joined_at: now,
-    },
-    { onConflict: "organization_id,user_id" },
-  );
+  const { error: clientMembershipError } = await supabase
+    .from("organization_members")
+    .upsert(
+      {
+        organization_id: clientOrganization.id,
+        user_id: env.DEMO_CLIENT_USER_ID,
+        role: "owner",
+        is_active: true,
+        joined_at: now,
+      },
+      { onConflict: "organization_id,user_id" },
+    );
 
   if (clientMembershipError) {
-    throw new Error(`Client membership seed failed: ${clientMembershipError.message}`);
+    throw new Error(
+      `Client membership seed failed: ${clientMembershipError.message}`,
+    );
   }
 
   const { error: consultantAssignmentError } = await supabase
@@ -179,19 +213,25 @@ async function main() {
     );
 
   if (consultantAssignmentError) {
-    throw new Error(`Consultant assignment seed failed: ${consultantAssignmentError.message}`);
+    throw new Error(
+      `Consultant assignment seed failed: ${consultantAssignmentError.message}`,
+    );
   }
 
-  const { data: existingClientSubscription, error: clientSubscriptionLookupError } =
-    await supabase
-      .from("service_subscriptions")
-      .select("id")
-      .eq("organization_id", clientOrganization.id)
-      .in("status", ["trial", "active"])
-      .maybeSingle();
+  const {
+    data: existingClientSubscription,
+    error: clientSubscriptionLookupError,
+  } = await supabase
+    .from("service_subscriptions")
+    .select("id")
+    .eq("organization_id", clientOrganization.id)
+    .in("status", ["trial", "active"])
+    .maybeSingle();
 
   if (clientSubscriptionLookupError) {
-    throw new Error(`Client subscription lookup failed: ${clientSubscriptionLookupError.message}`);
+    throw new Error(
+      `Client subscription lookup failed: ${clientSubscriptionLookupError.message}`,
+    );
   }
 
   if (!existingClientSubscription) {
@@ -205,7 +245,9 @@ async function main() {
       });
 
     if (clientSubscriptionError) {
-      throw new Error(`Client subscription seed failed: ${clientSubscriptionError.message}`);
+      throw new Error(
+        `Client subscription seed failed: ${clientSubscriptionError.message}`,
+      );
     }
   }
 
@@ -226,7 +268,12 @@ async function main() {
         provider_account_id: "demo-store.myshopify.com",
         provider_account_name: "Demo Store",
         status: "pending",
-        scopes: ["read_products", "read_inventory", "read_locations", "read_orders"],
+        scopes: [
+          "read_products",
+          "read_inventory",
+          "read_locations",
+          "read_orders",
+        ],
         api_version: "2026-07",
         connected_by: env.DEMO_USER_ID,
         metadata: {
@@ -253,7 +300,9 @@ async function main() {
       return;
     }
 
-    throw new Error(`Integration connection seed failed: ${integrationConnectionError.message}`);
+    throw new Error(
+      `Integration connection seed failed: ${integrationConnectionError.message}`,
+    );
   }
 
   console.log(

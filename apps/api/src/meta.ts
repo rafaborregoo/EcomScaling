@@ -3,11 +3,17 @@ import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { createLogger } from "@ecomscaling/observability";
-import type { AuthContext } from "./auth-context.js";
+import {
+  requireOperationalOrganization,
+  type AuthContext,
+} from "./auth-context.js";
 import { metaGraphGetAll, metaGraphGet } from "./meta-client.js";
 import {
   createMetaState,
+  debugMetaAccessToken,
   exchangeMetaCodeForLongLivedToken,
+  missingMetaScopes,
+  parseMetaScopes,
   resolveMetaAppEnv,
 } from "./meta-oauth.js";
 import {
@@ -26,6 +32,7 @@ type ApiEnv = LoadedApiEnv;
 const logger = createLogger("meta");
 const CREDENTIAL_KIND = "meta_user_access_token";
 const PROVIDER = "meta_ads";
+const META_STALE_SYNCING_MS = 10 * 60 * 1000;
 
 type Result =
   | { ok: true; data: { redirectUrl: string } }
@@ -35,6 +42,7 @@ type Result =
       error: string;
       message?: string;
       detail?: string;
+      missing_scopes?: string[];
     };
 
 type MetaAssetSelectionInput = {
@@ -86,9 +94,12 @@ function canManageOrganization(
   authContext: AuthContext,
   organizationId: string,
 ) {
-  const membership = authContext.memberships.find(
-    (item) => item.organization_id === organizationId,
+  const operational = requireOperationalOrganization(
+    authContext,
+    organizationId,
   );
+  if (!operational.ok) return false;
+  const { membership } = operational;
 
   return Boolean(
     membership &&
@@ -101,6 +112,37 @@ function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
     auth: { persistSession: false, autoRefreshToken: false },
     realtime: { transport: WebSocket as any },
+  });
+}
+
+async function markMetaSyncFailure(
+  env: ApiEnv,
+  connectionId: string,
+  error: unknown,
+  operation: string,
+) {
+  const message =
+    error instanceof Error ? error.message : "meta_background_sync_failed";
+  let persistenceError: string | undefined;
+  try {
+    const { error: updateError } = await createServiceClient(env)
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: new Date().toISOString(),
+        last_error_message: message.slice(0, 500),
+      })
+      .eq("id", connectionId);
+    persistenceError = updateError?.message;
+  } catch (updateError) {
+    persistenceError =
+      updateError instanceof Error ? updateError.message : String(updateError);
+  }
+  logger.error("meta_background_sync_failed", {
+    connection_id: connectionId,
+    operation,
+    error: message,
+    persistence_error: persistenceError,
   });
 }
 
@@ -166,13 +208,12 @@ export async function createMetaConnectionAuthUrl(
     };
   }
 
-  const membership = authContext.memberships.find(
-    (item) => item.organization_id === organizationId,
+  const operational = requireOperationalOrganization(
+    authContext,
+    organizationId,
   );
-
-  if (!membership) {
-    return { ok: false, statusCode: 403, error: "organization_access_denied" };
-  }
+  if (!operational.ok) return operational;
+  const { membership } = operational;
 
   if (
     authContext.profile.platform_role !== "platform_admin" &&
@@ -353,6 +394,7 @@ export async function discoverMetaAssets(
     {
       fields: "id,name,verification_status,vertical",
     },
+    env.META_APP_SECRET,
   ).catch((error: unknown) => {
     // business_management puede no estar concedido; el resto del descubrimiento sigue.
     logger.info("meta_business_discovery_failed", {
@@ -400,6 +442,7 @@ export async function discoverMetaAssets(
       fields:
         "id,account_id,name,account_status,disable_reason,currency,timezone_name,timezone_offset_hours_utc,amount_spent,balance,spend_cap,min_daily_budget,business,created_time",
     },
+    env.META_APP_SECRET,
   );
 
   for (const account of adAccounts) {
@@ -446,6 +489,7 @@ export async function discoverMetaAssets(
     {
       fields: "id,name,category,tasks,picture",
     },
+    env.META_APP_SECRET,
   ).catch((error: unknown) => {
     logger.info("meta_pages_discovery_failed", {
       connection_id: connectionId,
@@ -869,6 +913,26 @@ export async function handleMetaOAuthCallback(
   const oauthError = typeof query.error === "string" ? query.error : null;
 
   if (oauthError) {
+    if (state) {
+      const supabase = createServiceClient(env);
+      const { data: pending } = await supabase
+        .from("integration_connections")
+        .select("id")
+        .eq("provider", PROVIDER)
+        .eq("status", "pending")
+        .contains("metadata", { state })
+        .maybeSingle();
+      if (pending) {
+        await supabase
+          .from("integration_connections")
+          .update({
+            status: "error",
+            last_error_at: new Date().toISOString(),
+            last_error_message: `meta_oauth_denied:${oauthError}`,
+          })
+          .eq("id", pending.id);
+      }
+    }
     return {
       ok: true,
       data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?meta=denied` },
@@ -922,12 +986,54 @@ export async function handleMetaOAuthCallback(
     };
   }
 
+  let debugToken;
+  try {
+    debugToken = await debugMetaAccessToken(appEnv, token.accessToken);
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 502,
+      error: "meta_token_debug_failed",
+      detail: error instanceof Error ? error.message : "unknown_error",
+    };
+  }
+
+  if (debugToken.appId && debugToken.appId !== appEnv.META_APP_ID) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: "meta_token_app_mismatch",
+      message: "El token Meta pertenece a otra aplicación.",
+    };
+  }
+
+  const requestedScopes = parseMetaScopes(appEnv.META_SCOPES);
+  const missingScopes = missingMetaScopes(requestedScopes, debugToken.scopes);
+  if (missingScopes.length > 0) {
+    await supabase
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: new Date().toISOString(),
+        last_error_message: `meta_permissions_missing:${missingScopes.join(",")}`,
+      })
+      .eq("id", pending.id);
+    return {
+      ok: false,
+      statusCode: 403,
+      error: "meta_permissions_missing",
+      message: "Meta no ha concedido todos los permisos requeridos.",
+      missing_scopes: missingScopes,
+    };
+  }
+
   const me = await metaGraphGet<{ id?: string; name?: string }>(
     "me",
     token.accessToken,
     {
       fields: "id,name",
     },
+    env.META_APP_SECRET,
   ).catch(() => null);
 
   const verifiedIdentity = getVerifiedMetaIdentity(me);
@@ -946,8 +1052,8 @@ export async function handleMetaOAuthCallback(
       env,
       pending.id,
       token.accessToken,
-      token.expiresAt,
-      appEnv.META_SCOPES,
+      debugToken.expiresAt ?? token.expiresAt,
+      debugToken.scopes.join(","),
     );
   } catch (error) {
     return {
@@ -992,7 +1098,7 @@ export async function handleMetaOAuthCallback(
       provider_account_id: verifiedIdentity.id,
       provider_account_name: verifiedIdentity.name,
       status: "connected",
-      scopes: appEnv.META_SCOPES.split(",").map((scope) => scope.trim()),
+      scopes: debugToken.scopes,
       connected_at: now,
       last_sync_at: now,
       metadata: { state, source: "oauth_start", discovery },
@@ -1017,9 +1123,7 @@ export async function handleMetaOAuthCallback(
     newData: {
       provider: "meta_ads",
       provider_account_id: verifiedIdentity.id,
-      scopes: appEnv.META_SCOPES.split(",")
-        .map((scope) => scope.trim())
-        .filter(Boolean),
+      scopes: debugToken.scopes,
       discovery,
     },
   });
@@ -1290,13 +1394,12 @@ export async function triggerMetaSync(
     };
   }
 
-  const membership = authContext.memberships.find(
-    (item) => item.organization_id === organizationId,
+  const operational = requireOperationalOrganization(
+    authContext,
+    organizationId,
   );
-
-  if (!membership) {
-    return { ok: false, statusCode: 403, error: "organization_access_denied" };
-  }
+  if (!operational.ok) return operational;
+  const { membership } = operational;
 
   if (
     authContext.profile.platform_role !== "platform_admin" &&
@@ -1315,9 +1418,11 @@ export async function triggerMetaSync(
 
   const { data: connection, error } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, status")
+    .select("id, organization_id, status, updated_at")
     .eq("organization_id", organizationId)
     .eq("provider", PROVIDER)
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) {
@@ -1333,6 +1438,75 @@ export async function triggerMetaSync(
     return { ok: false, statusCode: 404, error: "meta_connection_not_found" };
   }
 
+  let connectionStatus = connection.status;
+  if (connection.status === "syncing") {
+    const updatedAt = connection.updated_at
+      ? new Date(connection.updated_at).getTime()
+      : Date.now();
+    const isStale = Date.now() - updatedAt > META_STALE_SYNCING_MS;
+    if (!isStale) {
+      return {
+        ok: false,
+        statusCode: 409,
+        error: "meta_sync_already_running",
+        message: "Ya hay una sincronización de Meta Ads en curso.",
+      };
+    }
+
+    const { error: staleRecoveryError } = await supabase
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: new Date().toISOString(),
+        last_error_message:
+          "La sincronización anterior de Meta quedó abierta y fue marcada como error automáticamente.",
+      })
+      .eq("id", connection.id);
+    if (staleRecoveryError) {
+      return {
+        ok: false,
+        statusCode: 500,
+        error: "meta_stale_sync_recovery_failed",
+        detail: staleRecoveryError.message,
+      };
+    }
+    connectionStatus = "error";
+  }
+  if (connectionStatus !== "connected" && connectionStatus !== "error") {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "meta_connection_not_ready",
+      message:
+        "La conexión Meta Ads debe estar conectada antes de sincronizar.",
+    };
+  }
+
+  const { data: claimedConnection, error: statusUpdateError } = await supabase
+    .from("integration_connections")
+    .update({ status: "syncing" })
+    .eq("id", connection.id)
+    .eq("status", connectionStatus)
+    .select("id")
+    .maybeSingle();
+  if (statusUpdateError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "meta_sync_trigger_failed",
+      detail: statusUpdateError.message,
+    };
+  }
+  if (!claimedConnection) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "meta_sync_already_running",
+      message:
+        "Otra sincronización de Meta Ads comenzó antes de completar esta solicitud.",
+    };
+  }
+
   const metaSyncAdapter = createIntegrationAdapters(env).meta_ads;
   void metaSyncAdapter
     .runInitialSync({
@@ -1341,17 +1515,12 @@ export async function triggerMetaSync(
         id: connection.id,
         organization_id: connection.organization_id,
         provider: "meta_ads",
-        status: connection.status,
+        status: connectionStatus,
       }),
     })
-    .catch((syncError: unknown) => {
-      logger.error("meta_manual_sync_failed", {
-        connection_id: connection.id,
-        organization_id: connection.organization_id,
-        error:
-          syncError instanceof Error ? syncError.message : String(syncError),
-      });
-    });
+    .catch((syncError: unknown) =>
+      markMetaSyncFailure(env, connection.id, syncError, "manual_sync"),
+    );
 
   return { ok: true, data: { status: "queued", connectionId: connection.id } };
 }

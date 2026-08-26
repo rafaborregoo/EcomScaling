@@ -2,6 +2,12 @@ name: Backup Database
 
 on:
   workflow_dispatch:
+    inputs:
+      run_restore_drill:
+        description: "Restaurar el dump en SUPABASE_RESTORE_DB_URL desechable"
+        required: true
+        default: false
+        type: boolean
   # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
   # automaticos. Para reactivar, descomentar el bloque de abajo.
   # schedule:
@@ -22,6 +28,8 @@ jobs:
 
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_RESTORE_DB_URL: ${{ secrets.SUPABASE_RESTORE_DB_URL }}
+      RUN_RESTORE_DRILL: ${{ inputs.run_restore_drill }}
 
     steps:
       - name: Install postgresql-client-17
@@ -57,6 +65,37 @@ jobs:
           set -euo pipefail
           pg_restore --list "$DUMP_FILE" > /dev/null
           sha256sum "$DUMP_FILE" > "$DUMP_FILE.sha256"
+
+      - name: Optional restore drill on disposable target
+        if: ${{ inputs.run_restore_drill == true }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_RESTORE_DB_URL:-}" ]; then
+            echo "::error::SUPABASE_RESTORE_DB_URL secret is required for a restore drill." >&2
+            exit 1
+          fi
+          if [ "$SUPABASE_DB_URL" = "$SUPABASE_RESTORE_DB_URL" ]; then
+            echo "::error::Restore target must differ from SUPABASE_DB_URL; production is never a drill target." >&2
+            exit 1
+          fi
+          pg_restore --clean --if-exists --no-owner --no-privileges \
+            --dbname "$SUPABASE_RESTORE_DB_URL" "$DUMP_FILE"
+          psql "$SUPABASE_RESTORE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          begin
+            if to_regclass('public.organizations') is null then
+              raise exception 'restored schema is missing public.organizations';
+            end if;
+            if not exists (
+              select 1 from pg_policies
+              where schemaname = 'public'
+                and tablename = 'organizations'
+                and policyname = 'organizations_select_authorized'
+            ) then
+              raise exception 'restored schema is missing organizations RLS policy';
+            end if;
+          end $$;
+          SQL
 
       - name: Upload backup artifact
         uses: actions/upload-artifact@v4

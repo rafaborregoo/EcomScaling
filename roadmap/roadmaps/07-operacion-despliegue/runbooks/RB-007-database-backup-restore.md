@@ -1,5 +1,11 @@
 # RB-007 - Backup y restauracion de la base de datos
 
+> Correccion operativa 2026-08-21: `.github/workflows/backup-database.yml` incluye ahora un restore
+> drill manual opt-in (`run_restore_drill=true`). Requiere el secreto separado
+> `SUPABASE_RESTORE_DB_URL`, bloquea explicitamente si coincide con `SUPABASE_DB_URL` y valida que
+> `public.organizations` y su policy RLS existan tras restaurar. No se ejecuta por defecto ni toca
+> produccion.
+
 ## Contexto
 
 El proyecto Supabase (`SaaS-EcomScaling`, organizacion `EcomScaling`) esta en **plan `free`**, que no
@@ -19,7 +25,8 @@ limitarse a los administradores del repositorio; no se debe compartir ni
 descargar en equipos personales sin control. La configuracion del secret y el
 drill de restauracion siguen siendo gates operativos externos.
 
-`.github/workflows/backup-database.yml`, cron diario `30 2 * * *` UTC:
+`.github/workflows/backup-database.yml`, workflow manual `workflow_dispatch` (el cron
+`30 2 * * *` UTC permanece comentado por decision operativa):
 
 1. Instala `postgresql-client` en el runner (`ubuntu-latest`).
 2. `pg_dump "$SUPABASE_DB_URL" --format=custom --no-owner --no-privileges` — formato custom de
@@ -42,6 +49,9 @@ de la API REST que ya existe como `SUPABASE_URL`). Pasos:
    `SUPABASE_SERVICE_ROLE_KEY`).
 3. Lanzar el workflow manualmente una vez (`workflow_dispatch`) para confirmar que el dump se genera y
    pasa la verificacion de integridad.
+4. Para el drill, configurar temporalmente `SUPABASE_RESTORE_DB_URL` con una base desechable y lanzar
+   `workflow_dispatch` con `run_restore_drill=true`. El workflow restaura, valida el esquema/RLS y
+   falla si el destino coincide con produccion.
 
 Sin este secret el job falla explicito (`SUPABASE_DB_URL secret is not set`), no en silencio.
 
@@ -82,12 +92,10 @@ demostrar que un dump es utilizable, no verificar el proyecto real.
 _Sin ejecutar todavia. No marcar el criterio de entrada "Backups configurados y restauracion probada al
 menos una vez" (`OPS-01-piloto-mvp.md`) como cumplido hasta que haya al menos una fila aqui._
 
-**Decision de Rafa (2026-07-23)**: pospuesto explicitamente a proposito al final del programa -- el drill
-implica crear un proyecto Supabase nuevo (aunque desechable y en plan free) y no se quiere invertir tiempo
-en eso ahora. `SUPABASE_DB_URL` (el secret que el workflow de backup necesita) se esta configurando en
-paralelo; una vez configurado, el workflow diario de `pg_dump` ya puede correr y validar su propia
-integridad (`pg_restore --list`) sin necesitar el drill completo -- eso si cierra la parte de "backup
-configurado". Solo la restauracion real a un proyecto de prueba queda para el final.
+**Estado actual**: el procedimiento y el guard de seguridad ya estan automatizados en el workflow,
+pero el drill sigue sin considerarse ejecutado hasta que un administrador configure
+`SUPABASE_RESTORE_DB_URL` y lo lance sobre un destino desechable. La ausencia de ese secret no se
+interpreta como exito.
 
 | Fecha | Ejecutado por | Duracion (RTO medido) | Resultado | Gaps encontrados |
 | --- | --- | --- | --- | --- |

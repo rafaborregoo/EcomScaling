@@ -2,10 +2,17 @@
 
 ## Estado
 
+> Verificacion vigente 2026-08-24: la reconciliacion de conteos Shopify ya
+> devuelve una clasificacion operativa por dataset (`exact`, `warning`,
+> `mismatch`) y conserva la razon explicita para diagnostico. Tests directos:
+> 4/4 pass. Esto evita tratar como fallo la diferencia historica de pedidos
+> documentada para el scope `read_orders`; la alerta persistida sigue fuera de
+> este cambio.
+
 - **Estado real:** `in_progress` (funciona con una tienda real, pero el documento mezcla dos sistemas
   complejos — conector y motor financiero — sin el detalle que cada uno necesita para llamarse `done`).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-04, DB-05, DB-03
 - **Bloqueador:** ninguno
 - **Evidencia:**
@@ -48,4 +55,3 @@ Conectar Shopify y generar los datos necesarios para dashboard y beneficio neto 
 - Import inicial y re-sync idempotentes.
 - Comparacion manual contra Shopify aceptable.
 - Dashboard no depende de mocks permanentes.
-

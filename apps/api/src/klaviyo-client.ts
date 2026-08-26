@@ -76,7 +76,7 @@ function errorCode(status: number): {
     return { code: "REAUTHORIZATION_REQUIRED", retryable: false, reauth: true };
   if (status === 403)
     return { code: "PERMISSION_MISSING", retryable: false, reauth: false };
-  if (status === 429)
+  if (status === 408 || status === 409 || status === 425 || status === 429)
     return { code: "RATE_LIMITED", retryable: true, reauth: false };
   if (status >= 500)
     return { code: "EXTERNAL_API_UNAVAILABLE", retryable: true, reauth: false };
@@ -90,6 +90,7 @@ function errorCode(status: number): {
 const MAX_RETRIES = 4;
 const BASE_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 15_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -114,6 +115,18 @@ export function klaviyoRetryDelayMs(
   return Math.min(exponential + jitter * BASE_BACKOFF_MS, MAX_BACKOFF_MS);
 }
 
+function retryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1_000, MAX_BACKOFF_MS);
+  }
+  const date = Date.parse(header);
+  return Number.isFinite(date)
+    ? Math.max(0, Math.min(MAX_BACKOFF_MS, date - Date.now()))
+    : null;
+}
+
 export function createKlaviyoClient(
   accessToken: string,
   options: {
@@ -134,15 +147,34 @@ export function createKlaviyoClient(
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-      const response = await fetchImpl(url, {
-        ...init,
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${accessToken}`,
-          revision,
-          ...init.headers,
-        },
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      let response: Response;
+      try {
+        const signal = init.signal
+          ? AbortSignal.any([init.signal, controller.signal])
+          : controller.signal;
+        response = await fetchImpl(url, {
+          ...init,
+          signal,
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            revision,
+            ...init.headers,
+          },
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        lastError = new Error(
+          `klaviyo_api_error:${error instanceof Error && error.name === "AbortError" ? "TIMEOUT" : "NETWORK"}`,
+        );
+        if (attempt === MAX_RETRIES) throw lastError;
+        await sleepImpl(klaviyoRetryDelayMs(attempt, null));
+        continue;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (response.ok) {
         return (await response.json()) as T;
@@ -160,8 +192,10 @@ export function createKlaviyoClient(
         throw lastError;
       }
 
+      const retryAfterHeader = response.headers.get("Retry-After");
       await sleepImpl(
-        klaviyoRetryDelayMs(attempt, response.headers.get("Retry-After")),
+        retryAfterMs(retryAfterHeader) ??
+          klaviyoRetryDelayMs(attempt, retryAfterHeader),
       );
     }
 

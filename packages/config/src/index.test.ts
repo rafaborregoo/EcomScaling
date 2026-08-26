@@ -54,6 +54,18 @@ test("loadApiEnv: una variable opcional presente pero vacia cuenta como no confi
   assert.equal(env.META_APP_ID, undefined);
 });
 
+test("loadApiEnv: propaga una versiÃ³n Shopify vÃ¡lida", () => {
+  const env = loadApiEnv({ ...BASE_ENV, SHOPIFY_API_VERSION: "2026-10" });
+  assert.equal(env.SHOPIFY_API_VERSION, "2026-10");
+});
+
+test("loadApiEnv: rechaza una versiÃ³n Shopify mal formada", () => {
+  assert.throws(
+    () => loadApiEnv({ ...BASE_ENV, SHOPIFY_API_VERSION: "latest" }),
+    /SHOPIFY_API_VERSION/,
+  );
+});
+
 test("loadApiEnv: falla si solo parte de las variables custom de Shopify estan seteadas", () => {
   assert.throws(
     () =>
@@ -113,6 +125,35 @@ test("loadApiEnv: respeta META_SCOPES explicito en vez del default", () => {
   assert.equal(env.META_SCOPES, "ads_read");
 });
 
+test("loadApiEnv: propaga una versiÃ³n Graph Meta vÃ¡lida", () => {
+  const env = loadApiEnv({
+    ...BASE_ENV,
+    META_APP_ID: "meta-app-id",
+    META_APP_SECRET: "meta-secret",
+    META_REDIRECT_URI: "https://example.com/meta-callback",
+    META_GRAPH_VERSION: "v24.0",
+  });
+  assert.equal(env.META_GRAPH_VERSION, "v24.0");
+});
+
+test("loadApiEnv: rechaza una versiÃ³n Graph Meta mal formada", () => {
+  assert.throws(
+    () => loadApiEnv({ ...BASE_ENV, META_GRAPH_VERSION: "graph-latest" }),
+    /META_GRAPH_VERSION/,
+  );
+});
+
+test("loadApiEnv: conserva el modo asíncrono de Insights solo con Meta completo", () => {
+  const env = loadApiEnv({
+    ...BASE_ENV,
+    META_APP_ID: "meta-app-id",
+    META_APP_SECRET: "meta-secret",
+    META_REDIRECT_URI: "https://example.com/meta-callback",
+    META_INSIGHTS_MODE: "async",
+  });
+  assert.equal(env.META_INSIGHTS_MODE, "async");
+});
+
 test("loadApiEnv: exige la configuración completa de Klaviyo OAuth", () => {
   assert.throws(
     () =>
@@ -134,7 +175,7 @@ test("loadApiEnv: aplica scopes de lectura de Klaviyo cuando OAuth está configu
   });
   assert.equal(
     env.KLAVIYO_SCOPES,
-    "accounts:read,flows:read,campaigns:read,forms:read,lists:read,segments:read,metrics:read",
+    "accounts:read flows:read campaigns:read forms:read lists:read segments:read metrics:read",
   );
 });
 
@@ -144,6 +185,44 @@ test("loadApiEnv: conserva el allowlist de feature flags de integraciones", () =
     INTEGRATION_FEATURE_FLAGS: "shopify,meta_ads",
   });
   assert.equal(env.INTEGRATION_FEATURE_FLAGS, "shopify,meta_ads");
+});
+
+test("loadApiEnv: conserva el routing IA opcional sin exigir proveedores", () => {
+  const routing = JSON.stringify({
+    a02_monitor_negocio: {
+      anthropicModel: "claude-sonnet-4-5",
+      maxCostUsd: 0.5,
+    },
+  });
+  const env = loadApiEnv({ ...BASE_ENV, AI_MODEL_ROUTING_JSON: routing });
+  assert.equal(env.AI_MODEL_ROUTING_JSON, routing);
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+});
+
+test("loadApiEnv: conserva los presupuestos IA por plan sin exigir proveedores", () => {
+  const budgets = JSON.stringify({ starter: { dailyBudgetUsd: 8 } });
+  const env = loadApiEnv({ ...BASE_ENV, AI_PLAN_BUDGETS_JSON: budgets });
+  assert.equal(env.AI_PLAN_BUDGETS_JSON, budgets);
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+});
+
+test("loadApiEnv: mantiene direct por contrato y permite activar LangGraph explícitamente", () => {
+  const direct = loadApiEnv({ ...BASE_ENV });
+  assert.equal(direct.AI_ORCHESTRATION_MODE, undefined);
+
+  const langgraph = loadApiEnv({
+    ...BASE_ENV,
+    AI_ORCHESTRATION_MODE: "langgraph",
+  });
+  assert.equal(langgraph.AI_ORCHESTRATION_MODE, "langgraph");
+  assert.equal(langgraph.ANTHROPIC_API_KEY, undefined);
+});
+
+test("loadApiEnv: rechaza un modo de orquestación desconocido", () => {
+  assert.throws(
+    () => loadApiEnv({ ...BASE_ENV, AI_ORCHESTRATION_MODE: "experimental" }),
+    /AI_ORCHESTRATION_MODE/,
+  );
 });
 
 test("loadWorkerEnv: aplica defaults de REDIS_URL y API_URL cuando no estan seteados", () => {

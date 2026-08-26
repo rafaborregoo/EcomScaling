@@ -1,10 +1,18 @@
 # INT-04 - Loom y Fathom
 
+> `FATHOM_API_KEY` queda reservado como secreto opcional server-side para registrar el webhook cuando
+> exista una cuenta de prueba; nunca se expone al frontend.
+
+> **Preparación técnica 2026-08-24:** `apps/api/src/fathom-webhook.ts` implementa el contrato oficial
+> de firma de Fathom (id/timestamp/body, secreto `whsec_`, firmas versionadas, comparación constante,
+> tolerancia anti-replay), parsing mínimo del evento y clave de deduplicación. El módulo todavía no
+> registra webhooks ni materializa llamadas: esa conexión requiere la API key y una prueba externa.
+
 ## Estado
 
-- **Estado real:** `in_progress` (compuesto: Loom manual `done`, Fathom automatizado `planned`)
+- **Estado real:** `prepared_pending_validation` (compuesto: Loom manual `done`, Fathom automatizado preparado)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** INT-00, DB-08 (llamadas), AI-01 (analista de llamadas)
 - **Bloqueador (solo para Fathom):** **Q-011 resuelta 2026-07-29** (Rafa decidio API key interna, ver mas
   abajo), pero construir/validar el modulo real sigue bloqueado -- falta una API key de una cuenta de
@@ -53,8 +61,8 @@ Decisiones a tomar antes de programar:
 ## Pendiente antes de avanzar Fathom
 
 1. ~~Decidir modo de auth (API key vs OAuth)~~ — **resuelto 2026-07-29 (Q-011): API key interna.**
-2. Conseguir una API key de una cuenta de prueba real de Fathom (Rafa) — bloquea todo lo demas: sin ella no
-   se puede construir ni validar el modulo (ADR-0006, punto 8).
+2. Conseguir una API key de una cuenta de prueba real de Fathom (Rafa) — bloquea el registro y validación
+   externa; el contrato de webhook ya está preparado y testeado localmente.
 3. Diseñar el flujo webhook -> verificar firma -> deduplicar -> resolver organizacion por conexion ->
    guardar `call_transcripts` con `source: fathom` -> ejecutar A01 -> aprobacion humana (mismo punto de
    entrada que ya usa Loom manual, para no duplicar el pipeline de A01).

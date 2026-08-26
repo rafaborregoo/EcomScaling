@@ -478,6 +478,21 @@ const COMPLIANCE_TOPIC_HANDLERS: Record<
 
 export type WebhookResult = { statusCode: number; body: Record<string, unknown> };
 
+/** Shopify should send JSON, but malformed signed payloads must be rejected
+ * deterministically instead of escaping as an unhandled server exception. */
+export function parseShopifyWebhookPayload(
+  rawBody: Buffer,
+): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(rawBody.toString("utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function handleShopifyWebhookRequest(
   env: ApiEnv,
   headers: Record<string, string | string[] | undefined>,
@@ -523,6 +538,11 @@ export async function handleShopifyWebhookRequest(
     return { statusCode: 200, body: { status: "ignored_unknown_connection" } };
   }
 
+  const payload = parseShopifyWebhookPayload(rawBody);
+  if (!payload) {
+    return { statusCode: 400, body: { error: "invalid_json_payload" } };
+  }
+
   const fingerprint = sha256(rawBody.toString("utf8"));
 
   const { error: eventInsertError } = await supabase.schema("private").from("webhook_events").insert({
@@ -534,7 +554,7 @@ export async function handleShopifyWebhookRequest(
     fingerprint,
     signature_valid: true,
     status: "received",
-    payload: JSON.parse(rawBody.toString("utf8")),
+    payload,
     headers: {
       "x-shopify-shop-domain": shopDomain,
       "x-shopify-topic": topic,
@@ -614,8 +634,6 @@ export async function handleShopifyWebhookRequest(
       return { statusCode: 500, body: { error: "webhook_event_insert_failed" } };
     }
   }
-
-  const payload = JSON.parse(rawBody.toString("utf8")) as Record<string, unknown>;
 
   try {
     await handle!(supabase, ctx, payload);

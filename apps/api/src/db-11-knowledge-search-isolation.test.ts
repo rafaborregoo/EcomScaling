@@ -11,7 +11,7 @@
  * ranking de similitud).
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY. Ejecutar
- * con `npm run test -w @ecomscaling/api`.
+ * con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -20,9 +20,13 @@ import { loadApiEnv } from "@ecomscaling/config";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 
@@ -39,13 +43,23 @@ before(async () => {
   const { data: orgs, error: orgsError } = await admin
     .from("organizations")
     .insert([
-      { display_name: `DB-11 Owner Org ${RUN_TAG}`, slug: `db11-owner-org-${RUN_TAG}`, status: "active" },
-      { display_name: `DB-11 Other Org ${RUN_TAG}`, slug: `db11-other-org-${RUN_TAG}`, status: "active" },
+      {
+        display_name: `DB-11 Owner Org ${RUN_TAG}`,
+        slug: `db11-owner-org-${RUN_TAG}`,
+        status: "active",
+      },
+      {
+        display_name: `DB-11 Other Org ${RUN_TAG}`,
+        slug: `db11-other-org-${RUN_TAG}`,
+        status: "active",
+      },
     ])
     .select("id, slug");
 
   if (orgsError || !orgs || orgs.length !== 2) {
-    throw new Error(`No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`);
+    throw new Error(
+      `No se pudieron crear las organizaciones de prueba: ${orgsError?.message}`,
+    );
   }
   orgOwner = orgs.find((org) => org.slug.startsWith("db11-owner"))!.id;
   orgOther = orgs.find((org) => org.slug.startsWith("db11-other"))!.id;
@@ -64,7 +78,9 @@ before(async () => {
     .single();
 
   if (docError || !doc) {
-    throw new Error(`No se pudo crear el documento de prueba: ${docError?.message}`);
+    throw new Error(
+      `No se pudo crear el documento de prueba: ${docError?.message}`,
+    );
   }
   documentId = doc.id;
 
@@ -72,12 +88,15 @@ before(async () => {
     document_id: documentId,
     organization_id: orgOwner,
     chunk_index: 0,
-    content: "Contenido privado de prueba para aislamiento cross-tenant de RAG.",
+    content:
+      "Contenido privado de prueba para aislamiento cross-tenant de RAG.",
     embedding: SYNTHETIC_EMBEDDING,
   });
 
   if (chunkError) {
-    throw new Error(`No se pudo crear el chunk de prueba: ${chunkError.message}`);
+    throw new Error(
+      `No se pudo crear el chunk de prueba: ${chunkError.message}`,
+    );
   }
 });
 
@@ -94,8 +113,14 @@ test("knowledge_search no devuelve conocimiento privado de otra organizacion", a
   });
 
   assert.equal(error, null);
-  const leaked = (data ?? []).some((row: { document_id: string }) => row.document_id === documentId);
-  assert.equal(leaked, false, "el documento privado de otra organizacion aparecio en la busqueda");
+  const leaked = (data ?? []).some(
+    (row: { document_id: string }) => row.document_id === documentId,
+  );
+  assert.equal(
+    leaked,
+    false,
+    "el documento privado de otra organizacion aparecio en la busqueda",
+  );
 });
 
 test("knowledge_search si devuelve el conocimiento privado de su propia organizacion", async () => {
@@ -107,8 +132,13 @@ test("knowledge_search si devuelve el conocimiento privado de su propia organiza
   });
 
   assert.equal(error, null);
-  const found = (data ?? []).some((row: { document_id: string }) => row.document_id === documentId);
-  assert.ok(found, "el documento propio no aparecio en la busqueda de su propia organizacion");
+  const found = (data ?? []).some(
+    (row: { document_id: string }) => row.document_id === documentId,
+  );
+  assert.ok(
+    found,
+    "el documento propio no aparecio en la busqueda de su propia organizacion",
+  );
 });
 
 // AI-07 (criterio de cierre): una nota consultant_only nunca es recuperada
@@ -130,7 +160,11 @@ test("knowledge_search excluye documentos consultant_only cuando audience_allowe
   const leakedToClient = (clientView.data ?? []).some(
     (row: { document_id: string }) => row.document_id === documentId,
   );
-  assert.equal(leakedToClient, false, "una nota consultant_only aparecio con audience_allowed=['client_visible']");
+  assert.equal(
+    leakedToClient,
+    false,
+    "una nota consultant_only aparecio con audience_allowed=['client_visible']",
+  );
 
   const consultantView = await admin.rpc("knowledge_search", {
     target_organization_id: orgOwner,
@@ -142,7 +176,10 @@ test("knowledge_search excluye documentos consultant_only cuando audience_allowe
   const visibleToConsultant = (consultantView.data ?? []).some(
     (row: { document_id: string }) => row.document_id === documentId,
   );
-  assert.ok(visibleToConsultant, "el documento consultant_only no aparecio cuando si esta permitido");
+  assert.ok(
+    visibleToConsultant,
+    "el documento consultant_only no aparecio cuando si esta permitido",
+  );
 });
 
 // AI-07 (criterio de cierre): una memoria con scope store nunca aparece al
@@ -150,7 +187,11 @@ test("knowledge_search excluye documentos consultant_only cuando audience_allowe
 test("knowledge_search excluye documentos de otra tienda de la misma organizacion", async () => {
   const { data: connection, error: connectionError } = await admin
     .from("integration_connections")
-    .insert({ organization_id: orgOwner, provider: "shopify", status: "connected" })
+    .insert({
+      organization_id: orgOwner,
+      provider: "shopify",
+      status: "connected",
+    })
     .select("id")
     .single();
   assert.equal(connectionError, null);
@@ -185,7 +226,11 @@ test("knowledge_search excluye documentos de otra tienda de la misma organizacio
   const leakedToOtherStore = (otherStoreView.data ?? []).some(
     (row: { document_id: string }) => row.document_id === documentId,
   );
-  assert.equal(leakedToOtherStore, false, "una memoria de tienda aparecio al consultar otra tienda");
+  assert.equal(
+    leakedToOtherStore,
+    false,
+    "una memoria de tienda aparecio al consultar otra tienda",
+  );
 
   const sameStoreView = await admin.rpc("knowledge_search", {
     target_organization_id: orgOwner,
@@ -198,5 +243,8 @@ test("knowledge_search excluye documentos de otra tienda de la misma organizacio
   const foundInOwnStore = (sameStoreView.data ?? []).some(
     (row: { document_id: string }) => row.document_id === documentId,
   );
-  assert.ok(foundInOwnStore, "la memoria de la tienda no aparecio al consultar su propia tienda");
+  assert.ok(
+    foundInOwnStore,
+    "la memoria de la tienda no aparecio al consultar su propia tienda",
+  );
 });

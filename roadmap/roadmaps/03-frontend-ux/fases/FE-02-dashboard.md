@@ -1,5 +1,9 @@
 # FE-02 - Dashboard
 
+Incremento de resiliencia 2026-08-26: el resumen multi-tienda mantiene concurrencia acotada,
+limpia el estado cuando no hay tiendas y captura fallos del orquestador completo. No deja loading
+permanente ni summaries de una selección anterior; typecheck web y el gate de estados pasan.
+
 ## Estado
 
 - **Estado real:** `functionally_complete_e2e_pending`

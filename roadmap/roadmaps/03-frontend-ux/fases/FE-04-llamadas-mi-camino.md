@@ -2,9 +2,14 @@
 
 ## Estado
 
+> Correccion vigente 2026-08-24: Fathom sigue sin conexion productiva ni
+> materializacion de llamadas, pero ya tiene contrato de webhook, verificacion
+> HMAC, parser y dedupe key en `apps/api/src/fathom-webhook.ts`. La validacion
+> externa requiere una API key de prueba.
+
 - **Estado real:** `functionally_complete_ux_validation_pending`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-08, BE-05
 - **Bloqueador:** ninguno
 - **Evidencia:** `/camino` operativo; `/llamadas`: registro, transcripcion versionada, resumen

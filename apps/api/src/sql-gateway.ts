@@ -84,11 +84,16 @@ const FORBIDDEN_FUNCTIONS = new Set([
   "jsonb_path_query",
 ]);
 
-const TOP_LEVEL_ALLOWED_TYPES = new Set(["select", "union", "union all", "with", "values"]);
+const TOP_LEVEL_ALLOWED_TYPES = new Set([
+  "select",
+  "union",
+  "union all",
+  "with",
+  "values",
+]);
 
 export type GatewayValidation =
-  | { ok: true; tables: string[] }
-  | { ok: false; reason: string };
+  { ok: true; tables: string[] } | { ok: false; reason: string };
 
 type AstNode = Record<string, unknown>;
 
@@ -115,14 +120,19 @@ function walk(node: unknown, visit: (node: AstNode) => void) {
   }
 }
 
-function readQName(value: unknown): { name: string | null; schema: string | null } {
+function readQName(value: unknown): {
+  name: string | null;
+  schema: string | null;
+} {
   if (typeof value === "string") {
     return { name: value.toLowerCase(), schema: null };
   }
 
   if (isObject(value)) {
-    const name = typeof value.name === "string" ? value.name.toLowerCase() : null;
-    const schema = typeof value.schema === "string" ? value.schema.toLowerCase() : null;
+    const name =
+      typeof value.name === "string" ? value.name.toLowerCase() : null;
+    const schema =
+      typeof value.schema === "string" ? value.schema.toLowerCase() : null;
     return { name, schema };
   }
 
@@ -156,7 +166,8 @@ export function validateGatewaySql(sql: string): GatewayValidation {
   }
 
   const statement = statements[0] as unknown as AstNode;
-  const statementType = typeof statement.type === "string" ? statement.type : "";
+  const statementType =
+    typeof statement.type === "string" ? statement.type : "";
 
   if (!TOP_LEVEL_ALLOWED_TYPES.has(statementType)) {
     return { ok: false, reason: `sentencia_no_permitida: ${statementType}` };
@@ -173,7 +184,10 @@ export function validateGatewaySql(sql: string): GatewayValidation {
       forbiddenType = nodeType;
     }
 
-    if ((nodeType === "with" || nodeType === "with recursive") && Array.isArray(node.bind)) {
+    if (
+      (nodeType === "with" || nodeType === "with recursive") &&
+      Array.isArray(node.bind)
+    ) {
       for (const bind of node.bind) {
         if (isObject(bind)) {
           const { name } = readQName(bind.alias);
@@ -248,6 +262,7 @@ export type GatewayExecutionResult = {
   ok: boolean;
   rows?: unknown[];
   rowLimit?: number;
+  estimatedCost?: number;
   error?: string;
   tablesUsed: string[];
   durationMs: number;
@@ -259,7 +274,8 @@ const GATEWAY_MAX_ROWS = 200;
 /**
  * Valida, ejecuta y audita una consulta del agente. Toda invocacion (aceptada
  * o rechazada) queda registrada en agent_query_runs con tablas, filas y
- * duracion (criterio de cierre AI-03).
+ * duracion (criterio de cierre AI-03). La RPC puede devolver tambien el coste
+ * estimado del plan, sin exponer el plan completo al modelo.
  */
 export async function executeGatewayQuery(
   supabase: SupabaseClient,
@@ -289,10 +305,14 @@ export async function executeGatewayQuery(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), GATEWAY_ABORT_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    GATEWAY_ABORT_TIMEOUT_MS,
+  );
 
   let rows: unknown[] | undefined;
   let rowLimit: number | undefined;
+  let estimatedCost: number | undefined;
   let executionError: string | undefined;
 
   try {
@@ -309,10 +329,17 @@ export async function executeGatewayQuery(
     } else if (data && typeof data === "object" && "error" in data) {
       executionError = `sql_error: ${String((data as { error: unknown }).error).slice(0, 300)}`;
     } else if (data && typeof data === "object" && "rows" in data) {
-      const payload = data as { rows: unknown[]; row_limit?: number };
+      const payload = data as {
+        rows: unknown[];
+        row_limit?: number;
+        estimated_cost?: number;
+      };
       rows = Array.isArray(payload.rows) ? payload.rows : [];
       if (typeof payload.row_limit === "number") {
         rowLimit = payload.row_limit;
+      }
+      if (typeof payload.estimated_cost === "number") {
+        estimatedCost = payload.estimated_cost;
       }
     } else {
       executionError = "gateway_respuesta_inesperada";
@@ -340,7 +367,13 @@ export async function executeGatewayQuery(
   });
 
   if (executionError) {
-    return { ok: false, error: executionError, tablesUsed: validation.tables, durationMs };
+    return {
+      ok: false,
+      error: executionError,
+      tablesUsed: validation.tables,
+      durationMs,
+      ...(estimatedCost !== undefined ? { estimatedCost } : {}),
+    };
   }
 
   const result: GatewayExecutionResult = {
@@ -353,6 +386,9 @@ export async function executeGatewayQuery(
   if (rowLimit !== undefined) {
     result.rowLimit = rowLimit;
   }
+  if (estimatedCost !== undefined) {
+    result.estimatedCost = estimatedCost;
+  }
 
   return result;
 }
@@ -361,7 +397,7 @@ export async function executeGatewayQuery(
 // tool sql_select. Solo describe las vistas del esquema `ai`.
 export const SQL_GATEWAY_SCHEMA_DOC = `## Tool sql_select: esquema disponible
 
-Puedes ejecutar UNA sentencia SELECT (o WITH) por llamada sobre estas vistas, ya filtradas a la organizacion activa. Sin esquemas cualificados, maximo 200 filas por consulta (usa agregaciones), sin DDL/DML.
+Puedes ejecutar UNA sentencia SELECT (o WITH) por llamada sobre estas vistas, ya filtradas a la organizacion activa. Sin esquemas cualificados, maximo 200 filas por consulta y guard de coste estimado (usa agregaciones), sin DDL/DML.
 
 - shopify_stores(id, shop_name, myshopify_domain, currency_code, timezone, is_active)
 - shopify_products(id, store_id, external_product_id, title, handle, vendor, product_type, status, published_at, external_created_at)

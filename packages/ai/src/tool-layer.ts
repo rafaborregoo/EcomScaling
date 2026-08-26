@@ -124,6 +124,11 @@ const readTools = [
   "get_task_history",
   "get_call_history",
   "get_financial_settings",
+  // AI-22: contratos preparados; permanecen planned hasta disponer de proveedor.
+  "meta_read_ad_accounts",
+  "meta_read_campaign_insights",
+  "instagram_read_media",
+  "instagram_read_insights",
   "knowledge_search",
   "memory_recall",
   "get_playbook",
@@ -165,7 +170,7 @@ const writeTools = [
 
 const connectorForTool = (name: string): ToolDefinition["connector"] => {
   if (name.startsWith("shopify_")) return "shopify";
-  if (name.startsWith("meta_") || name === "get_budget_status") return "meta";
+  if (name.startsWith("meta_")) return "meta";
   if (name.startsWith("klaviyo_") || name === "propose_content")
     return "klaviyo";
   if (name.startsWith("instagram_")) return "instagram";
@@ -213,7 +218,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "get_financial_settings",
         "report_confidence",
       ].includes(name)
-      ? "implemented_partial"
+        ? "implemented_partial"
         : "planned",
     ),
   ),
@@ -354,12 +359,25 @@ const reportConfidenceOutputSchema = z
 const paginatedReadInputSchema = z
   .object({
     limit: z.number().int().min(1).max(100).default(50),
-    cursor: z.string().regex(/^offset:\d+$/).nullable().default(null),
+    cursor: z
+      .string()
+      .regex(/^offset:\d+$/)
+      .nullable()
+      .default(null),
   })
   .strict();
 const paginatedReadOutputSchema = toolCollectionWithProvenanceSchema.or(
   z.object({ error: toolErrorSchema }),
 );
+const preparedConnectorReadInputSchema = z
+  .object({
+    account_id: z.string().min(1).max(255).optional(),
+    period_start: z.string().date().optional(),
+    period_end: z.string().date().optional(),
+    limit: z.number().int().min(1).max(100).default(50),
+    cursor: z.string().regex(/^offset:\d+$/).nullable().default(null),
+  })
+  .strict();
 
 export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
   sql_select: {
@@ -374,6 +392,7 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
       .object({
         rows: z.array(z.unknown()),
         row_limit: z.number().nullable(),
+        estimated_cost: z.number().nullable().default(null),
         truncated: z.boolean(),
         next_cursor: z.string().nullable(),
         total_count: z.number().int().nonnegative().nullable(),
@@ -452,6 +471,26 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
     inputSchema: emptyInputSchema,
     outputSchema: domainReadOutputSchema,
   },
+  meta_read_ad_accounts: {
+    definition: getDefinition("meta_read_ad_accounts"),
+    inputSchema: preparedConnectorReadInputSchema,
+    outputSchema: paginatedReadOutputSchema,
+  },
+  meta_read_campaign_insights: {
+    definition: getDefinition("meta_read_campaign_insights"),
+    inputSchema: preparedConnectorReadInputSchema,
+    outputSchema: paginatedReadOutputSchema,
+  },
+  instagram_read_media: {
+    definition: getDefinition("instagram_read_media"),
+    inputSchema: preparedConnectorReadInputSchema,
+    outputSchema: paginatedReadOutputSchema,
+  },
+  instagram_read_insights: {
+    definition: getDefinition("instagram_read_insights"),
+    inputSchema: preparedConnectorReadInputSchema,
+    outputSchema: paginatedReadOutputSchema,
+  },
   request_missing_data: {
     definition: getDefinition("request_missing_data"),
     inputSchema: requestMissingDataInputSchema,
@@ -509,6 +548,24 @@ export function getToolDefinition(name: string): ToolDefinition | null {
 
 export function getToolContract(name: string): ToolContract | null {
   return TOOL_CONTRACTS[name] ?? null;
+}
+
+/**
+ * Devuelve las tools declaradas para una version pero que aun no tienen
+ * executor operativo. El runtime puede informar al agente sin exponer una
+ * capacidad que en realidad no puede ejecutar.
+ */
+export function getUnavailableToolNames(rawAllowedTools: unknown): string[] {
+  if (!Array.isArray(rawAllowedTools)) return [];
+
+  return rawAllowedTools.filter((name): name is string => {
+    if (typeof name !== "string") return false;
+    const definition = getToolDefinition(name);
+    return Boolean(
+      definition &&
+        (definition.status === "planned" || definition.status === "disabled"),
+    );
+  });
 }
 
 const permissionRank: Record<ToolPermission, number> = {

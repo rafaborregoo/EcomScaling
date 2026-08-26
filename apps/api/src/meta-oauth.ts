@@ -44,6 +44,65 @@ export type MetaLongLivedToken = {
   expiresAt: string | null;
 };
 
+export function parseMetaScopes(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((scope) => scope.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export function missingMetaScopes(
+  requiredScopes: readonly string[],
+  grantedScopes: readonly string[],
+): string[] {
+  const granted = new Set(
+    grantedScopes.map((scope) => scope.trim()).filter(Boolean),
+  );
+  return requiredScopes.filter((scope) => !granted.has(scope));
+}
+
+export type MetaDebugToken = {
+  scopes: string[];
+  userId: string | null;
+  appId: string | null;
+  expiresAt: string | null;
+};
+
+/** Reads the permissions actually attached to a token before activation. */
+export async function debugMetaAccessToken(
+  appEnv: MetaOAuthEnv,
+  accessToken: string,
+): Promise<MetaDebugToken> {
+  const response = await metaGraphGet<{
+    data?: {
+      is_valid?: boolean;
+      scopes?: string[];
+      user_id?: string;
+      app_id?: string;
+      expires_at?: number;
+    };
+  }>("debug_token", `${appEnv.META_APP_ID}|${appEnv.META_APP_SECRET}`, {
+    input_token: accessToken,
+  });
+  const data = response.data;
+  if (!data?.is_valid || !Array.isArray(data.scopes)) {
+    throw new Error("meta_token_debug_invalid");
+  }
+  return {
+    scopes: parseMetaScopes(data.scopes.join(",")),
+    userId: data.user_id ?? null,
+    appId: data.app_id ?? null,
+    expiresAt:
+      typeof data.expires_at === "number"
+        ? new Date(data.expires_at * 1000).toISOString()
+        : null,
+  };
+}
+
 /**
  * Intercambia el code por un token corto y lo alarga inmediatamente
  * (fb_exchange_token, ~60 dias). Meta no da refresh_token para usuarios: cuando

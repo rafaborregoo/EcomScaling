@@ -36,6 +36,7 @@ para a tratamiento inmediato, incluso si solo se vio una fila.
      validacion de Node tuviera un bug — es la razon por la que existe `be-07-sql-gateway-tenant-isolation.test.ts`.
 
 3. Reproducir el escenario exacto con un usuario de prueba real (nunca con datos de un cliente real):
+
    ```sql
    -- Confirmar la membership real del usuario afectado
    select organization_id, role, is_active
@@ -47,6 +48,7 @@ para a tratamiento inmediato, incluso si solo se vio una fila.
    select platform_role from profiles where id = '<user_id>';
    select organization_id, is_active from consultant_assignments where consultant_user_id = '<user_id>';
    ```
+
    Si el usuario **si** tiene un acceso legitimo (consultor asignado, platform_admin) al `organizationId`
    en cuestion, no es una fuga — es el comportamiento esperado de "memberships virtuales" (ver BE-01,
    riesgo de diseño documentado, no un bug).
@@ -97,8 +99,10 @@ corregirla manualmente — no hay automatismo para esto todavia.
 
 - El endpoint afectado, probado de nuevo con el mismo usuario y el mismo `organizationId` ajeno, devuelve
   403 `organization_access_denied`.
-- El nuevo test de regresion pasa en local contra Supabase remoto y queda anadido a `npm run test`.
-- Si se toco una policy RLS, correr la suite completa de `rls-tenant-isolation.test.ts` para confirmar que
+- El nuevo test de regresion pasa contra un proyecto de pruebas aislado y queda en la suite
+  `test:remote`, protegida por confirmacion explicita; no se debe ejecutar contra produccion.
+- Si se toco una policy RLS, correr la suite completa de `rls-tenant-isolation.test.ts` mediante
+  `test:remote` solo con un proyecto de pruebas aislado y variables de guardia válidas para confirmar que
   el cambio no rompio ningun acceso legitimo (consultor asignado, platform_admin, owner/manager/member).
 
 ## Comunicacion al cliente

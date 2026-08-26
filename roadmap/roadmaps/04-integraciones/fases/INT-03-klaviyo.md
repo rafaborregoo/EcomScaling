@@ -1,5 +1,26 @@
 # INT-03 - Klaviyo
 
+> **Fallos de sync en segundo plano 2026-08-26:** los lanzamientos de sync manual y del sync inicial
+> posterior a OAuth ya no descartan excepciones. La conexión se marca como `error` con mensaje
+> acotado y se registra la operación para observabilidad; no se escriben tokens en el log. La UI
+> puede mostrar así el estado real y permitir la recuperación.
+
+> **Resiliencia HTTP 2026-08-24:** `klaviyo-client.ts` añade timeout abortable de 15 s y retries
+> acotados para red, timeout, 408/409/425/429 y 5xx. Respeta `Retry-After` (segundos o fecha HTTP),
+> mantiene el límite de backoff de 60 s y falla rápido para 401/403/404 y payloads inválidos.
+
+> **Permisos OAuth actualizado 2026-08-24:** la URL de autorización usa la lista de scopes separada por espacios exigida por Klaviyo. El callback conserva el `scope` devuelto por el token, rechaza respuestas sin scopes verificables o con permisos faltantes y no marca la conexión como activa en ese caso. También normaliza configuraciones antiguas separadas por comas.
+
+> **Correccion 2026-08-20: idempotencia alineada con el cron.** La clave del sync incremental
+> usa ventanas UTC de 6 horas, coincidiendo con `klaviyo-reconcile`. Antes era diaria y los
+> ciclos posteriores al primero se devolvian como ya completados; el sync podia quedar
+> desactualizado hasta 24 horas. El sync inicial mantiene una unica importacion diaria.
+
+> **Operacion sin credenciales:** `apps/worker/src/klaviyo-reconcile-once.ts` y el workflow
+> `.github/workflows/klaviyo-reconcile.yml` estan preparados; el disparador `schedule` queda
+> comentado hasta disponer de una cuenta Klaviyo real y sus secretos. Mientras tanto solo se
+> puede ejecutar manualmente y el feature flag mantiene el conector aislado.
+
 > **Correccion 2026-08-03: backoff del cliente HTTP y backfill historico.** Dos huecos reales cerrados
 > antes de conectar a un cliente:
 >
@@ -23,7 +44,7 @@
 >
 > **Correccion de estado 2026-08-02:** OAuth PKCE y el vertical slice de lectura ya estan cableados
 > a `/v1/organizations/:organizationId/integrations/klaviyo/connect` y
-> `/v1/klaviyo/oauth/callback`. El cliente fija `2026-04-15`, valida `links.next` y persiste solo
+> `/v1/klaviyo/oauth/callback`. El cliente fija `2026-07-15`, valida `links.next` y persiste solo
 > metadatos agregados, Reporting API por tipo de informe y seleccion auditable de `conversion_metric_id`.
 > INT-03 pasa a `implemented_partial`; faltan validacion con una cuenta Klaviyo real, backfill y
 > reconciliacion programada.
@@ -35,22 +56,28 @@
 ## Estado
 
 - **Estado real:** `implemented_partial`
+
+> **Override vigente 2026-08-19:** el vertical slice ya existe: OAuth/PKCE,
+> almacenamiento, rutas, sync, reporting, idempotencia y reconciliacion estan
+> implementados. La cuenta real, el backfill profundo y la validacion externa
+> siguen pendientes; las notas inferiores que dicen "sin vertical slice" son
+> historicas.
+
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-08-02
+- **Ultima validacion:** 2026-08-19
 - **Dependencias:** INT-00, DB-09, BE-06
-- **Bloqueador:** ninguno técnico — sigue sin existir un vertical slice ejecutado, pero ya hay primitives
-  aislados en `apps/api/src/klaviyo-oauth.ts` para OAuth/PKCE, deliberadamente no conectados a rutas ni
-  almacenamiento hasta cerrar DB-09/BE-06.
+- **Bloqueador:** ninguno técnico — el vertical slice local está implementado; la validación con una
+  cuenta real, el backfill profundo y la comparación de reporting dependen de credenciales externas.
 - **Referencia de plataforma**: `Klaviyo/EcomScaling_IA_Guia_Klaviyo_API.md` explica como funciona la API
   de Klaviyo; este documento decide como lo implementa EcomScaling. No dupliques la guia aqui.
 
-## Decisiones aprobadas (pendientes de implementar)
+## Decisiones aprobadas y gaps restantes
 
 - **Autenticacion: OAuth**, no Private API Keys por cliente — obligatorio para multi-tenant y para el
   App Marketplace de Klaviyo; las instalaciones OAuth tienen cuota de rate limit propia.
 - **`api_revision` fijada y versionada explicitamente** en el cliente HTTP (no "siempre la ultima"). La
-  guia de referencia en este repo esta escrita sobre la revision `2026-04-15`; antes de programar hay que
-  reauditarla contra la revision vigente al momento de implementar.
+  guia de referencia en este repo queda supersedida por la revision `2026-07-15`; las revisiones futuras
+  deben volver a auditarse antes de actualizar el cliente.
 - **Fuente de metricas: Reporting API**, no `Query Metric Aggregates`, para que las cifras coincidan con
   lo que el cliente ve en la interfaz de Klaviyo (`Query Metric Aggregates` agrupa por fecha del evento;
   campanas/flows en la UI de Klaviyo usan fecha de envio — divergen).
@@ -72,7 +99,7 @@ campaigns/flows con la `conversion_metric_id` de la cuenta.
 
 ## Pendiente antes de empezar implementacion
 
-1. Reauditar `api_revision` vigente contra la guia de referencia (escrita sobre `2026-04-15`).
+1. Reauditar `api_revision` vigente contra la guia oficial antes de cada actualización mayor.
 2. Confirmar paginacion por cursor (`links.next`, no offsets) en el cliente HTTP desde el primer commit.
 3. Decidir frecuencia real de sync por bloque (cuenta diaria, flows/campaigns cada 3-6h, reporting
    reciente varias veces al dia, reconciliacion completa semanal) siguiendo el patron de
@@ -111,10 +138,10 @@ de sincronizacion siguen pendientes.
 
 ## Correccion de estado 2026-08-01
 
-Klaviyo sigue sin vertical slice ni credenciales: permanece `planned` para la integración operativa.
-El repositorio ya expone el contrato/adaptador no disponible y primitives OAuth/PKCE aislados, con estado
-honesto (`unknown` / `integration_not_available`) para que la UI y el dominio puedan activarlo más
-adelante sin datos simulados ni cambios de interfaz.
+Klaviyo está en `implemented_partial`: existe un vertical slice de configuración/OAuth/PKCE,
+persistencia, reporting y reconciliación protegida por feature flag. Sigue sin validación de cuenta
+real, backfill profundo ni publicación/envío, y el adaptador continúa devolviendo estado honesto cuando
+faltan credenciales.
 
 ## Preparación de producto 2026-08-02
 

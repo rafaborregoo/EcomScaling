@@ -1,5 +1,11 @@
 # Riesgos
 
+> Correccion operativa 2026-08-20: el catalogo vigente contiene 9 runbooks
+> (RB-001 a RB-009) y las fases SQO-05/SQO-06 ya documentan recovery y soporte.
+> R-017 conserva como pendiente unicamente el drill real de restauracion; las
+> referencias historicas a 7/8 runbooks o a una migracion faltante quedan
+> superseded.
+
 > Correccion 2026-08-02: R-021 queda superseded por `.github/workflows/ci.yml`.
 > El pipeline normal ejecuta tests unitarios/contractuales sin I/O de base de datos; los tests RLS
 > con fixtures se mantienen como verificacion manual en una base aislada cuando exista ese entorno.
@@ -21,8 +27,14 @@
 
 > Correccion R-014 2026-08-02: la correlacion `organization_id`/`user_id` en requests ya esta
 > implementada en los child loggers y en el resumen `request_completed_with_org` de Fastify.
-> R-014 mantiene como pendiente real las metricas/APM externas y la operacion de alertas, no la
-> correlacion basica de requests.
+> R-014 mantiene como pendiente real las metricas/APM externas; las alertas operativas base ya estan
+> activas en `ops-health-check.yml` y la correlacion basica de requests no es un hueco abierto.
+
+> Correccion vigente 2026-08-24: las filas historicas R-013/R-014/R-017 conservan el texto
+> original del riesgo, pero sus mitigaciones actuales son las de arriba: auditoria sensible
+> conectada, correlacion de organizacion/usuario y 9 runbooks (incluido RB-005). Lo unico que
+> sigue abierto en este bloque operativo es la politica/operacion de retencion de audit logs,
+> metricas/APM externa y el drill de restore.
 
 > Correccion 2026-08-02 (auditoria de escrituras sensibles): además de financiera y membresías,
 > las mutaciones de operaciones, Mi Camino, costes manuales de producto, llamadas y conocimiento
@@ -72,3 +84,7 @@
 
 Ningun riesgo se ha descartado (invalidado como irrelevante) todavia — todos los cerrados de arriba lo
 estan por mitigacion real o por aceptacion explicita de Rafa, no porque dejaran de aplicar.
+
+> Actualización 2026-08-24: R-013 ya tiene política de estado explícita en
+> [ADR-0018](../../../docs/decisions/ADR-0018-retencion-audit-logs.md). La retención indefinida solo
+> aplica al pre-piloto; antes del primer cliente real hay que decidir e implementar la ventana definitiva.

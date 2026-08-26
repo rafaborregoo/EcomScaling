@@ -6,6 +6,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
+  AsyncState,
   Avatar,
   Badge,
   Button,
@@ -118,15 +119,19 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
   const [isSaving, setIsSaving] = useState(false);
 
   const loadAccess = useCallback(async () => {
-    const response = await apiFetch(
-      `/v1/consultant/organizations/${organizationId}/access`,
-    );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organizationId}/access`,
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setAccess((await response.json()) as OrganizationAccess);
+      setError(null);
+    } catch {
+      setError("No se pudo cargar el acceso del cliente. Revisa la conexión e inténtalo de nuevo.");
     }
-    setAccess((await response.json()) as OrganizationAccess);
-    setError(null);
   }, [organizationId]);
 
   useEffect(() => {
@@ -137,37 +142,47 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
     event.preventDefault();
     if (!memberUserId) return;
     setIsSaving(true);
-    const response = await apiFetch(
-      `/v1/consultant/organizations/${organizationId}/members`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: memberUserId, role: memberRole }),
-      },
-    );
-    if (!response.ok) setError(await readApiError(response));
-    else await loadAccess();
-    setIsSaving(false);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organizationId}/members`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: memberUserId, role: memberRole }),
+        },
+      );
+      if (!response.ok) setError(await readApiError(response));
+      else await loadAccess();
+    } catch {
+      setError("No se pudo guardar el miembro. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function saveAssignment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!consultantUserId) return;
     setIsSaving(true);
-    const response = await apiFetch(
-      `/v1/consultant/organizations/${organizationId}/assignments`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          consultant_user_id: consultantUserId,
-          is_primary: isPrimary,
-        }),
-      },
-    );
-    if (!response.ok) setError(await readApiError(response));
-    else await loadAccess();
-    setIsSaving(false);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organizationId}/assignments`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            consultant_user_id: consultantUserId,
+            is_primary: isPrimary,
+          }),
+        },
+      );
+      if (!response.ok) setError(await readApiError(response));
+      else await loadAccess();
+    } catch {
+      setError("No se pudo guardar la asignación. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   if (error) {
@@ -352,25 +367,30 @@ function EditOrganizationForm({
     setIsSaving(true);
     setError(null);
 
-    const response = await apiFetch(
-      `/v1/consultant/organizations/${organization.id}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          display_name: displayName,
-          status,
-          timezone,
-          currency_code: currencyCode,
-        }),
-      },
-    );
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            display_name: displayName,
+            status,
+            timezone,
+            currency_code: currencyCode,
+          }),
+        },
+      );
 
-    if (response.ok) {
-      toast.success("Cliente actualizado.");
-      onSaved();
-    } else {
-      setError(await readApiError(response));
+      if (response.ok) {
+        toast.success("Cliente actualizado.");
+        onSaved();
+      } else {
+        setError(await readApiError(response));
+      }
+    } catch {
+      setError("No se pudo actualizar el cliente. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
       setIsSaving(false);
     }
   }
@@ -456,17 +476,22 @@ function StoresPanel({
 
   useEffect(() => {
     async function load() {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organization.id}/stores`,
-      );
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
+      try {
+        const response = await apiFetch(
+          `/v1/consultant/organizations/${organization.id}/stores`,
+        );
+        if (!response.ok) {
+          setError(await readApiError(response));
+          return;
+        }
+        const payload = (await response.json()) as {
+          stores: OrganizationStore[];
+        };
+        setStores(payload.stores);
+        setError(null);
+      } catch {
+        setError("No se pudieron cargar las tiendas. Revisa la conexión e inténtalo de nuevo.");
       }
-      const payload = (await response.json()) as {
-        stores: OrganizationStore[];
-      };
-      setStores(payload.stores);
     }
     void load();
   }, [organization.id]);
@@ -476,68 +501,89 @@ function StoresPanel({
       return;
     }
     setDeletingStoreId(confirmDeleteStore.id);
-    const response = await apiFetch(
-      `/v1/consultant/organizations/${organization.id}/stores/${confirmDeleteStore.id}`,
-      { method: "DELETE" },
-    );
-    if (response.ok) {
-      setStores((current) =>
-        (current ?? []).filter((store) => store.id !== confirmDeleteStore.id),
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/stores/${confirmDeleteStore.id}`,
+        { method: "DELETE" },
       );
-      setConfirmDeleteStore(null);
-    } else {
-      setError(await readApiError(response));
+      if (response.ok) {
+        setStores((current) =>
+          (current ?? []).filter((store) => store.id !== confirmDeleteStore.id),
+        );
+        setConfirmDeleteStore(null);
+      } else {
+        setError(await readApiError(response));
+      }
+    } catch {
+      setError("No se pudo eliminar la tienda. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setDeletingStoreId(null);
     }
-    setDeletingStoreId(null);
   }
 
   async function confirmOrgDeletion() {
     setIsDeletingOrg(true);
-    const response = await apiFetch(
-      `/v1/consultant/organizations/${organization.id}`,
-      { method: "DELETE" },
-    );
-    if (response.ok) {
-      onOrganizationDeleted();
-    } else {
-      setError(await readApiError(response));
-      setIsDeletingOrg(false);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}`,
+        { method: "DELETE" },
+      );
+      if (response.ok) {
+        onOrganizationDeleted();
+      } else {
+        setError(await readApiError(response));
+        setConfirmDeleteOrg(false);
+      }
+    } catch {
+      setError("No se pudo eliminar el cliente. Revisa la conexión e inténtalo de nuevo.");
       setConfirmDeleteOrg(false);
+    } finally {
+      setIsDeletingOrg(false);
     }
   }
 
   async function restoreStore(storeId: string) {
     setRestoringStoreId(storeId);
-    const response = await apiFetch(
-      `/v1/consultant/organizations/${organization.id}/stores/${storeId}/restore`,
-      { method: "POST" },
-    );
-    if (response.ok) {
-      setStores((current) =>
-        (current ?? []).map((store) =>
-          store.id === storeId ? { ...store, status: "connected" } : store,
-        ),
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/stores/${storeId}/restore`,
+        { method: "POST" },
       );
-    } else {
-      setError(await readApiError(response));
+      if (response.ok) {
+        setStores((current) =>
+          (current ?? []).map((store) =>
+            store.id === storeId ? { ...store, status: "connected" } : store,
+          ),
+        );
+      } else {
+        setError(await readApiError(response));
+      }
+    } catch {
+      setError("No se pudo restaurar la tienda. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setRestoringStoreId(null);
     }
-    setRestoringStoreId(null);
   }
 
   async function restoreOrganization() {
     setIsRestoringOrg(true);
-    const response = await apiFetch(
-      `/v1/consultant/organizations/${organization.id}/restore`,
-      {
-        method: "POST",
-      },
-    );
-    if (response.ok) {
-      onOrganizationUpdated();
-    } else {
-      setError(await readApiError(response));
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/restore`,
+        {
+          method: "POST",
+        },
+      );
+      if (response.ok) {
+        onOrganizationUpdated();
+      } else {
+        setError(await readApiError(response));
+      }
+    } catch {
+      setError("No se pudo restaurar el cliente. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setIsRestoringOrg(false);
     }
-    setIsRestoringOrg(false);
   }
 
   return (
@@ -726,19 +772,25 @@ function ConsultantPanel({
   const [searchQuery, setSearchQuery] = useState("");
 
   async function load() {
-    const response = await apiFetch("/v1/consultant/organizations");
+    setIsLoading(true);
+    try {
+      const response = await apiFetch("/v1/consultant/organizations");
 
-    if (!response.ok) {
-      setError(await readApiError(response));
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        organizations: ConsultantOrganization[];
+      };
+      setOrganizations(payload.organizations);
+      setError(null);
+    } catch {
+      setError("No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    const payload = (await response.json()) as {
-      organizations: ConsultantOrganization[];
-    };
-    setOrganizations(payload.organizations);
-    setIsLoading(false);
   }
 
   useEffect(() => {
@@ -746,11 +798,11 @@ function ConsultantPanel({
   }, [token]);
 
   if (isLoading) {
-    return <LoadingBlock label="Cargando clientes..." />;
+    return <AsyncState status="loading" loadingLabel="Cargando clientes..." />;
   }
 
   if (error) {
-    return <ErrorBlock>{error}</ErrorBlock>;
+    return <AsyncState status="error" error={error} />;
   }
 
   if (organizations.length === 0) {

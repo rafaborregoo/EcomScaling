@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
-import { Badge, BellIcon, Button, LoadingBlock, NotificationBadge, toast } from "@/components/ui";
+import { Badge, BellIcon, Button, ErrorBlock, LoadingBlock, NotificationBadge, toast } from "@/components/ui";
 
 type Notification = {
   id: string;
@@ -42,17 +42,26 @@ export function NotificationsBell({ token }: { token: string }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    const response = await apiFetch("/v1/notifications");
-    if (response.ok) {
+    setLoadError(null);
+    try {
+      const response = await apiFetch("/v1/notifications");
+      if (!response.ok) {
+        setLoadError("No se pudieron cargar las notificaciones.");
+        return;
+      }
       const payload = (await response.json()) as { notifications: Notification[]; unread_count: number };
       setNotifications(payload.notifications);
       setUnreadCount(payload.unread_count);
+    } catch {
+      setLoadError("No se pudieron cargar las notificaciones.");
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
 
   // Cuenta de no leidas al montar (para el badge), sin abrir el panel.
@@ -68,11 +77,19 @@ export function NotificationsBell({ token }: { token: string }) {
     }
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      function handleEscape(event: KeyboardEvent) {
+        if (event.key === "Escape") setIsOpen(false);
+      }
+      document.addEventListener("keydown", handleEscape);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+        document.removeEventListener("keydown", handleEscape);
+      };
     }
   }, [isOpen]);
 
   async function markStatus(notificationId: string, status: "read" | "archived") {
+    try {
     const response = await apiFetch(`/v1/notifications/${notificationId}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -82,6 +99,9 @@ export function NotificationsBell({ token }: { token: string }) {
       toast.danger("No se pudo actualizar la notificación.");
       return;
     }
+    const wasUnread = notifications.some(
+      (item) => item.id === notificationId && item.status === "unread",
+    );
     if (status === "archived") {
       setNotifications((current) => current.filter((item) => item.id !== notificationId));
     } else {
@@ -89,10 +109,14 @@ export function NotificationsBell({ token }: { token: string }) {
         current.map((item) => (item.id === notificationId ? { ...item, status } : item)),
       );
     }
-    setUnreadCount((current) => Math.max(0, current - 1));
+    if (wasUnread) setUnreadCount((current) => Math.max(0, current - 1));
+    } catch {
+      toast.danger("No se pudo actualizar la notificaciÃ³n.");
+    }
   }
 
   async function markAllRead() {
+    try {
     const response = await apiFetch("/v1/notifications/read-all", { method: "POST" });
     if (!response.ok) {
       toast.danger("No se pudieron marcar todas como leídas.");
@@ -101,6 +125,9 @@ export function NotificationsBell({ token }: { token: string }) {
     setNotifications((current) => current.map((item) => ({ ...item, status: "read" })));
     setUnreadCount(0);
     toast.success("Notificaciones marcadas como leídas.");
+    } catch {
+      toast.danger("No se pudieron marcar todas como leÃ­das.");
+    }
   }
 
   return (
@@ -135,6 +162,13 @@ export function NotificationsBell({ token }: { token: string }) {
 
           {isLoading ? (
             <LoadingBlock label="Cargando notificaciones..." />
+          ) : loadError ? (
+            <div className="p-3">
+              <ErrorBlock>{loadError}</ErrorBlock>
+              <Button className="mt-3" variant="secondary" size="sm" onClick={() => void load()}>
+                Reintentar
+              </Button>
+            </div>
           ) : notifications.length === 0 ? (
             <p className="px-3 py-4 text-sm text-muted">Sin notificaciones.</p>
           ) : (

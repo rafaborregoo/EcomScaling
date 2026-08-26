@@ -2,7 +2,10 @@ import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
-import type { AuthContext } from "./auth-context.js";
+import {
+  requireOperationalOrganization,
+  type AuthContext,
+} from "./auth-context.js";
 import { createKlaviyoClient } from "./klaviyo-client.js";
 import { recordAuditLog } from "./audit-log.js";
 import {
@@ -10,6 +13,8 @@ import {
   createKlaviyoCodeChallenge,
   createKlaviyoCodeVerifier,
   exchangeKlaviyoCodeForTokens,
+  missingKlaviyoScopes,
+  parseKlaviyoScopes,
   resolveKlaviyoOAuthEnv,
 } from "./klaviyo-oauth.js";
 import { saveKlaviyoTokens } from "./klaviyo-token-store.js";
@@ -31,11 +36,38 @@ function serviceClient(env: LoadedApiEnv) {
   });
 }
 
+async function markKlaviyoSyncFailure(
+  env: LoadedApiEnv,
+  connectionId: string,
+  error: unknown,
+  operation: string,
+) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "klaviyo_background_sync_failed";
+  const supabase = serviceClient(env);
+  const { error: persistenceError } = await supabase
+    .from("integration_connections")
+    .update({
+      status: "error",
+      last_error_at: new Date().toISOString(),
+      last_error_message: message.slice(0, 500),
+    })
+    .eq("id", connectionId);
+
+  console.error("Klaviyo background sync failed", {
+    connection_id: connectionId,
+    operation,
+    error: message,
+    persistence_error: persistenceError?.message,
+  });
+}
+
 function canManage(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find(
-    (item) => item.organization_id === organizationId,
-  );
-  if (!membership) return "organization_access_denied";
+  const operational = requireOperationalOrganization(context, organizationId);
+  if (!operational.ok) return operational.error;
+  const { membership } = operational;
   if (
     context.profile.platform_role !== "platform_admin" &&
     !["owner", "manager"].includes(membership.role)
@@ -85,10 +117,8 @@ export async function createKlaviyoConnectionAuthUrl(
       provider_account_id: `pending:${state}`,
       provider_account_name: "Klaviyo",
       status: "pending",
-      scopes: oauthEnv.KLAVIYO_SCOPES.split(",")
-        .map((scope) => scope.trim())
-        .filter(Boolean),
-      api_version: "2026-04-15",
+      scopes: parseKlaviyoScopes(oauthEnv.KLAVIYO_SCOPES),
+      api_version: "2026-07-15",
       metadata: { state, code_verifier: verifier, source: "oauth_start" },
     },
     { onConflict: "organization_id,provider,provider_account_id" },
@@ -110,6 +140,102 @@ export async function createKlaviyoConnectionAuthUrl(
         createKlaviyoCodeChallenge(verifier),
       ),
     },
+  };
+}
+
+export async function triggerKlaviyoSync(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  connectionId?: string,
+): Promise<Result<{ status: "syncing"; connectionId: string }>> {
+  const accessError = canManage(context, organizationId);
+  if (accessError) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: accessError,
+    };
+  }
+
+  const supabase = serviceClient(env);
+  let query = supabase
+    .from("integration_connections")
+    .select("id, organization_id, status")
+    .eq("organization_id", organizationId)
+    .eq("provider", "klaviyo");
+  if (connectionId) query = query.eq("id", connectionId);
+  const { data: connection, error } = await query
+    .order("updated_at", {
+      ascending: false,
+    })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "klaviyo_connection_load_failed",
+      detail: error.message,
+    };
+  }
+  if (!connection) {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "klaviyo_connection_not_found",
+    };
+  }
+  if (connection.status === "syncing") {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "klaviyo_sync_already_running",
+      message: "Ya hay una sincronización de Klaviyo en curso.",
+    };
+  }
+  if (connection.status !== "connected" && connection.status !== "error") {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "klaviyo_connection_not_ready",
+      message:
+        "La conexión Klaviyo debe estar conectada antes de poder sincronizar.",
+    };
+  }
+
+  const { data: claimedConnection, error: updateError } = await supabase
+    .from("integration_connections")
+    .update({ status: "syncing" })
+    .eq("id", connection.id)
+    .eq("status", connection.status)
+    .select("id")
+    .maybeSingle();
+  if (updateError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "klaviyo_sync_trigger_failed",
+      detail: updateError.message,
+    };
+  }
+  if (!claimedConnection) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "klaviyo_sync_already_running",
+      message:
+        "Otra sincronización de Klaviyo comenzó antes de completar esta solicitud.",
+    };
+  }
+
+  void runKlaviyoSync(env, connection.id, "initial").catch((error: unknown) =>
+    markKlaviyoSyncFailure(env, connection.id, error, "manual_sync"),
+  );
+  return {
+    ok: true,
+    data: { status: "syncing", connectionId: connection.id },
   };
 }
 
@@ -137,11 +263,32 @@ export async function handleKlaviyoOAuthCallback(
     return { ok: false, statusCode: 500, error: "klaviyo_app_not_configured" };
   const code = typeof query.code === "string" ? query.code : null;
   const state = typeof query.state === "string" ? query.state : null;
-  if (typeof query.error === "string")
+  if (typeof query.error === "string") {
+    if (state) {
+      const supabase = serviceClient(env);
+      const { data: pending } = await supabase
+        .from("integration_connections")
+        .select("id")
+        .eq("provider", "klaviyo")
+        .eq("provider_account_id", `pending:${state}`)
+        .eq("status", "pending")
+        .maybeSingle();
+      if (pending) {
+        await supabase
+          .from("integration_connections")
+          .update({
+            status: "error",
+            last_error_at: new Date().toISOString(),
+            last_error_message: `klaviyo_oauth_denied:${query.error}`,
+          })
+          .eq("id", pending.id);
+      }
+    }
     return {
       ok: true,
       data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?klaviyo=denied` },
     };
+  }
   if (!code || !state)
     return { ok: false, statusCode: 400, error: "missing_oauth_parameters" };
 
@@ -172,6 +319,27 @@ export async function handleKlaviyoOAuthCallback(
 
   try {
     const tokens = await exchangeKlaviyoCodeForTokens(oauthEnv, code, verifier);
+    const grantedScopes = parseKlaviyoScopes(tokens.scope ?? "");
+    const missingScopes = missingKlaviyoScopes(
+      parseKlaviyoScopes(oauthEnv.KLAVIYO_SCOPES),
+      grantedScopes,
+    );
+    if (!tokens.scope || missingScopes.length > 0) {
+      await supabase
+        .from("integration_connections")
+        .update({
+          status: "error",
+          last_error_at: new Date().toISOString(),
+          last_error_message: `klaviyo_permissions_missing:${missingScopes.join(",")}`,
+        })
+        .eq("id", pending.id);
+      return {
+        ok: false,
+        statusCode: 403,
+        error: "klaviyo_permissions_missing",
+        message: "Klaviyo no ha devuelto todos los permisos solicitados.",
+      };
+    }
     await saveKlaviyoTokens(env, pending.id, tokens);
     const api = createKlaviyoClient(tokens.access_token);
     const account = await api.getAccount();
@@ -212,11 +380,9 @@ export async function handleKlaviyoOAuthCallback(
             ? accountAttributes.name
             : "Klaviyo",
         status: "connected",
-        scopes: oauthEnv.KLAVIYO_SCOPES.split(",")
-          .map((scope) => scope.trim())
-          .filter(Boolean),
+        scopes: grantedScopes,
         connected_at: now,
-        metadata: { source: "oauth_callback", api_revision: "2026-04-15" },
+        metadata: { source: "oauth_callback", api_revision: "2026-07-15" },
       })
       .eq("id", pending.id);
     if (connectionError)
@@ -233,13 +399,13 @@ export async function handleKlaviyoOAuthCallback(
       newData: {
         provider: "klaviyo",
         provider_account_id: account.id,
-        scopes: oauthEnv.KLAVIYO_SCOPES.split(",")
-          .map((scope) => scope.trim())
-          .filter(Boolean),
+        scopes: grantedScopes,
       },
     });
 
-    void runKlaviyoSync(env, pending.id, "initial").catch(() => undefined);
+    void runKlaviyoSync(env, pending.id, "initial").catch((error: unknown) =>
+      markKlaviyoSyncFailure(env, pending.id, error, "oauth_initial_sync"),
+    );
     return {
       ok: true,
       data: {

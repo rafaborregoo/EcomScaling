@@ -2,9 +2,14 @@
 
 ## Estado
 
-- **Estado real:** `verification_pending`
+> Cierre verificado 2026-08-24: los criterios funcionales de DB-07 estan
+> cubiertos por triggers de historial y aislamiento cross-tenant, tareas
+> idempotentes de alertas y enlaces de Mi Camino. La separacion documental
+> DB-07A/B/C queda como mejora editorial no bloqueante.
+
+- **Estado real:** `done`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-00, DB-02
 - **Bloqueador:** ninguno
 - **Evidencia:**
@@ -61,7 +66,8 @@
   agente/regla en el futuro. Verificado: typecheck y lint de `apps/api` limpios, suite completa de tests
   reales contra Supabase remoto (171 tests, 170 pass + 1 skip preexistente sin relacion) incluyendo
   `ai-orchestration-task-dedup.test.ts` y `fe-04-mi-camino-tree.test.ts` sin regresiones.
-- **Siguiente accion:** decidir si vale la pena dividir este documento en DB-07A/B/C.
+- **Siguiente accion:** ninguna para los criterios de cierre; la division en
+  DB-07A/B/C es deuda editorial no bloqueante.
 
 ## Objetivo
 

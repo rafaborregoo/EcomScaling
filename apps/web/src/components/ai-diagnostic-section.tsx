@@ -6,6 +6,7 @@ import { readApiError } from "@/lib/api-error";
 import { useActiveConnection } from "@/components/active-connection";
 import {
   Badge,
+  AgentRuntimeStatusBadge,
   Banner,
   Button,
   Card,
@@ -47,6 +48,10 @@ type Diagnostic = {
   output: DiagnosticOutput;
   generated_at: string;
   from_cache: boolean;
+  runtime?: {
+    orchestration_mode: "direct" | "langgraph";
+    langsmith_tracing: boolean;
+  };
   envelope?: {
     freshness: { status: "fresh" | "stale" | "superseded"; reason?: string };
     quality: {
@@ -90,6 +95,7 @@ export function AiDiagnosticSection({
   loadingLabel,
   tasksLabelSingular,
   days,
+  variant = "full",
 }: {
   organizationId: string;
   title: string;
@@ -98,6 +104,7 @@ export function AiDiagnosticSection({
   loadingLabel: string;
   tasksLabelSingular: string;
   days?: number;
+  variant?: "full" | "summary";
 }) {
   const { connectionId } = useActiveConnection();
   const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
@@ -119,19 +126,25 @@ export function AiDiagnosticSection({
       setIsLoading(true);
       setError(null);
       setTasksFeedback(null);
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organizationId}${getPath}${connectionParam}`,
+        );
 
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}${getPath}${connectionParam}`,
-      );
-
-      if (response.ok) {
-        setDiagnostic((await response.json()) as Diagnostic);
-      } else {
+        if (response.ok) {
+          setDiagnostic((await response.json()) as Diagnostic);
+        } else {
+          setDiagnostic(null);
+          setError(await readApiError(response));
+        }
+      } catch {
         setDiagnostic(null);
-        setError(await readApiError(response));
+        setError(
+          "No se pudo cargar el diagnóstico IA por un error de red. Reintenta.",
+        );
+      } finally {
+        setIsLoading(false);
       }
-
-      setIsLoading(false);
     }
 
     void load();
@@ -141,21 +154,26 @@ export function AiDiagnosticSection({
     setIsRegenerating(true);
     setError(null);
     setTasksFeedback(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}${runPath}${connectionParam}`,
+        {
+          method: "POST",
+        },
+      );
 
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}${runPath}${connectionParam}`,
-      {
-        method: "POST",
-      },
-    );
-
-    if (response.ok) {
-      setDiagnostic((await response.json()) as Diagnostic);
-    } else {
-      setError(await readApiError(response));
+      if (response.ok) {
+        setDiagnostic((await response.json()) as Diagnostic);
+      } else {
+        setError(await readApiError(response));
+      }
+    } catch {
+      setError(
+        "No se pudo regenerar el diagnóstico IA por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsRegenerating(false);
     }
-
-    setIsRegenerating(false);
   }
 
   async function createSuggestedTasks() {
@@ -165,30 +183,35 @@ export function AiDiagnosticSection({
 
     setIsCreatingTasks(true);
     setTasksFeedback(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/ai/outputs/${diagnostic.output_id}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision: "approved" }),
+        },
+      );
 
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/ai/outputs/${diagnostic.output_id}/decision`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision: "approved" }),
-      },
-    );
+      if (!response.ok) {
+        setTasksFeedback(await readApiError(response));
+        return;
+      }
 
-    if (!response.ok) {
-      setTasksFeedback(await readApiError(response));
+      const payload = (await response.json()) as { tasks_created: number };
+      setDiagnostic({ ...diagnostic, output_status: "approved" });
+      setTasksFeedback(
+        payload.tasks_created > 0
+          ? `${payload.tasks_created} tarea(s) creada(s) en Tareas.`
+          : "Sin tareas nuevas que crear.",
+      );
+    } catch {
+      setTasksFeedback(
+        "No se pudieron crear las tareas sugeridas por un error de red. Reintenta.",
+      );
+    } finally {
       setIsCreatingTasks(false);
-      return;
     }
-
-    const payload = (await response.json()) as { tasks_created: number };
-    setDiagnostic({ ...diagnostic, output_status: "approved" });
-    setTasksFeedback(
-      payload.tasks_created > 0
-        ? `${payload.tasks_created} tarea(s) creada(s) en Tareas.`
-        : "Sin tareas nuevas que crear.",
-    );
-    setIsCreatingTasks(false);
   }
 
   return (
@@ -207,6 +230,14 @@ export function AiDiagnosticSection({
                   · datos {diagnostic.envelope.freshness.status} ·{" "}
                   {diagnostic.envelope.sources.length} fuente(s)
                 </>
+              ) : null}
+              {diagnostic.runtime ? (
+                <span className="mt-2 block">
+                  <AgentRuntimeStatusBadge
+                    orchestrationMode={diagnostic.runtime.orchestration_mode}
+                    langsmithTracing={diagnostic.runtime.langsmith_tracing}
+                  />
+                </span>
               ) : null}
             </p>
           ) : null}
@@ -236,7 +267,42 @@ export function AiDiagnosticSection({
         <Card className="mt-3">
           <p className="text-sm leading-6">{diagnostic.output.answer}</p>
 
-          {diagnostic.output.findings.length ? (
+          {variant === "summary" ? (
+            <>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge tone="neutral">
+                  Confianza: {diagnostic.output.confidence}
+                </Badge>
+                {diagnostic.envelope ? (
+                  <>
+                    <Badge tone="neutral">
+                      Evidencia: {diagnostic.envelope.quality.groundedness}
+                    </Badge>
+                    <Badge tone="neutral">
+                      Datos: {diagnostic.envelope.quality.dataCompleteness}
+                    </Badge>
+                  </>
+                ) : null}
+              </div>
+              {diagnostic.envelope?.sources.length ? (
+                <p className="mt-3 text-xs text-muted">
+                  Basado en {diagnostic.envelope.sources.length} fuente(s):{" "}
+                  {diagnostic.envelope.sources
+                    .map((source) => source.label)
+                    .join(", ")}
+                </p>
+              ) : null}
+              {diagnostic.output.proposed_writes.length ? (
+                <Banner tone="warn" className="mt-3">
+                  {diagnostic.output.proposed_writes.length} propuesta(s)
+                  pendiente(s) de revisión humana. No se ha ejecutado ninguna
+                  escritura.
+                </Banner>
+              ) : null}
+            </>
+          ) : null}
+
+          {variant === "full" && diagnostic.output.findings.length ? (
             <div className="mt-4">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
                 Hallazgos
@@ -265,7 +331,7 @@ export function AiDiagnosticSection({
             </div>
           ) : null}
 
-          {diagnostic.output.recommendations.length ? (
+          {variant === "full" && diagnostic.output.recommendations.length ? (
             <Card className="mt-4" kicker="Recomendación">
               <Table
                 ariaLabel="Recomendaciones del diagnostico"
@@ -298,7 +364,7 @@ export function AiDiagnosticSection({
             </Banner>
           ) : null}
 
-          {diagnostic.output.proposed_writes.length ? (
+          {variant === "full" && diagnostic.output.proposed_writes.length ? (
             <div className="mt-4 border-t border-line pt-3">
               <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
                 {diagnostic.output_status === "pending_approval"

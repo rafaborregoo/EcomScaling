@@ -21,12 +21,6 @@ import { execFileSync } from "node:child_process";
  * Paquetes con vulnerabilidad high/critical aceptada a dia de hoy, con el
  * motivo. Revisado 2026-08-03.
  */
-const ACCEPTED = new Map([
-  ["next", "sin version parcheada; npm solo ofrece bajar a next@9.3.3"],
-  ["postcss", "transitiva de next, misma situacion"],
-  ["sharp", "transitiva de next (libvips), misma situacion"],
-]);
-
 const BLOCKING = new Set(["high", "critical"]);
 
 function runAudit() {
@@ -51,31 +45,18 @@ const vulnerabilities = Object.values(report.vulnerabilities ?? {}).filter(
   (item) => BLOCKING.has(item.severity),
 );
 
-const unexpected = vulnerabilities.filter((item) => !ACCEPTED.has(item.name));
-const found = new Set(vulnerabilities.map((item) => item.name));
-const resolved = [...ACCEPTED.keys()].filter((name) => !found.has(name));
-
 for (const item of vulnerabilities) {
-  const status = ACCEPTED.has(item.name) ? "aceptada" : "NUEVA";
-  console.log(`${status.padEnd(8)} ${item.severity.padEnd(8)} ${item.name}`);
+  console.log(`${item.severity.padEnd(8)} ${item.name}`);
 }
 
-if (unexpected.length > 0) {
+if (vulnerabilities.length > 0) {
   console.error(
-    `\n${unexpected.length} vulnerabilidad(es) high/critical fuera de la lista aceptada: ` +
-      unexpected.map((item) => item.name).join(", ") +
-      "\nRevisar `npm audit`; si tiene arreglo sin breaking change, `npm audit fix`.",
-  );
-  process.exit(1);
-}
-
-if (resolved.length > 0) {
-  console.error(
-    `\n${resolved.join(", ")} ya no aparece(n) en el informe: quitar de ACCEPTED en scripts/audit-guard.mjs.`,
+    `\n${vulnerabilities.length} vulnerabilidad(es) high/critical en dependencias de produccion. ` +
+      "Revisar `npm audit` y actualizar de forma compatible.",
   );
   process.exit(1);
 }
 
 console.log(
-  `\nOK: ${vulnerabilities.length} vulnerabilidad(es) high/critical, todas aceptadas y documentadas.`,
+  "\nOK: no hay vulnerabilidades high/critical en dependencias de produccion.",
 );

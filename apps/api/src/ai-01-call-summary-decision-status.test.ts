@@ -15,7 +15,7 @@
  * construye un `AuthContext` minimo de `platform_admin` a mano.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY. Ejecutar
- * con `npm run test -w @ecomscaling/api`.
+ * con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -26,9 +26,13 @@ import type { AuthContext } from "./auth-context.js";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 
@@ -50,7 +54,9 @@ before(async () => {
     .single();
 
   if (orgError || !org) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${orgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${orgError?.message}`,
+    );
   }
   orgId = org.id;
 
@@ -61,11 +67,16 @@ before(async () => {
   });
 
   if (userError || !user.user) {
-    throw new Error(`No se pudo crear el usuario de prueba: ${userError?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba: ${userError?.message}`,
+    );
   }
   creatorUserId = user.user.id;
 
-  await admin.from("profiles").update({ platform_role: "platform_admin" }).eq("id", creatorUserId);
+  await admin
+    .from("profiles")
+    .update({ platform_role: "platform_admin" })
+    .eq("id", creatorUserId);
 
   const { data: call, error: callError } = await admin
     .from("consulting_calls")
@@ -79,7 +90,9 @@ before(async () => {
     .single();
 
   if (callError || !call) {
-    throw new Error(`No se pudo crear la llamada de prueba: ${callError?.message}`);
+    throw new Error(
+      `No se pudo crear la llamada de prueba: ${callError?.message}`,
+    );
   }
   callId = call.id;
 
@@ -96,7 +109,9 @@ before(async () => {
     .single();
 
   if (summaryError || !summary) {
-    throw new Error(`No se pudo crear el resumen de prueba: ${summaryError?.message}`);
+    throw new Error(
+      `No se pudo crear el resumen de prueba: ${summaryError?.message}`,
+    );
   }
   summaryId = summary.id;
 
@@ -108,8 +123,21 @@ before(async () => {
   // debe reflejar lo mismo para seguir siendo representativo.
   platformAdminContext = {
     user: { id: creatorUserId },
-    profile: { id: creatorUserId, full_name: null, avatar_url: null, platform_role: "platform_admin", is_active: true },
-    memberships: [{ organization_id: orgId, role: "consultant", accessSource: "platform_admin", organization: null }],
+    profile: {
+      id: creatorUserId,
+      full_name: null,
+      avatar_url: null,
+      platform_role: "platform_admin",
+      is_active: true,
+    },
+    memberships: [
+      {
+        organization_id: orgId,
+        role: "consultant",
+        accessSource: "platform_admin",
+        organization: null,
+      },
+    ],
     subscriptions: [],
   };
 });
@@ -124,16 +152,39 @@ after(async () => {
 });
 
 test("primera decision sobre un resumen pending_approval: aprueba con 200", async () => {
-  const result = await decideSummary(env, platformAdminContext, orgId, summaryId, "approved", undefined);
+  const result = await decideSummary(
+    env,
+    platformAdminContext,
+    orgId,
+    summaryId,
+    "approved",
+    undefined,
+  );
 
-  assert.equal((result as { ok: boolean }).ok, true, `se esperaba exito, se obtuvo: ${JSON.stringify(result)}`);
+  assert.equal(
+    (result as { ok: boolean }).ok,
+    true,
+    `se esperaba exito, se obtuvo: ${JSON.stringify(result)}`,
+  );
 });
 
 test("reaprobar el mismo resumen ya publicado: 409 summary_already_decided con el status real, no 404", async () => {
-  const result = await decideSummary(env, platformAdminContext, orgId, summaryId, "approved", undefined);
+  const result = await decideSummary(
+    env,
+    platformAdminContext,
+    orgId,
+    summaryId,
+    "approved",
+    undefined,
+  );
 
   assert.equal((result as { ok: boolean }).ok, false);
-  const failure = result as { ok: false; statusCode: number; error: string; current_status: string };
+  const failure = result as {
+    ok: false;
+    statusCode: number;
+    error: string;
+    current_status: string;
+  };
   assert.equal(failure.statusCode, 409);
   assert.equal(failure.error, "summary_already_decided");
   assert.equal(failure.current_status, "published");

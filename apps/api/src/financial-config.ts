@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import {
+  type AuthContext,
+  createUserScopedClient,
+  requireOperationalOrganization,
+} from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = {
@@ -17,18 +21,20 @@ function createServiceClient(env: ApiEnv) {
 }
 
 function assertCanManage(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find((item) => item.organization_id === organizationId);
+  const operational = requireOperationalOrganization(context, organizationId);
+  if (!operational.ok) return operational;
+  const { membership } = operational;
 
-  if (!membership) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
-  }
-
-  if (context.profile.platform_role !== "platform_admin" && !["owner", "manager"].includes(membership.role)) {
+  if (
+    context.profile.platform_role !== "platform_admin" &&
+    !["owner", "manager"].includes(membership.role)
+  ) {
     return {
       ok: false as const,
       statusCode: 403,
       error: "organization_manage_denied",
-      message: "Solo owner, manager o platform admin pueden gestionar la configuracion financiera.",
+      message:
+        "Solo owner, manager o platform admin pueden gestionar la configuracion financiera.",
     };
   }
 
@@ -36,7 +42,12 @@ function assertCanManage(context: AuthContext, organizationId: string) {
 }
 
 function isValidPct(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 100
+  );
 }
 
 function isValidAmount(value: unknown): value is number {
@@ -49,43 +60,61 @@ export async function getFinancialConfig(
   context: AuthContext,
   organizationId: string,
 ) {
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
-    return { ok: false as const, statusCode: 403, error: "organization_access_denied" };
+  if (
+    !context.memberships.some(
+      (membership) => membership.organization_id === organizationId,
+    )
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
   }
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
 
-  const [settingsResult, expensesResult, shippingResult, targetsResult] = await Promise.all([
-    supabase
-      .from("organization_financial_settings")
-      .select("id, currency_code, payment_fee_pct, payment_fee_fixed, default_shipping_cost, vat_pct, notes, updated_at")
-      .eq("organization_id", organizationId)
-      .maybeSingle(),
-    supabase
-      .from("fixed_expenses")
-      .select("id, name, category, amount, currency_code, billing_period, valid_from, valid_until, is_active")
-      .eq("organization_id", organizationId)
-      .eq("is_active", true)
-      .order("amount", { ascending: false })
-      .limit(200),
-    supabase
-      .from("shipping_cost_rules")
-      .select("id, name, country_code, cost_per_order, currency_code, min_order_total, max_order_total, valid_from, valid_until, is_active")
-      .eq("organization_id", organizationId)
-      .eq("is_active", true)
-      .order("created_at", { ascending: true })
-      .limit(200),
-    supabase
-      .from("organization_metric_targets")
-      .select("id, metric_key, target_value, period, valid_from, valid_until")
-      .eq("organization_id", organizationId)
-      .order("valid_from", { ascending: false })
-      .limit(200),
-  ]);
+  const [settingsResult, expensesResult, shippingResult, targetsResult] =
+    await Promise.all([
+      supabase
+        .from("organization_financial_settings")
+        .select(
+          "id, currency_code, payment_fee_pct, payment_fee_fixed, default_shipping_cost, vat_pct, notes, updated_at",
+        )
+        .eq("organization_id", organizationId)
+        .maybeSingle(),
+      supabase
+        .from("fixed_expenses")
+        .select(
+          "id, name, category, amount, currency_code, billing_period, valid_from, valid_until, is_active",
+        )
+        .eq("organization_id", organizationId)
+        .eq("is_active", true)
+        .order("amount", { ascending: false })
+        .limit(200),
+      supabase
+        .from("shipping_cost_rules")
+        .select(
+          "id, name, country_code, cost_per_order, currency_code, min_order_total, max_order_total, valid_from, valid_until, is_active",
+        )
+        .eq("organization_id", organizationId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: true })
+        .limit(200),
+      supabase
+        .from("organization_metric_targets")
+        .select("id, metric_key, target_value, period, valid_from, valid_until")
+        .eq("organization_id", organizationId)
+        .order("valid_from", { ascending: false })
+        .limit(200),
+    ]);
 
   const firstError =
-    settingsResult.error ?? expensesResult.error ?? shippingResult.error ?? targetsResult.error;
+    settingsResult.error ??
+    expensesResult.error ??
+    shippingResult.error ??
+    targetsResult.error;
 
   if (firstError) {
     return {
@@ -129,23 +158,48 @@ export async function upsertFinancialSettings(
   }
 
   if (input.paymentFeePct !== undefined && !isValidPct(input.paymentFeePct)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_payment_fee_pct" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_payment_fee_pct",
+    };
   }
 
   if (input.vatPct !== undefined && !isValidPct(input.vatPct)) {
     return { ok: false as const, statusCode: 400, error: "invalid_vat_pct" };
   }
 
-  if (input.paymentFeeFixed !== undefined && !isValidAmount(input.paymentFeeFixed)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_payment_fee_fixed" };
+  if (
+    input.paymentFeeFixed !== undefined &&
+    !isValidAmount(input.paymentFeeFixed)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_payment_fee_fixed",
+    };
   }
 
-  if (input.defaultShippingCost !== undefined && !isValidAmount(input.defaultShippingCost)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_default_shipping_cost" };
+  if (
+    input.defaultShippingCost !== undefined &&
+    !isValidAmount(input.defaultShippingCost)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_default_shipping_cost",
+    };
   }
 
-  if (input.currencyCode !== undefined && !/^[A-Z]{3}$/.test(input.currencyCode)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+  if (
+    input.currencyCode !== undefined &&
+    !/^[A-Z]{3}$/.test(input.currencyCode)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_currency_code",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -155,10 +209,18 @@ export async function upsertFinancialSettings(
     .upsert(
       {
         organization_id: organizationId,
-        ...(input.currencyCode !== undefined ? { currency_code: input.currencyCode } : {}),
-        ...(input.paymentFeePct !== undefined ? { payment_fee_pct: input.paymentFeePct } : {}),
-        ...(input.paymentFeeFixed !== undefined ? { payment_fee_fixed: input.paymentFeeFixed } : {}),
-        ...(input.defaultShippingCost !== undefined ? { default_shipping_cost: input.defaultShippingCost } : {}),
+        ...(input.currencyCode !== undefined
+          ? { currency_code: input.currencyCode }
+          : {}),
+        ...(input.paymentFeePct !== undefined
+          ? { payment_fee_pct: input.paymentFeePct }
+          : {}),
+        ...(input.paymentFeeFixed !== undefined
+          ? { payment_fee_fixed: input.paymentFeeFixed }
+          : {}),
+        ...(input.defaultShippingCost !== undefined
+          ? { default_shipping_cost: input.defaultShippingCost }
+          : {}),
         ...(input.vatPct !== undefined ? { vat_pct: input.vatPct } : {}),
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
         updated_by: context.user.id,
@@ -210,16 +272,35 @@ export async function createFixedExpense(
     return authz;
   }
 
-  if (!input.name || typeof input.name !== "string" || input.name.trim().length === 0) {
-    return { ok: false as const, statusCode: 400, error: "missing_expense_name" };
+  if (
+    !input.name ||
+    typeof input.name !== "string" ||
+    input.name.trim().length === 0
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "missing_expense_name",
+    };
   }
 
   if (!isValidAmount(input.amount)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_expense_amount" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_expense_amount",
+    };
   }
 
-  if (input.billingPeriod !== undefined && !["monthly", "yearly"].includes(input.billingPeriod)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_billing_period" };
+  if (
+    input.billingPeriod !== undefined &&
+    !["monthly", "yearly"].includes(input.billingPeriod)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_billing_period",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -292,7 +373,11 @@ export async function deactivateFixedExpense(
   }
 
   if (!data) {
-    return { ok: false as const, statusCode: 404, error: "fixed_expense_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "fixed_expense_not_found",
+    };
   }
 
   await recordAuditLog(supabase, {
@@ -326,16 +411,28 @@ export async function createShippingRule(
     return authz;
   }
 
-  if (!input.name || typeof input.name !== "string" || input.name.trim().length === 0) {
+  if (
+    !input.name ||
+    typeof input.name !== "string" ||
+    input.name.trim().length === 0
+  ) {
     return { ok: false as const, statusCode: 400, error: "missing_rule_name" };
   }
 
   if (!isValidAmount(input.costPerOrder)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_cost_per_order" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_cost_per_order",
+    };
   }
 
   if (input.countryCode != null && !/^[A-Z]{2}$/.test(input.countryCode)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_country_code" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_country_code",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -407,7 +504,11 @@ export async function deactivateShippingRule(
   }
 
   if (!data) {
-    return { ok: false as const, statusCode: 404, error: "shipping_rule_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "shipping_rule_not_found",
+    };
   }
 
   await recordAuditLog(supabase, {

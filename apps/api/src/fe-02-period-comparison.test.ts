@@ -16,7 +16,7 @@
  * no solo que el campo existe.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test -w @ecomscaling/api`.
+ * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -27,9 +27,13 @@ import { buildApp } from "./server.js";
 
 const env = loadApiEnv(process.env);
 
-const admin: SupabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin: SupabaseClient = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 const RUN_TAG = `${Date.now()}`;
 const TEST_PASSWORD = "Fe02-Period-Comparison-P4ssword-9!";
@@ -47,29 +51,44 @@ function daysAgo(days: number): string {
 before(async () => {
   const { data: org, error: orgError } = await admin
     .from("organizations")
-    .insert({ display_name: `FE-02 Period Comparison ${RUN_TAG}`, slug: `fe02-period-comparison-${RUN_TAG}`, status: "active" })
+    .insert({
+      display_name: `FE-02 Period Comparison ${RUN_TAG}`,
+      slug: `fe02-period-comparison-${RUN_TAG}`,
+      status: "active",
+    })
     .select("id")
     .single();
   if (orgError || !org) {
-    throw new Error(`No se pudo crear la organizacion de prueba: ${orgError?.message}`);
+    throw new Error(
+      `No se pudo crear la organizacion de prueba: ${orgError?.message}`,
+    );
   }
   orgId = org.id;
 
   const { error: subscriptionError } = await admin
     .from("service_subscriptions")
-    .insert({ organization_id: orgId, plan_code: "fe02-period-comparison-test", status: "active" });
+    .insert({
+      organization_id: orgId,
+      plan_code: "fe02-period-comparison-test",
+      status: "active",
+    });
   if (subscriptionError) {
-    throw new Error(`No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`);
+    throw new Error(
+      `No se pudo crear la suscripcion de prueba: ${subscriptionError.message}`,
+    );
   }
 
   const email = `fe02-period-comparison-owner-${RUN_TAG}@ecomscaling.test`;
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password: TEST_PASSWORD,
-    email_confirm: true,
-  });
+  const { data: created, error: createError } =
+    await admin.auth.admin.createUser({
+      email,
+      password: TEST_PASSWORD,
+      email_confirm: true,
+    });
   if (createError || !created.user) {
-    throw new Error(`No se pudo crear el usuario de prueba: ${createError?.message}`);
+    throw new Error(
+      `No se pudo crear el usuario de prueba: ${createError?.message}`,
+    );
   }
   ownerUserId = created.user.id;
 
@@ -77,16 +96,25 @@ before(async () => {
     .from("organization_members")
     .insert({ organization_id: orgId, user_id: ownerUserId, role: "owner" });
   if (memberError) {
-    throw new Error(`No se pudo crear la membership de prueba: ${memberError.message}`);
+    throw new Error(
+      `No se pudo crear la membership de prueba: ${memberError.message}`,
+    );
   }
 
   const { data: connection, error: connectionError } = await admin
     .from("integration_connections")
-    .insert({ organization_id: orgId, provider: "shopify", provider_account_id: `fe02-period-comparison-${RUN_TAG}.myshopify.com`, status: "connected" })
+    .insert({
+      organization_id: orgId,
+      provider: "shopify",
+      provider_account_id: `fe02-period-comparison-${RUN_TAG}.myshopify.com`,
+      status: "connected",
+    })
     .select("id")
     .single();
   if (connectionError || !connection) {
-    throw new Error(`No se pudo crear la conexion de prueba: ${connectionError?.message}`);
+    throw new Error(
+      `No se pudo crear la conexion de prueba: ${connectionError?.message}`,
+    );
   }
   connectionId = connection.id;
 
@@ -102,64 +130,81 @@ before(async () => {
     .select("id")
     .single();
   if (storeError || !store) {
-    throw new Error(`No se pudo crear la tienda de prueba: ${storeError?.message}`);
+    throw new Error(
+      `No se pudo crear la tienda de prueba: ${storeError?.message}`,
+    );
   }
   const storeId = store.id;
 
   // 3 pedidos hace 3 dias (dentro del periodo actual de 7 dias) y 2 pedidos
   // hace 10 dias (dentro del periodo anterior [-14d, -7d)).
-  const { error: currentOrdersError } = await admin.from("shopify_order_facts").insert(
-    Array.from({ length: 3 }, (_, index) => ({
-      organization_id: orgId,
-      store_id: storeId,
-      external_order_id: `fe02-current-${RUN_TAG}-${index}`,
-      order_name: `#FE02-current-${index}`,
-      financial_status: "paid",
-      currency_code: "EUR",
-      gross_sales: 100,
-      discounts: 0,
-      refunds: 0,
-      net_sales: 100,
-      current_total_price: 100,
-      total_items: 1,
-      is_test_order: false,
-      processed_at: daysAgo(3),
-      external_created_at: daysAgo(3),
-    })),
-  );
+  const { error: currentOrdersError } = await admin
+    .from("shopify_order_facts")
+    .insert(
+      Array.from({ length: 3 }, (_, index) => ({
+        organization_id: orgId,
+        store_id: storeId,
+        external_order_id: `fe02-current-${RUN_TAG}-${index}`,
+        order_name: `#FE02-current-${index}`,
+        financial_status: "paid",
+        currency_code: "EUR",
+        gross_sales: 100,
+        discounts: 0,
+        refunds: 0,
+        net_sales: 100,
+        current_total_price: 100,
+        total_items: 1,
+        is_test_order: false,
+        processed_at: daysAgo(3),
+        external_created_at: daysAgo(3),
+      })),
+    );
   if (currentOrdersError) {
-    throw new Error(`No se pudieron sembrar pedidos del periodo actual: ${currentOrdersError.message}`);
+    throw new Error(
+      `No se pudieron sembrar pedidos del periodo actual: ${currentOrdersError.message}`,
+    );
   }
 
-  const { error: previousOrdersError } = await admin.from("shopify_order_facts").insert(
-    Array.from({ length: 2 }, (_, index) => ({
-      organization_id: orgId,
-      store_id: storeId,
-      external_order_id: `fe02-previous-${RUN_TAG}-${index}`,
-      order_name: `#FE02-previous-${index}`,
-      financial_status: "paid",
-      currency_code: "EUR",
-      gross_sales: 100,
-      discounts: 0,
-      refunds: 0,
-      net_sales: 100,
-      current_total_price: 100,
-      total_items: 1,
-      is_test_order: false,
-      processed_at: daysAgo(10),
-      external_created_at: daysAgo(10),
-    })),
-  );
+  const { error: previousOrdersError } = await admin
+    .from("shopify_order_facts")
+    .insert(
+      Array.from({ length: 2 }, (_, index) => ({
+        organization_id: orgId,
+        store_id: storeId,
+        external_order_id: `fe02-previous-${RUN_TAG}-${index}`,
+        order_name: `#FE02-previous-${index}`,
+        financial_status: "paid",
+        currency_code: "EUR",
+        gross_sales: 100,
+        discounts: 0,
+        refunds: 0,
+        net_sales: 100,
+        current_total_price: 100,
+        total_items: 1,
+        is_test_order: false,
+        processed_at: daysAgo(10),
+        external_created_at: daysAgo(10),
+      })),
+    );
   if (previousOrdersError) {
-    throw new Error(`No se pudieron sembrar pedidos del periodo anterior: ${previousOrdersError.message}`);
+    throw new Error(
+      `No se pudieron sembrar pedidos del periodo anterior: ${previousOrdersError.message}`,
+    );
   }
 
-  const anon: SupabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: session, error: signInError } = await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
+  const anon: SupabaseClient = createClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+    },
+  );
+  const { data: session, error: signInError } =
+    await anon.auth.signInWithPassword({ email, password: TEST_PASSWORD });
   if (signInError || !session.session) {
-    throw new Error(`No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como el usuario de prueba: ${signInError?.message}`,
+    );
   }
   ownerAccessToken = session.session.access_token;
 
@@ -189,11 +234,23 @@ test("shopify/metrics con days=7 distingue el periodo actual (3 pedidos) del ant
   assert.equal(response.statusCode, 200, response.body);
   const body = JSON.parse(response.body);
 
-  assert.equal(body.sales.orders_count, 3, "el periodo actual deberia contar los 3 pedidos de hace 3 dias");
-  assert.ok(body.previous_period, "deberia venir un previous_period con days=7");
-  assert.equal(body.previous_period.sales.orders_count, 2, "el periodo anterior deberia contar los 2 pedidos de hace 10 dias");
+  assert.equal(
+    body.sales.orders_count,
+    3,
+    "el periodo actual deberia contar los 3 pedidos de hace 3 dias",
+  );
   assert.ok(
-    new Date(body.previous_period.period.end).getTime() <= new Date(body.period.start).getTime(),
+    body.previous_period,
+    "deberia venir un previous_period con days=7",
+  );
+  assert.equal(
+    body.previous_period.sales.orders_count,
+    2,
+    "el periodo anterior deberia contar los 2 pedidos de hace 10 dias",
+  );
+  assert.ok(
+    new Date(body.previous_period.period.end).getTime() <=
+      new Date(body.period.start).getTime(),
     "el periodo anterior no deberia solaparse con el periodo actual",
   );
 });
@@ -208,6 +265,10 @@ test("shopify/metrics con days=all no devuelve previous_period (no hay periodo a
   assert.equal(response.statusCode, 200, response.body);
   const body = JSON.parse(response.body);
 
-  assert.equal(body.sales.orders_count, 5, "\"Todo\" deberia contar los 5 pedidos sembrados (3 + 2)");
+  assert.equal(
+    body.sales.orders_count,
+    5,
+    '"Todo" deberia contar los 5 pedidos sembrados (3 + 2)',
+  );
   assert.equal(body.previous_period, null);
 });

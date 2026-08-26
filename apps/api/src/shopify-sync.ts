@@ -4,9 +4,15 @@ import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
 import { shopifyGraphql } from "./shopify-client.js";
-import { fetchBulkResult, groupBulkLinesByParent, runBulkOperation, type BulkLine } from "./shopify-bulk.js";
+import {
+  fetchBulkResult,
+  groupBulkLinesByParent,
+  runBulkOperation,
+  type BulkLine,
+} from "./shopify-bulk.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
 import { getValidShopifyAccessToken } from "./shopify-token-store.js";
+import { checkOperationalOrganization } from "./operational-organization.js";
 
 type ApiEnv = LoadedApiEnv;
 const logger = createLogger("shopify-sync");
@@ -71,7 +77,9 @@ type BulkVariantLine = BulkLine & {
     countryCodeOfOrigin?: string | null;
     provinceCodeOfOrigin?: string | null;
     harmonizedSystemCode?: string | null;
-    measurement?: { weight?: { value?: number | null; unit?: string | null } | null } | null;
+    measurement?: {
+      weight?: { value?: number | null; unit?: string | null } | null;
+    } | null;
   } | null;
 };
 
@@ -183,6 +191,18 @@ function isMissingSyncScopeColumn(message: string) {
   );
 }
 
+export function buildShopifySyncIdempotencyKey(
+  syncType: string,
+  syncScope: BlockKey,
+  connectionId: string,
+  now: string,
+) {
+  if (syncType === "initial_import") {
+    return `${syncType}:${syncScope}:${connectionId}`;
+  }
+  return `${syncType}:${syncScope}:${connectionId}:${now.slice(0, 13)}`;
+}
+
 async function ensureSyncRun(
   supabase: SupabaseClient,
   connectionId: string,
@@ -191,6 +211,27 @@ async function ensureSyncRun(
   syncScope: BlockKey,
   now: string,
 ) {
+  const idempotencyKey = buildShopifySyncIdempotencyKey(
+    syncType,
+    syncScope,
+    connectionId,
+    now,
+  );
+
+  const { data: existing } = await supabase
+    .from("integration_sync_runs")
+    .select("id, status")
+    .eq("provider", "shopify")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+
+  if (existing) {
+    return {
+      id: existing.id as string,
+      alreadySucceeded: existing.status === "succeeded",
+    };
+  }
+
   const { data, error } = await supabase
     .from("integration_sync_runs")
     .insert({
@@ -200,7 +241,7 @@ async function ensureSyncRun(
       sync_type: syncType,
       sync_scope: syncScope,
       status: "running",
-      idempotency_key: `${syncType}:${syncScope}:${connectionId}:${now}`,
+      idempotency_key: idempotencyKey,
       started_at: now,
       records_read: 0,
       records_written: 0,
@@ -228,7 +269,7 @@ async function ensureSyncRun(
         provider: "shopify",
         sync_type: syncType,
         status: "running",
-        idempotency_key: `${syncType}:${syncScope}:${connectionId}:${now}`,
+        idempotency_key: idempotencyKey,
         started_at: now,
         records_read: 0,
         records_written: 0,
@@ -238,17 +279,41 @@ async function ensureSyncRun(
       .single();
 
     if (fallback.error || !fallback.data) {
+      const { data: raced } = await supabase
+        .from("integration_sync_runs")
+        .select("id, status")
+        .eq("provider", "shopify")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      if (raced) {
+        return {
+          id: raced.id as string,
+          alreadySucceeded: raced.status === "succeeded",
+        };
+      }
       throw new Error(fallback.error?.message ?? "sync_run_create_failed");
     }
 
-    return { id: fallback.data.id as string };
+    return { id: fallback.data.id as string, alreadySucceeded: false };
   }
 
   if (error || !data) {
+    const { data: raced } = await supabase
+      .from("integration_sync_runs")
+      .select("id, status")
+      .eq("provider", "shopify")
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle();
+    if (raced) {
+      return {
+        id: raced.id as string,
+        alreadySucceeded: raced.status === "succeeded",
+      };
+    }
     throw new Error(error?.message ?? "sync_run_create_failed");
   }
 
-  return { id: data.id as string };
+  return { id: data.id as string, alreadySucceeded: false };
 }
 
 async function finishSyncRun(
@@ -319,7 +384,10 @@ async function selectAll<T>(
   const results: T[] = [];
 
   for (const batch of chunk(filterValues, UPSERT_BATCH_SIZE)) {
-    const { data } = await supabase.from(table).select(select).in(filterColumn, batch);
+    const { data } = await supabase
+      .from(table)
+      .select(select)
+      .in(filterColumn, batch);
     if (data) {
       results.push(...(data as T[]));
     }
@@ -340,7 +408,9 @@ export async function runShopifyInitialSync(
   const supabase = createServiceClient(env);
   const { data: connection, error: connectionError } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, provider_account_id, provider_account_name, status, last_sync_at")
+    .select(
+      "id, organization_id, provider_account_id, provider_account_name, status, last_sync_at",
+    )
     .eq("id", connectionId)
     .maybeSingle();
 
@@ -351,6 +421,12 @@ export async function runShopifyInitialSync(
   if (!connection) {
     throw new Error("shopify_connection_not_found");
   }
+
+  const operational = await checkOperationalOrganization(
+    supabase,
+    connection.organization_id,
+  );
+  if (!operational.ok) throw new Error(operational.error);
 
   let accessToken = await getValidShopifyAccessToken(env, connectionId);
   const shopDomain = connection.provider_account_id;
@@ -368,13 +444,61 @@ export async function runShopifyInitialSync(
     customers: createBlockState(),
   };
 
-  const syncRuns: Record<BlockKey, { id: string }> = {
-    catalog: await ensureSyncRun(supabase, connectionId, connection.organization_id, syncType, "catalog", now),
-    inventory: await ensureSyncRun(supabase, connectionId, connection.organization_id, syncType, "inventory", now),
-    orders: await ensureSyncRun(supabase, connectionId, connection.organization_id, syncType, "orders", now),
-    refunds: await ensureSyncRun(supabase, connectionId, connection.organization_id, syncType, "refunds", now),
-    customers: await ensureSyncRun(supabase, connectionId, connection.organization_id, syncType, "customers", now),
-  };
+  const syncRuns: Record<BlockKey, { id: string; alreadySucceeded: boolean }> =
+    {
+      catalog: await ensureSyncRun(
+        supabase,
+        connectionId,
+        connection.organization_id,
+        syncType,
+        "catalog",
+        now,
+      ),
+      inventory: await ensureSyncRun(
+        supabase,
+        connectionId,
+        connection.organization_id,
+        syncType,
+        "inventory",
+        now,
+      ),
+      orders: await ensureSyncRun(
+        supabase,
+        connectionId,
+        connection.organization_id,
+        syncType,
+        "orders",
+        now,
+      ),
+      refunds: await ensureSyncRun(
+        supabase,
+        connectionId,
+        connection.organization_id,
+        syncType,
+        "refunds",
+        now,
+      ),
+      customers: await ensureSyncRun(
+        supabase,
+        connectionId,
+        connection.organization_id,
+        syncType,
+        "customers",
+        now,
+      ),
+    };
+
+  if (Object.values(syncRuns).every((run) => run.alreadySucceeded)) {
+    logger.info(
+      "Shopify sync skipped because the idempotent run already succeeded",
+      {
+        connection_id: connectionId,
+        organization_id: connection.organization_id,
+        sync_type: syncType,
+      },
+    );
+    return;
+  }
 
   logger.info("Shopify sync started", {
     connection_id: connectionId,
@@ -385,7 +509,11 @@ export async function runShopifyInitialSync(
 
   await supabase
     .from("integration_connections")
-    .update({ status: "syncing", last_error_message: null, last_error_at: null })
+    .update({
+      status: "syncing",
+      last_error_message: null,
+      last_error_at: null,
+    })
     .eq("id", connectionId);
 
   let storeId: string | null = null;
@@ -450,7 +578,8 @@ export async function runShopifyInitialSync(
       store_id: storeId,
     });
   } catch (error) {
-    fatalError = error instanceof Error ? error.message : "shopify_store_sync_failed";
+    fatalError =
+      error instanceof Error ? error.message : "shopify_store_sync_failed";
     for (const key of Object.keys(blocks) as BlockKey[]) {
       blocks[key].failed += 1;
       blocks[key].error = fatalError;
@@ -460,9 +589,14 @@ export async function runShopifyInitialSync(
   if (storeId) {
     let locationMap = new Map<string, string>();
 
-    const updatedAtCutoff = syncType === "incremental" ? connection.last_sync_at : null;
-    const productsQueryFilter = updatedAtCutoff ? `(query: "updated_at:>='${updatedAtCutoff}'")` : "";
-    const ordersQueryFilter = updatedAtCutoff ? `(query: "updated_at:>='${updatedAtCutoff}'")` : "";
+    const updatedAtCutoff =
+      syncType === "incremental" ? connection.last_sync_at : null;
+    const productsQueryFilter = updatedAtCutoff
+      ? `(query: "updated_at:>='${updatedAtCutoff}'")`
+      : "";
+    const ordersQueryFilter = updatedAtCutoff
+      ? `(query: "updated_at:>='${updatedAtCutoff}'")`
+      : "";
 
     accessToken = await getValidShopifyAccessToken(env, connectionId);
 
@@ -522,9 +656,17 @@ export async function runShopifyInitialSync(
         .select("id, external_location_id")
         .eq("store_id", storeId);
 
-      locationMap = new Map((locationRefs ?? []).map((location) => [location.external_location_id, location.id]));
+      locationMap = new Map(
+        (locationRefs ?? []).map((location) => [
+          location.external_location_id,
+          location.id,
+        ]),
+      );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "shopify_locations_sync_failed";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "shopify_locations_sync_failed";
       blocks.inventory.failed += 1;
       blocks.inventory.error = message;
     }
@@ -592,62 +734,86 @@ export async function runShopifyInitialSync(
       );
 
       const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: productLines, childrenByParentId } = groupBulkLinesByParent(lines);
+      const { topLevel: productLines, childrenByParentId } =
+        groupBulkLinesByParent(lines);
 
-      const productRows = (productLines as BulkProductLine[]).map((product) => ({
-        organization_id: connection.organization_id,
-        store_id: storeId,
-        external_product_id: product.id,
-        title: product.title,
-        handle: product.handle ?? null,
-        vendor: product.vendor ?? null,
-        product_type: product.productType ?? null,
-        status: product.status ?? null,
-        published_at: product.publishedAt ?? null,
-        external_created_at: product.createdAt ?? null,
-        external_updated_at: product.updatedAt ?? null,
-      }));
+      const productRows = (productLines as BulkProductLine[]).map(
+        (product) => ({
+          organization_id: connection.organization_id,
+          store_id: storeId,
+          external_product_id: product.id,
+          title: product.title,
+          handle: product.handle ?? null,
+          vendor: product.vendor ?? null,
+          product_type: product.productType ?? null,
+          status: product.status ?? null,
+          published_at: product.publishedAt ?? null,
+          external_created_at: product.createdAt ?? null,
+          external_updated_at: product.updatedAt ?? null,
+        }),
+      );
 
       blocks.catalog.read += productRows.length;
-      await upsertBlockRows(supabase, blocks.catalog, "shopify_products", productRows, "store_id,external_product_id");
+      await upsertBlockRows(
+        supabase,
+        blocks.catalog,
+        "shopify_products",
+        productRows,
+        "store_id,external_product_id",
+      );
 
-      const productRefs = await selectAll<{ id: string; external_product_id: string }>(
+      const productRefs = await selectAll<{
+        id: string;
+        external_product_id: string;
+      }>(
         supabase,
         "shopify_products",
         "id, external_product_id",
         "external_product_id",
         productRows.map((row) => row.external_product_id),
       );
-      const productMap = new Map(productRefs.map((product) => [product.external_product_id, product.id]));
+      const productMap = new Map(
+        productRefs.map((product) => [product.external_product_id, product.id]),
+      );
 
       if (productLines.length && !childrenByParentId.size) {
-        logger.error("Shopify bulk grouping produced zero child lines for a non-empty product export", {
-          connection_id: connectionId,
-          organization_id: connection.organization_id,
-          shop_domain: shopDomain,
-          product_lines: productLines.length,
-          total_lines: lines.length,
-        });
+        logger.error(
+          "Shopify bulk grouping produced zero child lines for a non-empty product export",
+          {
+            connection_id: connectionId,
+            organization_id: connection.organization_id,
+            shop_domain: shopDomain,
+            product_lines: productLines.length,
+            total_lines: lines.length,
+          },
+        );
       }
 
-      const variantLines: Array<{ productId: string; variant: BulkVariantLine }> = [];
+      const variantLines: Array<{
+        productId: string;
+        variant: BulkVariantLine;
+      }> = [];
       for (const product of productLines as BulkProductLine[]) {
         const productId = productMap.get(product.id);
         if (!productId) {
           continue;
         }
-        for (const variant of (childrenByParentId.get(product.id) ?? []) as BulkVariantLine[]) {
+        for (const variant of (childrenByParentId.get(product.id) ??
+          []) as BulkVariantLine[]) {
           variantLines.push({ productId, variant });
         }
       }
 
       if (productMap.size && !variantLines.length) {
-        logger.error("Shopify bulk grouping found no variants for any synced product - __parentId matching likely broke", {
-          connection_id: connectionId,
-          organization_id: connection.organization_id,
-          shop_domain: shopDomain,
-          products_synced: productMap.size,
-        });
+        logger.error(
+          "Shopify bulk grouping found no variants for any synced product - __parentId matching likely broke",
+          {
+            connection_id: connectionId,
+            organization_id: connection.organization_id,
+            shop_domain: shopDomain,
+            products_synced: productMap.size,
+          },
+        );
       }
 
       const variantRows = variantLines.map(({ productId, variant }) => ({
@@ -667,16 +833,27 @@ export async function runShopifyInitialSync(
       }));
 
       blocks.catalog.read += variantRows.length;
-      await upsertBlockRows(supabase, blocks.catalog, "shopify_variants", variantRows, "product_id,external_variant_id");
+      await upsertBlockRows(
+        supabase,
+        blocks.catalog,
+        "shopify_variants",
+        variantRows,
+        "product_id,external_variant_id",
+      );
 
-      const variantRefs = await selectAll<{ id: string; external_variant_id: string }>(
+      const variantRefs = await selectAll<{
+        id: string;
+        external_variant_id: string;
+      }>(
         supabase,
         "shopify_variants",
         "id, external_variant_id",
         "external_variant_id",
         variantRows.map((row) => row.external_variant_id),
       );
-      const variantMap = new Map(variantRefs.map((variant) => [variant.external_variant_id, variant.id]));
+      const variantMap = new Map(
+        variantRefs.map((variant) => [variant.external_variant_id, variant.id]),
+      );
 
       const inventoryRows: Array<Record<string, unknown>> = [];
       const inventorySnapshotRows: Array<Record<string, unknown>> = [];
@@ -694,14 +871,18 @@ export async function runShopifyInitialSync(
           sku: variant.inventoryItem.sku ?? null,
           tracked: variant.inventoryItem.tracked ?? false,
           requires_shipping: variant.inventoryItem.requiresShipping ?? true,
-          country_code_of_origin: variant.inventoryItem.countryCodeOfOrigin ?? null,
-          province_code_of_origin: variant.inventoryItem.provinceCodeOfOrigin ?? null,
-          harmonized_system_code: variant.inventoryItem.harmonizedSystemCode ?? null,
+          country_code_of_origin:
+            variant.inventoryItem.countryCodeOfOrigin ?? null,
+          province_code_of_origin:
+            variant.inventoryItem.provinceCodeOfOrigin ?? null,
+          harmonized_system_code:
+            variant.inventoryItem.harmonizedSystemCode ?? null,
           measurement_data: variant.inventoryItem.measurement ?? null,
           external_updated_at: new Date().toISOString(),
         });
 
-        for (const level of (childrenByParentId.get(variant.inventoryItem.id) ?? []) as BulkInventoryLevelLine[]) {
+        for (const level of (childrenByParentId.get(variant.inventoryItem.id) ??
+          []) as BulkInventoryLevelLine[]) {
           const quantities = level.quantities ?? [];
           const quantityMap = Object.fromEntries(
             quantities.map((quantity) => [quantity.name, quantity.quantity]),
@@ -728,14 +909,21 @@ export async function runShopifyInitialSync(
         }
       }
 
-      if (inventoryRows.length && locationMap.size && !inventorySnapshotRows.length) {
-        logger.error("Shopify bulk grouping found no inventory levels despite tracked items and known locations", {
-          connection_id: connectionId,
-          organization_id: connection.organization_id,
-          shop_domain: shopDomain,
-          inventory_items: inventoryRows.length,
-          locations_known: locationMap.size,
-        });
+      if (
+        inventoryRows.length &&
+        locationMap.size &&
+        !inventorySnapshotRows.length
+      ) {
+        logger.error(
+          "Shopify bulk grouping found no inventory levels despite tracked items and known locations",
+          {
+            connection_id: connectionId,
+            organization_id: connection.organization_id,
+            shop_domain: shopDomain,
+            inventory_items: inventoryRows.length,
+            locations_known: locationMap.size,
+          },
+        );
       }
 
       blocks.inventory.read += inventoryRows.length;
@@ -747,22 +935,36 @@ export async function runShopifyInitialSync(
         "external_inventory_item_id",
       );
 
-      const inventoryRefs = await selectAll<{ id: string; external_inventory_item_id: string }>(
+      const inventoryRefs = await selectAll<{
+        id: string;
+        external_inventory_item_id: string;
+      }>(
         supabase,
         "shopify_inventory_items",
         "id, external_inventory_item_id",
         "external_inventory_item_id",
         inventoryRows.map((row) => row.external_inventory_item_id as string),
       );
-      const inventoryMap = new Map(inventoryRefs.map((item) => [item.external_inventory_item_id, item.id]));
+      const inventoryMap = new Map(
+        inventoryRefs.map((item) => [item.external_inventory_item_id, item.id]),
+      );
 
       const resolvedSnapshotRows = inventorySnapshotRows
         .map((row) => {
           const externalInventoryItemId =
-            typeof row.external_inventory_item_id === "string" ? row.external_inventory_item_id : null;
-          const inventoryItemId = externalInventoryItemId ? inventoryMap.get(externalInventoryItemId) : null;
-          const { external_inventory_item_id: _externalInventoryItemId, ...snapshotRow } = row;
-          return inventoryItemId ? { ...snapshotRow, inventory_item_id: inventoryItemId } : null;
+            typeof row.external_inventory_item_id === "string"
+              ? row.external_inventory_item_id
+              : null;
+          const inventoryItemId = externalInventoryItemId
+            ? inventoryMap.get(externalInventoryItemId)
+            : null;
+          const {
+            external_inventory_item_id: _externalInventoryItemId,
+            ...snapshotRow
+          } = row;
+          return inventoryItemId
+            ? { ...snapshotRow, inventory_item_id: inventoryItemId }
+            : null;
         })
         .filter(Boolean) as Array<Record<string, unknown>>;
 
@@ -784,7 +986,8 @@ export async function runShopifyInitialSync(
         inventory_written: blocks.inventory.written,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "shopify_catalog_sync_failed";
+      const message =
+        error instanceof Error ? error.message : "shopify_catalog_sync_failed";
       blocks.catalog.failed += 1;
       blocks.catalog.error = blocks.catalog.error ?? message;
       blocks.inventory.failed += 1;
@@ -847,34 +1050,58 @@ export async function runShopifyInitialSync(
       );
 
       const lines = await fetchBulkResult(bulkResult.url);
-      const { topLevel: orderLines, childrenByParentId } = groupBulkLinesByParent(lines);
+      const { topLevel: orderLines, childrenByParentId } =
+        groupBulkLinesByParent(lines);
 
       const orderRows = (orderLines as BulkOrderLine[]).map((order) => ({
         organization_id: connection.organization_id,
         store_id: storeId,
         external_order_id: order.id,
         order_name: order.name,
-        customer_reference_hash: order.customer?.id ? sha256(order.customer.id) : null,
+        customer_reference_hash: order.customer?.id
+          ? sha256(order.customer.id)
+          : null,
         financial_status: order.displayFinancialStatus ?? null,
         fulfillment_status: order.displayFulfillmentStatus ?? null,
         source_name: order.sourceName ?? null,
         currency_code: order.currencyCode ?? null,
         presentment_currency_code: order.presentmentCurrencyCode ?? null,
-        gross_sales: normalizeMoney(order.currentSubtotalPriceSet?.shopMoney?.amount),
-        discounts: normalizeMoney(order.currentTotalDiscountsSet?.shopMoney?.amount),
+        gross_sales: normalizeMoney(
+          order.currentSubtotalPriceSet?.shopMoney?.amount,
+        ),
+        discounts: normalizeMoney(
+          order.currentTotalDiscountsSet?.shopMoney?.amount,
+        ),
         refunds:
-          order.refunds?.reduce((total, refund) => total + normalizeMoney(refund.totalRefundedSet?.shopMoney?.amount), 0) ?? 0,
+          order.refunds?.reduce(
+            (total, refund) =>
+              total +
+              normalizeMoney(refund.totalRefundedSet?.shopMoney?.amount),
+            0,
+          ) ?? 0,
         net_sales:
           normalizeMoney(order.currentTotalPriceSet?.shopMoney?.amount) -
-          (order.refunds?.reduce((total, refund) => total + normalizeMoney(refund.totalRefundedSet?.shopMoney?.amount), 0) ?? 0),
-        current_subtotal_price: normalizeMoney(order.currentSubtotalPriceSet?.shopMoney?.amount),
-        current_shipping_price: normalizeMoney(order.totalShippingPriceSet?.shopMoney?.amount),
-        current_total_tax: normalizeMoney(order.currentTotalTaxSet?.shopMoney?.amount),
-        current_total_price: normalizeMoney(order.currentTotalPriceSet?.shopMoney?.amount),
-        total_items: ((childrenByParentId.get(order.id) ?? []) as BulkLineItemLine[]).reduce(
-          (total, lineItem) => total + (lineItem.quantity ?? 0),
-          0,
+          (order.refunds?.reduce(
+            (total, refund) =>
+              total +
+              normalizeMoney(refund.totalRefundedSet?.shopMoney?.amount),
+            0,
+          ) ?? 0),
+        current_subtotal_price: normalizeMoney(
+          order.currentSubtotalPriceSet?.shopMoney?.amount,
         ),
+        current_shipping_price: normalizeMoney(
+          order.totalShippingPriceSet?.shopMoney?.amount,
+        ),
+        current_total_tax: normalizeMoney(
+          order.currentTotalTaxSet?.shopMoney?.amount,
+        ),
+        current_total_price: normalizeMoney(
+          order.currentTotalPriceSet?.shopMoney?.amount,
+        ),
+        total_items: (
+          (childrenByParentId.get(order.id) ?? []) as BulkLineItemLine[]
+        ).reduce((total, lineItem) => total + (lineItem.quantity ?? 0), 0),
         is_first_customer_order: order.customer?.numberOfOrders === 1,
         is_test_order: order.test ?? false,
         external_created_at: order.createdAt ?? null,
@@ -885,48 +1112,83 @@ export async function runShopifyInitialSync(
       }));
 
       blocks.orders.read += orderRows.length;
-      await upsertBlockRows(supabase, blocks.orders, "shopify_order_facts", orderRows, "store_id,external_order_id");
+      await upsertBlockRows(
+        supabase,
+        blocks.orders,
+        "shopify_order_facts",
+        orderRows,
+        "store_id,external_order_id",
+      );
 
-      const orderRefs = await selectAll<{ id: string; external_order_id: string }>(
+      const orderRefs = await selectAll<{
+        id: string;
+        external_order_id: string;
+      }>(
         supabase,
         "shopify_order_facts",
         "id, external_order_id",
         "external_order_id",
         orderRows.map((row) => row.external_order_id),
       );
-      const orderMap = new Map(orderRefs.map((order) => [order.external_order_id, order.id]));
+      const orderMap = new Map(
+        orderRefs.map((order) => [order.external_order_id, order.id]),
+      );
 
-      const lineItemsByOrderId: Array<{ orderId: string; lineItem: BulkLineItemLine }> = [];
+      const lineItemsByOrderId: Array<{
+        orderId: string;
+        lineItem: BulkLineItemLine;
+      }> = [];
       for (const order of orderLines as BulkOrderLine[]) {
         const orderId = orderMap.get(order.id);
         if (!orderId) {
           continue;
         }
-        for (const lineItem of (childrenByParentId.get(order.id) ?? []) as BulkLineItemLine[]) {
+        for (const lineItem of (childrenByParentId.get(order.id) ??
+          []) as BulkLineItemLine[]) {
           lineItemsByOrderId.push({ orderId, lineItem });
         }
       }
 
       if (orderMap.size && !lineItemsByOrderId.length) {
-        logger.error("Shopify bulk grouping found no line items for any synced order - __parentId matching likely broke", {
-          connection_id: connectionId,
-          organization_id: connection.organization_id,
-          shop_domain: shopDomain,
-          orders_synced: orderMap.size,
-        });
+        logger.error(
+          "Shopify bulk grouping found no line items for any synced order - __parentId matching likely broke",
+          {
+            connection_id: connectionId,
+            organization_id: connection.organization_id,
+            shop_domain: shopDomain,
+            orders_synced: orderMap.size,
+          },
+        );
       }
 
-      const lineItemVariantRefs = await selectAll<{ id: string; external_variant_id: string; product_id: string }>(
+      const lineItemVariantRefs = await selectAll<{
+        id: string;
+        external_variant_id: string;
+        product_id: string;
+      }>(
         supabase,
         "shopify_variants",
         "id, external_variant_id, product_id",
         "external_variant_id",
-        [...new Set(lineItemsByOrderId.map(({ lineItem }) => lineItem.variant?.id).filter((id): id is string => Boolean(id)))],
+        [
+          ...new Set(
+            lineItemsByOrderId
+              .map(({ lineItem }) => lineItem.variant?.id)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        ],
       );
-      const lineItemVariantMap = new Map(lineItemVariantRefs.map((variant) => [variant.external_variant_id, variant]));
+      const lineItemVariantMap = new Map(
+        lineItemVariantRefs.map((variant) => [
+          variant.external_variant_id,
+          variant,
+        ]),
+      );
 
       const orderItemRows = lineItemsByOrderId.map(({ orderId, lineItem }) => {
-        const matchedVariant = lineItem.variant?.id ? lineItemVariantMap.get(lineItem.variant.id) : null;
+        const matchedVariant = lineItem.variant?.id
+          ? lineItemVariantMap.get(lineItem.variant.id)
+          : null;
 
         return {
           organization_id: connection.organization_id,
@@ -939,10 +1201,18 @@ export async function runShopifyInitialSync(
           vendor_snapshot: null,
           quantity_original: lineItem.quantity ?? 0,
           quantity_current: lineItem.currentQuantity ?? lineItem.quantity ?? 0,
-          unit_price: normalizeMoney(lineItem.originalUnitPriceSet?.shopMoney?.amount),
-          original_line_total: normalizeMoney(lineItem.originalTotalSet?.shopMoney?.amount),
-          discount_total: normalizeMoney(lineItem.discountedTotalSet?.shopMoney?.amount),
-          current_line_total: normalizeMoney(lineItem.originalTotalSet?.shopMoney?.amount),
+          unit_price: normalizeMoney(
+            lineItem.originalUnitPriceSet?.shopMoney?.amount,
+          ),
+          original_line_total: normalizeMoney(
+            lineItem.originalTotalSet?.shopMoney?.amount,
+          ),
+          discount_total: normalizeMoney(
+            lineItem.discountedTotalSet?.shopMoney?.amount,
+          ),
+          current_line_total: normalizeMoney(
+            lineItem.originalTotalSet?.shopMoney?.amount,
+          ),
           refunded_quantity: 0,
           refunded_amount: 0,
         };
@@ -957,46 +1227,74 @@ export async function runShopifyInitialSync(
         "order_id,external_line_item_id",
       );
 
-      const orderItemRefs = await selectAll<{ id: string; external_line_item_id: string }>(
+      const orderItemRefs = await selectAll<{
+        id: string;
+        external_line_item_id: string;
+      }>(
         supabase,
         "shopify_order_items",
         "id, external_line_item_id",
         "external_line_item_id",
         orderItemRows.map((row) => row.external_line_item_id),
       );
-      const orderItemMap = new Map(orderItemRefs.map((item) => [item.external_line_item_id, item.id]));
+      const orderItemMap = new Map(
+        orderItemRefs.map((item) => [item.external_line_item_id, item.id]),
+      );
 
-      const refundsByOrderId: Array<{ orderId: string; currencyCode: string | null; refund: NonNullable<BulkOrderLine["refunds"]>[number] }> = [];
+      const refundsByOrderId: Array<{
+        orderId: string;
+        currencyCode: string | null;
+        refund: NonNullable<BulkOrderLine["refunds"]>[number];
+      }> = [];
       for (const order of orderLines as BulkOrderLine[]) {
         const orderId = orderMap.get(order.id);
         if (!orderId) {
           continue;
         }
         for (const refund of order.refunds ?? []) {
-          refundsByOrderId.push({ orderId, currencyCode: order.currencyCode ?? null, refund });
+          refundsByOrderId.push({
+            orderId,
+            currencyCode: order.currencyCode ?? null,
+            refund,
+          });
         }
       }
 
-      const refundRows = refundsByOrderId.map(({ orderId, currencyCode, refund }) => ({
-        organization_id: connection.organization_id,
-        order_id: orderId,
-        external_refund_id: refund.id,
-        total_refunded: normalizeMoney(refund.totalRefundedSet?.shopMoney?.amount),
-        currency_code: currencyCode,
-        external_created_at: refund.createdAt ?? new Date().toISOString(),
-      }));
+      const refundRows = refundsByOrderId.map(
+        ({ orderId, currencyCode, refund }) => ({
+          organization_id: connection.organization_id,
+          order_id: orderId,
+          external_refund_id: refund.id,
+          total_refunded: normalizeMoney(
+            refund.totalRefundedSet?.shopMoney?.amount,
+          ),
+          currency_code: currencyCode,
+          external_created_at: refund.createdAt ?? new Date().toISOString(),
+        }),
+      );
 
       blocks.refunds.read += refundRows.length;
-      await upsertBlockRows(supabase, blocks.refunds, "shopify_refunds", refundRows, "order_id,external_refund_id");
+      await upsertBlockRows(
+        supabase,
+        blocks.refunds,
+        "shopify_refunds",
+        refundRows,
+        "order_id,external_refund_id",
+      );
 
-      const refundRefs = await selectAll<{ id: string; external_refund_id: string }>(
+      const refundRefs = await selectAll<{
+        id: string;
+        external_refund_id: string;
+      }>(
         supabase,
         "shopify_refunds",
         "id, external_refund_id",
         "external_refund_id",
         refundRows.map((row) => row.external_refund_id),
       );
-      const refundMap = new Map(refundRefs.map((refund) => [refund.external_refund_id, refund.id]));
+      const refundMap = new Map(
+        refundRefs.map((refund) => [refund.external_refund_id, refund.id]),
+      );
 
       const refundItemRows: Array<Record<string, unknown>> = [];
       for (const { refund } of refundsByOrderId) {
@@ -1005,8 +1303,11 @@ export async function runShopifyInitialSync(
           continue;
         }
 
-        for (const refundLineItem of (childrenByParentId.get(refund.id) ?? []) as BulkRefundLineItemLine[]) {
-          const lineItemId = refundLineItem.lineItem?.id ? orderItemMap.get(refundLineItem.lineItem.id) : null;
+        for (const refundLineItem of (childrenByParentId.get(refund.id) ??
+          []) as BulkRefundLineItemLine[]) {
+          const lineItemId = refundLineItem.lineItem?.id
+            ? orderItemMap.get(refundLineItem.lineItem.id)
+            : null;
           if (!lineItemId) {
             continue;
           }
@@ -1018,20 +1319,27 @@ export async function runShopifyInitialSync(
             location_id: null,
             external_refund_line_item_id: refundLineItem.lineItem?.id ?? null,
             quantity: refundLineItem.quantity ?? 0,
-            subtotal: normalizeMoney(refundLineItem.subtotalSet?.shopMoney?.amount),
-            total_tax: normalizeMoney(refundLineItem.totalTaxSet?.shopMoney?.amount),
+            subtotal: normalizeMoney(
+              refundLineItem.subtotalSet?.shopMoney?.amount,
+            ),
+            total_tax: normalizeMoney(
+              refundLineItem.totalTaxSet?.shopMoney?.amount,
+            ),
             restock_type: null,
           });
         }
       }
 
       if (refundMap.size && !refundItemRows.length) {
-        logger.info("Shopify bulk grouping found no refund line items for any synced refund", {
-          connection_id: connectionId,
-          organization_id: connection.organization_id,
-          shop_domain: shopDomain,
-          refunds_synced: refundMap.size,
-        });
+        logger.info(
+          "Shopify bulk grouping found no refund line items for any synced refund",
+          {
+            connection_id: connectionId,
+            organization_id: connection.organization_id,
+            shop_domain: shopDomain,
+            refunds_synced: refundMap.size,
+          },
+        );
       }
 
       blocks.refunds.read += refundItemRows.length;
@@ -1057,7 +1365,8 @@ export async function runShopifyInitialSync(
         refunds_written: blocks.refunds.written,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "shopify_orders_sync_failed";
+      const message =
+        error instanceof Error ? error.message : "shopify_orders_sync_failed";
       blocks.orders.failed += 1;
       blocks.orders.error = blocks.orders.error ?? message;
       blocks.refunds.failed += 1;
@@ -1066,7 +1375,9 @@ export async function runShopifyInitialSync(
 
     try {
       accessToken = await getValidShopifyAccessToken(env, connectionId);
-      const customersQueryFilter = updatedAtCutoff ? `(query: "updated_at:>='${updatedAtCutoff}'")` : "";
+      const customersQueryFilter = updatedAtCutoff
+        ? `(query: "updated_at:>='${updatedAtCutoff}'")`
+        : "";
       const bulkResult = await runBulkOperation(
         shopDomain,
         accessToken,
@@ -1090,23 +1401,31 @@ export async function runShopifyInitialSync(
       const lines = await fetchBulkResult(bulkResult.url);
       const { topLevel: customerLines } = groupBulkLinesByParent(lines);
 
-      const customerRows = (customerLines as BulkCustomerLine[]).map((customer) => ({
-        organization_id: connection.organization_id,
-        store_id: storeId,
-        external_customer_id: customer.id,
-        customer_reference_hash: sha256(customer.id),
-        number_of_orders: customer.numberOfOrders ?? 0,
-        amount_spent: normalizeMoney(customer.amountSpent?.amount),
-        currency_code: customer.amountSpent?.currencyCode ?? null,
-        state: customer.state ?? null,
-        tags: customer.tags ?? [],
-        is_active: true,
-        external_created_at: customer.createdAt ?? null,
-        external_updated_at: customer.updatedAt ?? null,
-      }));
+      const customerRows = (customerLines as BulkCustomerLine[]).map(
+        (customer) => ({
+          organization_id: connection.organization_id,
+          store_id: storeId,
+          external_customer_id: customer.id,
+          customer_reference_hash: sha256(customer.id),
+          number_of_orders: customer.numberOfOrders ?? 0,
+          amount_spent: normalizeMoney(customer.amountSpent?.amount),
+          currency_code: customer.amountSpent?.currencyCode ?? null,
+          state: customer.state ?? null,
+          tags: customer.tags ?? [],
+          is_active: true,
+          external_created_at: customer.createdAt ?? null,
+          external_updated_at: customer.updatedAt ?? null,
+        }),
+      );
 
       blocks.customers.read += customerRows.length;
-      await upsertBlockRows(supabase, blocks.customers, "shopify_customers", customerRows, "store_id,external_customer_id");
+      await upsertBlockRows(
+        supabase,
+        blocks.customers,
+        "shopify_customers",
+        customerRows,
+        "store_id,external_customer_id",
+      );
 
       logger.info("Shopify customers bulk sync completed", {
         connection_id: connectionId,
@@ -1116,7 +1435,10 @@ export async function runShopifyInitialSync(
         customers_written: blocks.customers.written,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "shopify_customers_sync_failed";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "shopify_customers_sync_failed";
       blocks.customers.failed += 1;
       blocks.customers.error = message;
     }
@@ -1135,10 +1457,14 @@ export async function runShopifyInitialSync(
     );
   }
 
-  const failedBlocks = (Object.entries(blocks) as Array<[BlockKey, BlockState]>).filter(([, block]) => block.error);
+  const failedBlocks = (
+    Object.entries(blocks) as Array<[BlockKey, BlockState]>
+  ).filter(([, block]) => block.error);
 
   if (failedBlocks.length) {
-    const combinedError = failedBlocks.map(([key, block]) => `${key}: ${block.error}`).join(" | ");
+    const combinedError = failedBlocks
+      .map(([key, block]) => `${key}: ${block.error}`)
+      .join(" | ");
 
     await supabase
       .from("integration_connections")
@@ -1179,6 +1505,9 @@ export async function runShopifyInitialSync(
     connection_id: connectionId,
     organization_id: connection.organization_id,
     shop_domain: shopDomain,
-    records_written: Object.values(blocks).reduce((total, block) => total + block.written, 0),
+    records_written: Object.values(blocks).reduce(
+      (total, block) => total + block.written,
+      0,
+    ),
   });
 }

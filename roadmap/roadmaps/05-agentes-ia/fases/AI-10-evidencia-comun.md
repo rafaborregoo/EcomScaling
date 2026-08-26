@@ -1,5 +1,10 @@
 # AI-10 - Envolvente comun IA <-> Frontend
 
+> Correccion de catalogo 2026-08-21: `AGENT_CATALOG` ya existe en
+> `packages/contracts/src/index.ts` con nombres de producto y estado `implemented`/`prepared`.
+> La traza del panel tecnico usa el nombre humano y conserva el codigo interno como detalle; la
+> afirmacion historica de que el mapeo no existia queda supersedida.
+
 ## Estado
 
 ### Estado actualizado 2026-07-22
@@ -64,7 +69,12 @@ fuentes, propuestas), dejando el contenido especifico de cada agente como un pay
 forzado dentro de un unico schema gigante. Sin esto, cada pantalla que muestra un resultado de IA
 reinventa su propia forma de comunicar "de donde sale esto y cuando caduca".
 
-## Contrato (documentado aqui, no implementado en codigo todavia)
+## Contrato historico y gaps pendientes
+
+La envolvente base ya está implementada y utilizada; esta sección conserva el
+contrato ampliado y señala únicamente los campos o transiciones que aún no
+están completos en código. No debe interpretarse como ausencia de
+`AgentOutputEnvelope`.
 
 ```ts
 type AgentOutputEnvelope<TContent> = {
@@ -117,13 +127,26 @@ endpoint: ejecucion, alcance, freshness, calidad y fuentes.
 ```ts
 type AgentSourceReference = {
   id: string;
-  kind: "metric" | "sql_result" | "document" | "transcript" | "alert" | "task" | "integration";
+  kind:
+    | "metric"
+    | "sql_result"
+    | "document"
+    | "transcript"
+    | "alert"
+    | "task"
+    | "integration";
   label: string;
   organizationId: string;
   storeId?: string;
   period?: { from: string; to: string };
   generatedAt?: string;
-  location?: { page?: number; section?: string; paragraph?: number; timestampStart?: number; timestampEnd?: number };
+  location?: {
+    page?: number;
+    section?: string;
+    paragraph?: number;
+    timestampStart?: number;
+    timestampEnd?: number;
+  };
   href?: string;
 };
 ```
@@ -140,14 +163,32 @@ inventado.
 ```ts
 type AgentProposal = {
   id: string;
-  type: "create_task" | "update_task" | "publish_summary" | "create_alert" | "update_plan" | "request_reauthorization";
+  type:
+    | "create_task"
+    | "update_task"
+    | "publish_summary"
+    | "create_alert"
+    | "update_plan"
+    | "request_reauthorization";
   title: string;
   explanation: string;
   target: { entityType: string; entityId?: string };
-  impact?: { severity: "low" | "medium" | "high" | "critical"; reversible: boolean };
+  impact?: {
+    severity: "low" | "medium" | "high" | "critical";
+    reversible: boolean;
+  };
   approval: { required: boolean; allowedRoles: string[] };
   idempotencyKey: string;
-  status: "proposed" | "pending_approval" | "approved" | "rejected" | "executing" | "executed" | "failed" | "expired" | "superseded";
+  status:
+    | "proposed"
+    | "pending_approval"
+    | "approved"
+    | "rejected"
+    | "executing"
+    | "executed"
+    | "failed"
+    | "expired"
+    | "superseded";
 };
 ```
 
@@ -173,16 +214,16 @@ calculan a partir de `freshness`/`quality` de la envolvente, nunca se guardan co
 ## Nombres de producto (no exponer codigos internos al cliente)
 
 | Codigo | Superficie visible al cliente | Solo visible en panel tecnico/consultor |
-| --- | --- | --- |
-| A01 | Resumen de llamada | `A01` |
-| A02 | Diagnostico del negocio | `A02` |
-| A03 | Analisis de adquisicion | `A03` (bloqueado) |
-| A04 | Plan de prioridades | `A04` |
-| A05 | Estrategia de campañas | `A05` (bloqueado) |
-| A06 | Planificacion de stock | `A06` |
-| A07 | Rendimiento de contenido | `A07` (bloqueado) |
-| A08 | Estado del conocimiento | `A08` |
-| A09 | Copiloto | `A09` |
+| ------ | ----------------------------- | --------------------------------------- |
+| A01    | Resumen de llamada            | `A01`                                   |
+| A02    | Diagnostico del negocio       | `A02`                                   |
+| A03    | Analisis de adquisicion       | `A03` (bloqueado)                       |
+| A04    | Plan de prioridades           | `A04`                                   |
+| A05    | Estrategia de campañas        | `A05` (bloqueado)                       |
+| A06    | Planificacion de stock        | `A06`                                   |
+| A07    | Rendimiento de contenido      | `A07` (bloqueado)                       |
+| A08    | Estado del conocimiento       | `A08`                                   |
+| A09    | Copiloto                      | `A09`                                   |
 
 El mapeo vive aqui como referencia; implementarlo es anadir un campo `displayName`/catalogo en
 `agent_definitions` o en el frontend — no existe todavia en ningun sitio.

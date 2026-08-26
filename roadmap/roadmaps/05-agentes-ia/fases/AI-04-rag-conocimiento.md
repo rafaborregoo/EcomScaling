@@ -1,17 +1,56 @@
 # AI-04 - RAG y conocimiento
 
+Evidencia vigente 2026-08-26: `npx tsx --test packages/ai/src/index.test.ts` pasa 57/57.
+Las cifras anteriores de esta fase son historicas.
+
+> **Actualización 2026-08-26:** `VoyageEmbeddingProvider` comparte la política
+> de resiliencia de IA: `AbortSignal` para timeout, retries de errores
+> transitorios, backoff exponencial y clasificación por status HTTP. La misma
+> garantía se aplica a los intercambios OAuth de Klaviyo y Shopify, de modo que
+> la indexación y la activación de conectores no dependen de `fetch` sin límites.
+> La ingesta y el alta manual reutilizan `apps/api/src/embedding-batching.ts`,
+> con un máximo de dos peticiones simultáneas y orden estable de `chunk_index`;
+> `memory-ingestion.test.ts` lo verifica 2/2.
+
+> **Incremento RAG 2026-08-26:** `chunkText` conserva contexto de encabezados,
+> listas y tablas, y corta por líneas cuando un bloque excede el límite,
+> repitiendo el contexto necesario. La migración de retrieval híbrido pondera
+> además la autoridad documental (`canonical` > `operational` > `contextual`)
+> con un boost pequeño y auditable, manteniendo filtros de tenant, tienda y
+> audiencia. `packages/ai/src/index.test.ts` pasa 56/56.
+
+> **Correccion canonica 2026-08-24:** el RPC hibrido ya esta aplicado dentro de las 64 migraciones
+> alineadas y el eval adversarial de prompt injection documental de BE-07 ya esta verificado en vivo.
+> Las menciones inferiores a busqueda exclusivamente vectorial o a un eval adversarial inexistente
+> son historicas. Los gaps vigentes son ampliar corpus y evals, chunking estructural, autoridad de
+> fuentes y resolucion/versionado de contradicciones.
+
+> **Corrección vigente 2026-08-26:** el control anti-injection ya está
+> implementado y cubre instrucciones directas e indirectas en resultados de
+> RAG/Playbook, conectores y tools (`untrusted-context.ts`), con tests y matriz
+> de evals para los diez agentes. La mención inferior a “sin test adversarial”
+> es histórica; los gaps actuales son estructurales (corpus, chunking,
+> autoridad y contradicciones), no una ausencia de barrera de seguridad.
+
 ## Estado
+
+> Verificacion vigente 2026-08-24: el RPC híbrido ya está aplicado dentro de
+> las 64 migraciones alineadas y la API conserva fallback durante rollout. El
+> retrieval real mantiene recall@8/recall@3 6/6; el eval adversarial de
+> prompt-injection documental existe en BE-07. Siguen abiertos únicamente
+> mejoras de corpus estructurado, autoridad de fuentes y versionado de
+> chunking, no la preparación del conector RAG.
 
 - **Estado real:** `live_validated_design_gaps_open` (retrieval real validado 2026-07-23; los gaps de diseño
   de abajo -- chunking estructural, busqueda hibrida, autoridad de fuentes -- siguen abiertos)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-11
 - **Bloqueador:** ninguno (este entorno ya tiene `VOYAGE_API_KEY` configurada; falta seguir siendo `falta
-  en produccion` para el secret de GitHub Actions/Vercel, ver AI-07 -- ese es un gap de despliegue, ya no
+en produccion` para el secret de GitHub Actions/Vercel, ver AI-07 -- ese es un gap de despliegue, ya no
   de validacion).
 - **Resuelto 2026-07-23 (retrieval real, primera vez)**: `apps/api/src/eval-ai04-rag-retrieval.ts` (`npm
-  run eval:ai04 -w @ecomscaling/api`) ingesta 6 documentos de metodologia (uno por tema: punto de reorden,
+run eval:ai04 -w @ecomscaling/api`) ingesta 6 documentos de metodologia (uno por tema: punto de reorden,
   ROAS break-even, devoluciones por daño, fatiga publicitaria, cohortes LTV, aprobacion de resumenes de
   llamada) via `createKnowledgeDocument` (chunking + embeddings reales de Voyage `voyage-3.5`) y lanza 6
   consultas **parafraseadas** (ningun solapamiento lexico con el documento esperado) contra

@@ -1,5 +1,15 @@
 # OPS-01 - Piloto MVP
 
+> **Corrección de estado 2026-08-24:** el encabezado histórico "ninguno cumplido" queda supersedido:
+> los criterios Shopify, RLS, webhooks, logs, runbooks y hosting productivo están marcados y evidenciados.
+> El único criterio de entrada que permanece abierto es backup configurado + drill de restauración; el
+> drill sigue pospuesto explícitamente. `ops-health-check` también cubre ahora backlog de webhooks.
+
+> **Corrección vigente 2026-08-20:** las frases inferiores que indican que ningún criterio de entrada
+> se ha cumplido o que Klaviyo sigue `planned` pertenecen a la fotografía histórica de la fase. La
+> evaluación actual es: Shopify está operativo para piloto; los gates restantes son backup/restore,
+> recorridos manuales y validaciones aisladas, sin depender de Meta/Klaviyo.
+
 > Correccion vigente 2026-08-02: Klaviyo ya no esta en estado "sin codigo"; INT-03/BE-06 tienen
 > OAuth, sync, reporting reciente, reconciliacion y UI preparados en `implemented_partial`. La
 > dependencia real de Piloto 3 es una cuenta Klaviyo y validacion externa, no construir el vertical
@@ -15,7 +25,7 @@
 
 - **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** OPS-00 (producción Vercel + GitHub Actions), SQO-00/02/03, INT-01 (webhooks de privacidad)
 - **Bloqueador:** ninguno tecnico para el Piloto 1 (Shopify); Meta App Review bloquea el Piloto 2.
 - **Correccion sobre la version anterior de este documento**: el paso 1 exigia "Shopify y Meta" desde el
@@ -27,7 +37,7 @@
 Validar: onboarding, sincronizacion, metricas, configuracion financiera, dashboard, alertas, tareas,
 llamadas (A01), monitor de negocio (A02) en shadow mode, soporte.
 
-### Criterios de entrada (ninguno cumplido todavia — no incorporar clientes hasta marcarlos)
+### Criterios de entrada (estado vigente; no incorporar clientes hasta cerrar los pendientes)
 
 - [x] No existe hard-delete inmediato de organizaciones — resuelto 2026-07-21, soft-delete con 30 dias de
       gracia (R-008, ver FE-08/consultant.ts).
@@ -74,7 +84,7 @@ llamadas (A01), monitor de negocio (A02) en shadow mode, soporte.
 - [x] Staging operativo — **reevaluado 2026-07-22**: `apps/api` y `apps/web` ya estan desplegados en
       produccion en Vercel (`ecom-scaling-api`, `ecom-scaling-web`, verificado via API de Vercel). No existe
       un entorno de staging separado (R-015 sigue activo tal cual: los cambios van de local/preview directo
-      a produccion), pero el criterio original asumia que faltaba *cualquier* hosting -- eso era falso.
+      a produccion), pero el criterio original asumia que faltaba _cualquier_ hosting -- eso era falso.
       `apps/worker` (BullMQ+Redis) no esta desplegado en ningun sitio y no hace falta: es un unico archivo
       con una sola cola repetible (reconciliacion diaria de Shopify) que ya duplican los workflows de
       GitHub Actions (`shopify-reconcile.yml`, `alert-rules.yml`, `purge-expired-deletions.yml`,
@@ -94,21 +104,21 @@ que Meta apruebe la app (bloqueador externo, ver BE-04/INT-02).
 
 ## Piloto 3 — Retencion (cuando el nucleo anterior sea estable)
 
-Añadir Klaviyo (INT-03, hoy `planned` sin codigo).
+Añadir Klaviyo (INT-03, hoy `implemented_partial`; requiere credenciales y validación externa).
 
 ## Metricas de exito (sustituyen a "dashboard confiable", que no es medible)
 
-| Metrica | Objetivo inicial |
-| --- | --- |
-| Diferencia facturacion vs Shopify Admin | <1%, o explicada |
-| Diferencia pedidos vs Shopify Admin | 0, o explicada |
-| Sync de pedidos (freshness) | <30 min |
-| Sync diario correcto | >=99% |
-| Incidentes criticos cross-tenant | 0 |
-| Tareas consideradas utiles por el consultor | >=60% |
-| Resumenes A01 aprobados sin cambios | >=70% |
-| Tiempo de diagnostico de un sync fallido | <30 min |
-| Uso semanal del panel por el consultor | >=3 dias/semana |
+| Metrica                                     | Objetivo inicial |
+| ------------------------------------------- | ---------------- |
+| Diferencia facturacion vs Shopify Admin     | <1%, o explicada |
+| Diferencia pedidos vs Shopify Admin         | 0, o explicada   |
+| Sync de pedidos (freshness)                 | <30 min          |
+| Sync diario correcto                        | >=99%            |
+| Incidentes criticos cross-tenant            | 0                |
+| Tareas consideradas utiles por el consultor | >=60%            |
+| Resumenes A01 aprobados sin cambios         | >=70%            |
+| Tiempo de diagnostico de un sync fallido    | <30 min          |
+| Uso semanal del panel por el consultor      | >=3 dias/semana  |
 
 ## Protocolo por cliente incorporado
 

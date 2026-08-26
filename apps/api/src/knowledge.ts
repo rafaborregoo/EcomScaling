@@ -7,12 +7,15 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { chunkText, VoyageEmbeddingProvider } from "@ecomscaling/ai";
 import type { LoadedApiEnv } from "@ecomscaling/config";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import {
+  requireOperationalOrganization,
+  type AuthContext,
+  createUserScopedClient,
+} from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { embedChunksInOrder } from "./embedding-batching.js";
 
 type ApiEnv = LoadedApiEnv;
-
-const EMBEDDING_BATCH_SIZE = 64;
 
 function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
@@ -103,9 +106,9 @@ function requireKnowledgeManager(
     return { ok: true as const };
   }
 
-  const membership = context.memberships.find(
-    (item) => item.organization_id === organizationId,
-  );
+  const operational = requireOperationalOrganization(context, organizationId);
+  if (!operational.ok) return operational;
+  const { membership } = operational;
 
   const canManage =
     ["platform_admin", "consultant"].includes(context.profile.platform_role) ||
@@ -185,12 +188,7 @@ export async function createKnowledgeDocument(
     };
   }
 
-  const vectors: number[][] = [];
-  for (let offset = 0; offset < chunks.length; offset += EMBEDDING_BATCH_SIZE) {
-    const batch = chunks.slice(offset, offset + EMBEDDING_BATCH_SIZE);
-    const embedded = await embeddings.provider.embed(batch, "document");
-    vectors.push(...embedded);
-  }
+  const vectors = await embedChunksInOrder(chunks, embeddings.provider);
 
   const supabase = createServiceClient(env);
   const checksum = crypto.createHash("sha256").update(content).digest("hex");
@@ -314,7 +312,7 @@ export async function listKnowledgeDocuments(
   const { data, error } = await supabase
     .from("knowledge_documents")
     .select(
-      "id, organization_id, title, description, source_type, visibility, version, status, created_at, updated_at",
+      "id, organization_id, title, description, source_type, visibility, version, status, audience, origin, authority, created_at, updated_at",
     )
     .or(`visibility.eq.global,organization_id.eq.${organizationId}`)
     .order("created_at", { ascending: false })

@@ -10,8 +10,10 @@
  * (y sus read_* equivalentes, que Shopify marca solos).
  *
  * Uso:
- *   ALLOW_SHOPIFY_SEED=true SEED_SHOP_DOMAIN=mi-dev-store.myshopify.com SEED_ADMIN_TOKEN=shpat_xxx npm run seed:shopify-store
- * o anade ambas variables a .env.local y ejecuta npm run seed:shopify-store.
+ *   ALLOW_SHOPIFY_SEED=true SHOPIFY_PRODUCTION_DOMAIN=mi-prod.myshopify.com
+ *   SEED_SHOP_DOMAIN=mi-dev-store.myshopify.com SEED_ADMIN_TOKEN=shpat_xxx
+ *   npm run seed:shopify-store
+ * o anade estas variables a .env.local y ejecuta npm run seed:shopify-store.
  */
 import { z } from "zod";
 
@@ -19,9 +21,15 @@ const envSchema = z.object({
   // Este script crea productos, clientes y pedidos en Shopify: nunca se
   // permite sin una confirmación explícita en el entorno.
   ALLOW_SHOPIFY_SEED: z.literal("true"),
+  SHOPIFY_PRODUCTION_DOMAIN: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9.-]*\.myshopify\.com$/),
   SEED_SHOP_DOMAIN: z
     .string()
-    .regex(/^[a-z0-9][a-z0-9.-]*\.myshopify\.com$/, "SEED_SHOP_DOMAIN debe ser *.myshopify.com"),
+    .regex(
+      /^[a-z0-9][a-z0-9.-]*\.myshopify\.com$/,
+      "SEED_SHOP_DOMAIN debe ser *.myshopify.com",
+    ),
   SEED_ADMIN_TOKEN: z.string().min(10),
   SEED_PRODUCT_COUNT: z.coerce.number().int().min(1).max(50).default(12),
   SEED_CUSTOMER_COUNT: z.coerce.number().int().min(1).max(50).default(10),
@@ -29,17 +37,28 @@ const envSchema = z.object({
 });
 
 const env = envSchema.parse(process.env);
+if (env.SEED_SHOP_DOMAIN === env.SHOPIFY_PRODUCTION_DOMAIN) {
+  throw new Error(
+    "SHOPIFY_SEED_PRODUCTION_DOMAIN_REFUSED: el seed requiere una tienda distinta de produccion",
+  );
+}
 const API_VERSION = "2026-07";
 
-async function adminGraphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const response = await fetch(`https://${env.SEED_SHOP_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": env.SEED_ADMIN_TOKEN,
+async function adminGraphql<T>(
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch(
+    `https://${env.SEED_SHOP_DOMAIN}/admin/api/${API_VERSION}/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": env.SEED_ADMIN_TOKEN,
+      },
+      body: JSON.stringify({ query, variables }),
     },
-    body: JSON.stringify({ query, variables }),
-  });
+  );
 
   if (response.status === 429) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -48,10 +67,15 @@ async function adminGraphql<T>(query: string, variables: Record<string, unknown>
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`shopify_http_${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`);
+    throw new Error(
+      `shopify_http_${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
+    );
   }
 
-  const payload = (await response.json()) as { data?: T; errors?: Array<{ message?: string }> };
+  const payload = (await response.json()) as {
+    data?: T;
+    errors?: Array<{ message?: string }>;
+  };
 
   if (payload.errors?.length) {
     throw new Error(payload.errors.map((item) => item.message).join("; "));
@@ -64,15 +88,40 @@ async function adminGraphql<T>(query: string, variables: Record<string, unknown>
   return payload.data;
 }
 
-function assertNoUserErrors(operation: string, userErrors: Array<{ field?: string[] | null; message: string }> | undefined) {
+function assertNoUserErrors(
+  operation: string,
+  userErrors: Array<{ field?: string[] | null; message: string }> | undefined,
+) {
   if (userErrors?.length) {
-    throw new Error(`${operation}: ${userErrors.map((item) => item.message).join("; ")}`);
+    throw new Error(
+      `${operation}: ${userErrors.map((item) => item.message).join("; ")}`,
+    );
   }
 }
 
 const vendors = ["Nordic Wave", "Costa Sur", "Atelier Sol", "Brisa Studio"];
-const productTypes = ["Bikini", "Banador", "Toalla", "Bolsa de playa", "Gafas", "Sandalias"];
-const adjectives = ["Coral", "Marina", "Tropical", "Dorada", "Azul", "Ibiza", "Riviera", "Salada", "Menorca", "Formentera", "Tarifa", "Cadiz"];
+const productTypes = [
+  "Bikini",
+  "Banador",
+  "Toalla",
+  "Bolsa de playa",
+  "Gafas",
+  "Sandalias",
+];
+const adjectives = [
+  "Coral",
+  "Marina",
+  "Tropical",
+  "Dorada",
+  "Azul",
+  "Ibiza",
+  "Riviera",
+  "Salada",
+  "Menorca",
+  "Formentera",
+  "Tarifa",
+  "Cadiz",
+];
 
 type SeededVariant = { variantId: string; price: number };
 
@@ -85,7 +134,10 @@ async function createProducts() {
 
     const result = await adminGraphql<{
       productCreate: {
-        product: { id: string; variants: { nodes: Array<{ id: string }> } } | null;
+        product: {
+          id: string;
+          variants: { nodes: Array<{ id: string }> };
+        } | null;
         userErrors: Array<{ field?: string[] | null; message: string }>;
       };
     }>(
@@ -115,7 +167,9 @@ async function createProducts() {
     const variantId = product?.variants.nodes[0]?.id;
 
     if (!product || !variantId) {
-      throw new Error("productCreate devolvio un producto sin variante por defecto");
+      throw new Error(
+        "productCreate devolvio un producto sin variante por defecto",
+      );
     }
 
     const priceUpdate = await adminGraphql<{
@@ -136,7 +190,10 @@ async function createProducts() {
       },
     );
 
-    assertNoUserErrors("productVariantsBulkUpdate", priceUpdate.productVariantsBulkUpdate.userErrors);
+    assertNoUserErrors(
+      "productVariantsBulkUpdate",
+      priceUpdate.productVariantsBulkUpdate.userErrors,
+    );
     variants.push({ variantId, price });
     console.log(`Producto creado: ${title} (${price.toFixed(2)} EUR)`);
   }
@@ -146,8 +203,30 @@ async function createProducts() {
 
 async function createCustomers() {
   const customerIds: string[] = [];
-  const firstNames = ["Lucia", "Marta", "Carla", "Ana", "Sofia", "Paula", "Elena", "Nerea", "Irene", "Claudia"];
-  const lastNames = ["Garcia", "Lopez", "Martin", "Sanchez", "Romero", "Navarro", "Molina", "Ortega", "Vidal", "Serrano"];
+  const firstNames = [
+    "Lucia",
+    "Marta",
+    "Carla",
+    "Ana",
+    "Sofia",
+    "Paula",
+    "Elena",
+    "Nerea",
+    "Irene",
+    "Claudia",
+  ];
+  const lastNames = [
+    "Garcia",
+    "Lopez",
+    "Martin",
+    "Sanchez",
+    "Romero",
+    "Navarro",
+    "Molina",
+    "Ortega",
+    "Vidal",
+    "Serrano",
+  ];
 
   for (let index = 0; index < env.SEED_CUSTOMER_COUNT; index += 1) {
     const firstName = firstNames[index % firstNames.length];
@@ -207,7 +286,9 @@ async function createOrders(variants: SeededVariant[], customerIds: string[]) {
       {
         input: {
           lineItems,
-          purchasingEntity: { customerId: customerIds[index % customerIds.length] },
+          purchasingEntity: {
+            customerId: customerIds[index % customerIds.length],
+          },
           tags: ["seed-data"],
         },
       },
@@ -237,8 +318,13 @@ async function createOrders(variants: SeededVariant[], customerIds: string[]) {
       { id: draftId },
     );
 
-    assertNoUserErrors("draftOrderComplete", completion.draftOrderComplete.userErrors);
-    console.log(`Pedido creado: ${completion.draftOrderComplete.draftOrder?.order?.name ?? draftId}`);
+    assertNoUserErrors(
+      "draftOrderComplete",
+      completion.draftOrderComplete.userErrors,
+    );
+    console.log(
+      `Pedido creado: ${completion.draftOrderComplete.draftOrder?.order?.name ?? draftId}`,
+    );
   }
 }
 
@@ -250,8 +336,12 @@ async function main() {
   await createOrders(variants, customerIds);
 
   console.log("");
-  console.log(`Listo: ${env.SEED_PRODUCT_COUNT} productos, ${env.SEED_CUSTOMER_COUNT} clientes y ${env.SEED_ORDER_COUNT} pedidos.`);
-  console.log("Ahora conecta la tienda desde /integraciones (o pulsa 'Sincronizar ahora' en /shopify) para volcar los datos a EcomScaling.");
+  console.log(
+    `Listo: ${env.SEED_PRODUCT_COUNT} productos, ${env.SEED_CUSTOMER_COUNT} clientes y ${env.SEED_ORDER_COUNT} pedidos.`,
+  );
+  console.log(
+    "Ahora conecta la tienda desde /integraciones (o pulsa 'Sincronizar ahora' en /shopify) para volcar los datos a EcomScaling.",
+  );
 }
 
 main().catch((error) => {

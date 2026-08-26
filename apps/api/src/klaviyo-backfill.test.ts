@@ -1,11 +1,51 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildKlaviyoSyncIdempotencyKey,
   KLAVIYO_BACKFILL_MONTHS,
+  KLAVIYO_INCREMENTAL_BUCKET_HOURS,
   nextKlaviyoBackfillPeriod,
 } from "./klaviyo-sync.js";
 
 const reference = new Date("2026-08-03T10:00:00.000Z");
+
+test("el sync incremental usa ventanas de seis horas", () => {
+  const first = buildKlaviyoSyncIdempotencyKey(
+    "connection-1",
+    "incremental",
+    new Date("2026-08-03T10:00:00.000Z"),
+  );
+  const sameWindow = buildKlaviyoSyncIdempotencyKey(
+    "connection-1",
+    "incremental",
+    new Date("2026-08-03T11:59:59.000Z"),
+  );
+  const nextWindow = buildKlaviyoSyncIdempotencyKey(
+    "connection-1",
+    "incremental",
+    new Date("2026-08-03T12:00:00.000Z"),
+  );
+
+  assert.equal(first, sameWindow);
+  assert.notEqual(first, nextWindow);
+  assert.match(first, /incremental:/);
+  assert.equal(KLAVIYO_INCREMENTAL_BUCKET_HOURS, 6);
+});
+
+test("el sync inicial conserva una unica importacion diaria", () => {
+  assert.equal(
+    buildKlaviyoSyncIdempotencyKey(
+      "connection-1",
+      "initial",
+      new Date("2026-08-03T01:00:00.000Z"),
+    ),
+    buildKlaviyoSyncIdempotencyKey(
+      "connection-1",
+      "initial",
+      new Date("2026-08-03T23:00:00.000Z"),
+    ),
+  );
+});
 
 test("el backfill empieza por el ultimo mes completo, no por el mes en curso", () => {
   assert.deepEqual(nextKlaviyoBackfillPeriod(reference, []), {

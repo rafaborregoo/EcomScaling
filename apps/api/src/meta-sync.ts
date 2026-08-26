@@ -3,14 +3,29 @@ import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { createLogger } from "@ecomscaling/observability";
-import { metaGraphGetAll } from "./meta-client.js";
+import { metaGraphGet, metaGraphGetAll } from "./meta-client.js";
 import { getValidMetaAccessToken } from "./meta.js";
+import { checkOperationalOrganization } from "./operational-organization.js";
+import { mapWithConcurrency } from "./async-concurrency.js";
+
+export { mapWithConcurrency } from "./async-concurrency.js";
 
 type ApiEnv = LoadedApiEnv;
 
 const logger = createLogger("meta-sync");
 
 export type MetaSyncMode = "initial" | "incremental";
+export type MetaInsightsMode = "sync" | "async";
+export type MetaActionReportTime = "impression" | "conversion" | "mixed";
+
+export function buildMetaSyncIdempotencyKey(
+  connectionId: string,
+  scope: string,
+  mode: MetaSyncMode,
+  startedAt: string,
+) {
+  return `meta:${mode}:${scope}:${connectionId}:${startedAt.slice(0, 10)}`;
+}
 
 // Import completo e incremental son el mismo codigo parametrizado (ADR-0006
 // punto 3). La ventana incremental es de 28 dias porque Meta reatribuye
@@ -39,7 +54,22 @@ async function recordSyncRun(
   runner: () => Promise<SyncBlockResult>,
 ) {
   const startedAt = new Date().toISOString();
-  const idempotencyKey = `meta:${mode}:${scope}:${connectionId}:${startedAt.slice(0, 10)}`;
+  const idempotencyKey = buildMetaSyncIdempotencyKey(
+    connectionId,
+    scope,
+    mode,
+    startedAt,
+  );
+
+  const { data: existing } = await supabase
+    .from("integration_sync_runs")
+    .select("status")
+    .eq("provider", "meta_ads")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (existing?.status === "succeeded") {
+    return true;
+  }
 
   const base = {
     connection_id: connectionId,
@@ -51,18 +81,16 @@ async function recordSyncRun(
     started_at: startedAt,
   };
 
-  await supabase
-    .from("integration_sync_runs")
-    .upsert(
-      {
-        ...base,
-        status: "running",
-        records_read: 0,
-        records_written: 0,
-        records_failed: 0,
-      },
-      { onConflict: "provider,idempotency_key" },
-    );
+  await supabase.from("integration_sync_runs").upsert(
+    {
+      ...base,
+      status: "running",
+      records_read: 0,
+      records_written: 0,
+      records_failed: 0,
+    },
+    { onConflict: "provider,idempotency_key" },
+  );
 
   try {
     const result = await runner();
@@ -121,7 +149,199 @@ type InsightNode = {
   purchase_roas?: Array<{ action_type?: string; value?: string }>;
 };
 
+type MetaInsightRowPayload = {
+  organization_id: string;
+  ad_account_id: string;
+  campaign_id: string | null;
+  ad_set_id: string | null;
+  ad_id: string | null;
+  level: "ad";
+  external_entity_id: string;
+  metric_date: string;
+  spend: number;
+  impressions: number;
+  reach: number;
+  frequency: number | null;
+  clicks: number;
+  unique_clicks: number;
+  inline_link_clicks: number;
+  cpm: number | null;
+  cpc: number | null;
+  ctr: number | null;
+  cpp: number | null;
+  raw_data: InsightNode;
+  synced_at: string;
+};
+
+export function buildMetaInsightRowPayload(
+  organizationId: string,
+  adAccountRowId: string,
+  insight: InsightNode,
+  internal: { adId: string; adSetId: string; campaignId: string | null } | undefined,
+  syncedAt = new Date().toISOString(),
+): MetaInsightRowPayload | null {
+  if (!insight.ad_id || !insight.date_start) return null;
+  return {
+    organization_id: organizationId,
+    ad_account_id: adAccountRowId,
+    campaign_id: internal?.campaignId ?? null,
+    ad_set_id: internal?.adSetId ?? null,
+    ad_id: internal?.adId ?? null,
+    level: "ad",
+    external_entity_id: insight.ad_id,
+    metric_date: insight.date_start,
+    spend: insight.spend != null ? Number(insight.spend) : 0,
+    impressions: insight.impressions != null ? Number(insight.impressions) : 0,
+    reach: insight.reach != null ? Number(insight.reach) : 0,
+    frequency: insight.frequency != null ? Number(insight.frequency) : null,
+    clicks: insight.clicks != null ? Number(insight.clicks) : 0,
+    unique_clicks: insight.unique_clicks != null ? Number(insight.unique_clicks) : 0,
+    inline_link_clicks: insight.inline_link_clicks != null ? Number(insight.inline_link_clicks) : 0,
+    cpm: insight.cpm != null ? Number(insight.cpm) : null,
+    cpc: insight.cpc != null ? Number(insight.cpc) : null,
+    ctr: insight.ctr != null ? Number(insight.ctr) : null,
+    cpp: insight.cpp != null ? Number(insight.cpp) : null,
+    raw_data: insight,
+    synced_at: syncedAt,
+  };
+}
+
+type MetaActionMetricPayload = {
+  organization_id: string;
+  insight_row_id: string;
+  metric_name: "actions" | "action_values" | "purchase_roas";
+  action_type: string;
+  value: number | null;
+  raw_value: { action_type?: string; value?: string };
+};
+
+export function buildMetaActionMetricPayloads(
+  organizationId: string,
+  insightRowId: string,
+  insight: InsightNode,
+): MetaActionMetricPayload[] {
+  const groups = [
+    { metricName: "actions" as const, entries: insight.actions },
+    { metricName: "action_values" as const, entries: insight.action_values },
+    { metricName: "purchase_roas" as const, entries: insight.purchase_roas },
+  ];
+  const deduped = new Map<string, MetaActionMetricPayload>();
+  for (const group of groups) {
+    for (const entry of group.entries ?? []) {
+      const actionType = entry.action_type ?? "none";
+      deduped.set(`${group.metricName}:${actionType}`, {
+        organization_id: organizationId,
+        insight_row_id: insightRowId,
+        metric_name: group.metricName,
+        action_type: actionType,
+        value: entry.value != null ? Number(entry.value) : null,
+        raw_value: entry,
+      });
+    }
+  }
+  return [...deduped.values()];
+}
+
+const META_INSIGHT_FIELDS =
+  "ad_id,adset_id,campaign_id,date_start,spend,impressions,reach,frequency,clicks,unique_clicks,inline_link_clicks,cpm,cpc,ctr,cpp,actions,action_values,purchase_roas";
+const ASYNC_REPORT_MAX_POLLS = 30;
+const ASYNC_REPORT_POLL_MS = 2000;
+
+export function resolveMetaInsightsMode(env: ApiEnv): MetaInsightsMode {
+  return env.META_INSIGHTS_MODE === "async" ? "async" : "sync";
+}
+
+export function resolveMetaActionReportTime(
+  env: ApiEnv,
+): MetaActionReportTime | undefined {
+  return env.META_ACTION_REPORT_TIME;
+}
+
+export function isMetaInsightsReportComplete(
+  status: string | null | undefined,
+) {
+  return status === "Job Completed" || status === "completed";
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchMetaInsights(
+  env: ApiEnv,
+  accountId: string,
+  accessToken: string,
+  lookbackDays: number,
+  mode: MetaInsightsMode,
+): Promise<InsightNode[]> {
+  const until = new Date();
+  const since = new Date(until.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  const params = {
+    level: "ad",
+    time_increment: "1",
+    time_range: JSON.stringify({
+      since: since.toISOString().slice(0, 10),
+      until: until.toISOString().slice(0, 10),
+    }),
+    fields: META_INSIGHT_FIELDS,
+  };
+  const actionReportTime = resolveMetaActionReportTime(env);
+  if (actionReportTime) {
+    Object.assign(params, { action_report_time: actionReportTime });
+  }
+
+  if (mode === "sync") {
+    return metaGraphGetAll<InsightNode>(
+      `${accountId}/insights`,
+      accessToken,
+      params,
+      env.META_APP_SECRET,
+    );
+  }
+
+  const report = await metaGraphGet<{ report_run_id?: string }>(
+    `${accountId}/insights`,
+    accessToken,
+    { ...params, async: "true" },
+    env.META_APP_SECRET,
+  );
+  const reportRunId = report.report_run_id;
+  if (!reportRunId) {
+    throw new Error("meta_async_report_id_missing");
+  }
+
+  for (let poll = 0; poll < ASYNC_REPORT_MAX_POLLS; poll += 1) {
+    const status = await metaGraphGet<{
+      async_status?: string;
+      async_percent_completion?: number;
+    }>(reportRunId, accessToken, {
+      fields: "async_status,async_percent_completion",
+    }, env.META_APP_SECRET);
+
+    if (isMetaInsightsReportComplete(status.async_status)) {
+      return metaGraphGetAll<InsightNode>(
+        `${reportRunId}/insights`,
+        accessToken,
+        { fields: META_INSIGHT_FIELDS },
+        env.META_APP_SECRET,
+      );
+    }
+
+    if (
+      status.async_status === "Job Failed" ||
+      status.async_status === "failed"
+    ) {
+      throw new Error(`meta_async_report_failed:${status.async_status}`);
+    }
+
+    await sleep(ASYNC_REPORT_POLL_MS);
+  }
+
+  throw new Error("meta_async_report_timeout");
+}
+
 async function syncAdAccountStructure(
+  env: ApiEnv,
   supabase: SupabaseClient,
   organizationId: string,
   adAccountRowId: string,
@@ -139,6 +359,7 @@ async function syncAdAccountStructure(
       fields:
         "id,name,objective,buying_type,configured_status,effective_status,special_ad_categories,daily_budget,lifetime_budget,budget_remaining,bid_strategy,start_time,stop_time,created_time,updated_time",
     },
+    env.META_APP_SECRET,
   );
   read += campaigns.length;
 
@@ -198,6 +419,7 @@ async function syncAdAccountStructure(
       fields:
         "id,name,campaign_id,configured_status,effective_status,optimization_goal,billing_event,bid_strategy,bid_amount,daily_budget,lifetime_budget,budget_remaining,destination_type,promoted_object,targeting,attribution_spec,is_dynamic_creative,start_time,end_time,created_time,updated_time",
     },
+    env.META_APP_SECRET,
   );
   read += adSets.length;
 
@@ -269,6 +491,7 @@ async function syncAdAccountStructure(
       fields:
         "id,name,object_type,object_story_id,effective_object_story_id,call_to_action_type,body,title,link_url,thumbnail_url,image_hash,video_id,url_tags,object_story_spec,asset_feed_spec,degrees_of_freedom_spec",
     },
+    env.META_APP_SECRET,
   );
   read += creatives.length;
 
@@ -325,6 +548,7 @@ async function syncAdAccountStructure(
       fields:
         "id,name,adset_id,configured_status,effective_status,creative,tracking_specs,conversion_specs,created_time,updated_time",
     },
+    env.META_APP_SECRET,
   );
   read += ads.length;
 
@@ -369,32 +593,24 @@ async function syncAdAccountStructure(
 }
 
 async function syncAdAccountInsights(
+  env: ApiEnv,
   supabase: SupabaseClient,
   organizationId: string,
   adAccountRowId: string,
   externalAdAccountId: string,
   accessToken: string,
   lookbackDays: number,
+  insightsMode: MetaInsightsMode,
 ): Promise<SyncBlockResult> {
   let read = 0;
   let written = 0;
 
-  const until = new Date();
-  const since = new Date(until.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
-
-  const insights = await metaGraphGetAll<InsightNode>(
-    `${externalAdAccountId}/insights`,
+  const insights = await fetchMetaInsights(
+    env,
+    externalAdAccountId,
     accessToken,
-    {
-      level: "ad",
-      time_increment: "1",
-      time_range: JSON.stringify({
-        since: since.toISOString().slice(0, 10),
-        until: until.toISOString().slice(0, 10),
-      }),
-      fields:
-        "ad_id,adset_id,campaign_id,date_start,spend,impressions,reach,frequency,clicks,unique_clicks,inline_link_clicks,cpm,cpc,ctr,cpp,actions,action_values,purchase_roas",
-    },
+    lookbackDays,
+    insightsMode,
   );
 
   read = insights.length;
@@ -424,94 +640,59 @@ async function syncAdAccountInsights(
     });
   }
 
-  for (const insight of insights) {
-    if (!insight.ad_id || !insight.date_start) {
-      continue;
-    }
+  const syncedAt = new Date().toISOString();
+  const validInsightCandidates = insights
+    .map((insight) => ({
+      insight,
+      row: buildMetaInsightRowPayload(
+        organizationId,
+        adAccountRowId,
+        insight,
+        insight.ad_id ? adMap.get(insight.ad_id) : undefined,
+        syncedAt,
+      ),
+    }))
+    .filter((item): item is { insight: InsightNode; row: MetaInsightRowPayload } => item.row !== null);
+  const validInsights = [
+    ...new Map(
+      validInsightCandidates.map((item) => [
+        `${item.row.external_entity_id}:${item.row.metric_date}`,
+        item,
+      ]),
+    ).values(),
+  ];
 
-    const internal = adMap.get(insight.ad_id);
-
-    const { data: insightRow, error } = await supabase
+  if (validInsights.length > 0) {
+    const { data: persistedRows, error } = await supabase
       .from("meta_insight_rows_daily")
-      .upsert(
-        {
-          organization_id: organizationId,
-          ad_account_id: adAccountRowId,
-          campaign_id: internal?.campaignId ?? null,
-          ad_set_id: internal?.adSetId ?? null,
-          ad_id: internal?.adId ?? null,
-          level: "ad",
-          external_entity_id: insight.ad_id,
-          metric_date: insight.date_start,
-          spend: insight.spend != null ? Number(insight.spend) : 0,
-          impressions:
-            insight.impressions != null ? Number(insight.impressions) : 0,
-          reach: insight.reach != null ? Number(insight.reach) : 0,
-          frequency:
-            insight.frequency != null ? Number(insight.frequency) : null,
-          clicks: insight.clicks != null ? Number(insight.clicks) : 0,
-          unique_clicks:
-            insight.unique_clicks != null ? Number(insight.unique_clicks) : 0,
-          inline_link_clicks:
-            insight.inline_link_clicks != null
-              ? Number(insight.inline_link_clicks)
-              : 0,
-          cpm: insight.cpm != null ? Number(insight.cpm) : null,
-          cpc: insight.cpc != null ? Number(insight.cpc) : null,
-          ctr: insight.ctr != null ? Number(insight.ctr) : null,
-          cpp: insight.cpp != null ? Number(insight.cpp) : null,
-          raw_data: insight,
-          synced_at: new Date().toISOString(),
-        },
-        {
-          onConflict:
-            "ad_account_id,level,external_entity_id,metric_date,breakdown_hash,attribution_hash,action_report_time",
-        },
-      )
-      .select("id")
-      .single();
+      .upsert(validInsights.map((item) => item.row), {
+        onConflict:
+          "ad_account_id,level,external_entity_id,metric_date,breakdown_hash,attribution_hash,action_report_time",
+      })
+      .select("id, external_entity_id, metric_date");
+    if (error) throw new Error(`meta_insight_upsert_failed: ${error.message}`);
 
-    if (error) {
-      throw new Error(`meta_insight_upsert_failed: ${error.message}`);
+    const rowIds = new Map(
+      ((persistedRows ?? []) as Array<{ id: string; external_entity_id: string; metric_date: string }>).map(
+        (row) => [`${row.external_entity_id}:${row.metric_date}`, row.id],
+      ),
+    );
+    const actionPayloads: MetaActionMetricPayload[] = [];
+    for (const item of validInsights) {
+      const rowId = rowIds.get(`${item.row.external_entity_id}:${item.row.metric_date}`);
+      if (!rowId) throw new Error("meta_insight_row_id_missing_after_upsert");
+      actionPayloads.push(...buildMetaActionMetricPayloads(organizationId, rowId, item.insight));
     }
 
-    written += 1;
-
-    const actionGroups: Array<{
-      metricName: string;
-      entries: Array<{ action_type?: string; value?: string }> | undefined;
-    }> = [
-      { metricName: "actions", entries: insight.actions },
-      { metricName: "action_values", entries: insight.action_values },
-      { metricName: "purchase_roas", entries: insight.purchase_roas },
-    ];
-
-    for (const group of actionGroups) {
-      for (const entry of group.entries ?? []) {
-        const { error: actionError } = await supabase
-          .from("meta_insight_action_metrics")
-          .upsert(
-            {
-              organization_id: organizationId,
-              insight_row_id: insightRow.id,
-              metric_name: group.metricName,
-              action_type: entry.action_type ?? "none",
-              value: entry.value != null ? Number(entry.value) : null,
-              raw_value: entry,
-            },
-            {
-              onConflict:
-                "insight_row_id,metric_name,action_type,attribution_window",
-            },
-          );
-
-        if (actionError) {
-          throw new Error(
-            `meta_action_metric_upsert_failed: ${actionError.message}`,
-          );
-        }
-      }
+    if (actionPayloads.length > 0) {
+      const { error: actionError } = await supabase
+        .from("meta_insight_action_metrics")
+        .upsert(actionPayloads, {
+          onConflict: "insight_row_id,metric_name,action_type,attribution_window",
+        });
+      if (actionError) throw new Error(`meta_action_metric_upsert_failed: ${actionError.message}`);
     }
+    written = validInsights.length;
   }
 
   return { read, written };
@@ -538,6 +719,12 @@ export async function runMetaSync(
       `meta_sync_connection_load_failed: ${connectionError?.message ?? "not_found"}`,
     );
   }
+
+  const operational = await checkOperationalOrganization(
+    supabase,
+    connection.organization_id,
+  );
+  if (!operational.ok) throw new Error(operational.error);
 
   const accessToken = await getValidMetaAccessToken(env, connectionId);
 
@@ -574,6 +761,7 @@ export async function runMetaSync(
       mode,
       () =>
         syncAdAccountStructure(
+          env,
           supabase,
           connection.organization_id,
           account.id,
@@ -590,12 +778,14 @@ export async function runMetaSync(
       mode,
       () =>
         syncAdAccountInsights(
+          env,
           supabase,
           connection.organization_id,
           account.id,
           account.external_ad_account_id,
           accessToken,
           INSIGHTS_LOOKBACK_DAYS[mode],
+          resolveMetaInsightsMode(env),
         ),
     );
 
@@ -639,16 +829,22 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
     .order("created_at", { ascending: true });
   if (error) throw new Error(`meta_connections_list_failed: ${error.message}`);
 
-  const results: Array<{
-    connectionId: string;
-    status: "succeeded" | "failed";
-    detail?: string;
-  }> = [];
-
-  for (const connection of connections ?? []) {
+  const results = await mapWithConcurrency(connections ?? [], 3, async (connection) => {
     try {
+      const { data: claimedConnection, error: claimError } = await supabase
+        .from("integration_connections")
+        .update({ status: "syncing" })
+        .eq("id", connection.id)
+        .eq("status", "connected")
+        .select("id")
+        .maybeSingle();
+      if (claimError) throw new Error(`meta_reconcile_claim_failed: ${claimError.message}`);
+      if (!claimedConnection) {
+        return { connectionId: connection.id, status: "skipped" as const };
+      }
+
       await runMetaSync(env, connection.id, "incremental");
-      results.push({ connectionId: connection.id, status: "succeeded" });
+      return { connectionId: connection.id, status: "succeeded" as const };
     } catch (syncError) {
       const detail =
         syncError instanceof Error
@@ -658,14 +854,15 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
         connection_id: connection.id,
         message: detail,
       });
-      results.push({ connectionId: connection.id, status: "failed", detail });
+      return { connectionId: connection.id, status: "failed" as const, detail };
     }
-  }
+  });
 
   return {
     total: results.length,
     succeeded: results.filter((item) => item.status === "succeeded").length,
     failed: results.filter((item) => item.status === "failed").length,
+    skipped: results.filter((item) => item.status === "skipped").length,
     results,
   };
 }

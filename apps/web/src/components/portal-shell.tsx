@@ -14,6 +14,7 @@ import { getSupabaseClient } from "@/lib/supabase";
 import {
   Alert,
   Avatar,
+  AsyncState,
   Breadcrumbs,
   Button,
   CloseIcon,
@@ -140,6 +141,97 @@ function writeConnectionMap(organizationId: string, connectionId: string) {
   );
 }
 
+function AccountStateBanner({
+  organizationStatus,
+  subscriptionStatus,
+  needsShopifyReauthorization,
+  isConsultant,
+}: {
+  organizationStatus: string;
+  subscriptionStatus: string | null;
+  needsShopifyReauthorization: boolean;
+  isConsultant: boolean;
+}) {
+  if (organizationStatus === "suspended") {
+    return (
+      <Alert
+        status="danger"
+        className="border-b border-edge px-6 py-3 lg:px-10"
+      >
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Title>Organización suspendida</Alert.Title>
+          <Alert.Description>
+            El acceso operativo está pausado. Contacta con tu consultor para
+            reactivar la cuenta.
+          </Alert.Description>
+        </Alert.Content>
+      </Alert>
+    );
+  }
+
+  if (
+    subscriptionStatus &&
+    ["paused", "cancelled", "expired", "pending"].includes(subscriptionStatus)
+  ) {
+    return (
+      <Alert
+        status="warning"
+        className="border-b border-edge px-6 py-3 lg:px-10"
+      >
+        <Alert.Indicator />
+        <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <div>
+            <Alert.Title>Suscripción no activa</Alert.Title>
+            <Alert.Description>
+              El plan está en estado {subscriptionStatus}. Verifica el acceso
+              comercial antes de activar nuevas operaciones.
+            </Alert.Description>
+          </div>
+          {isConsultant ? (
+            <Link
+              className="inline-flex items-center gap-1 whitespace-nowrap"
+              href="/consultor"
+            >
+              Gestionar cliente
+              <IconChevronRight aria-hidden />
+            </Link>
+          ) : null}
+        </Alert.Content>
+      </Alert>
+    );
+  }
+
+  if (needsShopifyReauthorization) {
+    return (
+      <Alert
+        status="warning"
+        className="border-b border-edge px-6 py-3 lg:px-10"
+      >
+        <Alert.Indicator />
+        <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <div>
+            <Alert.Title>Shopify necesita autorización</Alert.Title>
+            <Alert.Description>
+              La tienda no puede sincronizar datos nuevos hasta que se complete
+              la reautorización.
+            </Alert.Description>
+          </div>
+          <Link
+            className="inline-flex items-center gap-1 whitespace-nowrap"
+            href="/integraciones"
+          >
+            Revisar integración
+            <IconChevronRight aria-hidden />
+          </Link>
+        </Alert.Content>
+      </Alert>
+    );
+  }
+
+  return null;
+}
+
 // R-009: la URL es la fuente primaria del contexto activo (organizationId/
 // connectionId como query params) -- localStorage es solo el fallback para
 // cuando se navega sin esos params (ej. desde el menu lateral). Esto hace que
@@ -165,7 +257,7 @@ function buildUrlWithParams(
 // Cada pagina monta su propio PortalShell (no vive en un layout compartido),
 // asi que cada navegacion lo desmonta y remonta desde cero. Sin esta cache en
 // memoria del modulo, eso significaba pedir el bootstrap otra vez y tapar
-// TODO el shell (sidebar, cabecera, contenido) con "Cargando cuenta..." en
+// tapar todo el shell (sidebar, cabecera, contenido) con "Cargando cuenta..." en
 // cada clic de navegacion -- el sidebar "desaparecia" constantemente. Con la
 // cache, solo se ve ese loader la primera vez que se abre el portal en la
 // sesion; las siguientes navegaciones muestran el shell al instante con los
@@ -377,7 +469,7 @@ function PortalShellContent({
     }
 
     void load();
-  }, [router]);
+  }, [organizationIdFromUrl, router]);
 
   function selectOrganization(organizationId: string) {
     setActiveOrganizationId(organizationId);
@@ -399,7 +491,7 @@ function PortalShellContent({
   if (isLoading) {
     return (
       <main className="min-h-screen bg-white p-6 text-black">
-        <LoadingBlock label="Cargando cuenta..." />
+        <AsyncState status="loading" loadingLabel="Cargando cuenta..." />
       </main>
     );
   }
@@ -484,6 +576,15 @@ function PortalShellContent({
         onConfirm={signOut}
       />
     </div>
+  );
+
+  const activeMembership =
+    bootstrap.memberships.find(
+      (membership) => membership.organization_id === activeOrganizationId,
+    ) ?? bootstrap.memberships[0];
+  const activeOrganization = activeMembership?.organization;
+  const activeSubscription = bootstrap.subscriptions.find(
+    (subscription) => subscription.organization_id === activeOrganization?.id,
   );
 
   return (
@@ -587,6 +688,25 @@ function PortalShellContent({
                   />
                 ) : null}
               </div>
+            ) : null}
+
+            {activeOrganization ? (
+              <AccountStateBanner
+                organizationStatus={activeOrganization.status}
+                subscriptionStatus={activeSubscription?.status ?? null}
+                needsShopifyReauthorization={
+                  shopifyConnections.some((connection) =>
+                    ["reauthorization_required", "needs_reauth"].includes(
+                      connection.status,
+                    ),
+                  ) ||
+                  actions.some(
+                    (action) =>
+                      action.type === "shopify_reauthorization_required",
+                  )
+                }
+                isConsultant={isConsultant}
+              />
             ) : null}
 
             {visibleActions.map((action) => (

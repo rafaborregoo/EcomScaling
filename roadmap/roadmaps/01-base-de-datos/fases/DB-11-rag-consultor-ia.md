@@ -1,10 +1,30 @@
 # DB-11 - RAG y Consultor IA
 
+> **Auditoría de implementación 2026-08-26:** el estado `verification_pending` no significa que el
+> núcleo RAG siga sin implementar. `chunkText` aplica chunking estructural con solape y encabezados,
+> la ingesta procesa embeddings en batches con concurrencia acotada y orden determinista, y la API
+> usa búsqueda híbrida con fallback compatible. La migración de ranking por autoridad
+> (`20260826153000_ai_04_knowledge_authority_ranking.sql`) queda preparada localmente y pendiente
+> de aplicación remota junto con el resto de migraciones locales pendientes. Lo que sigue abierto es
+> la validación de recall/precisión sobre corpus real y el versionado persistente de la estrategia de
+> chunking/re-embedding; no se deben confundir esos gaps con ausencia de infraestructura.
+
+> **Perfil versionado 2026-08-26:** `packages/ai/src/index.ts` expone `RAG_EMBEDDING_PROFILE`
+> (`structural-v1`, `voyage-3.5`, 1024 dimensiones, 1500 caracteres y 200 de solape). El proveedor
+> mantiene el modelo swappable para tests y futuras migraciones, pero los defaults de producción ya
+> no están duplicados entre el proveedor y el chunker.
+
 ## Estado
+
+> Correccion vigente 2026-08-24: la migracion aditiva
+> `20260801100000_ai_04_knowledge_hybrid_search.sql` ya forma parte de las
+> 64 migraciones locales/remotas alineadas. La API mantiene fallback al RPC
+> anterior por compatibilidad; queda pendiente ampliar el dataset, no aplicar
+> la migracion.
 
 - **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-00, DB-02, DB-08
 - **Bloqueador:** ninguno
 - **Evidencia:**
@@ -35,7 +55,7 @@
   criterio que ADR-0016 (transcripciones) y AI-00 (contexto enviado al LLM) -- sin limite de tiempo ni
   redaccion mientras no haya cliente real en el Piloto 1, purga junto con el resto de datos de la
   organizacion via `purgeExpiredDeletions` (`ai_conversations.organization_id references organizations on
-  delete cascade`, `ai_messages` en cascada de `ai_conversations`). Reevaluar en los mismos disparadores que
+delete cascade`, `ai_messages` en cascada de `ai_conversations`). Reevaluar en los mismos disparadores que
   ADR-0016.
 - **Gaps identificados que siguen abiertos:**
   - Sin estrategia de re-embedding documentada (cambiar de modelo de embeddings hoy rompe la tabla).

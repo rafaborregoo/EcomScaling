@@ -1,15 +1,40 @@
 # SQO-01 - Testing
 
+> **Evidencia API vigente 2026-08-24:** la suite contractual unitaria ejecutada directamente con
+> `npx tsx --test --test-force-exit` pasa 53/53. Las cifras inferiores de suites históricas no deben
+> usarse para evaluar el estado actual.
+
+> **Lint web vigente 2026-08-24:** `npx eslint .` ejecutado desde `apps/web` termina sin errores y
+> deja 13 warnings de hooks React conocidos. Se mantienen como advertencias para no bloquear el flujo
+> de fetch-on-mount; no se afirma que el lint tenga cero warnings.
+
+> **Correccion canonica 2026-08-24:** el workflow CI manual ejecuta `npm run lint`, ademas de
+> typecheck, build, tests, SBOM y Trivy. La suite vigente del SQL Gateway pasa 31/31; las cifras
+> inferiores sobre 28 casos, 60 tests o lint ausente son historicas y quedan supersedidas.
+
+> **Corrección vigente 2026-08-26:** la cobertura de IA ya no es una referencia
+> genérica. `agent-eval-dataset.ts` contiene un dataset versionado para los diez
+> agentes, `agent-eval-runner.ts` ejecuta la matriz offline y `release-gate.ts`
+> puede rechazar versiones con agentes sin evaluar o con fallos. La persistencia
+> de evidencia y los modos `shadow`/`live` están preparados; la validación con
+> proveedor real sigue siendo externa a este entorno.
+
 ## Estado
+
+> Verificacion vigente 2026-08-24: el workflow manual de CI incluye typecheck,
+> lint, build web, tests de API/AI/worker/config/integraciones/observabilidad,
+> SBOM y Trivy. El typecheck directo de API y web pasa en esta ronda. Siguen
+> pendientes, honestamente, Postgres aislado por PR, contract fixtures de
+> proveedores, carga y validacion visual asistiva.
 
 - **Estado real:** `in_progress`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** SQO-00
-- **Evidencia:** `.github/workflows/ci.yml`, `apps/api/src/sql-gateway.test.ts` (28 casos),
-  `apps/api/src/rls-tenant-isolation.test.ts` (19 casos), `packages/ai/src/index.test.ts` (22 casos).
+- **Evidencia:** `.github/workflows/ci.yml`, `apps/api/src/sql-gateway.test.ts` (31 casos),
+  `apps/api/src/rls-tenant-isolation.test.ts` (19 casos), `packages/ai/src/index.test.ts` (50 casos).
   **Ampliado 2026-07-22**: 4 archivos de test mas en `apps/api` (ver SQO-00 para el detalle por dominio) —
-  total real 60 tests en `apps/api` (verificado con `npm run test -w @ecomscaling/api`), no solo los dos
+  total histórico 60 tests en `apps/api` (verificado con `test:remote` en un proyecto aislado), no solo los dos
   archivos citados antes en esta seccion.
 - **Correccion a una afirmacion previa de este documento**: decia que CI bloquea "lint, tipos, tests y
   build". **Verificado en `ci.yml`: no hay ningun paso `npm run lint`** — solo `npm run typecheck`
@@ -33,8 +58,8 @@
   - Sin contract tests de Shopify/Meta/Klaviyo/Fathom con fixtures versionadas.
   - Sin tests del worker (retry, backoff, idempotencia, lock, dead-letter).
   - Sin Playwright ni pruebas de carga/resiliencia.
-  - AI-06 (evals de agentes) sigue como referencia generica en este archivo — enlazar a los datasets y
-    quality gates concretos cuando existan (ver AI-06).
+  - La ejecución live/shadow de evals requiere proveedores y datos reales; la matriz offline y el
+    quality gate local ya están implementados (AI-17, AI-20, AI-21, AI-25, AI-27).
 - **`npm run lint` anadido a CI 2026-07-22**: los 12 errores reales eran todos la misma causa raiz, no 9
   bugs distintos — `react-hooks/set-state-in-effect` (regla nueva del plugin, parte de la preparacion para
   React Compiler) marca como error el patron estandar "fetch-on-mount" (una funcion async invocada desde
@@ -68,7 +93,7 @@
 ## Actualizacion 2026-08-01
 
 - CI incorpora `dependency-scan` con `npm audit --omit=dev --audit-level=high` y `dependency-review` para pull requests.
-- Sigue pendiente el escaneo de imagenes Docker y un entorno Supabase/Postgres aislado por PR; ninguno se simula como cerrado.
+- El CI manual ya genera SBOM y escanea las imagenes Docker de API/worker con Trivy. Sigue pendiente un entorno Supabase/Postgres aislado por PR; no se simula como cerrado.
 
 ## Correccion de estado 2026-08-02
 

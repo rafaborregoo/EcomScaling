@@ -14,6 +14,7 @@
     "dev:meta-reconcile": "dotenv -e ../../.env.local -- tsx src/meta-reconcile-once.ts",
     "dev:ops-health-check": "dotenv -e ../../.env.local -- tsx src/ops-health-check-once.ts",
     "dev:memory-ingestion": "dotenv -e ../../.env.local -- tsx src/memory-ingestion-once.ts",
+    "dev:agent-evals": "dotenv -e ../../.env.local -- tsx src/agent-evals-once.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/worker.js",
     "start:shopify-reconcile": "node dist/shopify-reconcile-once.js",
@@ -25,9 +26,10 @@
     "start:meta-reconcile": "node dist/meta-reconcile-once.js",
     "start:ops-health-check": "node dist/ops-health-check-once.js",
     "start:memory-ingestion": "node dist/memory-ingestion-once.js",
+    "start:agent-evals": "node dist/agent-evals-once.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/repeatable-jobs.test.ts src/cron-workflow-env.test.ts"
+    "test": "tsx --test src/repeatable-jobs.test.ts src/cron-workflow-env.test.ts src/metrics.test.ts"
   },
   "dependencies": {
     "@ecomscaling/api": "0.1.0",

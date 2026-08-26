@@ -8,10 +8,12 @@ export const INTEGRATION_PROVIDERS = [
   "loom",
 ] as const;
 
+export * from "./meta-ad-write-contract.js";
+
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 
 export type IntegrationCatalogEntry = {
-  id: "shopify" | "meta_ads" | "klaviyo" | "instagram";
+  id: "shopify" | "meta_ads" | "klaviyo" | "instagram" | "fathom";
   name: string;
   phase: string;
   description: string;
@@ -87,12 +89,29 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = [
       authStrategies: ["instagram_login", "facebook_login"],
     },
   },
+  {
+    id: "fathom",
+    name: "Fathom",
+    phase: "INT-04",
+    description: "Reuniones, transcripciones y análisis de llamadas con aprobación humana.",
+    available: true,
+    featureFlag: "integration.fathom",
+    capabilities: {
+      oauth: false,
+      tokenRefresh: false,
+      webhooks: true,
+      initialSync: false,
+      incrementalSync: false,
+      assetSelection: false,
+    },
+  },
 ];
 
 /**
- * Optional runtime allowlist. An unset value preserves catalog defaults;
- * when set, only listed catalog entries remain enabled. A future provider
- * still cannot become available by flag alone: it needs a real implementation.
+ * Runtime allowlist. An unset value enables only the currently operational
+ * connector (Shopify); future connectors require explicit opt-in. A future
+ * provider still cannot become available by flag alone: it needs a real
+ * implementation.
  */
 export function isIntegrationFeatureEnabled(
   provider: IntegrationProvider,
@@ -100,7 +119,7 @@ export function isIntegrationFeatureEnabled(
 ): boolean {
   const catalogEntry = INTEGRATION_CATALOG.find((item) => item.id === provider);
   if (!catalogEntry?.available) return false;
-  if (!configuredFlags?.trim()) return true;
+  if (!configuredFlags?.trim()) return provider === "shopify" || provider === "fathom";
 
   const enabled = new Set(
     configuredFlags
@@ -123,6 +142,57 @@ export type IntegrationCapabilities = {
   assetSelection: boolean;
   authStrategies?: Array<"instagram_login" | "facebook_login">;
 };
+
+export type InstagramAuthStrategy = "instagram_login" | "facebook_login";
+
+export type InstagramAuthStrategyContract = {
+  strategy: InstagramAuthStrategy;
+  apiHost: "graph.instagram.com" | "graph.facebook.com";
+  requiresLinkedFacebookPage: boolean;
+  supportedScopes: readonly string[];
+  limitations: readonly string[];
+};
+
+/** Official route differences kept in the shared contract before credentials exist. */
+export const INSTAGRAM_AUTH_STRATEGY_CONTRACTS: readonly InstagramAuthStrategyContract[] =
+  [
+    {
+      strategy: "facebook_login",
+      apiHost: "graph.facebook.com",
+      requiresLinkedFacebookPage: true,
+      supportedScopes: [
+        "instagram_basic",
+        "instagram_content_publish",
+        "instagram_manage_comments",
+        "instagram_manage_insights",
+      ],
+      limitations: ["professional_account_only"],
+    },
+    {
+      strategy: "instagram_login",
+      apiHost: "graph.instagram.com",
+      requiresLinkedFacebookPage: false,
+      supportedScopes: [
+        "instagram_business_basic",
+        "instagram_business_content_publish",
+        "instagram_business_manage_comments",
+        "instagram_business_manage_messages",
+      ],
+      limitations: ["professional_account_only", "ads_and_tagging_unavailable"],
+    },
+  ] as const;
+
+export function getInstagramAuthStrategyContract(
+  strategy: InstagramAuthStrategy,
+): InstagramAuthStrategyContract {
+  const contract = INSTAGRAM_AUTH_STRATEGY_CONTRACTS.find(
+    (item) => item.strategy === strategy,
+  );
+  if (!contract) {
+    throw new Error(`instagram_auth_strategy_unsupported:${strategy}`);
+  }
+  return contract;
+}
 
 export type IntegrationConnection = {
   id: string;
@@ -219,6 +289,63 @@ export type IntegrationHealth = {
   reason?: string;
   lastSyncAt?: string | null;
 };
+
+export const INTEGRATION_ACTIVATION_GATE_KEYS = [
+  "credentialsValid",
+  "redirectUriExact",
+  "scopesGranted",
+  "providerResponseValid",
+  "assetSelected",
+  "initialSyncSucceeded",
+  "freshnessAvailable",
+  "reauthorizationVerified",
+  "recoverableErrorVerified",
+] as const;
+
+export type IntegrationActivationEvidence = Record<
+  (typeof INTEGRATION_ACTIVATION_GATE_KEYS)[number],
+  boolean
+>;
+
+export type IntegrationActivationReadiness = {
+  ready: boolean;
+  missing: Array<(typeof INTEGRATION_ACTIVATION_GATE_KEYS)[number]>;
+};
+
+export type IntegrationActivationCapabilities = Pick<
+  IntegrationCapabilities,
+  "oauth" | "webhooks" | "initialSync" | "incrementalSync" | "assetSelection"
+>;
+
+/** Returns only gates that are meaningful for a provider's capabilities. */
+export function getIntegrationActivationGateKeys(
+  capabilities?: IntegrationActivationCapabilities,
+): readonly (typeof INTEGRATION_ACTIVATION_GATE_KEYS)[number][] {
+  // Omitted capabilities preserve the original strict shared contract.
+  if (!capabilities) return INTEGRATION_ACTIVATION_GATE_KEYS;
+  return INTEGRATION_ACTIVATION_GATE_KEYS.filter((key) => {
+    if (key === "redirectUriExact" || key === "scopesGranted" || key === "reauthorizationVerified") return capabilities.oauth;
+    if (key === "assetSelected") return capabilities.assetSelection;
+    if (key === "initialSyncSucceeded") return capabilities.initialSync;
+    if (key === "freshnessAvailable") return capabilities.webhooks || capabilities.initialSync || capabilities.incrementalSync;
+    return true;
+  });
+}
+
+/**
+ * Final production-readiness gate shared by every connector. It deliberately
+ * accepts booleans only: credentials, tokens and provider payloads never enter
+ * this contract or get persisted as evidence.
+ */
+export function evaluateIntegrationActivation(
+  evidence: Partial<IntegrationActivationEvidence>,
+  capabilities?: IntegrationActivationCapabilities,
+): IntegrationActivationReadiness {
+  const missing = getIntegrationActivationGateKeys(capabilities).filter(
+    (key) => evidence[key] !== true,
+  );
+  return { ready: missing.length === 0, missing };
+}
 
 const DEFAULT_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 

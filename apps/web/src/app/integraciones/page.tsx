@@ -5,15 +5,18 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import {
+  AsyncState,
   EmptyState,
+  ErrorBlock,
   Heading,
   Badge,
   Banner,
   Button,
   Checkbox,
-  ErrorBlock,
   Field,
   Input,
+  IntegrationStatusBadge,
+  IntegrationActivationChecklist,
   Label,
   LoadingBlock,
   Radio,
@@ -28,6 +31,14 @@ type IntegrationProvider = {
   description: string;
   available: boolean;
   feature_flag: string;
+  configuration: {
+    status:
+      | "configured"
+      | "credentials_missing"
+      | "feature_disabled"
+      | "not_implemented";
+    reason: string;
+  };
   capabilities: {
     oauth: boolean;
     tokenRefresh: boolean;
@@ -40,6 +51,10 @@ type IntegrationProvider = {
     status: string;
     reason?: string;
     lastSyncAt: string | null;
+  };
+  activation: {
+    ready: boolean;
+    missing: string[];
   };
   connection: {
     id: string;
@@ -138,20 +153,42 @@ type KlaviyoReportsResponse = {
   }>;
 };
 
-function statusLabel(provider: IntegrationProvider) {
-  if (!provider.connection) {
-    return "No conectado";
-  }
-
-  return provider.connection.status;
-}
-
 function integrationErrorMessage(provider: IntegrationProvider) {
   return (
     provider.latest_sync?.error_message ??
     provider.connection?.last_error_message ??
     null
   );
+}
+
+function readOAuthNotice(): {
+  tone: "success" | "warn" | "danger";
+  text: string;
+} | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const provider = ["shopify", "meta", "klaviyo"].find((item) =>
+    params.has(item),
+  );
+  if (!provider) return null;
+  const labels: Record<string, string> = {
+    shopify: "Shopify",
+    meta: "Meta Ads",
+    klaviyo: "Klaviyo",
+  };
+  const label = labels[provider];
+  const result = params.get(provider);
+  if (result === "connected")
+    return { tone: "success", text: `${label} conectado correctamente.` };
+  if (result === "denied")
+    return {
+      tone: "warn",
+      text: `La autorización de ${label} fue cancelada. La conexión no se activó; puedes intentarlo de nuevo.`,
+    };
+  return {
+    tone: "danger",
+    text: `La conexión de ${label} no se completó (${result ?? "resultado desconocido"}). Revisa el estado y vuelve a autorizarla.`,
+  };
 }
 
 function healthLabel(status: string) {
@@ -188,8 +225,10 @@ function IntegrationsList({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isRetryingShopify, setIsRetryingShopify] = useState(false);
   const [isConnectingMeta, setIsConnectingMeta] = useState(false);
   const [isConnectingKlaviyo, setIsConnectingKlaviyo] = useState(false);
+  const [isRetryingKlaviyo, setIsRetryingKlaviyo] = useState(false);
   const [klaviyoMetrics, setKlaviyoMetrics] =
     useState<KlaviyoMetricsResponse | null>(null);
   const [isLoadingKlaviyoMetrics, setIsLoadingKlaviyoMetrics] = useState(false);
@@ -210,12 +249,18 @@ function IntegrationsList({
   const [metaAssetsMessage, setMetaAssetsMessage] = useState<string | null>(
     null,
   );
+  const [oauthNotice, setOauthNotice] =
+    useState<ReturnType<typeof readOAuthNotice>>(null);
   const organization =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
     )?.organization ??
     bootstrap.memberships[0]?.organization ??
     null;
+
+  useEffect(() => {
+    setOauthNotice(readOAuthNotice());
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -226,37 +271,45 @@ function IntegrationsList({
         return;
       }
 
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/integrations`,
-      );
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-          message?: string;
-          detail?: string;
-        } | null;
-        setError(
-          [
-            body?.error ?? `HTTP ${response.status}`,
-            body?.message,
-            body?.detail,
-          ]
-            .filter(Boolean)
-            .join(" - "),
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organization.id}/integrations`,
         );
-        setIsLoading(false);
-        return;
-      }
 
-      const data = (await response.json()) as IntegrationsResponse;
-      setPayload(data);
-      if (data.shopify_custom_app_available) {
-        // La app publica todavia esta pendiente de revisión de Shopify: mientras tanto,
-        // la unica que puede instalarse en tiendas reales de clientes es la personalizada.
-        setAppMode("custom");
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+            message?: string;
+            detail?: string;
+          } | null;
+          setError(
+            [
+              body?.error ?? `HTTP ${response.status}`,
+              body?.message,
+              body?.detail,
+            ]
+              .filter(Boolean)
+              .join(" - "),
+          );
+          return;
+        }
+
+        const data = (await response.json()) as IntegrationsResponse;
+        setPayload(data);
+        setError(null);
+        if (data.shopify_custom_app_available) {
+          // La app publica todavia esta pendiente de revisión de Shopify: mientras tanto,
+          // la unica que puede instalarse en tiendas reales de clientes es la personalizada.
+          setAppMode("custom");
+        }
+      } catch {
+        setPayload(null);
+        setError(
+          "No se pudo cargar el estado de las integraciones por un error de red. Reintenta.",
+        );
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     }
 
     void load();
@@ -274,29 +327,43 @@ function IntegrationsList({
     async function loadKlaviyoMetrics() {
       if (!organization || !klaviyoConnectionId) {
         setKlaviyoMetrics(null);
+        setKlaviyoMetricError(null);
+        setIsLoadingKlaviyoMetrics(false);
         return;
       }
       setIsLoadingKlaviyoMetrics(true);
       setKlaviyoMetricError(null);
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/klaviyo/metrics`,
-      );
-      if (cancelled) return;
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-          message?: string;
-        } | null;
-        setKlaviyoMetricError(
-          [body?.error ?? `HTTP ${response.status}`, body?.message]
-            .filter(Boolean)
-            .join(" - "),
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organization.id}/klaviyo/metrics`,
         );
-        setKlaviyoMetrics(null);
-      } else {
-        setKlaviyoMetrics((await response.json()) as KlaviyoMetricsResponse);
+        if (cancelled) return;
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+            message?: string;
+          } | null;
+          setKlaviyoMetricError(
+            [body?.error ?? `HTTP ${response.status}`, body?.message]
+              .filter(Boolean)
+              .join(" - "),
+          );
+          setKlaviyoMetrics(null);
+        } else {
+          setKlaviyoMetrics((await response.json()) as KlaviyoMetricsResponse);
+        }
+      } catch {
+        if (!cancelled) {
+          setKlaviyoMetrics(null);
+          setKlaviyoMetricError(
+            "No se pudieron cargar las métricas de Klaviyo por un error de red. Reintenta.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingKlaviyoMetrics(false);
+        }
       }
-      setIsLoadingKlaviyoMetrics(false);
     }
     void loadKlaviyoMetrics();
     return () => {
@@ -309,29 +376,43 @@ function IntegrationsList({
     async function loadKlaviyoReports() {
       if (!organization || !klaviyoConnectionId) {
         setKlaviyoReports(null);
+        setKlaviyoReportsError(null);
+        setIsLoadingKlaviyoReports(false);
         return;
       }
       setIsLoadingKlaviyoReports(true);
       setKlaviyoReportsError(null);
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/klaviyo/reporting?connectionId=${encodeURIComponent(klaviyoConnectionId)}`,
-      );
-      if (cancelled) return;
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-          detail?: string;
-        } | null;
-        setKlaviyoReportsError(
-          [body?.error ?? `HTTP ${response.status}`, body?.detail]
-            .filter(Boolean)
-            .join(" - "),
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organization.id}/klaviyo/reporting?connectionId=${encodeURIComponent(klaviyoConnectionId)}`,
         );
-        setKlaviyoReports(null);
-      } else {
-        setKlaviyoReports((await response.json()) as KlaviyoReportsResponse);
+        if (cancelled) return;
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+            detail?: string;
+          } | null;
+          setKlaviyoReportsError(
+            [body?.error ?? `HTTP ${response.status}`, body?.detail]
+              .filter(Boolean)
+              .join(" - "),
+          );
+          setKlaviyoReports(null);
+        } else {
+          setKlaviyoReports((await response.json()) as KlaviyoReportsResponse);
+        }
+      } catch {
+        if (!cancelled) {
+          setKlaviyoReports(null);
+          setKlaviyoReportsError(
+            "No se pudieron cargar los informes de Klaviyo por un error de red. Reintenta.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingKlaviyoReports(false);
+        }
       }
-      setIsLoadingKlaviyoReports(false);
     }
     void loadKlaviyoReports();
     return () => {
@@ -345,38 +426,51 @@ function IntegrationsList({
     async function loadMetaAssets() {
       if (!organization || !metaConnectionId) {
         setMetaAssets(null);
+        setMetaAssetsError(null);
+        setIsLoadingMetaAssets(false);
         return;
       }
 
       setIsLoadingMetaAssets(true);
       setMetaAssetsError(null);
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/meta/assets`,
-      );
-      if (cancelled) return;
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-          message?: string;
-          detail?: string;
-        } | null;
-        setMetaAssetsError(
-          [
-            body?.error ?? `HTTP ${response.status}`,
-            body?.message,
-            body?.detail,
-          ]
-            .filter(Boolean)
-            .join(" - "),
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organization.id}/meta/assets`,
         );
-        setMetaAssets(null);
-        setIsLoadingMetaAssets(false);
-        return;
-      }
+        if (cancelled) return;
 
-      setMetaAssets((await response.json()) as MetaAssetsResponse);
-      setIsLoadingMetaAssets(false);
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+            message?: string;
+            detail?: string;
+          } | null;
+          setMetaAssetsError(
+            [
+              body?.error ?? `HTTP ${response.status}`,
+              body?.message,
+              body?.detail,
+            ]
+              .filter(Boolean)
+              .join(" - "),
+          );
+          setMetaAssets(null);
+          return;
+        }
+
+        setMetaAssets((await response.json()) as MetaAssetsResponse);
+      } catch {
+        if (!cancelled) {
+          setMetaAssets(null);
+          setMetaAssetsError(
+            "No se pudieron cargar los activos de Meta por un error de red. Reintenta.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMetaAssets(false);
+        }
+      }
     }
 
     void loadMetaAssets();
@@ -394,35 +488,41 @@ function IntegrationsList({
 
     setIsConnecting(true);
     setError(null);
-
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/integrations/shopify/connect`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/integrations/shopify/connect`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ shopDomain, appMode }),
         },
-        body: JSON.stringify({ shopDomain, appMode }),
-      },
-    );
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-        detail?: string;
-      } | null;
-      setError(
-        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-          .filter(Boolean)
-          .join(" - "),
       );
-      setIsConnecting(false);
-      return;
-    }
 
-    const body = (await response.json()) as { redirectUrl: string };
-    window.location.assign(body.redirectUrl);
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        } | null;
+        setError(
+          [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+            .filter(Boolean)
+            .join(" - "),
+        );
+        return;
+      }
+
+      const body = (await response.json()) as { redirectUrl: string };
+      window.location.assign(body.redirectUrl);
+    } catch {
+      setError(
+        "No se pudo iniciar la conexión con Shopify por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsConnecting(false);
+    }
   }
 
   async function connectMeta() {
@@ -432,94 +532,215 @@ function IntegrationsList({
 
     setIsConnectingMeta(true);
     setError(null);
-
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/integrations/meta/connect`,
-      { method: "POST" },
-    );
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-        detail?: string;
-      } | null;
-      setError(
-        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-          .filter(Boolean)
-          .join(" - "),
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/integrations/meta/connect`,
+        { method: "POST" },
       );
-      setIsConnectingMeta(false);
-      return;
-    }
 
-    const body = (await response.json()) as { redirectUrl: string };
-    window.location.assign(body.redirectUrl);
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        } | null;
+        setError(
+          [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+            .filter(Boolean)
+            .join(" - "),
+        );
+        return;
+      }
+
+      const body = (await response.json()) as { redirectUrl: string };
+      window.location.assign(body.redirectUrl);
+    } catch {
+      setError(
+        "No se pudo iniciar la conexión con Meta por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsConnectingMeta(false);
+    }
   }
 
   async function connectKlaviyo() {
     if (!organization) return;
     setIsConnectingKlaviyo(true);
     setError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/integrations/klaviyo/connect`,
-      { method: "POST" },
-    );
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-        detail?: string;
-      } | null;
-      setError(
-        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-          .filter(Boolean)
-          .join(" - "),
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/integrations/klaviyo/connect`,
+        { method: "POST" },
       );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        } | null;
+        setError(
+          [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+            .filter(Boolean)
+            .join(" - "),
+        );
+        return;
+      }
+      const body = (await response.json()) as { redirectUrl: string };
+      window.location.assign(body.redirectUrl);
+    } catch {
+      setError(
+        "No se pudo iniciar la conexión con Klaviyo por un error de red. Reintenta.",
+      );
+    } finally {
       setIsConnectingKlaviyo(false);
-      return;
     }
-    const body = (await response.json()) as { redirectUrl: string };
-    window.location.assign(body.redirectUrl);
+  }
+
+  async function retryShopifySync(connectionId: string) {
+    if (!organization) return;
+    setIsRetryingShopify(true);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/shopify/sync?connectionId=${encodeURIComponent(connectionId)}`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        } | null;
+        setError(
+          [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+            .filter(Boolean)
+            .join(" - "),
+        );
+        return;
+      }
+
+      setPayload((current) =>
+        current
+          ? {
+              ...current,
+              providers: current.providers.map((provider) =>
+                provider.id === "shopify" && provider.connection
+                  ? {
+                      ...provider,
+                      connection: {
+                        ...provider.connection,
+                        status: "syncing",
+                        last_error_message: null,
+                      },
+                    }
+                  : provider,
+              ),
+            }
+          : current,
+      );
+    } catch {
+      setError(
+        "No se pudo relanzar la sincronización de Shopify por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsRetryingShopify(false);
+    }
+  }
+
+  async function retryKlaviyoSync(connectionId: string) {
+    if (!organization) return;
+    setIsRetryingKlaviyo(true);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/klaviyo/sync?connectionId=${encodeURIComponent(connectionId)}`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        } | null;
+        setError(
+          [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+            .filter(Boolean)
+            .join(" - "),
+        );
+        return;
+      }
+      setPayload((current) =>
+        current
+          ? {
+              ...current,
+              providers: current.providers.map((provider) =>
+                provider.id === "klaviyo" && provider.connection
+                  ? {
+                      ...provider,
+                      connection: {
+                        ...provider.connection,
+                        status: "syncing",
+                        last_error_message: null,
+                      },
+                    }
+                  : provider,
+              ),
+            }
+          : current,
+      );
+    } catch {
+      setError(
+        "No se pudo relanzar la sincronización de Klaviyo por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsRetryingKlaviyo(false);
+    }
   }
 
   async function saveKlaviyoMetric(metricId: string) {
     if (!organization || !metricId) return;
     setIsSavingKlaviyoMetric(true);
     setKlaviyoMetricError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/klaviyo/conversion-metric`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ metricId, source: "klaviyo" }),
-      },
-    );
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-      } | null;
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/klaviyo/conversion-metric`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ metricId, source: "klaviyo" }),
+        },
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+        } | null;
+        setKlaviyoMetricError(
+          [body?.error ?? `HTTP ${response.status}`, body?.message]
+            .filter(Boolean)
+            .join(" - "),
+        );
+      } else {
+        setKlaviyoMetrics((current) =>
+          current
+            ? {
+                ...current,
+                conversion_metric_id: metricId,
+                metrics: current.metrics.map((metric) => ({
+                  ...metric,
+                  selected: metric.external_metric_id === metricId,
+                })),
+              }
+            : current,
+        );
+      }
+    } catch {
       setKlaviyoMetricError(
-        [body?.error ?? `HTTP ${response.status}`, body?.message]
-          .filter(Boolean)
-          .join(" - "),
+        "No se pudo guardar la métrica de Klaviyo por un error de red. Reintenta.",
       );
-    } else {
-      setKlaviyoMetrics((current) =>
-        current
-          ? {
-              ...current,
-              conversion_metric_id: metricId,
-              metrics: current.metrics.map((metric) => ({
-                ...metric,
-                selected: metric.external_metric_id === metricId,
-              })),
-            }
-          : current,
-      );
+    } finally {
+      setIsSavingKlaviyoMetric(false);
     }
-    setIsSavingKlaviyoMetric(false);
   }
 
   async function saveMetaAssetSelection() {
@@ -531,61 +752,68 @@ function IntegrationsList({
     const selectedAdAccountIds = metaAssets.ad_accounts
       .filter((asset) => asset.is_selected)
       .map((asset) => asset.id);
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/meta/assets/selection`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adAccountIds: selectedAdAccountIds }),
-      },
-    );
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-        detail?: string;
-      } | null;
-      setMetaAssetsError(
-        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-          .filter(Boolean)
-          .join(" - "),
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/meta/assets/selection`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adAccountIds: selectedAdAccountIds }),
+        },
       );
-      setIsSavingMetaAssets(false);
-      return;
-    }
 
-    const syncResponse = await apiFetch(
-      `/v1/organizations/${organization.id}/meta/sync`,
-      { method: "POST" },
-    );
-    if (!syncResponse.ok) {
-      const body = (await syncResponse.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-        detail?: string;
-      } | null;
-      setMetaAssetsError(
-        [
-          body?.error ?? `HTTP ${syncResponse.status}`,
-          body?.message,
-          body?.detail,
-        ]
-          .filter(Boolean)
-          .join(" - "),
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        } | null;
+        setMetaAssetsError(
+          [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+            .filter(Boolean)
+            .join(" - "),
+        );
+        return;
+      }
+
+      const syncResponse = await apiFetch(
+        `/v1/organizations/${organization.id}/meta/sync`,
+        { method: "POST" },
       );
-      setIsSavingMetaAssets(false);
-      return;
-    }
+      if (!syncResponse.ok) {
+        const body = (await syncResponse.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        } | null;
+        setMetaAssetsError(
+          [
+            body?.error ?? `HTTP ${syncResponse.status}`,
+            body?.message,
+            body?.detail,
+          ]
+            .filter(Boolean)
+            .join(" - "),
+        );
+        return;
+      }
 
-    setMetaAssetsMessage(
-      "Activos guardados. La sincronización inicial se ha puesto en cola.",
-    );
-    setIsSavingMetaAssets(false);
+      setMetaAssetsMessage(
+        "Activos guardados. La sincronización inicial se ha puesto en cola.",
+      );
+    } catch {
+      setMetaAssetsError(
+        "No se pudieron guardar los activos de Meta por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsSavingMetaAssets(false);
+    }
   }
 
   if (isLoading) {
-    return <LoadingBlock label="Cargando integraciones..." />;
+    return (
+      <AsyncState status="loading" loadingLabel="Cargando integraciones..." />
+    );
   }
 
   if (error) {
@@ -593,15 +821,27 @@ function IntegrationsList({
   }
 
   if (!payload) {
-    return null;
+    return (
+      <AsyncState
+        status="empty"
+        emptyTitle="No hay integraciones para mostrar"
+        emptyHint="Selecciona una organización activa y vuelve a intentarlo."
+      />
+    );
   }
 
   const shopifyEnabled =
     payload.providers.find((provider) => provider.id === "shopify")
       ?.available ?? false;
+  const shopifyConfigured =
+    payload.providers.find((provider) => provider.id === "shopify")
+      ?.configuration.status === "configured";
 
   return (
     <div className="space-y-4">
+      {oauthNotice ? (
+        <Banner tone={oauthNotice.tone}>{oauthNotice.text}</Banner>
+      ) : null}
       {!payload.schema_ready ? (
         <Banner tone="danger">
           No se pudo cargar el estado de las integraciones ahora mismo.
@@ -616,6 +856,13 @@ function IntegrationsList({
             Shopify esta desactivado por configuracion. El administrador puede
             habilitarlo con
             <span className="font-mono"> INTEGRATION_FEATURE_FLAGS</span>.
+          </Banner>
+        ) : null}
+        {shopifyEnabled && !shopifyConfigured ? (
+          <Banner tone="warn" className="mt-3">
+            Shopify está habilitado en la interfaz, pero faltan las credenciales
+            de la app en el servidor. La conexión se habilitará automáticamente
+            cuando estén completas.
           </Banner>
         ) : null}
         <p className="mt-2 text-sm leading-6 text-muted">
@@ -739,7 +986,10 @@ function IntegrationsList({
             autoComplete="off"
             required
           />
-          <Button type="submit" disabled={isConnecting || !shopifyEnabled}>
+          <Button
+            type="submit"
+            disabled={isConnecting || !shopifyEnabled || !shopifyConfigured}
+          >
             {isConnecting ? "Conectando..." : "Conectar Shopify"}
           </Button>
         </form>
@@ -755,7 +1005,12 @@ function IntegrationsList({
                   {provider.phase}
                 </p>
               </div>
-              <Badge tone="brand">{statusLabel(provider)}</Badge>
+              <IntegrationStatusBadge
+                available={provider.available}
+                configurationStatus={provider.configuration.status}
+                connectionStatus={provider.connection?.status}
+                healthStatus={provider.health.status}
+              />
             </div>
 
             <p className="mt-4 text-sm leading-6 text-muted">
@@ -767,8 +1022,26 @@ function IntegrationsList({
                 {healthLabel(provider.health.status)}
               </span>
             </p>
+            <IntegrationActivationChecklist
+              ready={provider.activation.ready}
+              missing={provider.activation.missing}
+            />
+            {provider.configuration.status === "credentials_missing" ? (
+              <Banner className="mt-3" tone="warn">
+                El conector está preparado, pero faltan las credenciales de la
+                app del proveedor en el servidor. Cuando se configuren, esta
+                tarjeta habilitará OAuth y sincronización real.
+              </Banner>
+            ) : null}
+            {provider.configuration.status === "feature_disabled" ? (
+              <Banner className="mt-3" tone="warn">
+                El conector está configurado, pero su feature flag está
+                desactivado. No se iniciarán llamadas al proveedor hasta
+                habilitarlo explícitamente.
+              </Banner>
+            ) : null}
             {provider.id === "meta_ads" && provider.available ? (
-              payload.meta_app_available ? (
+              provider.configuration.status === "configured" ? (
                 <Button
                   className="mt-4"
                   type="button"
@@ -791,7 +1064,7 @@ function IntegrationsList({
               )
             ) : null}
             {provider.id === "klaviyo" && provider.available ? (
-              payload.klaviyo_app_available ? (
+              provider.configuration.status === "configured" ? (
                 <Button
                   className="mt-4"
                   type="button"
@@ -812,6 +1085,16 @@ function IntegrationsList({
                   </Banner>
                 </div>
               )
+            ) : null}
+            {provider.id === "instagram" ? (
+              <div className="mt-4">
+                <Banner tone="warn">
+                  Instagram está preparado, pero todavía no está disponible:
+                  requiere una conexión Meta válida o Instagram Login y los
+                  permisos de una cuenta profesional. No se muestran métricas
+                  simuladas ni se ofrece un botón de conexión prematuro.
+                </Banner>
+              </div>
             ) : null}
             {provider.id === "klaviyo" && provider.connection ? (
               <div className="mt-4 border border-edge bg-surface p-3 text-sm">
@@ -1029,6 +1312,34 @@ function IntegrationsList({
                     {integrationErrorMessage(provider)}
                   </span>
                 </Banner>
+                {provider.id === "shopify" && provider.connection ? (
+                  <Button
+                    className="mt-3"
+                    type="button"
+                    onClick={() =>
+                      void retryShopifySync(provider.connection!.id)
+                    }
+                    disabled={isRetryingShopify}
+                  >
+                    {isRetryingShopify
+                      ? "Reintentando sincronización..."
+                      : "Reintentar sincronización"}
+                  </Button>
+                ) : null}
+                {provider.id === "klaviyo" && provider.connection ? (
+                  <Button
+                    className="mt-3"
+                    type="button"
+                    onClick={() =>
+                      void retryKlaviyoSync(provider.connection!.id)
+                    }
+                    disabled={isRetryingKlaviyo}
+                  >
+                    {isRetryingKlaviyo
+                      ? "Reintentando sincronización..."
+                      : "Reintentar sincronización"}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
 

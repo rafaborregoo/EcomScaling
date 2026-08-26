@@ -7,6 +7,8 @@ import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
+  AsyncState,
+  LoadingBlock,
   EmptyState,
   Heading,
   Badge,
@@ -14,7 +16,6 @@ import {
   Card,
   ErrorBlock,
   Input,
-  LoadingBlock,
   Modal,
   Pagination,
   Select,
@@ -251,23 +252,32 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const loadOperations = useCallback(async () => {
     if (!organization) {
-      return;
-    }
-
-    setIsLoading(true);
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/operations`,
-    );
-
-    if (!response.ok) {
-      setError(await readApiError(response));
+      setPayload(null);
+      setError(null);
       setIsLoading(false);
       return;
     }
 
-    setPayload((await response.json()) as OperationsResponse);
-    setError(null);
-    setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/operations`,
+      );
+
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      setPayload((await response.json()) as OperationsResponse);
+      setError(null);
+    } catch {
+      setError(
+        "No se pudieron cargar las operaciones por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }, [organization]);
 
   useEffect(() => {
@@ -281,20 +291,27 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
     setIsEvaluating(true);
     setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/operations/run-rules`,
+        {
+          method: "POST",
+        },
+      );
 
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/operations/run-rules`,
-      {
-        method: "POST",
-      },
-    );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
 
-    if (!response.ok) {
-      setError(await readApiError(response));
+      void loadOperations();
+    } catch {
+      setError(
+        "No se pudieron evaluar las reglas por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsEvaluating(false);
     }
-
-    setIsEvaluating(false);
-    void loadOperations();
   }
 
   async function changeTaskStatus(taskId: string, status: string) {
@@ -303,22 +320,28 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
 
     setError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/tasks/${taskId}/status`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      },
-    );
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/tasks/${taskId}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      );
 
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      toast.success("Estado de la tarea actualizado.");
+      void loadOperations();
+    } catch {
+      setError(
+        "No se pudo actualizar la tarea por un error de red. Reintenta.",
+      );
     }
-
-    toast.success("Estado de la tarea actualizado.");
-    void loadOperations();
   }
 
   async function submitComment(
@@ -337,23 +360,29 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/tasks/${taskId}/comments`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
-      },
-    );
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/tasks/${taskId}/comments`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body }),
+        },
+      );
 
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      setCommentDrafts((drafts) => ({ ...drafts, [taskId]: "" }));
+      toast.success("Comentario añadido.");
+      void loadOperations();
+    } catch {
+      setError(
+        "No se pudo añadir el comentario por un error de red. Reintenta.",
+      );
     }
-
-    setCommentDrafts((drafts) => ({ ...drafts, [taskId]: "" }));
-    toast.success("Comentario añadido.");
-    void loadOperations();
   }
 
   async function changeAlertStatus(alertId: string, status: string) {
@@ -361,23 +390,29 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       return;
     }
 
-    const response = await apiFetch(
-      `/v1/organizations/${organization.id}/alerts/${alertId}/status`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      },
-    );
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organization.id}/alerts/${alertId}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      );
 
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      toast.success("Estado de la alerta actualizado.");
+      void loadOperations();
+    } catch {
+      setError(
+        "No se pudo actualizar la alerta por un error de red. Reintenta.",
+      );
     }
-
-    toast.success("Estado de la alerta actualizado.");
-
-    void loadOperations();
   }
 
   const activeAlerts = (payload?.alerts ?? []).filter((alert) =>

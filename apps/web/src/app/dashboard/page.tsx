@@ -6,6 +6,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { mapWithConcurrency } from "@/lib/async-concurrency";
 import {
   Badge,
   Heading,
@@ -19,6 +20,7 @@ import {
   type TableColumnDef,
 } from "@/components/ui";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
 
 type DashboardTab = "todo" | "shopify" | "meta" | "klaviyo";
 
@@ -156,6 +158,221 @@ type StoreMetricsSummary = {
   net_profit: number;
 } | null;
 
+type DashboardOperations = {
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    priority: string;
+    due_at: string | null;
+  }>;
+  alerts: Array<{
+    id: string;
+    title: string;
+    severity: string;
+    status: string;
+  }>;
+};
+
+type FocusItem = {
+  id: string;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  href: string;
+  tone: "danger" | "warn" | "neutral";
+};
+
+function buildFocusItems({
+  operations,
+  connections,
+  metrics,
+  metaMetrics,
+}: {
+  operations: DashboardOperations | null;
+  connections: ShopifyConnection[];
+  metrics: ShopifyMetrics | null;
+  metaMetrics: MetaMetrics | null;
+}): FocusItem[] {
+  const items: FocusItem[] = [];
+  const openAlerts = (operations?.alerts ?? []).filter(
+    (alert) => !["resolved", "ignored"].includes(alert.status),
+  );
+  const openTasks = (operations?.tasks ?? []).filter((task) =>
+    ["pending", "in_progress"].includes(task.status),
+  );
+  const now = Date.now();
+
+  openAlerts
+    .filter((alert) => ["critical", "high"].includes(alert.severity))
+    .sort((left, right) =>
+      left.severity === right.severity
+        ? 0
+        : left.severity === "critical"
+          ? -1
+          : 1,
+    )
+    .slice(0, 2)
+    .forEach((alert) => {
+      items.push({
+        id: `alert:${alert.id}`,
+        eyebrow: "Alerta prioritaria",
+        title: alert.title,
+        detail: "Revisa el diagnóstico y decide la siguiente acción.",
+        href: "/tareas",
+        tone: alert.severity === "critical" ? "danger" : "warn",
+      });
+    });
+
+  openTasks
+    .filter((task) => task.due_at && Date.parse(task.due_at) < now)
+    .slice(0, 2)
+    .forEach((task) => {
+      items.push({
+        id: `overdue:${task.id}`,
+        eyebrow: "Tarea vencida",
+        title: task.title,
+        detail: "Está abierta y ha superado su fecha prevista.",
+        href: "/tareas",
+        tone: "danger",
+      });
+    });
+
+  openTasks
+    .filter((task) => ["urgent", "high"].includes(task.priority))
+    .slice(0, 2)
+    .forEach((task) => {
+      if (items.some((item) => item.id.endsWith(task.id))) return;
+      items.push({
+        id: `task:${task.id}`,
+        eyebrow: "Siguiente tarea",
+        title: task.title,
+        detail: "Prioridad alta definida en el backlog del negocio.",
+        href: "/tareas",
+        tone: task.priority === "urgent" ? "danger" : "warn",
+      });
+    });
+
+  if (connections.length === 0) {
+    items.push({
+      id: "shopify:missing",
+      eyebrow: "Conector principal",
+      title: "Conecta Shopify para activar el análisis",
+      detail:
+        "Sin una tienda conectada no se calculan ventas, margen ni stock.",
+      href: "/integraciones",
+      tone: "warn",
+    });
+  }
+
+  if (!metaMetrics || metaMetrics.acquisition.days_with_data === 0) {
+    items.push({
+      id: "meta:missing",
+      eyebrow: "Conector preparado",
+      title: "Meta Ads aún no está conectado",
+      detail:
+        "No se muestran inversión ni ROAS hasta autorizar una cuenta real.",
+      href: "/integraciones",
+      tone: "neutral",
+    });
+  }
+
+  if (metrics && Number(metrics.financial.net_profit) < 0) {
+    items.push({
+      id: "metric:profit",
+      eyebrow: "Indicador financiero",
+      title: "El beneficio neto del periodo es negativo",
+      detail:
+        "Comprueba costes, margen y las acciones abiertas antes de escalar inversión.",
+      href: "/dashboard?tab=shopify",
+      tone: "danger",
+    });
+  }
+
+  if (items.length === 0) {
+    items.push({
+      id: "all:healthy",
+      eyebrow: "Prioridad actual",
+      title: "No hay bloqueos operativos prioritarios",
+      detail:
+        "Puedes revisar los KPIs del periodo o avanzar el plan estratégico.",
+      href: "/camino",
+      tone: "neutral",
+    });
+  }
+
+  return items.slice(0, 4);
+}
+
+function AdaptiveFocus({
+  items,
+  isLoading,
+  error,
+}: {
+  items: FocusItem[];
+  isLoading: boolean;
+  error: string | null;
+}) {
+  return (
+    <section
+      className="border-t border-ink/20 pt-5"
+      aria-labelledby="dashboard-focus-title"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            Ordenado por impacto
+          </p>
+          <Heading size="lg" id="dashboard-focus-title">
+            Qué requiere atención
+          </Heading>
+        </div>
+        <Link href="/tareas">Ver operaciones</Link>
+      </div>
+      {isLoading ? (
+        <div className="mt-3">
+          <LoadingBlock label="Calculando prioridades..." />
+        </div>
+      ) : error ? (
+        <div className="mt-3">
+          <ErrorBlock>{error}</ErrorBlock>
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {items.map((item) => (
+            <Link
+              key={item.id}
+              href={item.href}
+              className="group border border-line p-4 transition-colors hover:border-ink"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                    {item.eyebrow}
+                  </p>
+                  <p className="mt-1 font-medium group-hover:underline">
+                    {item.title}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-muted">
+                    {item.detail}
+                  </p>
+                </div>
+                <Badge tone={item.tone}>
+                  {item.tone === "danger"
+                    ? "Alta"
+                    : item.tone === "warn"
+                      ? "Revisar"
+                      : "Info"}
+                </Badge>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 const PERIOD_OPTIONS = ["7", "30", "90", "all"] as const;
 
 function PeriodSelector({
@@ -200,46 +417,63 @@ function StoresOverviewTable({
     Record<string, StoreMetricsSummary>
   >({});
   const [isLoading, setIsLoading] = useState(false);
+  const connectionKey = connections.map((connection) => connection.id).join(",");
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadAll() {
       setIsLoading(true);
-      const entries = await Promise.all(
-        connections.map(async (connection) => {
-          const response = await apiFetch(
-            `/v1/organizations/${organizationId}/shopify/metrics?days=${periodDays}&connectionId=${connection.id}`,
-          );
-          if (!response.ok) {
-            return [connection.id, null] as const;
-          }
-          const data = (await response.json()) as ShopifyMetrics;
-          return [
-            connection.id,
-            {
-              net_sales: data.sales.net_sales,
-              orders_count: data.sales.orders_count,
-              net_profit: data.financial.net_profit,
-            },
-          ] as const;
-        }),
-      );
+      try {
+        const entries = await mapWithConcurrency(
+          connections,
+          4,
+          async (connection) => {
+            try {
+              const response = await apiFetch(
+                `/v1/organizations/${organizationId}/shopify/metrics?days=${periodDays}&connectionId=${connection.id}`,
+              );
+              if (!response.ok) return [connection.id, null] as const;
+              const data = (await response.json()) as ShopifyMetrics;
+              return [
+                connection.id,
+                {
+                  net_sales: data.sales.net_sales,
+                  orders_count: data.sales.orders_count,
+                  net_profit: data.financial.net_profit,
+                },
+              ] as const;
+            } catch {
+              return [connection.id, null] as const;
+            }
+          },
+        );
 
-      if (!cancelled) {
-        setSummaries(Object.fromEntries(entries));
-        setIsLoading(false);
+        if (!cancelled) {
+          setSummaries(Object.fromEntries(entries));
+        }
+      } catch {
+        if (!cancelled) {
+          setSummaries({});
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     if (connections.length > 0) {
       void loadAll();
+    } else {
+      setSummaries({});
+      setIsLoading(false);
     }
 
     return () => {
       cancelled = true;
     };
-  }, [organizationId, connections, periodDays]);
+  }, [organizationId, connectionKey, periodDays]);
 
   if (connections.length === 0) {
     return null;
@@ -366,6 +600,17 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [periodDays, setPeriodDays] = useState<"7" | "30" | "90" | "all">("30");
   const [metaMetrics, setMetaMetrics] = useState<MetaMetrics | null>(null);
+  const [operations, setOperations] = useState<DashboardOperations | null>(
+    null,
+  );
+  const [operationsError, setOperationsError] = useState<string | null>(null);
+  const [isLoadingOperations, setIsLoadingOperations] = useState(false);
+  const [hasFinancialConfig, setHasFinancialConfig] = useState(false);
+  const [financialConfigError, setFinancialConfigError] = useState<
+    string | null
+  >(null);
+  const [isLoadingFinancialConfig, setIsLoadingFinancialConfig] =
+    useState(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>("todo");
 
   const organization =
@@ -388,24 +633,31 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       }
 
       setIsLoadingStores(true);
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/shopify/connections`,
-      );
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organization.id}/shopify/connections`,
+        );
 
-      if (response.ok) {
-        const payload = (await response.json()) as {
-          connections: ShopifyConnection[];
-        };
-        setShopifyConnections(payload.connections ?? []);
-        setStoresLoadError(null);
-      } else {
+        if (response.ok) {
+          const payload = (await response.json()) as {
+            connections: ShopifyConnection[];
+          };
+          setShopifyConnections(payload.connections ?? []);
+          setStoresLoadError(null);
+        } else {
+          setShopifyConnections([]);
+          setStoresLoadError(
+            `No se pudo cargar el estado de Shopify (HTTP ${response.status}). Reintenta o revisa los logs de la API.`,
+          );
+        }
+      } catch {
         setShopifyConnections([]);
         setStoresLoadError(
-          `No se pudo cargar el estado de Shopify (HTTP ${response.status}). Reintenta o revisa los logs de la API.`,
+          "No se pudo cargar el estado de Shopify por un error de red. Reintenta.",
         );
+      } finally {
+        setIsLoadingStores(false);
       }
-
-      setIsLoadingStores(false);
     }
 
     void loadStores();
@@ -418,38 +670,119 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       }
 
       setIsLoadingMetrics(true);
-      const connectionParam = activeConnectionId
-        ? `&connectionId=${encodeURIComponent(activeConnectionId)}`
-        : "";
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/shopify/metrics?days=${periodDays}${connectionParam}`,
-      );
+      try {
+        const connectionParam = activeConnectionId
+          ? `&connectionId=${encodeURIComponent(activeConnectionId)}`
+          : "";
+        const [shopifyResult, metaResult] = await Promise.allSettled([
+          apiFetch(
+            `/v1/organizations/${organization.id}/shopify/metrics?days=${periodDays}${connectionParam}`,
+          ),
+          apiFetch(
+            `/v1/organizations/${organization.id}/meta/metrics?days=${periodDays}`,
+          ),
+        ]);
 
-      if (response.ok) {
-        setMetrics((await response.json()) as ShopifyMetrics);
-        setMetricsError(null);
-      } else {
+        if (shopifyResult.status === "fulfilled") {
+          if (shopifyResult.value.ok) {
+            setMetrics((await shopifyResult.value.json()) as ShopifyMetrics);
+            setMetricsError(null);
+          } else {
+            setMetrics(null);
+            setMetricsError(
+              `No se pudieron cargar las métricas (HTTP ${shopifyResult.value.status}).`,
+            );
+          }
+        } else {
+          setMetrics(null);
+          setMetricsError(
+            "No se pudieron cargar las métricas por un error de red. Reintenta.",
+          );
+        }
+
+        if (metaResult.status === "fulfilled" && metaResult.value.ok) {
+          setMetaMetrics((await metaResult.value.json()) as MetaMetrics);
+        } else {
+          setMetaMetrics(null);
+        }
+      } catch {
         setMetrics(null);
-        setMetricsError(
-          `No se pudieron cargar las métricas (HTTP ${response.status}).`,
-        );
-      }
-
-      const metaResponse = await apiFetch(
-        `/v1/organizations/${organization.id}/meta/metrics?days=${periodDays}`,
-      );
-
-      if (metaResponse.ok) {
-        setMetaMetrics((await metaResponse.json()) as MetaMetrics);
-      } else {
         setMetaMetrics(null);
+        setMetricsError(
+          "No se pudieron cargar las métricas por un error de red. Reintenta.",
+        );
+      } finally {
+        setIsLoadingMetrics(false);
       }
-
-      setIsLoadingMetrics(false);
     }
 
     void loadMetrics();
   }, [organization, periodDays, activeConnectionId]);
+
+  useEffect(() => {
+    async function loadFinancialConfig() {
+      if (!organization) return;
+
+      setIsLoadingFinancialConfig(true);
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organization.id}/financial-config`,
+        );
+        if (response.ok) {
+          const payload = (await response.json()) as {
+            settings: object | null;
+          };
+          setHasFinancialConfig(payload.settings !== null);
+          setFinancialConfigError(null);
+        } else {
+          setHasFinancialConfig(false);
+          setFinancialConfigError(
+            `No se pudo cargar la configuracion financiera (HTTP ${response.status}).`,
+          );
+        }
+      } catch {
+        setHasFinancialConfig(false);
+        setFinancialConfigError(
+          "No se pudo cargar la configuración financiera por un error de red. Reintenta.",
+        );
+      } finally {
+        setIsLoadingFinancialConfig(false);
+      }
+    }
+
+    void loadFinancialConfig();
+  }, [organization]);
+
+  useEffect(() => {
+    async function loadOperations() {
+      if (!organization) return;
+
+      setIsLoadingOperations(true);
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organization.id}/operations`,
+        );
+        if (response.ok) {
+          setOperations((await response.json()) as DashboardOperations);
+          setOperationsError(null);
+        } else {
+          setOperations(null);
+          setOperationsError(
+            `No se pudieron cargar las prioridades operativas (HTTP ${response.status}).`,
+          );
+        }
+      } catch {
+        setOperations(null);
+        setOperationsError(
+          "No se pudieron cargar las prioridades operativas por un error de red. Reintenta.",
+        );
+      } finally {
+        setIsLoadingOperations(false);
+      }
+    }
+
+    void loadOperations();
+  }, [organization]);
 
   const showStoresOverview =
     isConsultant && organization && shopifyConnections.length > 0;
@@ -466,6 +799,13 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       />
     );
   }
+
+  const focusItems = buildFocusItems({
+    operations,
+    connections: shopifyConnections,
+    metrics,
+    metaMetrics,
+  });
 
   return (
     <div className="space-y-6">
@@ -503,6 +843,27 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           },
         ]}
       />
+
+      {activeTab === "todo" ? (
+        <AdaptiveFocus
+          items={focusItems}
+          isLoading={isLoadingOperations}
+          error={operationsError}
+        />
+      ) : null}
+
+      {activeTab === "todo" ? (
+        <OnboardingChecklist
+          organizationStatus={organization.status}
+          shopifyConnectionCount={shopifyConnections.length}
+          hasShopifyMetrics={metrics !== null}
+          hasFinancialConfig={hasFinancialConfig}
+          isLoadingMetrics={isLoadingMetrics || isLoadingStores}
+          isLoadingFinancialConfig={isLoadingFinancialConfig}
+          metricsError={metricsError}
+          financialConfigError={financialConfigError}
+        />
+      ) : null}
 
       {(activeTab === "todo" || activeTab === "shopify") &&
       showStoresOverview &&
@@ -761,12 +1122,13 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <>
           <AiDiagnosticSection
             organizationId={organization.id}
-            title="Diagnóstico IA"
+            title="Resumen ejecutivo IA"
             getPath="/ai/monitor"
             runPath="/ai/monitor-run"
             loadingLabel="Analizando el negocio con IA... la primera vez puede tardar 1-2 minutos."
             tasksLabelSingular="tarea"
             days={aiDiagnosticDays}
+            variant="summary"
           />
           <AiDiagnosticSection
             organizationId={organization.id}

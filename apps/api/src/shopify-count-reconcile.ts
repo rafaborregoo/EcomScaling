@@ -20,7 +20,44 @@ type CountComparison = {
   shopify: number;
   shopifyPrecision: string | undefined;
   diff: number;
+  status: "exact" | "warning" | "mismatch";
+  statusReason: string;
 };
+
+export function classifyShopifyCountComparison(
+  dataset: string,
+  local: number,
+  shopify: number,
+  shopifyPrecision: string | undefined,
+) {
+  const diff = local - shopify;
+
+  if (diff === 0 && shopifyPrecision !== "AT_LEAST") {
+    return {
+      status: "exact" as const,
+      statusReason: "local_count_matches_shopify_count",
+    };
+  }
+
+  if (shopifyPrecision === "AT_LEAST" && local >= shopify) {
+    return {
+      status: "warning" as const,
+      statusReason: "shopify_count_is_lower_bound",
+    };
+  }
+
+  if (dataset === "orders" && diff > 0) {
+    return {
+      status: "warning" as const,
+      statusReason: "local_orders_may_include_history_outside_shopify_scope",
+    };
+  }
+
+  return {
+    status: "mismatch" as const,
+    statusReason: diff < 0 ? "local_count_below_shopify_count" : "counts_differ",
+  };
+}
 
 /**
  * Compara conteos locales (DB) contra los conteos reales de Shopify Admin para
@@ -108,6 +145,12 @@ export async function reconcileShopifyCounts(env: ApiEnv, connectionId: string) 
       shopify: remote.productsCount?.count ?? 0,
       shopifyPrecision: remote.productsCount?.precision,
       diff: localProducts - (remote.productsCount?.count ?? 0),
+      ...classifyShopifyCountComparison(
+        "products",
+        localProducts,
+        remote.productsCount?.count ?? 0,
+        remote.productsCount?.precision,
+      ),
     },
     {
       dataset: "orders",
@@ -115,6 +158,12 @@ export async function reconcileShopifyCounts(env: ApiEnv, connectionId: string) 
       shopify: remote.ordersCount?.count ?? 0,
       shopifyPrecision: remote.ordersCount?.precision,
       diff: localOrders - (remote.ordersCount?.count ?? 0),
+      ...classifyShopifyCountComparison(
+        "orders",
+        localOrders,
+        remote.ordersCount?.count ?? 0,
+        remote.ordersCount?.precision,
+      ),
     },
     {
       dataset: "customers",
@@ -122,6 +171,12 @@ export async function reconcileShopifyCounts(env: ApiEnv, connectionId: string) 
       shopify: remote.customersCount?.count ?? 0,
       shopifyPrecision: remote.customersCount?.precision,
       diff: localCustomers - (remote.customersCount?.count ?? 0),
+      ...classifyShopifyCountComparison(
+        "customers",
+        localCustomers,
+        remote.customersCount?.count ?? 0,
+        remote.customersCount?.precision,
+      ),
     },
   ];
 

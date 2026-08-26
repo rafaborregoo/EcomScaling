@@ -2,6 +2,13 @@
 
 ## Estado
 
+> Verificacion vigente 2026-08-24: el esquema remoto y las 64 migraciones
+> locales estan alineados (`GENERATED_SCHEMA_OK: 64 migrations`), por lo que
+> no existe drift de enums conocido. La suite remota documentada sigue siendo
+> la evidencia funcional (47/47 tests de API en la validacion anterior); queda
+> mantener una ejecucion aislada reproducible antes de cambiar el estado a
+> `done`.
+
 - **Estado real:** `verification_pending` (drift resuelto 2026-07-21; semantica/transiciones documentadas
   2026-07-23, ver abajo)
 - **Responsable:** sin asignar
@@ -21,7 +28,7 @@
 - **Resuelto 2026-07-23**: semantica y transiciones reales de los 5 enums, verificadas contra el codigo
   (no inferidas) — `apps/api/src/*.ts` y las migraciones. Ningun enum tiene CHECK/trigger que restrinja
   transiciones a nivel DB (la unica excepcion es `private.prevent_profile_privilege_escalation`, que
-  restringe *quien* puede cambiar `platform_role`, no que valores son validos); toda la logica de
+  restringe _quien_ puede cambiar `platform_role`, no que valores son validos); toda la logica de
   transicion que existe es de aplicacion, no de base de datos.
   - **`platform_role`** (`profiles.platform_role`): `user` (sin privilegios de plataforma, default) ->
     `consultant` (acceso cross-org via `consultant_assignments`) -> `platform_admin` (bypassa membership,

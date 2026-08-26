@@ -136,7 +136,21 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
     setError(null);
 
     const connectionParam = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
-    const response = await apiFetch(`/v1/organizations/${organizationId}/shopify/overview${connectionParam}`);
+    let response: Response;
+    try {
+      response = await apiFetch(
+        `/v1/organizations/${organizationId}/shopify/overview${connectionParam}`,
+      );
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "No se pudo cargar el diagnóstico de Shopify.",
+      );
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
 
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as
@@ -162,9 +176,21 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
     setSyncError(null);
 
     const connectionParam = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
-    const response = await apiFetch(`/v1/organizations/${organizationId}/shopify/sync${connectionParam}`, {
-      method: "POST",
-    });
+    let response: Response;
+    try {
+      response = await apiFetch(
+        `/v1/organizations/${organizationId}/shopify/sync${connectionParam}`,
+        { method: "POST" },
+      );
+    } catch (syncRequestError) {
+      setSyncError(
+        syncRequestError instanceof Error
+          ? syncRequestError.message
+          : "No se pudo iniciar la sincronización de Shopify.",
+      );
+      setIsSyncing(false);
+      return;
+    }
 
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as

@@ -1,11 +1,67 @@
 # SQO-02 - Observabilidad
 
+Endurecimiento de artifacts 2026-08-26: los findings sanitizados limitan strings de detalle a
+2.000 caracteres y summaries a 500 antes de llegar al workflow de GitHub Issues. El redactor común
+ya cubre el límite de detalle; test directo de sanitización pasa 2/2.
+
 ## Estado
+
+Incremento de rendimiento 2026-08-26: `runOpsHealthCheck` consulta en paralelo el primer lote
+de fuentes independientes (conexiones en error, conexiones `syncing` y sync runs fallidos). La
+salida y el manejo de errores permanecen iguales; typecheck API y observabilidad 9/9 pasan.
+
+El segundo lote independiente tambien queda paralelo: credenciales por expirar, presupuesto IA,
+purga pendiente y backlog de webhooks. La ejecucion conserva errores por fuente y sus findings.
+
+> Correccion vigente 2026-08-24: ya existe un registro minimo de metricas
+> process-local en `packages/observability` y el endpoint Prometheus protegido
+> `/health/metrics`; registra al menos `http_requests_total`. El gap real no es
+> "sin metricas", sino ampliar cobertura a worker/sync/coste IA y contar con un
+> backend compartido/APM para varias instancias.
+
+> Auditoria de cobertura 2026-08-24: la instrumentacion agregada esta conectada
+> al hook `onResponse` del API. El worker (`apps/worker/src/worker.ts`) y los
+> procesos de sync/reconciliacion mantienen `job_id`, `correlation_id` y logs
+> estructurados, pero no publican contadores compartidos. Se mantiene asi de
+> forma intencionada hasta introducir un backend de metricas comun; añadir un
+> registro process-local aislado en el worker no resolveria observabilidad en
+> varias instancias.
+
+> Correccion de lectura 2026-08-24: las frases historicas inferiores que dicen
+> "sin metricas" se refieren a la etapa anterior al registro process-local y
+> quedan supersedidas. El estado actual es metricas HTTP minimas + logs
+> correlacionados; faltan metricas agregadas de worker/sync/coste IA y APM.
+
+> Instrumentacion vigente 2026-08-24: el mismo registro compartido del API
+> ahora agrega `ai_runs_total` por agente/estado y
+> `ai_estimated_cost_usd_total` por agente para diagnosticos genericos, A01,
+> A11 y A09/chat. Las etiquetas son de baja cardinalidad y no incluyen
+> organizacion, prompts, contexto ni salida del modelo. La cobertura del worker
+> y el backend de metricas compartido quedan pendientes.
+
+> **Ampliacion vigente 2026-08-24:** el worker ahora reutiliza
+> `@ecomscaling/observability` para contar `worker_jobs_total` por nombre/estado
+> (`started`, `completed`, `failed`) y conserva `job_id`/`correlation_id` en logs.
+> La suite del worker pasa 14/14 incluyendo el contrato de estos contadores.
+> Sigue siendo process-local: no se presenta como agregacion multi-instancia ni
+> sustituye un backend de metricas compartido.
+
+> **Ampliacion vigente 2026-08-24:** `MetricsRegistry` también soporta histogramas
+> Prometheus acumulativos. El hook `onResponse` del API registra
+> `http_request_duration_ms` por método, ruta y estado, con buckets de latencia,
+> `_count` y `_sum`. La suite de observabilidad pasa 6/6 y el typecheck del API
+> pasa tras regenerar la declaración compilada del paquete. Sigue siendo
+> process-local hasta provisionar un backend compartido.
+
+> **Endurecimiento vigente 2026-08-24:** `runOpsHealthCheck` sanitiza los detalles
+> antes de escribir el artifact que consume el workflow de GitHub Issues. Redacta
+> tanto claves sensibles como credenciales embebidas en `error_message`; prueba
+> aislada 1/1 y typecheck del API pasan.
 
 - **Estado real:** `in_progress` (corregido 2026-07-20 — ver nota abajo, no es `planned_critical` desde
   cero como decian revisiones anteriores de este documento)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** ninguna tecnica
 - **Correccion importante (segunda vez en esta sesion que se corrige una afirmacion de "no existe
   observabilidad")**: la version anterior de este documento decia que no habia logging estructurado
@@ -105,13 +161,13 @@ materializadas).
 
 **SLI/SLO iniciales a validar con infraestructura real** (numeros de ejemplo, no aprobados):
 
-| Servicio | Indicador | Objetivo |
-| --- | --- | --- |
-| API | Latencia p95 lectura | <500 ms |
-| Shopify | Freshness pedidos | <30 min |
-| Webhooks | Procesamiento p95 | <2 min |
-| A02 cache hit / miss | Latencia | <1 s / <30 s |
-| IA | Runs fallidos | <2% |
+| Servicio             | Indicador            | Objetivo     |
+| -------------------- | -------------------- | ------------ |
+| API                  | Latencia p95 lectura | <500 ms      |
+| Shopify              | Freshness pedidos    | <30 min      |
+| Webhooks             | Procesamiento p95    | <2 min       |
+| A02 cache hit / miss | Latencia             | <1 s / <30 s |
+| IA                   | Runs fallidos        | <2%          |
 
 **Alertas operativas minimas**: cola bloqueada, job repetidamente fallido, token proximo a expirar,
 sync desactualizado, coste IA anomalo, error rate elevado — cada una con runbook (ver SQO-06 propuesto).
@@ -125,6 +181,7 @@ configuracion financiera, health score determinista (reutilizando la formula ya 
 - Hay alertas para colas bloqueadas, tokens expirados y datos desactualizados.
 - Se puede seguir un request extremo a extremo con la cadena de correlacion.
 - Logs verificados sin secretos ni PII (compartido con SQO-00).
+
 ## Corrección 2026-08-01 — métricas agregables mínimas
 
 El API registra `http_requests_total` por método, ruta y código de estado mediante el registro común de

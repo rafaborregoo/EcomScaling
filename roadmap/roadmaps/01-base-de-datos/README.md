@@ -1,5 +1,17 @@
 # Roadmap operativo - Base de datos
 
+> **Verificación vigente 2026-08-24:** `supabase migration list --linked` devuelve 64/64 migraciones
+> locales/remotas coincidentes; `supabase db push --linked --dry-run` informa que la base remota está al
+> día; y `node scripts/regenerate-generated-schema.mjs --check` pasa. La comprobación fue de lectura y
+> no modificó datos ni metadatos de producción.
+
+> Verificacion 2026-08-20: el endpoint de Management API y el generador MCP de typegen
+> devuelven falta de privilegios para la cuenta enlazada. Como alternativa, el CLI oficial
+> genera correctamente desde `SUPABASE_DB_URL` por conexión PostgreSQL directa. El artefacto
+> tipado está en `packages/db/src/database.types.ts` y se exporta desde `packages/db/src/index.ts`;
+> las migraciones y `schema_generado_desde_migraciones.sql` siguen siendo la fuente ejecutable
+> de verdad.
+
 ## Objetivo
 
 Construir Supabase/PostgreSQL por fases, sin desplegar las 90 tablas del modelo conceptual de golpe. La base de datos debe sostener multi-tenant, integraciones, metricas, operaciones humanas, agentes IA y auditoria con RLS verificable.
@@ -23,8 +35,8 @@ Construir Supabase/PostgreSQL por fases, sin desplegar las 90 tablas del modelo 
 ER — **no ejecutable, no fuente de verdad**, con problemas conocidos documentados en su propia cabecera
 (FKs invertidas, sin RLS/CHECK/grants, desalineado con el esquema real en varios puntos). Para ver el
 esquema real: `supabase/migrations/*.sql`, o su version concatenada y regenerable en
-`schema_generado_desde_migraciones.sql` (regenerado a mano por ahora; automatizarlo + un check de drift
-en CI sigue pendiente).
+`schema_generado_desde_migraciones.sql`. Ejecuta `node scripts/regenerate-generated-schema.mjs`
+para regenerarlo y `node scripts/regenerate-generated-schema.mjs --check` para detectar drift.
 
 ## Fases
 
@@ -51,7 +63,7 @@ la seccion "Estado" de cada `fases/DB-XX-*.md`.
 
 | Item                                                        | Estado real                            | Evidencia / gap                                                                                                                                                                                                            |
 | ----------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Migracion aplicable desde cero                              | Cumplido                               | 61/61 migraciones locales = remotas (`supabase migration list`, verificación vigente 2026-08-02).                                                                                                                          |
+| Migracion aplicable desde cero                              | Cumplido                               | 64/64 migraciones locales = remotas (`supabase migration list`, verificación vigente 2026-08-24).                                                                                                                          |
 | Constraints de integridad multi-tenant                      | Parcial                                | Triggers reales existen (`enforce_task_alert_same_org` en DB-07), pero no estan cubiertos por tests automatizados en todos los dominios.                                                                                   |
 | RLS activada en tablas expuestas                            | Cumplido                               | Confirmado por `rls-tenant-isolation.test.ts` (11/11) para las tablas cubiertas; sin verificar en RPC/vistas/Storage.                                                                                                      |
 | Grants revisados para `anon`/`authenticated`/`service_role` | Sin evidencia                          | No hay un test que verifique privilegios de schema (ver DB-00).                                                                                                                                                            |

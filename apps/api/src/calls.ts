@@ -8,8 +8,13 @@
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import {
+  type AuthContext,
+  createUserScopedClient,
+  requireOperationalOrganization,
+} from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { parseSafeExternalHttpUrl } from "./external-url.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 
 type ApiEnv = LoadedApiEnv;
@@ -38,19 +43,7 @@ function requireOrganizationAccess(
   context: AuthContext,
   organizationId: string,
 ) {
-  const membership = context.memberships.find(
-    (item) => item.organization_id === organizationId,
-  );
-
-  if (!membership) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
-    };
-  }
-
-  return { ok: true as const, membership };
+  return requireOperationalOrganization(context, organizationId);
 }
 
 // Gestionar llamadas (crear, transcribir, resumir, publicar) es trabajo del
@@ -82,15 +75,8 @@ function parseRecordingUrl(
     return { ok: true, url: null };
   }
 
-  try {
-    const parsed = new URL(value.trim());
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      return { ok: false };
-    }
-    return { ok: true, url: parsed.toString() };
-  } catch {
-    return { ok: false };
-  }
+  const url = parseSafeExternalHttpUrl(value);
+  return url ? { ok: true, url } : { ok: false };
 }
 
 export async function listCalls(

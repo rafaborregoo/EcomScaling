@@ -17,6 +17,32 @@ export { Textarea } from "./textarea";
 export { LoadingBlock } from "./loading-block";
 export { ErrorBlock } from "./error-block";
 export { EmptyState } from "./empty-state";
+export type { AsyncStateStatus } from "./async-state";
+export { AsyncState } from "./async-state";
+export {
+  IntegrationStatusBadge,
+  getIntegrationStatusPresentation,
+} from "./integration-status-badge";
+export type {
+  IntegrationConfigurationStatus,
+  IntegrationStatusPresentation,
+} from "./integration-status-badge";
+export {
+  IntegrationActivationChecklist,
+} from "./integration-activation-checklist";
+export { getIntegrationActivationGateLabel } from "./integration-activation-state";
+export {
+  AgentRuntimeStatusBadge,
+  getAgentRuntimeStatusPresentation,
+} from "./agent-runtime-status-badge";
+export type {
+  AgentOrchestrationMode,
+  AgentRuntimeStatusPresentation,
+} from "./agent-runtime-status-badge";
+export { AgentEvalReadinessPanel } from "./agent-eval-readiness-panel";
+export type { AiEvidenceSource, AiEvidenceStatus } from "./ai-evidence-state";
+export { AiEvidence } from "./ai-evidence";
+export { getAiEvidencePresentation } from "./ai-evidence-state";
 export type { TabItem } from "./tabs";
 export { Tabs } from "./tabs";
 export { Pagination } from "./pagination";
@@ -30,7 +56,16 @@ export { Link } from "./link";
 export { Heading } from "./heading";
 export type { TableColumnDef } from "./table";
 export { Table } from "./table";
-export { BellIcon, CloseIcon, IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronUp, MenuIcon, MoreIcon } from "./icons";
+export {
+  BellIcon,
+  CloseIcon,
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronUp,
+  MenuIcon,
+  MoreIcon,
+} from "./icons";
 
 // Re-exportados directos de HeroUI (sin API propia que preservar -- sin uso
 // existente que migrar hoy, se usan tal cual documenta HeroUI).

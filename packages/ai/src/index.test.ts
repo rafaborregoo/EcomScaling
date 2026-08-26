@@ -8,6 +8,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   checkOutputSanity,
+  buildAgentSystemPrompt,
+  renderAgentPromptSections,
   estimateCostUsd,
   evaluateAgentBudget,
   klaviyoEmailDraftPatchSchema,
@@ -18,9 +20,114 @@ import {
   TOOL_REGISTRY,
   authorizeTool,
   getToolContract,
+  getUnavailableToolNames,
   provenanceSchema,
   toolWriteRequestSchema,
+  VoyageEmbeddingProvider,
+  RAG_EMBEDDING_PROFILE,
+  chunkText,
 } from "./index.js";
+
+test("el perfil RAG centraliza el contrato de embeddings y chunking", () => {
+  assert.deepEqual(RAG_EMBEDDING_PROFILE, {
+    version: "structural-v1",
+    model: "voyage-3.5",
+    dimensions: 1024,
+    maxChars: 1500,
+    overlapChars: 200,
+  });
+});
+
+test("chunking conserva contexto de secciones y estructura de tablas", () => {
+  const chunks = chunkText(
+    "# Playbook ROAS\n\n| Canal | ROAS | Acción |\n| --- | --- | --- |\n| Meta | 2.1 | Revisar |\n| Google | 3.4 | Mantener |\n\nLa decisión debe aprobarla un consultor.",
+    { maxChars: 70, overlapChars: 10 },
+  );
+
+  assert.ok(chunks.length >= 2);
+  assert.ok(chunks.every((chunk) => chunk.includes("# Playbook ROAS")));
+  assert.ok(chunks.some((chunk) => chunk.includes("| Canal | ROAS | Acción |")));
+  assert.ok(chunks.some((chunk) => chunk.includes("La decisión")));
+});
+
+test("la politica comun de prompts fuerza evidencia, abstencion y aprobacion", () => {
+  const prompt = buildAgentSystemPrompt("Analiza el rendimiento del negocio.");
+
+  assert.match(prompt, /contexto verificado/i);
+  assert.match(prompt, /abstente de inventar/i);
+  assert.match(prompt, /evidencia concreta/i);
+  assert.match(prompt, /aprobacion humana/i);
+  assert.match(prompt, /Analiza el rendimiento del negocio/);
+});
+
+test("rechaza prompts especificos vacios", () => {
+  assert.throws(
+    () => buildAgentSystemPrompt("  "),
+    /agent_system_prompt_required/,
+  );
+});
+
+test("Voyage embeddings usan timeout, retries y abort signal comunes", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let receivedSignal = false;
+  globalThis.fetch = (async (_input, init) => {
+    calls += 1;
+    receivedSignal = init?.signal instanceof AbortSignal;
+    if (calls < 3) return new Response("busy", { status: 503 });
+    return new Response(
+      JSON.stringify({ data: [{ index: 0, embedding: [0.1, 0.2] }] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const provider = new VoyageEmbeddingProvider("test-key", "test-model", {
+      timeoutMs: 100,
+      maxRetries: 2,
+      baseBackoffMs: 0,
+      maxBackoffMs: 1,
+      jitterRatio: 0,
+    });
+    assert.deepEqual(await provider.embed(["texto"], "document"), [[0.1, 0.2]]);
+    assert.equal(calls, 3);
+    assert.equal(receivedSignal, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("renderiza el contrato canonico de nueve secciones", () => {
+  const prompt = renderAgentPromptSections({
+    role: "Analista de negocio.",
+    goal: "Detectar riesgos.",
+    context: "Datos de Shopify verificados.",
+    input: "Periodo y tienda.",
+    rules: "No inventar cifras.",
+    tools: "Usar metricas cuando falte evidencia.",
+    output: "JSON con hallazgos y fuentes.",
+    failure_behaviour: "Abstenerse y explicar el gap.",
+    examples: "Bueno: cita una métrica.",
+  });
+
+  assert.match(prompt, /1\. ROLE/);
+  assert.match(prompt, /2\. GOAL/);
+  assert.match(prompt, /8\. FAILURE BEHAVIOUR/);
+  assert.match(prompt, /9\. EXAMPLES/);
+  assert.match(
+    buildAgentSystemPrompt({
+      role: "Analista.",
+      goal: "Analizar.",
+      context: "Contexto.",
+      input: "Entrada.",
+      rules: "Reglas.",
+      tools: "Tools.",
+      output: "Salida.",
+      failure_behaviour: "Abstenerse.",
+    }),
+    /PROMPT ESPECIFICO DEL AGENTE/,
+  );
+});
 
 function assertOk(output: unknown) {
   const result = checkOutputSanity(output);
@@ -212,6 +319,40 @@ test("no confunde una lista con guiones (mayuscula tras salto) con texto partido
   });
 });
 
+test("rechaza hallazgos sin evidencia auditable", () => {
+  assertRejected(
+    {
+      answer: "Hay un hallazgo.",
+      findings: [{ title: "Stock bajo", evidence: " " }],
+    },
+    "findings_con_evidencia_vacia",
+  );
+});
+
+test("rechaza recomendaciones sin acción o impacto esperado", () => {
+  assertRejected(
+    {
+      answer: "Recomendación.",
+      recommendations: [{ action: " ", expected_impact: "Mejorar" }],
+    },
+    "recommendations_con_accion_vacia",
+  );
+  assertRejected(
+    {
+      answer: "Recomendación.",
+      recommendations: [{ action: "Revisar stock", expected_impact: "" }],
+    },
+    "recommendations_con_impacto_vacio",
+  );
+});
+
+test("rechaza fuentes sin referencia", () => {
+  assertRejected(
+    { answer: "Resultado.", sources: [{ reference: "", period: null }] },
+    "sources_con_referencia_vacia",
+  );
+});
+
 test("ignora campos que no son string/array (no revienta con tipos inesperados)", () => {
   assertOk({ answer: "ok", confidence: "high", warnings: ["x"], findings: [] });
 });
@@ -327,6 +468,19 @@ test("el Tool Layer bloquea tools futuras que aún no tienen executor operativo"
     TOOL_REGISTRY.some((tool) => tool.name === "klaviyo_send_campaign"),
     true,
   );
+});
+
+test("identifica las tools futuras sin convertirlas en capacidades ejecutables", () => {
+  assert.deepEqual(
+    getUnavailableToolNames([
+      "meta_read_ad_accounts",
+      "sql_select",
+      "instagram_read_insights",
+      "tool_inexistente",
+    ]),
+    ["meta_read_ad_accounts", "instagram_read_insights"],
+  );
+  assert.deepEqual(getUnavailableToolNames(null), []);
 });
 
 test("el Tool Layer permite únicamente las tools parciales declaradas y autorizadas", () => {
@@ -468,6 +622,7 @@ test("cada tool activa tiene contrato Zod de entrada y valida argumentos", () =>
     sql?.outputSchema.safeParse({
       rows: [],
       row_limit: 200,
+      estimated_cost: 42.5,
       truncated: false,
       next_cursor: null,
       total_count: null,
@@ -648,4 +803,21 @@ test("el patch de draft Klaviyo solo permite campos editables y exige uno", () =
     false,
   );
   assert.equal(klaviyoEmailDraftPatchSchema.safeParse({}).success, false);
+});
+
+test("el presupuesto del runtime no depende de Meta ni de otro conector", () => {
+  const definition = TOOL_REGISTRY.find(
+    (candidate) => candidate.name === "get_budget_status",
+  );
+  assert.equal(definition?.connector, "core");
+
+  const result = authorizeTool("get_budget_status", {
+    organization_id: "00000000-0000-0000-0000-000000000001",
+    actor_user_id: "00000000-0000-0000-0000-000000000002",
+    allowed_tools: ["get_budget_status"],
+    approval_mode: "none",
+    connected_connectors: ["core", "shopify"],
+  });
+
+  assert.equal(result.allowed, true);
 });

@@ -8,8 +8,28 @@ import {
   type KlaviyoResource,
 } from "./klaviyo-client.js";
 import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
+import { checkOperationalOrganization } from "./operational-organization.js";
+import { mapWithConcurrency } from "./async-concurrency.js";
 
 type SyncMode = "initial" | "incremental";
+
+export const KLAVIYO_INCREMENTAL_BUCKET_HOURS = 6;
+
+/** El reconciliador corre cada 6 horas; la idempotencia debe usar esa misma ventana. */
+export function buildKlaviyoSyncIdempotencyKey(
+  connectionId: string,
+  mode: SyncMode,
+  reference = new Date(),
+): string {
+  if (mode === "initial") {
+    return `klaviyo:${connectionId}:initial:${reference.toISOString().slice(0, 10)}`;
+  }
+  const bucketMs = KLAVIYO_INCREMENTAL_BUCKET_HOURS * 60 * 60 * 1000;
+  const bucketStart = new Date(
+    Math.floor(reference.getTime() / bucketMs) * bucketMs,
+  );
+  return `klaviyo:${connectionId}:incremental:${bucketStart.toISOString()}`;
+}
 
 export type KlaviyoReportInput = Pick<
   KlaviyoReportRequest,
@@ -77,7 +97,13 @@ export async function runKlaviyoSync(
     );
   if (!connection) throw new Error("klaviyo_connection_not_found");
 
-  const idempotencyKey = `klaviyo:${connectionId}:${mode}:${new Date().toISOString().slice(0, 10)}`;
+  const operational = await checkOperationalOrganization(
+    client,
+    connection.organization_id,
+  );
+  if (!operational.ok) throw new Error(operational.error);
+
+  const idempotencyKey = buildKlaviyoSyncIdempotencyKey(connectionId, mode);
   const { data: existingRun } = await client
     .from("integration_sync_runs")
     .select("id, status, records_read, records_written, records_failed")
@@ -625,16 +651,11 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
   if (error)
     throw new Error(`klaviyo_connections_list_failed:${error.message}`);
 
-  const results: Array<{
-    connectionId: string;
-    status: "succeeded" | "failed" | "skipped";
-    detail?: string;
-  }> = [];
   const periodEnd = new Date().toISOString().slice(0, 10);
   const periodStart = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
-  for (const connection of connections ?? []) {
+  const results = await mapWithConcurrency(connections ?? [], 2, async (connection) => {
     try {
       await runKlaviyoSync(env, connection.id, "incremental");
       const { data: account } = await client
@@ -643,12 +664,11 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
         .eq("connection_id", connection.id)
         .maybeSingle();
       if (!account?.conversion_metric_id) {
-        results.push({
+        return {
           connectionId: connection.id,
           status: "skipped",
           detail: "conversion_metric_not_selected",
-        });
-        continue;
+        } as const;
       }
       for (const type of KLAVIYO_REPORT_TYPES) {
         await runKlaviyoReport(env, connection.organization_id, connection.id, {
@@ -679,24 +699,24 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
         });
       }
 
-      results.push({
+      return {
         connectionId: connection.id,
         status: "succeeded",
         detail: pending
           ? `backfilled:${pending.type}:${pending.periodStart}`
           : "history_complete",
-      });
+      } as const;
     } catch (syncError) {
-      results.push({
+      return {
         connectionId: connection.id,
         status: "failed",
         detail:
           syncError instanceof Error
             ? syncError.message
             : "klaviyo_reconcile_failed",
-      });
+      } as const;
     }
-  }
+  });
 
   return {
     total: results.length,

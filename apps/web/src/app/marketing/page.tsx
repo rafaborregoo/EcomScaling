@@ -6,6 +6,8 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
+  AsyncState,
+  LoadingBlock,
   Badge,
   Button,
   Card,
@@ -14,7 +16,6 @@ import {
   Field,
   Heading,
   Input,
-  LoadingBlock,
   Select,
   Textarea,
   toast,
@@ -112,20 +113,32 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [error, setError] = useState<string | null>(null);
 
   const loadDrafts = useCallback(async () => {
-    if (!organizationId || !canView) return;
-    setIsLoading(true);
-    setError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/marketing/drafts`,
-    );
-    if (!response.ok) {
-      setError(await readApiError(response));
+    if (!organizationId || !canView) {
+      setDrafts([]);
       setIsLoading(false);
       return;
     }
-    const payload = (await response.json()) as { drafts?: MarketingDraft[] };
-    setDrafts(payload.drafts ?? []);
-    setIsLoading(false);
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/marketing/drafts`,
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      const payload = (await response.json()) as {
+        drafts?: MarketingDraft[];
+      };
+      setDrafts(payload.drafts ?? []);
+    } catch {
+      setError(
+        "No se pudieron cargar los borradores por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }, [canView, organizationId]);
 
   useEffect(() => {
@@ -137,26 +150,32 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     if (!organizationId || !brief.trim()) return;
     setIsGenerating(true);
     setError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/marketing/drafts`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content_type: contentType,
-          brief: brief.trim(),
-        }),
-      },
-    );
-    if (!response.ok) {
-      setError(await readApiError(response));
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/marketing/drafts`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content_type: contentType,
+            brief: brief.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setBrief("");
+      toast.success("Borrador generado y pendiente de revisión");
+      await loadDrafts();
+    } catch {
+      setError(
+        "No se pudo generar el borrador por un error de red. Reintenta.",
+      );
+    } finally {
       setIsGenerating(false);
-      return;
     }
-    setBrief("");
-    toast.success("Borrador generado y pendiente de revisión");
-    setIsGenerating(false);
-    await loadDrafts();
   }
 
   async function decideDraft(
@@ -166,28 +185,37 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   ) {
     if (!organizationId) return;
     setBusyDraftId(draftId);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/marketing/drafts/${draftId}/decision`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision, reason: reason.trim() || undefined }),
-      },
-    );
-    if (!response.ok) {
-      setError(await readApiError(response));
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/marketing/drafts/${draftId}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decision,
+            reason: reason.trim() || undefined,
+          }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      toast.success(
+        decision === "approved"
+          ? "Borrador aprobado para copiar"
+          : "Borrador rechazado",
+      );
+      setDecisionDraft(null);
+      setDecisionReason("");
+      await loadDrafts();
+    } catch {
+      setError(
+        "No se pudo guardar la decisión del borrador por un error de red. Reintenta.",
+      );
+    } finally {
       setBusyDraftId(null);
-      return;
     }
-    toast.success(
-      decision === "approved"
-        ? "Borrador aprobado para copiar"
-        : "Borrador rechazado",
-    );
-    setBusyDraftId(null);
-    setDecisionDraft(null);
-    setDecisionReason("");
-    await loadDrafts();
   }
 
   function openDecision(draftId: string, decision: "approved" | "rejected") {
@@ -217,26 +245,32 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     if (!organizationId || !editForm) return;
     setBusyDraftId(draftId);
     setError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/marketing/drafts/${draftId}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...editForm,
-          reply_to: editForm.reply_to.trim() || null,
-        }),
-      },
-    );
-    if (!response.ok) {
-      setError(await readApiError(response));
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/marketing/drafts/${draftId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...editForm,
+            reply_to: editForm.reply_to.trim() || null,
+          }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      toast.success("Cambios guardados; el borrador vuelve a revisión");
+      cancelEditing();
+      await loadDrafts();
+    } catch {
+      setError(
+        "No se pudieron guardar los cambios por un error de red. Reintenta.",
+      );
+    } finally {
       setBusyDraftId(null);
-      return;
     }
-    toast.success("Cambios guardados; el borrador vuelve a revisión");
-    setBusyDraftId(null);
-    cancelEditing();
-    await loadDrafts();
   }
 
   async function toggleVersionHistory(draftId: string) {
@@ -246,22 +280,36 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
     if (!organizationId) return;
     setHistoryDraftId(draftId);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/marketing/drafts/${draftId}/versions`,
-    );
-    if (!response.ok) {
-      setError(await readApiError(response));
-      return;
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/marketing/drafts/${draftId}/versions`,
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        setHistoryDraftId(null);
+        return;
+      }
+      const payload = (await response.json()) as {
+        versions?: MarketingDraftVersion[];
+      };
+      setVersionHistory(payload.versions ?? []);
+    } catch {
+      setHistoryDraftId(null);
+      setError(
+        "No se pudo cargar el historial del borrador por un error de red. Reintenta.",
+      );
     }
-    const payload = (await response.json()) as {
-      versions?: MarketingDraftVersion[];
-    };
-    setVersionHistory(payload.versions ?? []);
   }
 
   async function copyHtml(html: string) {
-    await navigator.clipboard.writeText(html);
-    toast.success("HTML copiado al portapapeles");
+    try {
+      await navigator.clipboard.writeText(html);
+      toast.success("HTML copiado al portapapeles");
+    } catch {
+      setError(
+        "No se pudo copiar el HTML al portapapeles. Selecciónalo manualmente.",
+      );
+    }
   }
 
   if (!canView) {

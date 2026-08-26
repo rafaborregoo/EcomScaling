@@ -1,5 +1,33 @@
 # INT-02 - Meta Ads
 
+Preparacion server-to-server 2026-08-26: `metaGraphGet` y `metaGraphGetAll` aceptan el secreto
+de la app para generar `appsecret_proof`, tambien al seguir URLs opacas de paginacion. Las rutas
+de descubrimiento, estructura e Insights lo pasan desde `LoadedApiEnv`; el intercambio OAuth no
+se mezcla con este mecanismo. La cobertura criptografica directa pasa 3/3.
+La cobertura vigente incluye tambien `paging.next` y pasa 4/4.
+
+La versiÃ³n Graph se puede configurar con `META_GRAPH_VERSION` validada como `vN.N`; si no se
+declara, el cliente mantiene `v23.0`. La documentaciÃ³n oficial no se ha usado para inventar una
+versiÃ³n nueva porque el endpoint devolviÃ³ 429 durante esta auditorÃ­a.
+
+> **Recuperación y observabilidad del sync 2026-08-26:** el sync manual recupera conexiones `syncing`
+> stale tras diez minutos, valida la transición a `error` y relanza con el estado efectivo. Los
+> fallos posteriores persisten el error y no dejan la conexión bloqueada en `syncing`; los logs no
+> incluyen tokens ni payloads sensibles.
+
+> **Reconciliación concurrente 2026-08-26:** el job incremental reclama cada conexión `connected`
+> mediante una transición condicional antes de ejecutar el sync. Si una ejecución manual ya la
+> reclamó, el job queda como `skipped` en vez de duplicar Insights o estructura.
+
+> **Resiliencia Graph 2026-08-24:** `meta-client.ts` aplica timeout abortable de 15 s y hasta 5
+> retries para red, 408/425, 429, códigos de rate limit y 5xx, con backoff exponencial acotado a
+> 60 s y respeto de `Retry-After`. Los errores permanentes fallan rápido y `paging.next` reutiliza
+> el mismo cliente; no se crean rutas fetch paralelas sin estos límites.
+
+> **Permisos concedidos 2026-08-24:** el callback inspecciona el token con `debug_token`, verifica que pertenece a la app configurada y compara los scopes concedidos con `META_SCOPES`. Si faltan permisos, no guarda el token ni marca la conexión como conectada; devuelve `meta_permissions_missing` con los scopes pendientes.
+
+> **Preparación de activación 2026-08-24:** la API expone `configuration.status` para separar credenciales ausentes, feature flag apagado y app configurada; la UI no permite iniciar OAuth hasta que el estado sea `configured`.
+
 > **Correccion 2026-08-03: sincronizacion incremental y reconciliacion periodica.** Hasta ahora el
 > conector solo tenia `runMetaInitialSync`: una vez conectado un cliente, los datos se congelaban salvo
 > que alguien lanzase un sync manual. Queda parametrizado como `runMetaSync(env, connectionId, mode)`
@@ -25,12 +53,18 @@
 > una eleccion humana. Sin insights, la lista sale vacia: no se inventa un catalogo.
 >
 > **Migracion aplicada 2026-08-03** con `supabase db push --linked`. `migration list --linked` deja
-> `20260803120000` con `local == remote` (62 migraciones alineadas), las tres columnas nuevas de
+> `20260803120000` con `local == remote` (64 migraciones alineadas), las tres columnas nuevas de
 > `meta_ad_accounts` existen y `meta_spend_summary` responde sin error. No se modifico ningun dato de
 > negocio: la unica organizacion existente no tiene insights de Meta, asi que la funcion devuelve cero
 > filas — comportamiento correcto, no un fallo.
 
 ## Estado
+
+> Verificacion vigente 2026-08-24: el contrato de ventana de atribucion
+> `META_ACTION_REPORT_TIME` esta definido en `packages/config`, validado por
+> `meta-sync-contract.test.ts` y el typecheck del API pasa tras reconstruir el
+> paquete de configuracion. Meta sigue correctamente bloqueado solo por
+> App Review/business verification y ausencia de credenciales reales.
 
 - **Estado real:** `blocked`
 - **Responsable:** sin asignar
@@ -89,6 +123,21 @@ Contrato de seguridad para cualquier uso futuro del MCP:
 - auditar periodicamente las integraciones de negocio autorizadas y revocar las que ya no sean necesarias;
 - no persistir respuestas, tokens o datos de Meta fuera de las politicas de retencion y cumplimiento aplicables.
 
+### Revisión de documentación 2026-08-26
+
+Se intentó volver a consultar directamente Graph API y Basic Ad Creation para comprobar si habían
+cambiado endpoints, scopes o restricciones. Meta respondió temporalmente `HTTP 429`, así que esta
+auditoría no afirma una versión nueva ni amplía permisos basándose en memoria. Se conservan los
+enlaces oficiales y el contrato existente exige revalidar antes de activar el conector:
+
+- resolver la versión Graph desde configuración/proveedor, sin hardcodear una versión obsoleta;
+- comprobar scopes efectivos con `debug_token`, App Review y business verification;
+- usar `act_<id>`, cursores opacos de `paging.next`, paginación acotada y reintentos con `Retry-After`;
+- separar lectura (`ads_read`) de escritura (`ads_management`), mantener `PAUSED` por defecto y
+  exigir aprobación humana antes de cualquier POST;
+- tratar Graph API, MCP remoto, webhooks y documentación externa como entrada no confiable frente a
+  prompt injection directa o indirecta.
+
 ## Permisos
 
 `.env.example`: `META_SCOPES=ads_read,business_management,pages_show_list` (default real en codigo, no
@@ -123,15 +172,17 @@ histórica que indicaba que no había ninguna superficie de selección queda sup
 
 ## Gaps reales frente a la API de Meta
 
-- No hay evidencia en `meta-sync.ts` de peticiones asincronas de Insights (`report_run_id`,
-  `async_percent_completion`) — el fetch es sincrono. Para cuentas con volumen o breakdowns complejos,
-  Meta recomienda el modo asincrono; esto no esta implementado.
-- No se ha confirmado en codigo el manejo de `action_report_time` como parametro elegido explicitamente
-  (aparece como columna de conflicto en el upsert, no como decision documentada de que ventana de
-  atribucion se usa por defecto).
-- No hay `canonical_purchase_action_type` documentado por cuenta — sin el, "compras" puede significar
-  `purchase`, `omni_purchase` u `offsite_conversion.fb_pixel_purchase` segun la cuenta, y la UI no declara
-  cual se usa.
+- **Corregido 2026-08-20:** `meta-sync.ts` ya incluye el contrato y runner de Insights asíncronos
+  (`report_run_id`, `async_status`, `async_percent_completion`, polling acotado y timeout). Se activa
+  únicamente con `META_INSIGHTS_MODE=async`; el default sigue siendo `sync` para no cambiar el piloto
+  actual ni ejecutar llamadas nuevas sin credenciales reales.
+- **Corregido 2026-08-24:** `META_ACTION_REPORT_TIME` permite parametrizar explícitamente `impression`,
+  `conversion` o `mixed` y se propaga a las consultas sync/async de Insights. Sigue siendo opcional y no
+  cambia el piloto hasta validar contra Ads Manager; sin valor configurado Meta conserva su comportamiento
+  por defecto. La elección debe confirmarse con una cuenta real antes de fijarla en producción.
+- `canonical_purchase_action_type` ya está documentado y persistido por cuenta; el valor por defecto es
+  `omni_purchase` y la selección humana queda auditada. Sin insights observados, la lista permanece vacía
+  y no inventa opciones.
 - **Verificado y corregido 2026-07-22** (antes "pendiente de confirmar, no asumir"): `meta-client.ts` si
   implementa backoff real -- HTTP 429 y codigos de error de rate limit de la Graph API
   (`4, 17, 32, 613, 80000, 80004`, incluye el 613 de Marketing API y el 80004 de Ads Insights) con backoff
@@ -241,8 +292,8 @@ datos de prueba.
 - [Meta Marketing API (colección oficial)](https://www.postman.com/meta/facebook-marketing-api/documentation/0zr4mes/facebook-marketing-api-mapi)
 - [Marketing API Insights](https://developers.facebook.com/docs/marketing-api/insights/)
 
-1. Decidir y documentar `canonical_purchase_action_type` por cuenta (o una prioridad fija) antes de
-   mostrar ROAS/CAC como numero unico en UI.
+1. Validar la acción canónica y ROAS/CAC contra Ads Manager con una cuenta real; la decisión local ya
+   está implementada y documentada.
 2. Decidir si Insights async es necesario para el volumen real esperado, o si el modo sincrono actual es
    suficiente para el MVP.
 

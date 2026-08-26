@@ -1,5 +1,9 @@
 # DB-09 - Klaviyo y campanas
 
+> **Estado vigente 2026-08-20:** DB-09 está aplicada y alineada en producción mediante la
+> foundation `20260802140000` y sus migraciones de compatibilidad posteriores. Las notas que
+> indican que todavía no existe una migración son históricas y quedan supersedidas.
+
 > Corrección de evidencia 2026-08-02: producción es la fuente de verdad para el runtime. Las
 > migraciones `20260802150000`, `20260802150100` y `20260802151000` están aplicadas y alinean los
 > campos de cuenta, idempotencia y reporting que consume el servicio. La verificación REST confirmó
@@ -24,20 +28,17 @@
 - **Estado real:** `implemented_partial` (migración aplicada; faltan validación con datos reales,
   backfill/reconciliación profunda y superficies de reporting en UI).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-20
 - **Dependencias:** DB-00, DB-04
-- **Bloqueador:** ninguno tecnico; simplemente no se ha empezado (Meta/Shopify tuvieron prioridad).
-- **Evidencia:** no existe todavía una migración `db_09_*` en `supabase/migrations/`; la ausencia es
-  deliberada hasta cerrar el contrato de persistencia y reporting.
-- **Gaps identificados (a resolver antes de escribir la primera migracion, no despues):**
-  - Sin `API revision` de Klaviyo declarada.
-  - Sin metrica de conversion primaria por cuenta definida (ni su unicidad).
-  - Sin timezone/moneda/periodo/grain de reporting decidido.
-  - Sin politica de datos personales que NO se van a importar.
-  - Sin diferencia definida entre listas/segmentos actuales y snapshots historicos.
-  - Sin politica de rate limits/backfill.
-- **Siguiente accion:** este documento debe convertirse en un contrato concreto (igual que
-  `ESTADOS_Y_EVIDENCIA.md` exige) antes de escribir la primera migracion, no en paralelo.
+- **Bloqueador:** ninguno técnico; quedan validación externa, backfill profundo y reporting visual.
+- **Evidencia:** `20260802140000_db_09_klaviyo_reporting.sql`,
+  `20260802150000_db_09_klaviyo_account_alignment.sql`, `20260802150100_db_09_klaviyo_idempotency_alignment.sql`,
+  `20260802151000_db_09_klaviyo_reporting_alignment.sql`, `20260802152000_db_09_klaviyo_enum_compatibility.sql`
+  y `20260802153000_db_09_klaviyo_contract_alignment.sql`, todas presentes y alineadas en remoto.
+- **Gaps restantes:** validación con datos Klaviyo reales, backfill/reconciliación profunda y superficies
+  visuales completas; no se deben cubrir con filas sintéticas de producción.
+- **Siguiente accion:** validar una cuenta real cuando existan credenciales y comparar Reporting API
+  con la interfaz de Klaviyo.
 
 ## Objetivo
 
@@ -45,10 +46,9 @@ Incorporar retencion: listas, segmentos, flows, campanas, formularios, reporting
 
 ## Preparacion de esquema 2026-08-02
 
-No se añade una migración vacía para aparentar que Klaviyo está conectado. Antes de
-crear `DB-09`, la migración debe seguir el contrato de OAuth, reporting y selección de
-métrica primaria definido en INT-03 y en el contrato transversal. Hasta entonces,
-ausencia de tablas y estado `not_available` son deliberados.
+La foundation y los alineamientos de DB-09 ya están aplicados. La ausencia de una cuenta conectada
+mantiene el estado `not_available` sin insertar datos sintéticos; cuando llegue OAuth real, el sync
+reutilizará estas tablas y el contrato de INT-03.
 
 ## Tablas
 

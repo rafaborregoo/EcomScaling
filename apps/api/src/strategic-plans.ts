@@ -1,6 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import {
+  type AuthContext,
+  createUserScopedClient,
+  requireOperationalOrganization,
+} from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
 
 type ApiEnv = {
@@ -36,19 +40,7 @@ async function auditStrategicChange(
 }
 
 function requireMembership(context: AuthContext, organizationId: string) {
-  const membership = context.memberships.find(
-    (item) => item.organization_id === organizationId,
-  );
-
-  if (!membership) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
-    };
-  }
-
-  return { ok: true as const, membership };
+  return requireOperationalOrganization(context, organizationId);
 }
 
 function assertCanManagePlan(context: AuthContext, organizationId: string) {

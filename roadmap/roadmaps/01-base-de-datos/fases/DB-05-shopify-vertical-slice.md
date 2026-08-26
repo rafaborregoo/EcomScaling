@@ -2,6 +2,13 @@
 
 ## Estado
 
+> Mejora vigente 2026-08-24: `reconcileShopifyCounts` ahora clasifica cada
+> dataset como `exact`, `warning` o `mismatch`, distinguiendo `AT_LEAST` y la
+> diferencia esperable de pedidos históricos fuera del alcance de Shopify.
+> La clasificación es pura y tiene 4 tests directos; queda pendiente solo
+> convertir un `mismatch` en alerta operativa persistida si se decide ampliar
+> el sistema de alertas.
+
 - **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
 - **Ultima validacion:** 2026-07-23

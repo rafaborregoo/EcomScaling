@@ -10,7 +10,7 @@
 - **Estado real:** `implemented_partial` (la parte de chat y el contenido revisable ya tienen implementación;
   Instagram/creatividades siguen bloqueados por credenciales).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-08-02
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** BE-07, DB-11, DB-10 (Instagram, bloqueada)
 - **Bloqueador:** Instagram/creatividades Meta bloqueadas por credenciales (igual que DB-06/DB-10).
 - **Decision ya tomada (contradice a este documento, alinear):** la contradiccion que senalaba la

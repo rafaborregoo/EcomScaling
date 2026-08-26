@@ -32,7 +32,7 @@ test("el cliente Klaviyo fija revision, Bearer y sigue links.next por cursor", a
     ["1", "2"],
   );
   assert.equal(calls.length, 2);
-  assert.equal(calls[0]?.revision, "2026-04-15");
+  assert.equal(calls[0]?.revision, "2026-07-15");
   assert.equal(new URL(calls[1]!.url).hostname, "a.klaviyo.com");
 });
 

@@ -38,7 +38,7 @@ jobs:
       META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
       META_REDIRECT_URI: ${{ secrets.META_REDIRECT_URI }}
       META_SCOPES: ${{ secrets.META_SCOPES }}
-      INTEGRATION_FEATURE_FLAGS: ${{ secrets.INTEGRATION_FEATURE_FLAGS }}
+      INTEGRATION_FEATURE_FLAGS: meta_ads
 
     steps:
       - name: Checkout repository

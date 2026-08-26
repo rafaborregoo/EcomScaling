@@ -1,5 +1,24 @@
 # FE-00 - Shell y design system
 
+> **Corrección UI 2026-08-24:** el checklist de onboarding separa la carga de métricas de la
+> configuración financiera mediante `onboarding-checklist-state.ts`, marca el paso activo con
+> `aria-current="step"` y mantiene Meta/Klaviyo como `Preparado`, nunca como conectado. Las rutas
+> autenticadas exponen explícitamente `LoadingBlock`, error y empty; el contrato directo cubre las
+> 12 superficies del portal.
+
+> **Incremento UI 2026-08-24:** se añadió `AsyncState` en
+> `apps/web/src/components/ui/async-state.tsx` como patrón único para loading/error/empty,
+> aplicado ya a Integraciones. `ErrorBlock` anuncia errores con `role="alert"`; el gate de
+> accesibilidad pasa y ESLint mantiene 0 errores (13 warnings históricos de efectos React).
+
+> **Build vigente 2026-08-24:** `npx next build` completa con Next 16.3.1, TypeScript y 18 rutas
+> estaticas. La fuente de componentes sigue siendo `apps/web/src/components/ui` sobre HeroUI v3;
+> `packages/ui` queda como referencia historica conforme a ADR-0015.
+
+> **Verificación vigente 2026-08-20:** `npx next build` ejecutado desde `apps/web` completa la
+> compilación de producción, typecheck y prerender de las 18 rutas. Las referencias posteriores a
+> un fallo de build por `NEXT_PUBLIC_SUPABASE_URL` son históricas y quedan supersedidas.
+
 > Correccion vigente 2026-08-02: la unica evidencia actual del design system es
 > `apps/web/src/components/ui/` sobre HeroUI v3, segun ADR-0015. Cualquier referencia posterior
 > en este documento a `packages/ui/src/...` describe el sistema historico y no una ruta existente;
@@ -9,6 +28,14 @@
 > exportados por el barrel del catalogo; no hay imports directos de HeroUI fuera de `components/ui`.
 > `npx tsc -p apps/web/tsconfig.json --noEmit` pasa.
 
+> **Extensión FE-08 2026-08-24:** el `PortalShell` también usa `AsyncState` para la carga
+> inicial de cuenta, manteniendo la misma experiencia accesible desde cualquier ruta.
+
+> **Cobertura FE-08 2026-08-24:** el mismo patrón se extendió a las cargas iniciales de
+> Configuración, Shopify, Diagnóstico Shopify, Conocimiento, Tareas, Llamadas, Marketing,
+> Consultor, Agentes y Mi Camino. Las cargas internas específicas conservan sus estados propios
+> cuando representan una operación distinta, como una sincronización o una mutación.
+
 ## Estado
 
 - **Estado real:** `current` — **reescrito 2026-07-22** para describir el sistema v2 real en vez de la
@@ -16,18 +43,18 @@
   Mayor" v2 (ver `CHANGELOG-UX.md` para el historial cronologico de esa transicion); este documento ya no
   lo mantiene como si describiera un sistema vigente.
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** ninguna
 - **Bloqueador:** ninguno
 - **Corrección documental 2026-08-01:** las referencias a `packages/ui` que aparecen en el historial de
   auditoría de esta fase describen el design system anterior y no rutas actuales. La evidencia vigente es
   `apps/web/src/components/ui/` sobre HeroUI v3, conforme a ADR-0015; no existe ni se importa `packages/ui`.
 - **Evidencia:** `apps/web/src/components/portal-shell.tsx` (shell actual, con mini barra de contexto,
-  navegacion por rol, cache de bootstrap en memoria anadida esta semana); `packages/ui/src/index.tsx`
-  (Button, Card, Badge, Banner, Field/Input/Select/Textarea, LoadingBlock/ErrorBlock/EmptyState,
-  SyncStateBadge, Tabs, Pagination, Combobox) — todo esto es el sistema **v2**, no el descrito aqui.
-  `PortalShell` ahora encapsula su árbol dependiente de URL en `Suspense`, validado con `npm run
-  build:local -w web` el 2026-07-22 para que el prerender de producción no falle por `useSearchParams`.
+  navegacion por rol, cache de bootstrap en memoria anadida esta semana) y el catalogo vigente
+  `apps/web/src/components/ui/` (Button, Card, Badge, Banner, Field/Input/Select/Textarea,
+  LoadingBlock/ErrorBlock/EmptyState, Tabs, Pagination y Combobox). `PortalShell` ahora encapsula
+  su árbol dependiente de URL en `Suspense`, validado con typecheck directo de TypeScript para que el
+  prerender de producción no falle por `useSearchParams`.
 - **Auditoria real 2026-07-22 (primera vez que se revisa el codigo entero, no solo el catalogo de componentes):**
   - **Inconsistencia real encontrada y corregida en 11 paginas + 3 componentes**: 28 usos de
     `rounded-md`/`rounded-sm` en botones, chips y contenedores ad-hoc contradecian la filosofia "esquinas
@@ -84,7 +111,7 @@
   `/integraciones`, `/shopify` y `/login` (wcag2a/wcag2aa/wcag21a/wcag21aa/best-practice). Hallazgos reales,
   no hipoteticos:
   - **`heading-order` (moderado, 6 de 7 paginas)**: causa unica raiz -- el shell renderiza `<h1>Centro
-    operativo</h1>` y toda pagina saltaba directo a `<h3>` para su primer titulo de seccion, sin `<h2>`
+operativo</h1>` y toda pagina saltaba directo a `<h3>` para su primer titulo de seccion, sin `<h2>`
     intermedio (consecuencia lateral de la limpieza de titulos de pagina pedida por Rafa el mismo dia, ver
     ADR-0013). **Corregido**: `Card`/`Section` (`packages/ui/src/components/card.tsx`) y los 14+ titulos de
     seccion ad-hoc en 9 paginas promovidos de `<h3>` a `<h2>`.

@@ -43,10 +43,12 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
 
   let attempted = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const connection of connections ?? []) {
     attempted += 1;
 
+    let expectedStatus = connection.status;
     if (connection.status === "syncing") {
       logger.info("Recovering Shopify connection stuck in syncing", {
         connection_id: connection.id,
@@ -54,7 +56,7 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
         stuck_since: connection.updated_at,
       });
 
-      await supabase
+      const { data: recoveredConnection, error: recoveryError } = await supabase
         .from("integration_connections")
         .update({
           status: "error",
@@ -62,7 +64,45 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
           last_error_message:
             "La sincronizacion anterior quedo abierta (probablemente cortada por timeout) y fue recuperada por la reconciliacion periodica.",
         })
-        .eq("id", connection.id);
+        .eq("id", connection.id)
+        .eq("status", "syncing")
+        .select("id")
+        .maybeSingle();
+      if (recoveryError) {
+        failed += 1;
+        logger.error("Shopify stale connection recovery failed", {
+          connection_id: connection.id,
+          organization_id: connection.organization_id,
+          error: recoveryError.message,
+        });
+        continue;
+      }
+      if (!recoveredConnection) {
+        skipped += 1;
+        continue;
+      }
+      expectedStatus = "error";
+    }
+
+    const { data: claimedConnection, error: claimError } = await supabase
+      .from("integration_connections")
+      .update({ status: "syncing" })
+      .eq("id", connection.id)
+      .eq("status", expectedStatus)
+      .select("id")
+      .maybeSingle();
+    if (claimError) {
+      failed += 1;
+      logger.error("Shopify reconciliation claim failed", {
+        connection_id: connection.id,
+        organization_id: connection.organization_id,
+        error: claimError.message,
+      });
+      continue;
+    }
+    if (!claimedConnection) {
+      skipped += 1;
+      continue;
     }
 
     try {
@@ -77,7 +117,7 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
     }
   }
 
-  logger.info("Shopify reconciliation pass completed", { attempted, failed });
+  logger.info("Shopify reconciliation pass completed", { attempted, failed, skipped });
 
-  return { attempted, failed };
+  return { attempted, failed, skipped };
 }

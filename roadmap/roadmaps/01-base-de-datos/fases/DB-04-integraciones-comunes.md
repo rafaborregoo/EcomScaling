@@ -6,7 +6,7 @@
   de refresh documentados y el locking probado con test real 2026-07-23 — quedan gaps menores no
   bloqueantes).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-23
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-00, DB-02
 - **Bloqueador:** ninguno
 - **Evidencia:**

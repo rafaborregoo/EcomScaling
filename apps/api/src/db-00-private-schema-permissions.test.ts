@@ -9,7 +9,7 @@
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
  * SUPABASE_PUBLISHABLE_KEY apuntando al proyecto remoto. Ejecutar con
- * `npm run test -w @ecomscaling/api`.
+ * `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -18,9 +18,13 @@ import { loadApiEnv } from "@ecomscaling/config";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 function anonClient(): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
@@ -49,13 +53,16 @@ before(async () => {
   testUserId = data.user.id;
   authenticatedClient = anonClient();
 
-  const { error: signInError } = await authenticatedClient.auth.signInWithPassword({
-    email: TEST_EMAIL,
-    password: TEST_PASSWORD,
-  });
+  const { error: signInError } =
+    await authenticatedClient.auth.signInWithPassword({
+      email: TEST_EMAIL,
+      password: TEST_PASSWORD,
+    });
 
   if (signInError) {
-    throw new Error(`No se pudo iniciar sesion como el usuario de prueba: ${signInError.message}`);
+    throw new Error(
+      `No se pudo iniciar sesion como el usuario de prueba: ${signInError.message}`,
+    );
   }
 });
 
@@ -66,10 +73,17 @@ after(async () => {
 });
 
 test("un cliente sin sesion (anon) no puede leer el schema private", async () => {
-  const { data, error } = await anonClient().schema("private").from("webhook_events").select("id").limit(1);
+  const { data, error } = await anonClient()
+    .schema("private")
+    .from("webhook_events")
+    .select("id")
+    .limit(1);
 
   assert.equal(data, null);
-  assert.ok(error, "se esperaba un error de permisos, no una respuesta vacia exitosa");
+  assert.ok(
+    error,
+    "se esperaba un error de permisos, no una respuesta vacia exitosa",
+  );
 });
 
 test("un usuario autenticado normal no puede leer el schema private", async () => {
@@ -80,11 +94,18 @@ test("un usuario autenticado normal no puede leer el schema private", async () =
     .limit(1);
 
   assert.equal(data, null);
-  assert.ok(error, "se esperaba un error de permisos, no una respuesta vacia exitosa");
+  assert.ok(
+    error,
+    "se esperaba un error de permisos, no una respuesta vacia exitosa",
+  );
 });
 
 test("service_role (backend) si puede leer el schema private -- confirma que el aislamiento es de rol, no una tabla rota", async () => {
-  const { error } = await admin.schema("private").from("webhook_events").select("id").limit(1);
+  const { error } = await admin
+    .schema("private")
+    .from("webhook_events")
+    .select("id")
+    .limit(1);
 
   assert.equal(error, null);
 });

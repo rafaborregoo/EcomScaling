@@ -4,6 +4,10 @@
 > secrets por entorno"). Extraida de `packages/config/src/index.ts` (reglas reales de validacion) y de los
 > bloques `env:` reales de `.github/workflows/`, no de una lista deseada.
 
+> **Plantilla local 2026-08-26:** `.env.example` contiene placeholders seguros para los grupos descritos
+> aquí. No contiene credenciales, no se usa como entorno de producción y debe copiarse a `.env.local`
+> antes de completar valores reales.
+
 ## Los tres consumidores
 
 | Consumidor              | Como recibe los secretos                  | Que valida                               |
@@ -50,21 +54,23 @@ publicar en la UI un flujo OAuth que no puede completarse:
 | --------------------------- | ---------------------------------------------------------------------- |
 | `ANTHROPIC_API_KEY`         | Los endpoints de IA devuelven 503; el resto de la plataforma funciona. |
 | `OPENAI_API_KEY`/`_MODEL`   | Sin fallback de proveedor LLM: un fallo de Anthropic es un fallo.      |
+| `AI_MODEL_ROUTING_JSON`     | Se usan el modelo de `agent_versions` y los budgets por defecto; permite configurar overrides por agente sin migración. |
+| `AI_PLAN_BUDGETS_JSON`      | Se usan defaults conservadores; permite limites diarios, por turno, tools y complejidad por plan sin migracion. |
 | `VOYAGE_API_KEY`            | Ingestion y busqueda de conocimiento devuelven 503 (RAG apagado).      |
 | `REDIS_URL`                 | Rate limit en memoria por instancia en vez de centralizado.            |
-| `INTEGRATION_FEATURE_FLAGS` | **Se habilitan todos** los proveedores disponibles del catalogo.       |
+| `INTEGRATION_FEATURE_FLAGS` | Se habilita solo Shopify; Meta/Klaviyo requieren inclusion explicita.  |
 | `INTERNAL_API_SECRET`       | Las rutas internas (`/v1/internal/*`) quedan sin llamador autorizado.  |
 
-`INTEGRATION_FEATURE_FLAGS` es el unico cuyo valor por defecto es _mas_ permisivo, no menos: dejarlo vacio
-en un entorno donde Meta o Klaviyo no estan validados es lo contrario de lo que parece.
+`INTEGRATION_FEATURE_FLAGS` es restrictivo por defecto: dejarlo vacío mantiene
+Shopify operativo y Meta/Klaviyo desactivados hasta validar sus credenciales.
 
 ## Que declara hoy cada cron
 
 | Workflow                      | Ademas de las requeridas siempre                        |
 | ----------------------------- | ------------------------------------------------------- |
-| `shopify-reconcile.yml`       | Grupo Shopify custom completo                           |
-| `klaviyo-reconcile.yml`       | Grupo Klaviyo + `INTEGRATION_FEATURE_FLAGS`             |
-| `meta-reconcile.yml`          | Grupo Meta + `INTEGRATION_FEATURE_FLAGS`                |
+| `shopify-reconcile.yml`       | Grupo Shopify custom completo + flag fijo `shopify`     |
+| `klaviyo-reconcile.yml`       | Grupo Klaviyo + flag fijo `klaviyo`                     |
+| `meta-reconcile.yml`          | Grupo Meta + flag fijo `meta_ads`                       |
 | `memory-ingestion.yml`        | `VOYAGE_API_KEY`                                        |
 | `alert-rules.yml`             | —                                                       |
 | `ops-health-check.yml`        | —                                                       |

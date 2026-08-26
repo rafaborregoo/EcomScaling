@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { AuthContext } from "./auth-context.js";
+import {
+  requireOperationalOrganization,
+  type AuthContext,
+} from "./auth-context.js";
 import {
   createShopifyState,
   exchangeShopifyCodeForToken,
@@ -152,17 +155,12 @@ export async function createShopifyConnectionAuthUrl(
     };
   }
 
-  const membership = authContext.memberships.find(
-    (item) => item.organization_id === organizationId,
+  const operational = requireOperationalOrganization(
+    authContext,
+    organizationId,
   );
-
-  if (!membership) {
-    return {
-      ok: false,
-      statusCode: 403,
-      error: "organization_access_denied",
-    };
-  }
+  if (!operational.ok) return operational;
+  const { membership } = operational;
 
   if (
     authContext.profile.platform_role !== "platform_admin" &&
@@ -259,17 +257,12 @@ export async function triggerShopifySync(
     };
   }
 
-  const membership = authContext.memberships.find(
-    (item) => item.organization_id === organizationId,
+  const operational = requireOperationalOrganization(
+    authContext,
+    organizationId,
   );
-
-  if (!membership) {
-    return {
-      ok: false,
-      statusCode: 403,
-      error: "organization_access_denied",
-    };
-  }
+  if (!operational.ok) return operational;
+  const { membership } = operational;
 
   if (
     authContext.profile.platform_role !== "platform_admin" &&
@@ -318,6 +311,7 @@ export async function triggerShopifySync(
     };
   }
 
+  let connectionStatus = connection.status;
   if (connection.status === "syncing") {
     const updatedAt = connection.updated_at
       ? new Date(connection.updated_at).getTime()
@@ -334,7 +328,7 @@ export async function triggerShopifySync(
       };
     }
 
-    await supabase
+    const { error: staleRecoveryError } = await supabase
       .from("integration_connections")
       .update({
         status: "error",
@@ -343,9 +337,19 @@ export async function triggerShopifySync(
           "La sincronizacion anterior quedo abierta y fue marcada como error automaticamente.",
       })
       .eq("id", connection.id);
+
+    if (staleRecoveryError) {
+      return {
+        ok: false,
+        statusCode: 500,
+        error: "shopify_stale_sync_recovery_failed",
+        detail: staleRecoveryError.message,
+      };
+    }
+    connectionStatus = "error";
   }
 
-  if (connection.status !== "connected" && connection.status !== "error") {
+  if (connectionStatus !== "connected" && connectionStatus !== "error") {
     return {
       ok: false,
       statusCode: 409,
@@ -355,10 +359,13 @@ export async function triggerShopifySync(
     };
   }
 
-  const { error: statusUpdateError } = await supabase
+  const { data: claimedConnection, error: statusUpdateError } = await supabase
     .from("integration_connections")
     .update({ status: "syncing" })
-    .eq("id", connection.id);
+    .eq("id", connection.id)
+    .eq("status", connectionStatus)
+    .select("id")
+    .maybeSingle();
 
   if (statusUpdateError) {
     return {
@@ -366,6 +373,15 @@ export async function triggerShopifySync(
       statusCode: 500,
       error: "shopify_sync_trigger_failed",
       detail: statusUpdateError.message,
+    };
+  }
+  if (!claimedConnection) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "shopify_sync_already_running",
+      message:
+        "Otra sincronización de Shopify comenzó antes de completar esta solicitud.",
     };
   }
 
@@ -377,7 +393,7 @@ export async function triggerShopifySync(
         id: connection.id,
         organization_id: connection.organization_id,
         provider: "shopify",
-        status: connection.status,
+        status: connectionStatus,
       }),
     })
     .catch(async (error: unknown) => {
@@ -421,6 +437,13 @@ export async function handleShopifyOAuthCallback(
   // Dashboard) llegan sin nuestro state; en ese caso la garantia de autenticidad es el
   // HMAC y la conexion pendiente sembrada por dominio desde /integraciones.
   const state = typeof query.state === "string" ? query.state : null;
+
+  if (typeof query.error === "string") {
+    return {
+      ok: true,
+      data: { redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=denied` },
+    };
+  }
 
   if (!shop || !code) {
     return {
@@ -525,7 +548,26 @@ export async function handleShopifyOAuthCallback(
     });
   }
 
-  const tokenResult = await exchangeShopifyCodeForToken(appEnv, shop, code);
+  let tokenResult: Awaited<ReturnType<typeof exchangeShopifyCodeForToken>>;
+  try {
+    tokenResult = await exchangeShopifyCodeForToken(appEnv, shop, code);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown_error";
+    await supabase
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: new Date().toISOString(),
+        last_error_message: `shopify_token_exchange_failed: ${detail}`,
+      })
+      .eq("id", pendingConnection.id);
+    return {
+      ok: false,
+      statusCode: 502,
+      error: "shopify_token_exchange_failed",
+      detail,
+    };
+  }
   const now = new Date().toISOString();
 
   const { error: connectionUpdateError } = await supabase

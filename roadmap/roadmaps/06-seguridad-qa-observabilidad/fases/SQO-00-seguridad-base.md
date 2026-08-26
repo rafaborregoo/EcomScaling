@@ -2,9 +2,15 @@
 
 ## Estado
 
+> Verificacion vigente 2026-08-24: los controles base de seguridad estan
+> implementados (RLS/tenant, private schema, headers, CORS, redaccion,
+> rate-limit, secret scan y tests). El estado sigue pendiente de matriz
+> exhaustiva por operacion/rol y de Redis gestionado para multi-instancia;
+> ninguno es un bypass conocido del piloto Shopify.
+
 - **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-27
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-02
 - **Evidencia:** `apps/api/src/rls-tenant-isolation.test.ts` (19 casos), `.github/workflows/ci.yml`
   (job `secret-scan` con gitleaks), `@fastify/helmet`/`@fastify/cors` en `buildApp`, `loadApiEnv` (zod) en
@@ -15,7 +21,8 @@
   (`knowledge_search` no filtra conocimiento privado de otra organizacion, si el de la propia),
   `be-07-sql-gateway-tenant-isolation.test.ts` (2 casos: `agent_sql_gateway` con `target_organization_id=A`
   nunca devuelve datos de B ni siquiera pidiendolos por id explicito). Total real: 60 tests en
-  `apps/api` (no 39), verificado con `npm run test -w @ecomscaling/api`.
+  `apps/api` (no 39), verificado históricamente con `test:remote` en un proyecto aislado.
+  La suite mutable no se ejecuta contra producción.
 - **Lo que ya esta verificado con sesiones reales (no solo policies leidas)**: suite Node contra el
   Supabase remoto real, 2 organizaciones y 5 usuarios efimeros (owner org A, segundo owner org A, owner
   org B, consultor asignado solo a org A, platform_admin), sesiones firmadas con la publishable key,
@@ -31,7 +38,7 @@
     (idempotencia), RAG (`knowledge_search`), SQL Gateway (RPC), configuracion financiera, conexiones
     Shopify/integraciones, planes estrategicos. **Cerrado 2026-07-27**: llamadas y agent runs como
     dominios propios ya tienen 3 tests cross-tenant dedicados en `rls-tenant-isolation.test.ts`
-    (verificados contra Supabase remoto real, `npm run test -w @ecomscaling/api`, 108/108 pasan):
+    (verificados contra Supabase remoto real en un proyecto aislado, `test:remote`, 108/108 pasan):
     `agent_runs` ajeno no visible cross-tenant, `agent_outputs` ajeno no visible cross-tenant
     (independiente de su `status`), `consulting_calls`/`call_transcripts` ajenos no visibles cross-tenant.
     Sigue faltando: campañas, stock (dominios sin tablas propias todavia, ver INT-02/BE-06). Falta una

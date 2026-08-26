@@ -76,8 +76,13 @@ distribución equivocado (ver ADR-0011). No seguir reintentando OAuth sin revisa
 El `metadata.reason` guardado en el momento de marcar la conexión para reautorización, y la fecha en la
 que se detectó (para saber cuánto tiempo estuvo la tienda sin sincronizar).
 
+## Corrección vigente 2026-08-24
+
+La referencia histórica a la ausencia de alerta queda supersedida: `ops-health-check.yml`
+detecta tokens expirados o próximos a expirar y abre/actualiza el issue operativo correspondiente.
+
 ## Prevención
 
 Ninguna automática hoy más allá del refresh proactivo ya implementado — no hay alerta que avise
-activamente cuando una conexión entra en este estado (ver SQO-02, pendiente: alerta de "token próximo a
+activamente cuando una conexión entra en este estado (ver SQO-02; la alerta de "token próximo a
 expirar"/"reauthorization_required").

@@ -1,5 +1,12 @@
 # ADR-0014: Política de migraciones
 
+> Correccion vigente 2026-08-24: el contexto historico de esta ADR menciona
+> 46 migraciones y 10 timestamps divergentes porque documenta el incidente que
+> motivo la politica. La situacion actual es 64/64 local-remoto alineadas;
+> `migration list --linked` y `db push --linked --dry-run` no muestran drift.
+> Esta nota historica no autoriza `migration repair` ni cambios sobre
+> `schema_migrations`.
+
 - **Fecha:** 2026-07-23
 - **Estado:** Aprobada, para el estado actual del proyecto (Piloto 1, un solo entorno real, equipo de una
   persona). Reevaluar cuando exista staging o un segundo desarrollador; la ausencia de staging esta aceptada

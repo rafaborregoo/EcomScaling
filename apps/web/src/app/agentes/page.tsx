@@ -5,7 +5,10 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { getAgentCatalogEntry } from "@ecomscaling/contracts";
 import {
+  AsyncState,
+  AgentEvalReadinessPanel,
   Badge,
   Button,
   Card,
@@ -55,6 +58,15 @@ type AgentBudgetStatus = {
   dailyBudgetUsd: number;
   remainingUsd: number;
   asOf: string;
+};
+
+type AgentEvalReadiness = {
+  coveredAgents: number;
+  totalAgents: number;
+  offlineRunRecorded: boolean;
+  liveVerified: boolean;
+  datasetVersion: string;
+  source: "persisted" | "local_prepared";
 };
 
 type TraceStep = {
@@ -147,6 +159,14 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [budget, setBudget] = useState<AgentBudgetStatus | null>(null);
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
+  const [evalReadiness, setEvalReadiness] = useState<AgentEvalReadiness>({
+    coveredAgents: 10,
+    totalAgents: 10,
+    offlineRunRecorded: false,
+    liveVerified: false,
+    datasetVersion: "2026-08-26.v1",
+    source: "local_prepared",
+  });
 
   const loadRuns = useCallback(async () => {
     if (!canView) {
@@ -154,19 +174,27 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
     setIsLoading(true);
     setError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/ai/runs`,
-    );
-    if (response.ok) {
-      const body = (await response.json()) as { runs: AgentRun[] };
-      setRuns(body.runs);
-    } else {
-      setError(await readApiError(response));
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/ai/runs`,
+      );
+      if (response.ok) {
+        const body = (await response.json()) as { runs: AgentRun[] };
+        setRuns(body.runs);
+      } else {
+        setError(await readApiError(response));
+      }
+    } catch {
+      setError("No se pudieron cargar las ejecuciones de agentes. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, [organizationId, canView]);
 
   useEffect(() => {
+    // Sincroniza las ejecuciones con el endpoint remoto al montar/cambiar de
+    // organizacion; no es estado derivado de otro valor local.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadRuns();
   }, [loadRuns]);
 
@@ -175,20 +203,45 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
     setBudgetLoading(true);
     setBudgetError(null);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/ai/budget`,
-    );
-    if (response.ok) {
-      setBudget((await response.json()) as AgentBudgetStatus);
-    } else {
-      setBudgetError(await readApiError(response));
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/ai/budget`,
+      );
+      if (response.ok) {
+        setBudget((await response.json()) as AgentBudgetStatus);
+      } else {
+        setBudgetError(await readApiError(response));
+      }
+    } catch {
+      setBudgetError("No se pudo cargar el presupuesto de IA. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+    } finally {
+      setBudgetLoading(false);
     }
-    setBudgetLoading(false);
   }, [organizationId, canView]);
 
   useEffect(() => {
+    // Sincroniza el presupuesto remoto con la organizacion activa.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadBudget();
   }, [loadBudget]);
+
+  const loadEvalReadiness = useCallback(async () => {
+    if (!canView) return;
+    try {
+      const response = await apiFetch("/v1/agents/eval-readiness");
+      if (response.ok) {
+        setEvalReadiness((await response.json()) as AgentEvalReadiness);
+      }
+    } catch {
+      // La readiness es informativa; la vista principal conserva sus datos.
+    }
+  }, [canView]);
+
+  useEffect(() => {
+    // Si AI-26 aún no está aplicado, el API devuelve el fallback preparado.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadEvalReadiness();
+  }, [loadEvalReadiness]);
 
   async function openTrace(runId: string) {
     setSelectedRunId(runId);
@@ -196,48 +249,58 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setTraceError(null);
     setIsTraceLoading(true);
 
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/ai/runs/${runId}/trace`,
-    );
-    if (response.ok) {
-      setTrace((await response.json()) as RunTrace);
-    } else {
-      setTraceError(await readApiError(response));
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/ai/runs/${runId}/trace`,
+      );
+      if (response.ok) {
+        setTrace((await response.json()) as RunTrace);
+      } else {
+        setTraceError(await readApiError(response));
+      }
+    } catch {
+      setTraceError("No se pudo cargar la traza. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+    } finally {
+      setIsTraceLoading(false);
     }
-    setIsTraceLoading(false);
   }
 
   async function decideOutput(decision: "approved" | "rejected") {
     if (!reviewOutput) return;
 
     setIsDeciding(true);
-    const response = await apiFetch(
-      `/v1/organizations/${organizationId}/ai/outputs/${reviewOutput.output.id}/decision`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          decision,
-          reason: reviewReason.trim() || undefined,
-        }),
-      },
-    );
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/ai/outputs/${reviewOutput.output.id}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decision,
+            reason: reviewReason.trim() || undefined,
+          }),
+        },
+      );
 
-    if (!response.ok) {
-      toast.danger(
-        `No se pudo ${decision === "approved" ? "aprobar" : "rechazar"} la propuesta: ${await readApiError(response)}`,
-      );
-    } else {
-      toast.success(
-        decision === "approved"
-          ? "Propuesta aprobada y materializada."
-          : "Propuesta rechazada.",
-      );
-      setReviewOutput(null);
-      setReviewReason("");
-      await loadRuns();
+      if (!response.ok) {
+        toast.danger(
+          `No se pudo ${decision === "approved" ? "aprobar" : "rechazar"} la propuesta: ${await readApiError(response)}`,
+        );
+      } else {
+        toast.success(
+          decision === "approved"
+            ? "Propuesta aprobada y materializada."
+            : "Propuesta rechazada.",
+        );
+        setReviewOutput(null);
+        setReviewReason("");
+        await loadRuns();
+      }
+    } catch {
+      toast.danger("No se pudo procesar la propuesta. Revisa la conexiÃ³n e intÃ©ntalo de nuevo.");
+    } finally {
+      setIsDeciding(false);
     }
-    setIsDeciding(false);
   }
 
   if (!canView) {
@@ -272,7 +335,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       key: "agent_outputs",
       label: "Salida / revisión",
       render: (row) => {
-        const output = row.agent_outputs[0];
+        const output = row.agent_outputs?.[0] ?? null;
         const outputStatus = output?.status ?? "sin_salida";
         return (
           <div className="flex items-center gap-2">
@@ -401,6 +464,13 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         esta vista no ejecuta cambios por sí sola.
       </p>
 
+      <AgentEvalReadinessPanel
+        coveredAgents={evalReadiness.coveredAgents}
+        totalAgents={evalReadiness.totalAgents}
+        offlineRunRecorded={evalReadiness.offlineRunRecorded}
+        liveVerified={evalReadiness.liveVerified}
+      />
+
       <Card kicker="Control de costes" title="Presupuesto diario de IA">
         {budgetLoading ? (
           <LoadingBlock label="Consultando presupuesto..." />
@@ -436,9 +506,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       </Card>
 
       {isLoading ? (
-        <LoadingBlock label="Cargando ejecuciones..." />
+        <AsyncState status="loading" loadingLabel="Cargando ejecuciones..." />
       ) : error ? (
-        <ErrorBlock>{error}</ErrorBlock>
+        <AsyncState status="error" error={error} />
       ) : runs.length === 0 ? (
         <EmptyState
           title="Sin ejecuciones todavia"
@@ -538,6 +608,11 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : trace ? (
             <div className="space-y-6">
               <div>
+                <p className="text-sm font-medium">
+                  {getAgentCatalogEntry(
+                    trace.run.agent_versions?.agent_definitions.code ?? "",
+                  )?.displayName ?? "Agente IA"}
+                </p>
                 <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
                   {trace.run.agent_versions?.agent_definitions.code} ·{" "}
                   {trace.run.agent_versions?.model} v

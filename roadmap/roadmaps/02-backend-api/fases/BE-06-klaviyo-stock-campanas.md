@@ -11,16 +11,25 @@
 > solo para conexiones activas con metrica primaria seleccionada. El pendiente restante es el
 > backfill historico y la reconciliacion profunda contra una cuenta real.
 
+> Verificacion vigente 2026-08-24: el contrato de integraciones pasa 14/14
+> tests y Fathom ya tiene parser/HMAC/dedupe preparado. La parte Klaviyo sigue
+> sin datos ficticios y espera credenciales, backfill y validacion externa;
+> stock/forecast y publicacion de campanas siguen fuera del alcance operativo
+> actual.
+
 ## Estado
 
 - **Estado real:** `implemented_partial` (Klaviyo OAuth, sync, reporting y reconciliación reciente están
   implementados; stock/forecast, backfill profundo y Fathom siguen pendientes).
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Override vigente 2026-08-19:** los gaps vivos son backfill profundo,
+  forecast/stock, publicacion/aprendizaje de campanas y Fathom. Los bullets de
+  inventario que describen Klaviyo como no implementado son historicos.
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-09, BE-02
-- **Bloqueador:** ninguno tecnico; sin empezar.
-- **Evidencia:** primitives OAuth/PKCE en `apps/api/src/klaviyo-oauth.ts`, sin runner de sync ni
-  migración de dominio todavía.
+- **Bloqueador:** ninguno técnico; la validación externa requiere credenciales y una cuenta Klaviyo real.
+- **Evidencia:** OAuth/PKCE, almacenamiento cifrado, cliente con revisión fija, sync, reporting,
+  reconciliación reciente e idempotencia en `apps/api/src/klaviyo*` y migraciones DB-09 aplicadas.
 - **Gaps identificados (agrupa 5 sistemas que no comparten dominio tecnico — dividir antes de especificar):**
   - Recomendado dividir en BE-06A (conector Klaviyo), BE-06B (reporting Klaviyo), BE-06C (forecast de
     stock), BE-06D (planificacion de campanas), BE-06E (webhooks Fathom).

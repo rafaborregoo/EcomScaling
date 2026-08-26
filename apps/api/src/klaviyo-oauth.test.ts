@@ -5,6 +5,9 @@ import {
   createKlaviyoCodeChallenge,
   createKlaviyoCodeVerifier,
   resolveKlaviyoOAuthEnv,
+  missingKlaviyoScopes,
+  parseKlaviyoScopes,
+  exchangeKlaviyoCodeForTokens,
 } from "./klaviyo-oauth.js";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 
@@ -42,5 +45,49 @@ test("Klaviyo OAuth construye PKCE S256 y una URL de autorización completa", ()
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
   assert.equal(url.searchParams.get("code_challenge"), challenge);
   assert.equal(url.searchParams.get("state"), "state-123");
-  assert.equal(url.searchParams.get("scope"), "accounts:read,flows:read");
+  assert.equal(url.searchParams.get("scope"), "accounts:read flows:read");
+});
+
+test("Klaviyo normaliza scopes heredados con comas y detecta permisos ausentes", () => {
+  assert.deepEqual(
+    parseKlaviyoScopes("accounts:read, flows:read metrics:read"),
+    ["accounts:read", "flows:read", "metrics:read"],
+  );
+  assert.deepEqual(
+    missingKlaviyoScopes(
+      ["accounts:read", "flows:read", "metrics:read"],
+      ["accounts:read", "flows:read"],
+    ),
+    ["metrics:read"],
+  );
+});
+
+test("Klaviyo OAuth reintenta un fallo transitorio y propaga AbortSignal", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let gotSignal = false;
+  globalThis.fetch = (async (_input, init) => {
+    calls += 1;
+    gotSignal = init?.signal instanceof AbortSignal;
+    if (calls === 1) return new Response("temporarily unavailable", { status: 503 });
+    return new Response(JSON.stringify({
+      access_token: "access",
+      refresh_token: "refresh",
+      expires_in: 3600,
+      token_type: "bearer",
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const result = await exchangeKlaviyoCodeForTokens(
+      resolveKlaviyoOAuthEnv(env)!,
+      "code",
+      "verifier",
+    );
+    assert.equal(result.access_token, "access");
+    assert.equal(calls, 2);
+    assert.equal(gotSignal, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

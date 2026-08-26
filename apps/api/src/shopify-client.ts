@@ -7,6 +7,15 @@ type ShopifyGraphQLResponse<T> = {
 
 const MAX_ATTEMPTS = 5;
 const BASE_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 15_000;
+const SHOPIFY_API_VERSION_PATTERN = /^\d{4}-\d{2}$/;
+const configuredShopifyApiVersion = process.env.SHOPIFY_API_VERSION?.trim();
+export const SHOPIFY_API_VERSION =
+  configuredShopifyApiVersion &&
+  SHOPIFY_API_VERSION_PATTERN.test(configuredShopifyApiVersion)
+    ? configuredShopifyApiVersion
+    : "2026-07";
 
 export class ShopifyGraphError extends IntegrationError {
   constructor(message: string, status?: number, integrationCode: "RATE_LIMITED" | "EXTERNAL_API_UNAVAILABLE" = "EXTERNAL_API_UNAVAILABLE") {
@@ -34,16 +43,40 @@ export async function shopifyGraphql<T>(
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const response = await fetch(`https://${shopDomain}/admin/api/2026-07/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken,
-      },
-      body: JSON.stringify({ query, variables }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(`https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": accessToken,
+        },
+        body: JSON.stringify({ query, variables }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      lastError = new ShopifyGraphError(
+        error instanceof Error && error.name === "AbortError"
+          ? "shopify_graphql_timeout"
+          : "shopify_graphql_network_error",
+        error instanceof Error && error.name === "AbortError" ? 408 : 503,
+      );
+      if (attempt === MAX_ATTEMPTS) throw lastError;
+      await sleep(Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** (attempt - 1)));
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
 
-    if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+    if (
+      response.status === 408 ||
+      response.status === 425 ||
+      response.status === 429 ||
+      (response.status >= 500 && response.status < 600)
+    ) {
       lastError = new ShopifyGraphError(
         `shopify_graphql_http_${response.status}`,
         response.status,
@@ -51,7 +84,16 @@ export async function shopifyGraphql<T>(
       );
       const retryAfterHeader = response.headers.get("Retry-After");
       const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : null;
-      await sleep(retryAfterMs && Number.isFinite(retryAfterMs) ? retryAfterMs : BASE_BACKOFF_MS * 2 ** (attempt - 1));
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(
+          Math.min(
+            MAX_BACKOFF_MS,
+            retryAfterMs && Number.isFinite(retryAfterMs)
+              ? retryAfterMs
+              : BASE_BACKOFF_MS * 2 ** (attempt - 1),
+          ),
+        );
+      }
       continue;
     }
 

@@ -17,10 +17,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadApiEnv } from "@ecomscaling/config";
 
-const WORKFLOWS_DIR = join(process.cwd(), "..", "..", ".github", "workflows");
+// Resolver relativo al fichero, no al cwd: CI, `tsx --test` y el workspace
+// local pueden arrancar el proceso desde directorios distintos.
+const WORKFLOWS_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  ".github",
+  "workflows",
+);
 
 /** Claves del bloque `env:` de nivel job (dos niveles de indentacion). */
 function declaredEnvKeys(content: string): string[] {

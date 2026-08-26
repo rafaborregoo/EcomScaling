@@ -2,9 +2,14 @@
 
 ## Estado
 
-- **Estado real:** `verification_pending`
+> Cierre verificado 2026-08-24: el runtime de agentes y el vertical slice de
+> llamadas cumplen los criterios de transcripcion actual unica, publicacion
+> aprobada, RLS published-only y trazabilidad de coste/latencia/fuentes. La
+> separacion documental DB-08A/B/C queda como mejora editorial no bloqueante.
+
+- **Estado real:** `done`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-27
+- **Ultima validacion:** 2026-08-24
 - **Dependencias:** DB-00, DB-02
 - **Bloqueador:** ninguno
 - **Evidencia:**
@@ -36,7 +41,8 @@
   - **"Sin verificacion de acceso cliente antes/despues de publicar"** ya tiene test: `rls-tenant-isolation.test.ts`
     incluye "el cliente no ve un resumen de llamada en borrador, pero si en cuanto se publica" (`call_ai_summaries`,
     status `draft` -> `published`), confirmado contra el Supabase remoto real.
-- **Siguiente accion:** evaluar dividir el documento en DB-08A/B/C (organizacion, no bloqueante).
+- **Siguiente accion:** ninguna para los criterios de cierre; la division en
+  DB-08A/B/C es deuda editorial no bloqueante.
 
 ## Objetivo
 

@@ -1,4 +1,8 @@
 import crypto from "node:crypto";
+import {
+  DEFAULT_AGENT_RESILIENCE_POLICY,
+  withAgentResilience,
+} from "@ecomscaling/ai";
 
 export type ShopifyOAuthEnv = {
   SHOPIFY_API_KEY: string;
@@ -174,20 +178,27 @@ async function postShopifyTokenEndpoint(
 ): Promise<ShopifyTokenExchangeResponse> {
   // Shopify documenta este endpoint con application/x-www-form-urlencoded; con JSON el
   // parametro expiring=1 no se reconoce y la peticion falla con 400.
-  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: new URLSearchParams(params).toString(),
-  });
-
-  if (!response.ok) {
-    // El body de error de Shopify trae error/error_description, nunca tokens.
-    const bodyText = await response.text().catch(() => "");
-    throw new Error(`${errorPrefix}_${response.status}${bodyText ? `: ${bodyText.slice(0, 300)}` : ""}`);
-  }
+  const response = await withAgentResilience(
+    (signal) =>
+      fetch(`https://${shop}/admin/oauth/access_token`, {
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        },
+        body: new URLSearchParams(params).toString(),
+      }).then(async (result) => {
+        if (result.ok) return result;
+        // El body de error de Shopify trae error/error_description, nunca tokens.
+        const bodyText = await result.text().catch(() => "");
+        throw Object.assign(
+          new Error(`${errorPrefix}_${result.status}${bodyText ? `: ${bodyText.slice(0, 300)}` : ""}`),
+          { status: result.status },
+        );
+      }),
+    DEFAULT_AGENT_RESILIENCE_POLICY,
+  );
 
   return (await response.json()) as ShopifyTokenExchangeResponse;
 }

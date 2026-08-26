@@ -12,7 +12,7 @@
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY apuntando
  * al proyecto remoto, y la migracion db-01-enum-labels-helper aplicada.
- * Ejecutar con `npm run test -w @ecomscaling/api`.
+ * Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -21,24 +21,43 @@ import { loadApiEnv } from "@ecomscaling/config";
 
 const env = loadApiEnv(process.env);
 
-const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  env.SUPABASE_URL,
+  env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  {
+    auth: { persistSession: false, autoRefreshToken: false },
+  },
+);
 
 // Orden = orden de declaracion en la migracion (el orden importa para
 // enum_range, y coincide con el orden de aparicion en el tipo Postgres).
 const EXPECTED_ENUM_LABELS: Record<string, string[]> = {
   platform_role: ["user", "consultant", "platform_admin"],
   // pending_deletion anadido 2026-07-21 (R-008, soft-delete de organizaciones).
-  organization_status: ["onboarding", "active", "suspended", "cancelled", "pending_deletion"],
+  organization_status: [
+    "onboarding",
+    "active",
+    "suspended",
+    "cancelled",
+    "pending_deletion",
+  ],
   member_role: ["owner", "manager", "member", "readonly"],
-  subscription_status: ["pending", "trial", "active", "paused", "cancelled", "expired"],
+  subscription_status: [
+    "pending",
+    "trial",
+    "active",
+    "paused",
+    "cancelled",
+    "expired",
+  ],
   notification_status: ["unread", "read", "archived"],
 };
 
 for (const [enumName, expectedLabels] of Object.entries(EXPECTED_ENUM_LABELS)) {
   test(`el enum ${enumName} tiene exactamente los valores documentados en DB-01`, async () => {
-    const { data, error } = await admin.schema("private").rpc("enum_labels", { enum_type_name: enumName });
+    const { data, error } = await admin
+      .schema("private")
+      .rpc("enum_labels", { enum_type_name: enumName });
 
     assert.equal(error, null, `no se pudo leer ${enumName}: ${error?.message}`);
     assert.deepEqual(
