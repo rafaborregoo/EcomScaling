@@ -79,6 +79,12 @@ export type AuthContextError = {
 export type AuthContextResult =
   { ok: true; context: AuthContext } | { ok: false; error: AuthContextError };
 
+export function isOperationalOrganizationError(
+  result: OperationalOrganizationResult,
+): result is Extract<OperationalOrganizationResult, { ok: false }> {
+  return result.ok === false;
+}
+
 export function requireOperationalOrganization(
   context: AuthContext,
   organizationId: string,
