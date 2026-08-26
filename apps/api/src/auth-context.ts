@@ -4,6 +4,7 @@ import {
   type SupabaseClientOptions,
 } from "@supabase/supabase-js";
 import WebSocket from "ws";
+import { isErr } from "./result-guard.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -300,12 +301,12 @@ export async function resolveAuthContext(
   }
 
   const profileResult = await loadProfile(supabase, user.id);
-  if (!profileResult.ok) {
+  if (isErr(profileResult)) {
     return { ok: false, error: profileResult.error };
   }
 
   const membershipsResult = await loadMemberships(supabase, user.id);
-  if (!membershipsResult.ok) {
+  if (isErr(membershipsResult)) {
     return { ok: false, error: membershipsResult.error };
   }
 
@@ -315,7 +316,7 @@ export async function resolveAuthContext(
     profileResult.data.platform_role,
   );
 
-  if (!consultantOrgsResult.ok) {
+  if (isErr(consultantOrgsResult)) {
     return {
       ok: false,
       error: {

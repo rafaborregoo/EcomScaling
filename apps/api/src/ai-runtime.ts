@@ -10,6 +10,8 @@ import {
   klaviyoEmailDraftPatchSchema,
   klaviyoEmailJsonSchema,
   klaviyoEmailOutputSchema,
+  metaAdsJsonSchema,
+  metaAdsOutputSchema,
   sanitizeGeneratedEmailHtml,
   chatJsonSchema,
   chatOutputSchema,
@@ -27,6 +29,7 @@ import {
   type CallSummaryOutput,
   type ChatOutput,
   type KlaviyoEmailOutput,
+  type MetaAdsOutput,
   type AgentToolDefinition,
 } from "@ecomscaling/ai";
 import type { LoadedApiEnv } from "@ecomscaling/config";
@@ -49,8 +52,25 @@ import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
 import { executeKnowledgeSearch } from "./knowledge.js";
 import { createSingleFlight } from "./single-flight.js";
+import { isErr } from "./result-guard.js";
 
 type ApiEnv = LoadedApiEnv;
+
+type OrganizationDailyBudgetStatus =
+  | {
+      ok: true;
+      spentTodayUsd: number;
+      dailyBudgetUsd: number;
+      remainingUsd: number;
+      asOf: string;
+    }
+  | { ok: false; error: string };
+
+function isOrganizationDailyBudgetStatusError(
+  status: OrganizationDailyBudgetStatus,
+): status is Extract<OrganizationDailyBudgetStatus, { ok: false }> {
+  return status.ok === false;
+}
 
 const logger = createLogger("ai-runtime");
 
@@ -97,8 +117,8 @@ const AGENT_TASK_CATEGORY: Record<
 // AI-00/AI-06 (R-011): presupuesto real por turno, no solo registrado.
 // Primera version deliberadamente simple (un limite plano para todos los
 // agentes, no por agente/organizacion) -- AI-09 ya añade el limite diario por
-// organizacion y el circuit breaker persistido por tenant; afinacion por
-// plan/agente y model routing siguen pendientes.
+// organizacion, el circuit breaker persistido por tenant y el model routing
+// por agente/proveedor; queda como mejora no bloqueante el ajuste fino por plan.
 const DEFAULT_AGENT_BUDGET = { maxCostUsd: 1, maxToolCalls: 10 };
 
 type PlanBudgetPolicy = {
@@ -395,7 +415,7 @@ export async function checkOrganizationDailyBudget(
     organizationId,
     dailyBudgetUsd,
   );
-  if (!status.ok) {
+  if (isOrganizationDailyBudgetStatusError(status)) {
     logger.error("organization_daily_budget_check_failed", {
       organization_id: organizationId,
       error: status.error,
@@ -425,16 +445,7 @@ export async function getOrganizationDailyBudgetStatus(
   supabase: SupabaseClient,
   organizationId: string,
   dailyBudgetUsd: number = DEFAULT_ORGANIZATION_DAILY_BUDGET_USD,
-): Promise<
-  | {
-      ok: true;
-      spentTodayUsd: number;
-      dailyBudgetUsd: number;
-      remainingUsd: number;
-      asOf: string;
-    }
-  | { ok: false; error: string }
-> {
+): Promise<OrganizationDailyBudgetStatus> {
   const startOfDayUtc = new Date();
   startOfDayUtc.setUTCHours(0, 0, 0, 0);
 
@@ -475,7 +486,7 @@ export async function getOrganizationDailyBudgetStatusForOrganization(
     organizationId,
   );
 
-  if (!status.ok) {
+  if (isOrganizationDailyBudgetStatusError(status)) {
     return {
       ok: false as const,
       statusCode: 503,
@@ -522,8 +533,8 @@ function describeAgentTurnFailure(error: unknown): {
 // reintenta el mismo turno con OpenAI si hay OPENAI_API_KEY configurada. Sin
 // key, el comportamiento es identico al anterior: el fallo de Anthropic es el
 // fallo final. El presupuesto diario y el circuit breaker por organizacion se
-// validan antes de entrar aqui. AI-09 conserva como pendiente solo el routing
-// por plan/organizacion; el override por agente ya se resuelve aqui.
+// validan antes de entrar aqui. AI-09 resuelve el override por agente/proveedor;
+// el ajuste de políticas por plan/organización queda como mejora posterior.
 async function runAgentTurnWithFallbackCore<TOutput>(
   env: ApiEnv,
   params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey">,
@@ -642,6 +653,21 @@ async function resolveAgentCodeForRun(
 
 function requireMembership(context: AuthContext, organizationId: string) {
   return requireOperationalOrganization(context, organizationId);
+}
+
+/**
+ * Marketing is an organization workspace: consultants/platform admins may
+ * operate it across assigned organizations, while an organization's owner or
+ * manager may create, edit and approve its own campaign drafts.
+ */
+function canAccessMarketingWorkspace(
+  context: AuthContext,
+  membershipRole: string,
+) {
+  return (
+    ["platform_admin", "consultant"].includes(context.profile.platform_role) ||
+    ["owner", "manager"].includes(membershipRole)
+  );
 }
 
 /**
@@ -778,7 +804,7 @@ function buildAgentTools(
           },
       execute: async (toolInput) => {
         const parsedInput = parseToolInput(toolName, toolInput);
-        if (!parsedInput.ok) return parsedInput;
+        if (isErr(parsedInput)) return parsedInput;
 
         const started = Date.now();
         const input = parsedInput.data;
@@ -1007,7 +1033,7 @@ function buildAgentTools(
       },
       execute: async (toolInput) => {
         const parsedInput = parseToolInput("sql_select", toolInput);
-        if (!parsedInput.ok) return parsedInput;
+        if (isErr(parsedInput)) return parsedInput;
         const query = parsedInput.data.query as string;
         const result = await executeGatewayQuery(
           supabase,
@@ -1076,7 +1102,7 @@ function buildAgentTools(
       execute: async (toolInput) => {
         const started = Date.now();
         const parsedInput = parseToolInput("describe_schema", toolInput);
-        if (!parsedInput.ok) return parsedInput;
+        if (isErr(parsedInput)) return parsedInput;
         const requestedTables =
           (parsedInput.data.tables as string[] | undefined) ?? [];
         const output = {
@@ -1131,7 +1157,7 @@ function buildAgentTools(
       },
       execute: async (toolInput) => {
         const parsedInput = parseToolInput("search_knowledge", toolInput);
-        if (!parsedInput.ok) return parsedInput;
+        if (isErr(parsedInput)) return parsedInput;
         const started = Date.now();
         const query = parsedInput.data.query as string;
         let output: unknown;
@@ -1332,7 +1358,7 @@ function buildAgentTools(
           supabase,
           organizationId,
         );
-        if (!status.ok) {
+        if (isOrganizationDailyBudgetStatusError(status)) {
           const output = {
             error: {
               error: "budget_status_unavailable",
@@ -1401,7 +1427,7 @@ function buildAgentTools(
       execute: async (toolInput) => {
         const started = Date.now();
         const parsedInput = parseToolInput("dry_run_write", toolInput);
-        if (!parsedInput.ok) return parsedInput;
+        if (isErr(parsedInput)) return parsedInput;
         const operation = parsedInput.data.operation as string;
         const target = parsedInput.data.target as string;
         const changes = parsedInput.data.changes as Record<string, unknown>;
@@ -1452,7 +1478,7 @@ function buildAgentTools(
       execute: async (toolInput) => {
         const started = Date.now();
         const parsedInput = parseToolInput(toolName, toolInput);
-        if (!parsedInput.ok) return parsedInput;
+        if (isErr(parsedInput)) return parsedInput;
         const output = {
           ...buildOutput(parsedInput.data),
           provenance: {
@@ -3006,6 +3032,18 @@ export async function runCallAnalyst(
 
 const CHAT_HISTORY_MESSAGES = 10;
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) =>
+    ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    })[character] ?? character,
+  );
+}
+
 async function recordMarketingDraftVersion(
   supabase: ReturnType<typeof createServiceClient>,
   organizationId: string,
@@ -3035,10 +3073,12 @@ async function recordMarketingDraftVersion(
 }
 
 /**
- * AI-11 Fase A: genera un borrador de contenido portable para Klaviyo.
- * El proveedor Klaviyo no se consulta: el único proveedor externo posible es
+ * AI-11 Fase A: genera un borrador de contenido portable para el canal elegido.
+ * El proveedor de destino no se consulta: el único proveedor externo posible es
  * el LLM configurado, y la salida queda sanitizada, pendiente de aprobación y
- * almacenada como borrador. No existe ninguna operación de envío/publicación.
+ * almacenada como borrador. El espacio está disponible para propietarios y
+ * managers de la organización, además de consultores/platform admins. No
+ * existe ninguna operación de envío/publicación.
  */
 export async function runMarketingContentDraft(
   env: ApiEnv,
@@ -3049,15 +3089,13 @@ export async function runMarketingContentDraft(
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
 
-  if (
-    !["platform_admin", "consultant"].includes(context.profile.platform_role)
-  ) {
+  if (!canAccessMarketingWorkspace(context, access.membership.role)) {
     return {
       ok: false as const,
       statusCode: 403,
-      error: "consultant_role_required",
+      error: "marketing_access_required",
       message:
-        "Solo un consultor o platform admin puede generar borradores de marketing.",
+        "Necesitas ser propietario o manager de la organización, consultor o administrador de plataforma.",
     };
   }
 
@@ -3072,6 +3110,7 @@ export async function runMarketingContentDraft(
 
   const contentType =
     typeof payload.content_type === "string" ? payload.content_type : "";
+  const channel = typeof payload.channel === "string" ? payload.channel : "";
   const brief = typeof payload.brief === "string" ? payload.brief.trim() : "";
   if (!["campaign", "flow_step", "popup"].includes(contentType)) {
     return {
@@ -3082,6 +3121,9 @@ export async function runMarketingContentDraft(
   }
   if (!brief) {
     return { ok: false as const, statusCode: 400, error: "brief_requerido" };
+  }
+  if (!["email_klaviyo", "meta_ads", "multichannel"].includes(channel)) {
+    return { ok: false as const, statusCode: 400, error: "canal_invalido" };
   }
   if (brief.length > 12000) {
     return {
@@ -3161,7 +3203,7 @@ export async function runMarketingContentDraft(
     organization_id: organizationId,
     actor_user_id: context.user.id,
     trigger_type: "manual",
-    objective: `Generar borrador Klaviyo de tipo ${contentType}`,
+    objective: `Generar borrador de marketing para ${channel} de tipo ${contentType}`,
     allowed_tools: tools.map((tool) => tool.name),
     approval_mode: agentVersion.approval_mode as AgentInput["approval_mode"],
   };
@@ -3186,7 +3228,7 @@ export async function runMarketingContentDraft(
   }
 
   try {
-    const request = { content_type: contentType, brief };
+    const request = { content_type: contentType, channel, brief };
     await supabase.from("agent_context_snapshots").insert({
       run_id: runId,
       organization_id: organizationId,
@@ -3200,23 +3242,31 @@ export async function runMarketingContentDraft(
       1,
       "context_build",
       "Brief de contenido de marketing preparado",
-      { content_type: contentType },
+      { content_type: contentType, channel },
       null,
     );
 
-    const turn = await runAgentTurnWithFallback<KlaviyoEmailOutput>(env, {
+    const isMetaAds = channel === "meta_ads";
+    const turn = await runAgentTurnWithFallback<
+      KlaviyoEmailOutput | MetaAdsOutput
+    >(env, {
       model: agentVersion.model,
       systemPrompt,
       input,
       contextBlocks: [{ label: "Brief del consultor", data: request }],
       tools,
-      outputContract: {
-        jsonSchema: klaviyoEmailJsonSchema as unknown as Record<
-          string,
-          unknown
-        >,
-        schema: klaviyoEmailOutputSchema,
-      },
+      outputContract: isMetaAds
+        ? {
+            jsonSchema: metaAdsJsonSchema as unknown as Record<string, unknown>,
+            schema: metaAdsOutputSchema,
+          }
+        : {
+            jsonSchema: klaviyoEmailJsonSchema as unknown as Record<
+              string,
+              unknown
+            >,
+            schema: klaviyoEmailOutputSchema,
+          },
       budget: resolveAgentBudget(
         input.agent_code,
         parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
@@ -3224,11 +3274,80 @@ export async function runMarketingContentDraft(
       ),
     });
 
-    const sanitizedOutput = klaviyoEmailOutputSchema.parse({
-      ...turn.output,
-      html: sanitizeGeneratedEmailHtml(turn.output.html),
-      approval_required: true,
-    });
+    const metaOutput = isMetaAds
+      ? metaAdsOutputSchema.parse({
+          ...turn.output,
+          approval_required: true,
+        })
+      : null;
+    const emailOutput = !isMetaAds
+      ? klaviyoEmailOutputSchema.parse({
+          ...turn.output,
+          html: sanitizeGeneratedEmailHtml(
+            (turn.output as KlaviyoEmailOutput).html,
+          ),
+          approval_required: true,
+        })
+      : null;
+    const sanitizedOutput = (metaOutput ?? emailOutput)!;
+
+    const draftFields = metaOutput
+      ? {
+          schemaVersion: "meta-ads-v1",
+          templateName: metaOutput.campaign_name,
+          subject: metaOutput.headline,
+          preheader: metaOutput.description,
+          fromName: metaOutput.campaign_name,
+          replyTo: null,
+          purpose: metaOutput.summary,
+          audience: metaOutput.audience,
+          locale: metaOutput.locale,
+          tone: metaOutput.tone,
+          plainText: metaOutput.primary_text,
+          html: `<p>${escapeHtml(metaOutput.primary_text)}</p>`,
+          blocks: [
+            {
+              type: "text",
+              content: metaOutput.primary_text,
+              href: null,
+              alt: null,
+            },
+            {
+              type: "button",
+              content: metaOutput.call_to_action,
+              href: metaOutput.destination_url,
+              alt: null,
+            },
+          ],
+          personalizationTokens: [],
+          complianceNotes: [
+            ...metaOutput.compliance_notes,
+            ...metaOutput.creative_notes,
+          ],
+          sources: metaOutput.sources,
+          confidence: metaOutput.confidence,
+          warnings: metaOutput.warnings,
+        }
+      : {
+          schemaVersion: "klaviyo-email-v1",
+          templateName: emailOutput!.template_name,
+          subject: emailOutput!.subject,
+          preheader: emailOutput!.preheader,
+          fromName: emailOutput!.from_name,
+          replyTo: emailOutput!.reply_to,
+          purpose: emailOutput!.purpose,
+          audience: emailOutput!.audience,
+          locale: emailOutput!.locale,
+          tone: emailOutput!.tone,
+          plainText: emailOutput!.plain_text,
+          html: emailOutput!.html,
+          blocks: emailOutput!.blocks,
+          personalizationTokens: emailOutput!.personalization_tokens,
+          complianceNotes: emailOutput!.compliance_notes,
+          sources: emailOutput!.sources,
+          confidence: emailOutput!.confidence,
+          warnings: emailOutput!.warnings,
+        };
 
     await recordStep(
       supabase,
@@ -3253,7 +3372,7 @@ export async function runMarketingContentDraft(
       .insert({
         run_id: runId,
         organization_id: organizationId,
-        schema_version: "klaviyo-email-v1",
+        schema_version: draftFields.schemaVersion,
         output: sanitizedOutput,
         approval_required: true,
         status: "pending_approval",
@@ -3276,23 +3395,23 @@ export async function runMarketingContentDraft(
         status: "pending_approval",
         request,
         summary: sanitizedOutput.summary,
-        template_name: sanitizedOutput.template_name,
-        subject: sanitizedOutput.subject,
-        preheader: sanitizedOutput.preheader,
-        from_name: sanitizedOutput.from_name,
-        reply_to: sanitizedOutput.reply_to,
-        purpose: sanitizedOutput.purpose,
-        audience: sanitizedOutput.audience,
-        locale: sanitizedOutput.locale,
-        tone: sanitizedOutput.tone,
-        plain_text: sanitizedOutput.plain_text,
-        html: sanitizedOutput.html,
-        blocks: sanitizedOutput.blocks,
-        personalization_tokens: sanitizedOutput.personalization_tokens,
-        compliance_notes: sanitizedOutput.compliance_notes,
-        sources: sanitizedOutput.sources,
-        confidence: sanitizedOutput.confidence,
-        warnings: sanitizedOutput.warnings,
+        template_name: draftFields.templateName,
+        subject: draftFields.subject,
+        preheader: draftFields.preheader,
+        from_name: draftFields.fromName,
+        reply_to: draftFields.replyTo,
+        purpose: draftFields.purpose,
+        audience: draftFields.audience,
+        locale: draftFields.locale,
+        tone: draftFields.tone,
+        plain_text: draftFields.plainText,
+        html: draftFields.html,
+        blocks: draftFields.blocks,
+        personalization_tokens: draftFields.personalizationTokens,
+        compliance_notes: draftFields.complianceNotes,
+        sources: draftFields.sources,
+        confidence: draftFields.confidence,
+        warnings: draftFields.warnings,
       })
       .select(
         "id, status, content_type, subject, preheader, html, plain_text, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_at, version",
@@ -3376,13 +3495,11 @@ export async function listMarketingContentDrafts(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
-  if (
-    !["platform_admin", "consultant"].includes(context.profile.platform_role)
-  ) {
+  if (!canAccessMarketingWorkspace(context, access.membership.role)) {
     return {
       ok: false as const,
       statusCode: 403,
-      error: "consultant_role_required",
+      error: "marketing_access_required",
     };
   }
 
@@ -3391,7 +3508,7 @@ export async function listMarketingContentDrafts(
   const { data, error } = await supabase
     .from("marketing_content_drafts")
     .select(
-      "id, status, version, content_type, summary, template_name, subject, preheader, from_name, reply_to, purpose, audience, locale, tone, plain_text, html, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_by, created_at, updated_at, last_edited_by, last_edited_at, decided_by, decided_at, decision_reason, agent_run_id, agent_output_id",
+      "id, status, version, content_type, request, summary, template_name, subject, preheader, from_name, reply_to, purpose, audience, locale, tone, plain_text, html, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_by, created_at, updated_at, last_edited_by, last_edited_at, decided_by, decided_at, decision_reason, agent_run_id, agent_output_id",
     )
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
@@ -3421,9 +3538,7 @@ export async function updateMarketingContentDraft(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
-  if (
-    !["platform_admin", "consultant"].includes(context.profile.platform_role)
-  ) {
+  if (!canAccessMarketingWorkspace(context, access.membership.role)) {
     return { ok: false as const, statusCode: 403, error: "edit_denied" };
   }
 
@@ -3557,9 +3672,7 @@ export async function listMarketingContentDraftVersions(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
-  if (
-    !["platform_admin", "consultant"].includes(context.profile.platform_role)
-  ) {
+  if (!canAccessMarketingWorkspace(context, access.membership.role)) {
     return { ok: false as const, statusCode: 403, error: "history_denied" };
   }
 
@@ -3600,9 +3713,7 @@ export async function decideMarketingContentDraft(
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) return access;
-  if (
-    !["platform_admin", "consultant"].includes(context.profile.platform_role)
-  ) {
+  if (!canAccessMarketingWorkspace(context, access.membership.role)) {
     return { ok: false as const, statusCode: 403, error: "approval_denied" };
   }
   if (!decision || !["approved", "rejected"].includes(decision)) {

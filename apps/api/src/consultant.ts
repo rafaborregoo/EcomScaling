@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { isErr } from "./result-guard.js";
 import { createLogger } from "@ecomscaling/observability";
 
 const logger = createLogger("consultant");
@@ -119,7 +120,7 @@ export async function listConsultantOrganizations(
 
   const organizationsResult = await loadOrganizations(supabase, organizationIds);
 
-  if (!organizationsResult.ok) {
+  if (isErr(organizationsResult)) {
     return {
       ok: false as const,
       statusCode: 500,

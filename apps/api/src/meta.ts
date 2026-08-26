@@ -8,6 +8,7 @@ import {
   isOperationalOrganizationError,
   type AuthContext,
 } from "./auth-context.js";
+import { isErr } from "./result-guard.js";
 import { metaGraphGetAll, metaGraphGet } from "./meta-client.js";
 import {
   createMetaState,
@@ -1038,7 +1039,7 @@ export async function handleMetaOAuthCallback(
   ).catch(() => null);
 
   const verifiedIdentity = getVerifiedMetaIdentity(me);
-  if (!verifiedIdentity.ok) {
+  if (isErr(verifiedIdentity)) {
     return {
       ok: false,
       statusCode: 502,

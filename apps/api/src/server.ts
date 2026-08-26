@@ -83,8 +83,10 @@ import {
 } from "./klaviyo.js";
 import { listKlaviyoReports, runKlaviyoReport } from "./klaviyo-sync.js";
 import { getMetaMetrics } from "./meta-metrics.js";
+import { prepareMetaAdCreationPlan } from "./meta-ad-write-plan.js";
 import {
   addTaskComment,
+  createTask,
   evaluateAlertRules,
   listOperations,
   runAlertRulesForAllOrganizations,
@@ -574,6 +576,25 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     return result.context;
+  });
+
+  // Estado público del runtime para que la UI pueda explicar la ausencia de
+  // credenciales sin exponer claves ni obligar al usuario a descubrirlo al
+  // enviar el primer brief.
+  app.get("/v1/ai/status", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    return {
+      configured: Boolean(env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY),
+      primary_provider: env.ANTHROPIC_API_KEY
+        ? "anthropic"
+        : env.OPENAI_API_KEY
+          ? "openai"
+          : null,
+    } as const;
   });
 
   app.get("/v1/actions", async (request, reply) => {
@@ -1624,6 +1645,32 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.post<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/meta/ad-creation-plan",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = prepareMetaAdCreationPlan(
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
   app.get<{
     Params: { organizationId: string };
     Querystring: { days?: string };
@@ -1731,6 +1778,40 @@ export async function buildApp(): Promise<FastifyInstance> {
       }
 
       return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: {
+      title?: string;
+      description?: string;
+      priority?: string;
+      category?: string;
+      dueAt?: string;
+      isVisibleToClient?: boolean;
+    };
+  }>(
+    "/v1/organizations/:organizationId/tasks",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await createTask(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
     },
   );
 
@@ -3267,7 +3348,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
       );
-      if (!result.ok) return sendServiceFailure(reply, result);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
 
       reply.header("content-type", "application/json; charset=utf-8");
       reply.header(

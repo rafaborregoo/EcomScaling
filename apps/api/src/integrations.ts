@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import { isErr } from "./result-guard.js";
 import {
   deriveIntegrationHealth,
   evaluateIntegrationActivation,
@@ -366,7 +367,7 @@ export async function listIntegrations(
   const supabase = createUserScopedClient(env, token);
   const connectionsResult = await loadConnections(supabase, organizationId);
 
-  if (!connectionsResult.ok) {
+  if (isErr(connectionsResult)) {
     if (isMissingSchemaError(connectionsResult.error)) {
       return {
         ok: true as const,
@@ -411,7 +412,7 @@ export async function listIntegrations(
     connectionsResult.data.map((connection) => connection.id),
   );
 
-  if (!latestRunsResult.ok) {
+  if (isErr(latestRunsResult)) {
     return {
       ok: false as const,
       statusCode: 500,
