@@ -4,6 +4,7 @@ import type { LoadedApiEnv } from "@ecomscaling/config";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import {
   requireOperationalOrganization,
+  isOperationalOrganizationError,
   type AuthContext,
 } from "./auth-context.js";
 import { createKlaviyoClient } from "./klaviyo-client.js";
@@ -66,7 +67,7 @@ async function markKlaviyoSyncFailure(
 
 function canManage(context: AuthContext, organizationId: string) {
   const operational = requireOperationalOrganization(context, organizationId);
-  if (!operational.ok) return operational.error;
+  if (isOperationalOrganizationError(operational)) return operational.error;
   const { membership } = operational;
   if (
     context.profile.platform_role !== "platform_admin" &&

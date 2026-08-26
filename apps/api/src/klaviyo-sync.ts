@@ -8,7 +8,10 @@ import {
   type KlaviyoResource,
 } from "./klaviyo-client.js";
 import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
-import { checkOperationalOrganization } from "./operational-organization.js";
+import {
+  checkOperationalOrganization,
+  isOperationalOrganizationError,
+} from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
 
 type SyncMode = "initial" | "incremental";
@@ -101,7 +104,8 @@ export async function runKlaviyoSync(
     client,
     connection.organization_id,
   );
-  if (!operational.ok) throw new Error(operational.error);
+  if (isOperationalOrganizationError(operational))
+    throw new Error(operational.error);
 
   const idempotencyKey = buildKlaviyoSyncIdempotencyKey(connectionId, mode);
   const { data: existingRun } = await client

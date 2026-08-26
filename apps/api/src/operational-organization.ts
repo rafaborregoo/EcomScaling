@@ -8,6 +8,12 @@ export type OperationalOrganizationResult =
       detail?: string;
     };
 
+export function isOperationalOrganizationError(
+  result: OperationalOrganizationResult,
+): result is Extract<OperationalOrganizationResult, { ok: false }> {
+  return result.ok === false;
+}
+
 export function classifyOperationalOrganization(
   organizationStatus: string | null | undefined,
   subscriptionStatus?: string | null,

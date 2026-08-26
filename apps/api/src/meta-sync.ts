@@ -6,7 +6,10 @@ import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { createLogger } from "@ecomscaling/observability";
 import { metaGraphGet, metaGraphGetAll } from "./meta-client.js";
 import { getValidMetaAccessToken } from "./meta.js";
-import { checkOperationalOrganization } from "./operational-organization.js";
+import {
+  checkOperationalOrganization,
+  isOperationalOrganizationError,
+} from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
 
 export { mapWithConcurrency } from "./async-concurrency.js";
@@ -777,7 +780,8 @@ export async function runMetaSync(
     supabase,
     connection.organization_id,
   );
-  if (!operational.ok) throw new Error(operational.error);
+  if (isOperationalOrganizationError(operational))
+    throw new Error(operational.error);
 
   const accessToken = await getValidMetaAccessToken(env, connectionId);
 

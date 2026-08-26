@@ -5,6 +5,7 @@ import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { createLogger } from "@ecomscaling/observability";
 import {
   requireOperationalOrganization,
+  isOperationalOrganizationError,
   type AuthContext,
 } from "./auth-context.js";
 import { metaGraphGetAll, metaGraphGet } from "./meta-client.js";
@@ -98,7 +99,7 @@ function canManageOrganization(
     authContext,
     organizationId,
   );
-  if (!operational.ok) return false;
+  if (isOperationalOrganizationError(operational)) return false;
   const { membership } = operational;
 
   return Boolean(
@@ -212,7 +213,7 @@ export async function createMetaConnectionAuthUrl(
     authContext,
     organizationId,
   );
-  if (!operational.ok) return operational;
+  if (isOperationalOrganizationError(operational)) return operational;
   const { membership } = operational;
 
   if (
@@ -1398,7 +1399,7 @@ export async function triggerMetaSync(
     authContext,
     organizationId,
   );
-  if (!operational.ok) return operational;
+  if (isOperationalOrganizationError(operational)) return operational;
   const { membership } = operational;
 
   if (

@@ -12,7 +12,10 @@ import {
 } from "./shopify-bulk.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
 import { getValidShopifyAccessToken } from "./shopify-token-store.js";
-import { checkOperationalOrganization } from "./operational-organization.js";
+import {
+  checkOperationalOrganization,
+  isOperationalOrganizationError,
+} from "./operational-organization.js";
 
 type ApiEnv = LoadedApiEnv;
 const logger = createLogger("shopify-sync");
@@ -427,7 +430,8 @@ export async function runShopifyInitialSync(
     supabase,
     connection.organization_id,
   );
-  if (!operational.ok) throw new Error(operational.error);
+  if (isOperationalOrganizationError(operational))
+    throw new Error(operational.error);
 
   let accessToken = await getValidShopifyAccessToken(env, connectionId);
   const shopDomain = connection.provider_account_id;

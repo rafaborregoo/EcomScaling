@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import {
   type AuthContext,
   createUserScopedClient,
+  isOperationalOrganizationError,
   requireOperationalOrganization,
 } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
@@ -22,7 +23,7 @@ function createServiceClient(env: ApiEnv) {
 
 function assertCanManage(context: AuthContext, organizationId: string) {
   const operational = requireOperationalOrganization(context, organizationId);
-  if (!operational.ok) return operational;
+  if (isOperationalOrganizationError(operational)) return operational;
   const { membership } = operational;
 
   if (

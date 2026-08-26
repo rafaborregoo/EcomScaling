@@ -9,6 +9,7 @@ import { chunkText, VoyageEmbeddingProvider } from "@ecomscaling/ai";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import {
   requireOperationalOrganization,
+  isOperationalOrganizationError,
   type AuthContext,
   createUserScopedClient,
 } from "./auth-context.js";
@@ -107,7 +108,7 @@ function requireKnowledgeManager(
   }
 
   const operational = requireOperationalOrganization(context, organizationId);
-  if (!operational.ok) return operational;
+  if (isOperationalOrganizationError(operational)) return operational;
   const { membership } = operational;
 
   const canManage =
