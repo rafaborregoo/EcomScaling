@@ -88,6 +88,7 @@ function retryAfterMs(response: Response): number | null {
 // tumbaba el import completo en vez de reintentarse igual que el resto.
 async function fetchGraphJsonWithRetry<T>(
   url: string,
+  init: RequestInit = {},
 ): Promise<T & GraphErrorBody> {
   let lastError: MetaGraphError | null = null;
   let nextDelayMs = 0;
@@ -100,7 +101,7 @@ async function fetchGraphJsonWithRetry<T>(
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     let response: Response;
     try {
-      response = await fetch(url, { signal: controller.signal });
+      response = await fetch(url, { ...init, signal: controller.signal });
     } catch (error) {
       clearTimeout(timeout);
       lastError = new MetaGraphError(
@@ -216,4 +217,32 @@ export async function metaGraphGetAll<TNode>(
   }
 
   return nodes;
+}
+
+/**
+ * Shared POST transport for the future Meta write executor. Callers must only
+ * use it with an approval-gated, idempotent plan; this helper itself never
+ * decides to create or mutate a business object.
+ */
+export async function metaGraphPost<T>(
+  path: string,
+  accessToken: string,
+  params: Record<string, string> = {},
+  appSecret?: string,
+): Promise<T> {
+  const url = new URL(`${META_GRAPH_BASE}/${path.replace(/^\//, "")}`);
+  url.searchParams.set("access_token", accessToken);
+  if (appSecret) {
+    url.searchParams.set(
+      "appsecret_proof",
+      crypto.createHmac("sha256", appSecret).update(accessToken).digest("hex"),
+    );
+  }
+
+  const body = new URLSearchParams(params).toString();
+  return fetchGraphJsonWithRetry<T>(url.toString(), {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  }) as Promise<T>;
 }

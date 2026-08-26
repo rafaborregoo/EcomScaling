@@ -416,6 +416,21 @@ export type KlaviyoEmailDraftPatch = z.infer<
   typeof klaviyoEmailDraftPatchSchema
 >;
 
+/** Campos editables de un anuncio Meta. No reutiliza el contrato de email. */
+export const metaAdsDraftPatchSchema = z
+  .object({
+    headline: z.string().min(1).max(255).optional(),
+    description: z.string().max(500).optional(),
+    primary_text: z.string().min(1).max(5000).optional(),
+    destination_url: z.string().url().nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one editable Meta field is required",
+  });
+
+export type MetaAdsDraftPatch = z.infer<typeof metaAdsDraftPatchSchema>;
+
 export type KlaviyoEmailOutput = z.infer<typeof klaviyoEmailOutputSchema>;
 
 export const klaviyoEmailJsonSchema = {
@@ -493,6 +508,87 @@ export const klaviyoEmailJsonSchema = {
             type: "string",
             enum: ["metric", "table", "tool", "document"],
           },
+          reference: { type: "string" },
+          period: { type: ["string", "null"] },
+        },
+      },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    warnings: { type: "array", items: { type: "string" } },
+    approval_required: { type: "boolean", enum: [true] },
+  },
+} as const;
+
+// AI-11: contrato de salida para Meta Ads. Mantenerlo separado del contrato
+// de email evita que una campaña social tenga que fingir subject/html para
+// pasar la validación. La publicación sigue fuera del modelo y requiere
+// aprobación explícita en el executor de Meta.
+export const metaAdsOutputSchema = z.object({
+  summary: z.string().min(1).max(2000),
+  campaign_name: z.string().min(1).max(160),
+  ad_set_name: z.string().min(1).max(160),
+  headline: z.string().min(1).max(255),
+  primary_text: z.string().min(1).max(5000),
+  description: z.string().max(500).default(""),
+  call_to_action: z.string().min(1).max(80),
+  destination_url: z.string().url().nullable(),
+  audience: z.string().min(1).max(500),
+  locale: z.string().min(2).max(20),
+  tone: z.string().min(1).max(120),
+  creative_notes: z.array(z.string().max(1000)).max(50),
+  compliance_notes: z.array(z.string().max(1000)).max(50),
+  sources: z.array(agentSourceSchema),
+  confidence: z.enum(["low", "medium", "high"]),
+  warnings: z.array(z.string()),
+  approval_required: z.literal(true),
+});
+
+export type MetaAdsOutput = z.infer<typeof metaAdsOutputSchema>;
+
+export const metaAdsJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "summary",
+    "campaign_name",
+    "ad_set_name",
+    "headline",
+    "primary_text",
+    "description",
+    "call_to_action",
+    "destination_url",
+    "audience",
+    "locale",
+    "tone",
+    "creative_notes",
+    "compliance_notes",
+    "sources",
+    "confidence",
+    "warnings",
+    "approval_required",
+  ],
+  properties: {
+    summary: { type: "string" },
+    campaign_name: { type: "string" },
+    ad_set_name: { type: "string" },
+    headline: { type: "string" },
+    primary_text: { type: "string" },
+    description: { type: "string" },
+    call_to_action: { type: "string" },
+    destination_url: { type: ["string", "null"] },
+    audience: { type: "string" },
+    locale: { type: "string" },
+    tone: { type: "string" },
+    creative_notes: { type: "array", items: { type: "string" } },
+    compliance_notes: { type: "array", items: { type: "string" } },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "reference", "period"],
+        properties: {
+          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
           reference: { type: "string" },
           period: { type: ["string", "null"] },
         },

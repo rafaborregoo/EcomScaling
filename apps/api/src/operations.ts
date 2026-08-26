@@ -565,6 +565,94 @@ const TASK_STATUSES = [
   "cancelled",
 ] as const;
 
+const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+
+/**
+ * Alta manual de una tarea (FE-03: el modulo de tareas no tenia forma de
+ * anadir un pendiente ad-hoc -- solo llegaban desde reglas de alertas, IA,
+ * llamadas o Mi Camino). Mismo criterio de permisos que el resto de
+ * mutaciones de tareas (`requireMembership`, cualquier miembro de la
+ * organizacion, no solo consultor/admin).
+ */
+export async function createTask(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  input: {
+    title?: string;
+    description?: string | null;
+    priority?: string;
+    category?: string;
+    dueAt?: string | null;
+    isVisibleToClient?: boolean;
+  },
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) {
+    return access;
+  }
+
+  const title = input.title?.trim();
+  if (!title) {
+    return { ok: false as const, statusCode: 400, error: "missing_task_title" };
+  }
+
+  const priority = TASK_PRIORITIES.includes(
+    input.priority as (typeof TASK_PRIORITIES)[number],
+  )
+    ? (input.priority as (typeof TASK_PRIORITIES)[number])
+    : "medium";
+  const category = TASK_CATEGORIES.includes(
+    input.category as (typeof TASK_CATEGORIES)[number],
+  )
+    ? (input.category as (typeof TASK_CATEGORIES)[number])
+    : "general";
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({
+      organization_id: organizationId,
+      title,
+      description: input.description?.trim() || null,
+      priority,
+      category,
+      due_at: input.dueAt || null,
+      source: "manual",
+      created_by: context.user.id,
+      // Por defecto visible: una tarea manual sin marcar como interna es
+      // igual de visible para el cliente que cualquier otra de la lista.
+      is_visible_to_client: input.isVisibleToClient ?? true,
+    })
+    .select(
+      "id, alert_id, source, status, priority, category, title, description, due_at, is_visible_to_client, created_at, updated_at",
+    )
+    .single();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "task_create_failed",
+      detail: error.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "operations.create_task",
+    entityType: "task",
+    entityId: data.id,
+    newData: { title: data.title, priority: data.priority, category: data.category },
+  });
+
+  return {
+    ok: true as const,
+    data: { ...data, task_comments: [] },
+  };
+}
+
 export async function updateTaskStatus(
   env: ApiEnv,
   context: AuthContext,

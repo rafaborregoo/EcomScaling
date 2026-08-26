@@ -14,6 +14,8 @@ import {
   evaluateAgentBudget,
   klaviyoEmailDraftPatchSchema,
   klaviyoEmailOutputSchema,
+  metaAdsDraftPatchSchema,
+  metaAdsOutputSchema,
   sanitizeGeneratedEmailHtml,
   createReplayToolExecutor,
   createToolReplayFixture,
@@ -21,6 +23,7 @@ import {
   authorizeTool,
   getToolContract,
   getUnavailableToolNames,
+  normalizeToolConnectorId,
   provenanceSchema,
   toolWriteRequestSchema,
   VoyageEmbeddingProvider,
@@ -448,6 +451,30 @@ test("sanitizeGeneratedEmailHtml elimina vectores activos del HTML generado", ()
   assert.match(safe, /ok/);
 });
 
+test("el contrato Meta Ads no reutiliza campos de email y exige aprobacion", () => {
+  const result = metaAdsOutputSchema.safeParse({
+    summary: "Campana de lanzamiento",
+    campaign_name: "Lanzamiento verano",
+    ad_set_name: "Clientes interesados",
+    headline: "Descubre la nueva coleccion",
+    primary_text: "Una seleccion pensada para este verano.",
+    description: "Disponible online",
+    call_to_action: "Comprar",
+    destination_url: "https://example.com/coleccion",
+    audience: "Clientes nuevos en Espana",
+    locale: "es-ES",
+    tone: "cercano",
+    creative_notes: [],
+    compliance_notes: [],
+    sources: [],
+    confidence: "high",
+    warnings: [],
+    approval_required: true,
+  });
+
+  assert.equal(result.success, true);
+});
+
 test("el Tool Layer bloquea tools futuras que aún no tienen executor operativo", () => {
   const result = authorizeTool(
     "klaviyo_send_campaign",
@@ -475,10 +502,10 @@ test("identifica las tools futuras sin convertirlas en capacidades ejecutables",
     getUnavailableToolNames([
       "meta_read_ad_accounts",
       "sql_select",
-      "instagram_read_insights",
+      "instagram_schedule_post",
       "tool_inexistente",
     ]),
-    ["meta_read_ad_accounts", "instagram_read_insights"],
+    ["instagram_schedule_post"],
   );
   assert.deepEqual(getUnavailableToolNames(null), []);
 });
@@ -493,6 +520,11 @@ test("el Tool Layer permite únicamente las tools parciales declaradas y autoriz
   });
 
   assert.equal(result.allowed, true);
+});
+
+test("normaliza aliases persistidos de conectores antes de autorizar tools", () => {
+  assert.equal(normalizeToolConnectorId("meta_ads"), "meta");
+  assert.equal(normalizeToolConnectorId("klaviyo"), "klaviyo");
 });
 
 test("data_coverage forma parte del núcleo activo de lectura", () => {
@@ -803,6 +835,21 @@ test("el patch de draft Klaviyo solo permite campos editables y exige uno", () =
     false,
   );
   assert.equal(klaviyoEmailDraftPatchSchema.safeParse({}).success, false);
+});
+
+test("el patch de draft Meta mantiene separados los campos de email", () => {
+  assert.equal(
+    metaAdsDraftPatchSchema.safeParse({
+      headline: "Nuevo titular",
+      destination_url: "https://example.com/coleccion",
+    }).success,
+    true,
+  );
+  assert.equal(
+    metaAdsDraftPatchSchema.safeParse({ subject: "No es un campo Meta" }).success,
+    false,
+  );
+  assert.equal(metaAdsDraftPatchSchema.safeParse({}).success, false);
 });
 
 test("el presupuesto del runtime no depende de Meta ni de otro conector", () => {

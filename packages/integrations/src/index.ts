@@ -9,6 +9,7 @@ export const INTEGRATION_PROVIDERS = [
 ] as const;
 
 export * from "./meta-ad-write-contract.js";
+export * from "./meta-ad-executor.js";
 
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 

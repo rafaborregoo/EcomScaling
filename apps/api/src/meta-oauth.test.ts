@@ -6,7 +6,7 @@ import {
   missingMetaScopes,
   parseMetaScopes,
 } from "./meta-oauth.js";
-import { metaGraphGet, metaGraphGetAll } from "./meta-client.js";
+import { metaGraphGet, metaGraphGetAll, metaGraphPost } from "./meta-client.js";
 
 test("normaliza scopes Meta y detecta permisos ausentes", () => {
   assert.deepEqual(parseMetaScopes("ads_read, business_management, ads_read"), [
@@ -120,6 +120,41 @@ test("la paginaciÃ³n Graph conserva appsecret_proof en paging.next", async () 
         buildAppSecretProof("user-token", "app-secret"),
       );
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("las futuras escrituras Graph reutilizan POST, appsecret_proof y body form", async () => {
+  const originalFetch = globalThis.fetch;
+  let request: Request | undefined;
+  globalThis.fetch = async (input, init) => {
+    request = new Request(input, init);
+    return new Response(JSON.stringify({ id: "campaign-1" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const result = await metaGraphPost(
+      "act_123/campaigns",
+      "user-token",
+      { name: "Draft campaign", status: "PAUSED" },
+      "app-secret",
+    );
+    assert.deepEqual(result, { id: "campaign-1" });
+    assert.equal(request?.method, "POST");
+    assert.equal(
+      new URL(request?.url ?? "https://invalid").searchParams.get(
+        "appsecret_proof",
+      )?.length,
+      64,
+    );
+    assert.equal(
+      await request?.text(),
+      "name=Draft+campaign&status=PAUSED",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
