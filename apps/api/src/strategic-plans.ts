@@ -6,12 +6,34 @@ import {
   requireOperationalOrganization,
 } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { getShopifyMetrics } from "./shopify-metrics.js";
+import { getMetaMetrics } from "./meta-metrics.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  INTEGRATION_FEATURE_FLAGS?: string;
 };
+
+// Catalogo cerrado de objetivos de ecommerce (peticion de Rafa 2026-08-27:
+// "Mi Camino" no es onboarding, es donde consultor y cliente ven progresion
+// de objetivos). Cerrado a proposito -- cada entrada mapea a una metrica que
+// la app YA calcula (shopify-metrics.ts / meta-metrics.ts), asi el objetivo
+// nunca queda "sin dato real": nada de metric_key libre ni pipeline nuevo.
+// direction "up" = mas es mejor, "down" = menos es mejor (CAC, agotados).
+export const OBJECTIVE_CATALOG = [
+  { key: "net_sales", label: "Ingresos netos", unit: "money", direction: "up", source: "shopify" },
+  { key: "net_profit", label: "Beneficio neto", unit: "money", direction: "up", source: "shopify" },
+  { key: "net_margin_pct", label: "Margen neto", unit: "pct", direction: "up", source: "shopify" },
+  { key: "orders_count", label: "Pedidos", unit: "count", direction: "up", source: "shopify" },
+  { key: "aov", label: "Ticket medio (AOV)", unit: "money", direction: "up", source: "shopify" },
+  { key: "roas", label: "ROAS Meta Ads", unit: "ratio", direction: "up", source: "meta" },
+  { key: "cac", label: "CAC Meta Ads", unit: "money", direction: "down", source: "meta" },
+  { key: "out_of_stock_items", label: "Productos agotados", unit: "count", direction: "down", source: "shopify" },
+] as const;
+
+type ObjectiveMetricKey = (typeof OBJECTIVE_CATALOG)[number]["key"];
 
 function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
@@ -85,7 +107,7 @@ export async function getStrategicPlan(
   const { data: plan, error } = await supabase
     .from("strategic_plans")
     .select(
-      "id, name, description, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, created_by, milestone_task_links(task_id, tasks(id, title, status, priority, due_at, category, source, created_by))))",
+      "id, name, description, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, position, status, target_date, completed_at, created_by, milestone_task_links(task_id, tasks(id, title, status, priority, due_at, categories, source, created_by))))",
     )
     .eq("organization_id", organizationId)
     .neq("status", "archived")
@@ -927,6 +949,122 @@ export async function updateMilestone(
   return { ok: true as const, data: { id: data.id } };
 }
 
+function isUuidList(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "string" && item.length > 0)
+  );
+}
+
+/** Reordena las fases de un plan por drag & drop. La funcion SQL aparta las
+ * posiciones y las reasigna en una transaccion para no chocar con el unique
+ * (plan_id, position). */
+export async function reorderPhases(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  planId: string,
+  orderedIds: unknown,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+  if (!isUuidList(orderedIds)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_order" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data: plan } = await supabase
+    .from("strategic_plans")
+    .select("id")
+    .eq("id", planId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (!plan) {
+    return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  }
+
+  const { error } = await supabase.rpc("reorder_strategic_phases", {
+    p_plan_id: planId,
+    p_ordered_ids: orderedIds,
+  });
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "phase_reorder_failed",
+      detail: error.message,
+    };
+  }
+
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.reorder_phases",
+    "strategic_plan",
+    planId,
+    { ordered_ids: orderedIds },
+  );
+  return { ok: true as const, data: { ok: true } };
+}
+
+/** Reordena los hitos de una fase por drag & drop (ver reorderPhases). */
+export async function reorderMilestones(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  phaseId: string,
+  orderedIds: unknown,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+  if (!isUuidList(orderedIds)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_order" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data: phase } = await supabase
+    .from("strategic_plan_phases")
+    .select("id")
+    .eq("id", phaseId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (!phase) {
+    return { ok: false as const, statusCode: 404, error: "phase_not_found" };
+  }
+
+  const { error } = await supabase.rpc("reorder_strategic_milestones", {
+    p_phase_id: phaseId,
+    p_ordered_ids: orderedIds,
+  });
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "milestone_reorder_failed",
+      detail: error.message,
+    };
+  }
+
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.reorder_milestones",
+    "strategic_plan_phase",
+    phaseId,
+    { ordered_ids: orderedIds },
+  );
+  return { ok: true as const, data: { ok: true } };
+}
+
 export async function addMilestoneInternalNote(
   env: ApiEnv,
   context: AuthContext,
@@ -1018,6 +1156,777 @@ export async function addMilestoneInternalNote(
       milestone_id: milestoneId,
     },
   );
+  return { ok: true as const, data: { id: data.id } };
+}
+
+// Lectura separada del arbol principal (comentario en getStrategicPlan):
+// user-scoped para que la RLS de milestone_internal_notes_select_consultants
+// filtre por si sola -- un cliente que llame a esto ve una lista vacia, no un
+// 403, igual que el resto de recursos con RLS de solo-lectura en esta app.
+export async function getMilestoneInternalNotes(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+  milestoneId: string,
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) {
+    return access;
+  }
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data, error } = await supabase
+    .from("milestone_internal_notes")
+    .select("id, body, author_user_id, created_at")
+    .eq("organization_id", organizationId)
+    .eq("milestone_id", milestoneId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "internal_notes_load_failed",
+      detail: error.message,
+    };
+  }
+
+  return { ok: true as const, data: { notes: data ?? [] } };
+}
+
+function isObjectiveMetricKey(value: unknown): value is ObjectiveMetricKey {
+  return OBJECTIVE_CATALOG.some((entry) => entry.key === value);
+}
+
+type ObjectiveCatalogEntry = {
+  key: string;
+  label: string;
+  unit: "money" | "pct" | "count" | "ratio" | "number";
+  direction: "up" | "down";
+  source: "shopify" | "meta" | "manual";
+  // Metrica calculada que alimenta el "actual". Para los built-in y los
+  // tipos custom de plataforma coincide con una key de OBJECTIVE_CATALOG;
+  // para los tipos manuales es null (el valor lo teclea el consultor).
+  metric_key: string | null;
+};
+
+const OBJECTIVE_UNITS = ["money", "pct", "count", "ratio", "number"] as const;
+const OBJECTIVE_DIRECTIONS = ["up", "down"] as const;
+const OBJECTIVE_SOURCES = ["shopify", "meta", "manual"] as const;
+
+function builtinCatalogEntries(): ObjectiveCatalogEntry[] {
+  return OBJECTIVE_CATALOG.map((entry) => ({
+    key: entry.key,
+    label: entry.label,
+    unit: entry.unit as ObjectiveCatalogEntry["unit"],
+    direction: entry.direction as ObjectiveCatalogEntry["direction"],
+    source: entry.source as ObjectiveCatalogEntry["source"],
+    metric_key: entry.key,
+  }));
+}
+
+/**
+ * Catalogo de objetivos aplicable a una organizacion: los 8 built-in
+ * (metricas Shopify/Meta que la app ya calcula) mas los tipos custom que
+ * haya definido su consultor -- ligados a ese cliente (organization_id =
+ * org) o a toda su cartera (organization_id null). Lee con service client:
+ * quien llama ya paso `requireMembership`, y necesitamos ver los tipos
+ * "de cartera" de los consultores asignados sin depender de la RLS del
+ * cliente.
+ */
+async function resolveObjectiveCatalog(
+  env: ApiEnv,
+  organizationId: string,
+): Promise<ObjectiveCatalogEntry[]> {
+  const supabase = createServiceClient(env);
+
+  const { data: assignments } = await supabase
+    .from("consultant_assignments")
+    .select("consultant_user_id")
+    .eq("organization_id", organizationId)
+    .eq("is_active", true);
+
+  const consultantIds = [
+    ...new Set(
+      (assignments ?? []).map((row) => row.consultant_user_id as string),
+    ),
+  ];
+  const consultantList = consultantIds.length
+    ? consultantIds.join(",")
+    : "00000000-0000-0000-0000-000000000000";
+
+  // Tolerante a que la migracion de objective_definitions no este aplicada
+  // todavia (deploy antes que migracion): sin tipos custom, solo los 8 built-in.
+  let defs: Array<Record<string, unknown>> | null = null;
+  try {
+    const result = await supabase
+      .from("objective_definitions")
+      .select("slug, label, unit, direction, source, metric_key")
+      .is("archived_at", null)
+      .or(
+        `organization_id.eq.${organizationId},and(organization_id.is.null,owner_user_id.in.(${consultantList}))`,
+      )
+      .order("created_at", { ascending: true });
+    defs = (result.data as Array<Record<string, unknown>> | null) ?? null;
+  } catch {
+    defs = null;
+  }
+
+  const custom: ObjectiveCatalogEntry[] = (defs ?? []).map((row) => ({
+    key: row.slug as string,
+    label: row.label as string,
+    unit: row.unit as ObjectiveCatalogEntry["unit"],
+    direction: row.direction as ObjectiveCatalogEntry["direction"],
+    source: row.source as ObjectiveCatalogEntry["source"],
+    metric_key: (row.metric_key as string | null) ?? null,
+  }));
+
+  // Built-in primero; si un custom repite slug (no deberia, hay unique), gana el custom.
+  const byKey = new Map<string, ObjectiveCatalogEntry>();
+  for (const entry of builtinCatalogEntries()) byKey.set(entry.key, entry);
+  for (const entry of custom) byKey.set(entry.key, entry);
+  return [...byKey.values()];
+}
+
+/** Objetivo activo + su valor real actual, para el panel de progresion de
+ * Mi Camino. El "actual" siempre son los ultimos 30 dias -- el objetivo
+ * guarda un periodo (mensual/trimestral/anual) pero comparar contra una
+ * ventana fija y conocida es mas util que prorratear un trimestral a ojo.
+ * ponytail: ventana fija de 30d, ajustar por periodo si algun cliente lo pide. */
+export async function getObjectives(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) {
+    return access;
+  }
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data: targets, error } = await supabase
+    .from("organization_metric_targets")
+    .select("id, metric_key, target_value, period, valid_from, created_by")
+    .eq("organization_id", organizationId)
+    .lte("valid_from", today)
+    .or(`valid_until.is.null,valid_until.gte.${today}`)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objectives_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const catalog = await resolveObjectiveCatalog(env, organizationId);
+  const catalogByKey = new Map(catalog.map((entry) => [entry.key, entry]));
+
+  // El valor manual vive en columnas que anade la migracion de
+  // objective_definitions; solo se consultan si hay algun objetivo manual
+  // (lo que implica que la migracion ya corrio), asi Mi Camino no revienta
+  // si el deploy va por delante de la migracion.
+  const manualById = new Map<string, number | null>();
+  if (catalog.some((entry) => entry.source === "manual")) {
+    try {
+      const { data: manualRows } = await supabase
+        .from("organization_metric_targets")
+        .select("id, manual_actual_value")
+        .eq("organization_id", organizationId);
+      for (const row of manualRows ?? []) {
+        manualById.set(
+          row.id as string,
+          row.manual_actual_value === null ||
+            row.manual_actual_value === undefined
+            ? null
+            : Number(row.manual_actual_value),
+        );
+      }
+    } catch {
+      /* columnas aun no migradas: sin actual manual */
+    }
+  }
+
+  const [shopifyResult, metaResult] = await Promise.all([
+    getShopifyMetrics(env, authorization, context, organizationId, "30"),
+    getMetaMetrics(env, authorization, context, organizationId, "30"),
+  ]);
+
+  const actuals: Record<string, number | null> = {};
+  if (shopifyResult.ok) {
+    const data = shopifyResult.data as any;
+    actuals.net_sales = data.sales?.net_sales ?? null;
+    actuals.orders_count = data.sales?.orders_count ?? null;
+    actuals.aov = data.sales?.aov ?? null;
+    actuals.net_profit = data.financial?.net_profit ?? null;
+    actuals.net_margin_pct = data.financial?.net_margin_pct ?? null;
+    actuals.out_of_stock_items = data.stock?.out_of_stock_items ?? null;
+  }
+  if (metaResult.ok) {
+    const data = metaResult.data as any;
+    actuals.roas = data.acquisition?.roas ?? null;
+    actuals.cac = data.acquisition?.cac ?? null;
+  }
+
+  const objectives = (targets ?? [])
+    .filter((target) => catalogByKey.has(target.metric_key as string))
+    .map((target) => {
+      const catalogEntry = catalogByKey.get(target.metric_key as string)!;
+      const actual =
+        catalogEntry.source === "manual"
+          ? (manualById.get(target.id as string) ?? null)
+          : (catalogEntry.metric_key
+              ? actuals[catalogEntry.metric_key]
+              : null) ?? null;
+      const targetValue = Number(target.target_value);
+      let progressPct: number | null = null;
+      if (actual !== null) {
+        if (catalogEntry.direction === "up") {
+          progressPct = targetValue > 0 ? (actual / targetValue) * 100 : 100;
+        } else {
+          progressPct =
+            actual <= targetValue
+              ? 100
+              : targetValue > 0
+                ? (targetValue / actual) * 100
+                : 0;
+        }
+      }
+      return {
+        id: target.id,
+        metric_key: target.metric_key,
+        label: catalogEntry.label,
+        unit: catalogEntry.unit,
+        direction: catalogEntry.direction,
+        source: catalogEntry.source,
+        target_value: targetValue,
+        period: target.period,
+        actual_value: actual,
+        progress_pct: progressPct,
+        status:
+          actual === null
+            ? "sin_datos"
+            : progressPct !== null && progressPct >= 100
+              ? "cumplido"
+              : "en_curso",
+      };
+    });
+
+  return {
+    ok: true as const,
+    data: {
+      objectives,
+      catalog: catalog.map((entry) => ({
+        key: entry.key,
+        label: entry.label,
+        unit: entry.unit,
+        direction: entry.direction,
+        source: entry.source,
+      })),
+    },
+  };
+}
+
+type ObjectiveInput = {
+  metricKey?: string;
+  targetValue?: number;
+  period?: string;
+};
+
+export async function createObjective(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  input: ObjectiveInput,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  // Acepta tanto las 8 metricas built-in como un slug de objective_definitions
+  // aplicable a este cliente (tipo custom del consultor).
+  const catalog = await resolveObjectiveCatalog(env, organizationId);
+  if (
+    typeof input.metricKey !== "string" ||
+    !catalog.some((entry) => entry.key === input.metricKey)
+  ) {
+    return { ok: false as const, statusCode: 400, error: "invalid_metric_key" };
+  }
+  if (
+    typeof input.targetValue !== "number" ||
+    !Number.isFinite(input.targetValue) ||
+    input.targetValue < 0
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_target_value",
+    };
+  }
+  const period = ["monthly", "quarterly", "yearly"].includes(
+    input.period ?? "",
+  )
+    ? (input.period as string)
+    : "monthly";
+
+  const supabase = createServiceClient(env);
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  // Un objetivo nuevo para la misma metrica reemplaza al anterior en vez de
+  // apilarse -- cierra el que estuviera vigente (mismo patron que "editar"
+  // en el resto de configuracion financiera de esta organizacion).
+  await supabase
+    .from("organization_metric_targets")
+    .update({ valid_until: yesterday })
+    .eq("organization_id", organizationId)
+    .eq("metric_key", input.metricKey)
+    .is("valid_until", null);
+
+  const { data, error } = await supabase
+    .from("organization_metric_targets")
+    .insert({
+      organization_id: organizationId,
+      metric_key: input.metricKey,
+      target_value: input.targetValue,
+      period,
+      valid_from: today,
+      created_by: context.user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objective_save_failed",
+      detail: error?.message,
+    };
+  }
+
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.set_objective",
+    "organization_metric_target",
+    data.id,
+    { metric_key: input.metricKey, target_value: input.targetValue, period },
+  );
+
+  return { ok: true as const, data: { id: data.id } };
+}
+
+export async function deactivateObjective(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  targetId: string,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const supabase = createServiceClient(env);
+  // Cerrar en "ayer", no "hoy": getObjectives incluye las filas con
+  // valid_until >= hoy, asi que valid_until = hoy dejaba el objetivo visible
+  // hasta el dia siguiente y "Quitar objetivo" parecia no hacer nada. Mismo
+  // criterio con el que createObjective cierra el objetivo que reemplaza.
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  const { data, error } = await supabase
+    .from("organization_metric_targets")
+    .update({ valid_until: yesterday })
+    .eq("id", targetId)
+    .eq("organization_id", organizationId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objective_deactivate_failed",
+      detail: error.message,
+    };
+  }
+  if (!data) {
+    return { ok: false as const, statusCode: 404, error: "objective_not_found" };
+  }
+
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.remove_objective",
+    "organization_metric_target",
+    data.id,
+  );
+
+  return { ok: true as const, data: { id: data.id } };
+}
+
+/**
+ * Valor real de un objetivo de tipo manual, tecleado desde su card en Mi
+ * Camino (los objetivos de metrica de plataforma calculan el actual solos).
+ * Una sola lectura vigente por objetivo.
+ */
+export async function setObjectiveActual(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  targetId: string,
+  value: unknown,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_actual_value",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase
+    .from("organization_metric_targets")
+    .update({
+      manual_actual_value: value,
+      manual_actual_at: new Date().toISOString(),
+    })
+    .eq("id", targetId)
+    .eq("organization_id", organizationId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objective_actual_save_failed",
+      detail: error.message,
+    };
+  }
+  if (!data) {
+    return { ok: false as const, statusCode: 404, error: "objective_not_found" };
+  }
+
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.set_objective_actual",
+    "organization_metric_target",
+    data.id,
+    { value },
+  );
+
+  return { ok: true as const, data: { id: data.id } };
+}
+
+// --- Tipos de objetivo (objective_definitions): CRUD del consultor --------
+
+function assertConsultant(context: AuthContext) {
+  if (
+    context.profile.platform_role !== "platform_admin" &&
+    context.profile.platform_role !== "consultant"
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "consultant_access_required",
+      message:
+        "Solo un consultor o platform admin puede gestionar tipos de objetivo.",
+    };
+  }
+  return { ok: true as const };
+}
+
+type ObjectiveDefinitionInput = {
+  label?: string;
+  unit?: string;
+  direction?: string;
+  source?: string;
+  metricKey?: string | null;
+  organizationId?: string | null;
+};
+
+export async function listObjectiveDefinitions(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const authz = assertConsultant(context);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data, error } = await supabase
+    .from("objective_definitions")
+    .select(
+      "id, organization_id, slug, label, unit, direction, source, metric_key, created_at",
+    )
+    .eq("owner_user_id", context.user.id)
+    .is("archived_at", null)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objective_definitions_load_failed",
+      detail: error.message,
+    };
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      definitions: data ?? [],
+      builtins: builtinCatalogEntries(),
+    },
+  };
+}
+
+export async function createObjectiveDefinition(
+  env: ApiEnv,
+  context: AuthContext,
+  input: ObjectiveDefinitionInput,
+) {
+  const authz = assertConsultant(context);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const label = (input.label ?? "").trim();
+  if (!label || label.length > 120) {
+    return { ok: false as const, statusCode: 400, error: "invalid_label" };
+  }
+  if (!OBJECTIVE_SOURCES.includes(input.source as never)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_source" };
+  }
+  const source = input.source as (typeof OBJECTIVE_SOURCES)[number];
+
+  let unit = input.unit as string | undefined;
+  let direction = input.direction as string | undefined;
+  let metricKey: string | null = null;
+
+  if (source === "manual") {
+    if (!OBJECTIVE_UNITS.includes(unit as never)) {
+      return { ok: false as const, statusCode: 400, error: "invalid_unit" };
+    }
+    if (!OBJECTIVE_DIRECTIONS.includes(direction as never)) {
+      direction = "up";
+    }
+  } else {
+    // De plataforma: la metrica manda -- unit/direction se toman del built-in
+    // correspondiente para que el "actual" y el objetivo hablen el mismo idioma.
+    if (!isObjectiveMetricKey(input.metricKey)) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_metric_key",
+      };
+    }
+    const builtin = OBJECTIVE_CATALOG.find(
+      (entry) => entry.key === input.metricKey,
+    )!;
+    if (builtin.source !== source) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "metric_source_mismatch",
+      };
+    }
+    metricKey = builtin.key;
+    unit = builtin.unit;
+    direction = builtin.direction;
+  }
+
+  const supabase = createServiceClient(env);
+
+  let organizationId: string | null = null;
+  if (input.organizationId) {
+    // Tipo ligado a un cliente concreto: el consultor debe tenerlo asignado
+    // (platform_admin puede con cualquiera).
+    if (context.profile.platform_role !== "platform_admin") {
+      const { data: assignment } = await supabase
+        .from("consultant_assignments")
+        .select("id")
+        .eq("organization_id", input.organizationId)
+        .eq("consultant_user_id", context.user.id)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!assignment) {
+        return {
+          ok: false as const,
+          statusCode: 403,
+          error: "organization_not_assigned",
+        };
+      }
+    }
+    organizationId = input.organizationId;
+  }
+
+  const slug = `def_${globalThis.crypto.randomUUID().slice(0, 8)}`;
+
+  const { data, error } = await supabase
+    .from("objective_definitions")
+    .insert({
+      owner_user_id: context.user.id,
+      organization_id: organizationId,
+      slug,
+      label,
+      unit,
+      direction,
+      source,
+      metric_key: metricKey,
+    })
+    .select(
+      "id, organization_id, slug, label, unit, direction, source, metric_key, created_at",
+    )
+    .single();
+
+  if (error || !data) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objective_definition_save_failed",
+      detail: error?.message,
+    };
+  }
+
+  return { ok: true as const, data };
+}
+
+export async function updateObjectiveDefinition(
+  env: ApiEnv,
+  context: AuthContext,
+  definitionId: string,
+  input: ObjectiveDefinitionInput,
+) {
+  const authz = assertConsultant(context);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (input.label !== undefined) {
+    const label = input.label.trim();
+    if (!label || label.length > 120) {
+      return { ok: false as const, statusCode: 400, error: "invalid_label" };
+    }
+    patch.label = label;
+  }
+  if (input.unit !== undefined) {
+    if (!OBJECTIVE_UNITS.includes(input.unit as never)) {
+      return { ok: false as const, statusCode: 400, error: "invalid_unit" };
+    }
+    patch.unit = input.unit;
+  }
+  if (input.direction !== undefined) {
+    if (!OBJECTIVE_DIRECTIONS.includes(input.direction as never)) {
+      return { ok: false as const, statusCode: 400, error: "invalid_direction" };
+    }
+    patch.direction = input.direction;
+  }
+  if (Object.keys(patch).length === 0) {
+    return { ok: false as const, statusCode: 400, error: "empty_update" };
+  }
+
+  const supabase = createServiceClient(env);
+  let query = supabase
+    .from("objective_definitions")
+    .update(patch)
+    .eq("id", definitionId);
+  if (context.profile.platform_role !== "platform_admin") {
+    query = query.eq("owner_user_id", context.user.id);
+  }
+  const { data, error } = await query
+    .select(
+      "id, organization_id, slug, label, unit, direction, source, metric_key, created_at",
+    )
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objective_definition_update_failed",
+      detail: error.message,
+    };
+  }
+  if (!data) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "objective_definition_not_found",
+    };
+  }
+
+  return { ok: true as const, data };
+}
+
+export async function archiveObjectiveDefinition(
+  env: ApiEnv,
+  context: AuthContext,
+  definitionId: string,
+) {
+  const authz = assertConsultant(context);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const supabase = createServiceClient(env);
+  let query = supabase
+    .from("objective_definitions")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", definitionId)
+    .is("archived_at", null);
+  if (context.profile.platform_role !== "platform_admin") {
+    query = query.eq("owner_user_id", context.user.id);
+  }
+  const { data, error } = await query.select("id").maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "objective_definition_archive_failed",
+      detail: error.message,
+    };
+  }
+  if (!data) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "objective_definition_not_found",
+    };
+  }
+
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -1187,13 +2096,13 @@ export async function createMilestoneTask(
       organization_id: organizationId,
       source: "strategic_plan",
       priority,
-      category: "general",
+      categories: ["general"],
       title: title.slice(0, 255),
       description: input.description ?? null,
       due_at: input.dueAt ?? null,
       created_by: context.user.id,
     })
-    .select("id, title, status, priority, due_at, category, source")
+    .select("id, title, status, priority, due_at, categories, source")
     .single();
 
   if (taskError || !task) {

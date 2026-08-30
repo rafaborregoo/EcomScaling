@@ -68,6 +68,33 @@ function date(value: unknown): string | null {
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
 }
 
+function nested(value: unknown, path: readonly string[]): unknown {
+  let current = value;
+  for (const key of path) {
+    if (typeof current !== "object" || current === null) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+// Rutas candidatas del asunto dentro de campaign-message.attributes, en el
+// MISMO orden que el coalesce de klaviyo_email_report (migracion
+// 20260829150000). Si ninguna casa, el panel muestra el nombre de la campana y
+// el sync deja un log de diagnostico con la forma real del raw_data (ADR-0006
+// punto 8) para poder ampliar ambos sitios a la vez.
+const KLAVIYO_SUBJECT_PATHS: ReadonlyArray<readonly string[]> = [
+  ["definition", "content", "subject"],
+  ["content", "subject"],
+];
+
+export function extractKlaviyoSubject(rawData: unknown): string | null {
+  for (const path of KLAVIYO_SUBJECT_PATHS) {
+    const found = nested(rawData, path);
+    if (typeof found === "string" && found.trim()) return found;
+  }
+  return null;
+}
+
 async function upsertRows(
   client: ReturnType<typeof serviceClient>,
   table: string,
@@ -83,6 +110,10 @@ export async function runKlaviyoSync(
   env: LoadedApiEnv,
   connectionId: string,
   mode: SyncMode,
+  // Disparo manual desde la UI: ignora la idempotencia (la ventana diaria del
+  // `initial` bloqueaba reintentos el mismo día tras un run que quedó
+  // `succeeded` con fallos). El cron sigue llamando sin `force`.
+  force = false,
 ) {
   if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS))
     throw new Error("klaviyo_integration_disabled");
@@ -114,7 +145,7 @@ export async function runKlaviyoSync(
     .eq("provider", "klaviyo")
     .eq("idempotency_key", idempotencyKey)
     .maybeSingle();
-  if (existingRun?.status === "succeeded") {
+  if (!force && existingRun?.status === "succeeded") {
     return {
       status: "succeeded" as const,
       recordsRead: existingRun.records_read,
@@ -178,13 +209,46 @@ export async function runKlaviyoSync(
         `klaviyo_account_load_failed:${accountLoadError?.message ?? "missing_account"}`,
       );
 
+    // Klaviyo exige un filtro de canal para listar campañas (si no, 400
+    // "A channel filter is required to list campaigns"). Se piden email y sms.
+    const CAMPAIGNS_PATH =
+      "/campaigns?filter=" +
+      encodeURIComponent("any(messages.channel,['email','sms'])");
+
+    // ADR-0006 punto 2 y 8: cada recurso del catálogo se pide por separado y con
+    // su try/catch. Si Klaviyo cambia el contrato de un endpoint (revisión,
+    // filtro obligatorio, forma de respuesta) ese bloque queda vacío esta pasada
+    // y se registra, pero el resto del sync (y la cuenta) siguen.
+    const fetchResource = async (
+      label: string,
+      fetcher: () => Promise<KlaviyoResource[]>,
+    ): Promise<KlaviyoResource[]> => {
+      try {
+        return await fetcher();
+      } catch (error) {
+        console.warn(
+          `klaviyo_resource_skipped:${label}:${
+            error instanceof Error ? error.message : "unknown_error"
+          }`,
+        );
+        return [];
+      }
+    };
+
+    // profile_count no viene por defecto en /lists ni /segments desde hace
+    // varias revisiones: hay que pedirlo con additional-fields o los snapshots
+    // diarios de audiencia quedan a 0.
     const resources = await Promise.all([
-      api.listResources("lists"),
-      api.listResources("segments"),
-      api.listResources("flows"),
-      api.listResources("campaigns"),
-      api.listResources("forms"),
-      api.listResources("metrics"),
+      fetchResource("lists", () =>
+        api.listAll("/lists?additional-fields[list]=profile_count"),
+      ),
+      fetchResource("segments", () =>
+        api.listAll("/segments?additional-fields[segment]=profile_count"),
+      ),
+      fetchResource("flows", () => api.listResources("flows")),
+      fetchResource("campaigns", () => api.listAll(CAMPAIGNS_PATH)),
+      fetchResource("forms", () => api.listResources("forms")),
+      fetchResource("metrics", () => api.listResources("metrics")),
     ]);
     const [lists, segments, flows, campaigns, forms, metrics] = resources;
     await upsertRows(
@@ -279,14 +343,114 @@ export async function runKlaviyoSync(
       "account_id,external_metric_id",
     );
 
+    // Mensajes de campana: traen el ASUNTO real (dentro de raw_data), que el
+    // panel de email y el agente A12 usan para el ranking de asuntos. El
+    // rendimiento sigue siendo a nivel de campana (klaviyo_report_values), asi
+    // que basta con el mensaje de cada campana; los flow-messages se dejan para
+    // cuando haya reporting a nivel de flow-message. Best-effort: si el
+    // endpoint o la forma de la respuesta cambian, se registra y NO se tumba el
+    // resto del sync (que ya funciona).
+    let campaignMessagesWritten = 0;
+    try {
+      const { data: storedCampaigns } = await client
+        .from("klaviyo_campaigns")
+        .select("id, external_campaign_id")
+        .eq("account_id", accountRowStored.id);
+
+      let campaignsWithMessageError = 0;
+      const campaignMessageRows = (
+        await mapWithConcurrency(storedCampaigns ?? [], 3, async (campaign) => {
+          let messages: KlaviyoResource[];
+          try {
+            messages = await api.listAll(
+              `/campaigns/${campaign.external_campaign_id}/campaign-messages`,
+            );
+          } catch {
+            // Una campaña con relación rota no debe perder las de las demás.
+            campaignsWithMessageError += 1;
+            return [];
+          }
+          return messages.map((message) => ({
+            organization_id: connection.organization_id,
+            campaign_id: campaign.id,
+            external_message_id: message.id,
+            channel: text(attrs(message).channel),
+            status: text(attrs(message).status),
+            raw_data: attrs(message),
+          }));
+        })
+      ).flat();
+
+      await upsertRows(
+        client,
+        "klaviyo_campaign_messages",
+        campaignMessageRows,
+        "campaign_id,external_message_id",
+      );
+      campaignMessagesWritten = campaignMessageRows.length;
+      if (campaignsWithMessageError > 0) {
+        console.warn(
+          `klaviyo_campaign_messages_partial:${campaignsWithMessageError}/${
+            storedCampaigns?.length ?? 0
+          } campañas sin mensajes esta pasada`,
+        );
+      }
+
+      // Verificacion del supuesto de la ruta del asunto contra datos reales
+      // (ADR-0006 punto 8). Solo cuentan los mensajes de email; si una parte no
+      // resuelve asunto con las rutas conocidas, se registra la forma real del
+      // primer raw_data sin resolver para poder ampliar KLAVIYO_SUBJECT_PATHS y
+      // el coalesce de la funcion SQL.
+      const emailMessages = campaignMessageRows.filter(
+        (row) => row.channel === "email" || row.channel === null,
+      );
+      const unresolved = emailMessages.filter(
+        (row) => extractKlaviyoSubject(row.raw_data) === null,
+      );
+      if (emailMessages.length > 0 && unresolved.length > 0) {
+        const sample = unresolved[0]?.raw_data;
+        console.warn(
+          `klaviyo_subject_path_unresolved:${unresolved.length}/${emailMessages.length}:` +
+            `keys=${
+              sample && typeof sample === "object"
+                ? Object.keys(sample as Record<string, unknown>).join(",")
+                : typeof sample
+            }:content_keys=${
+              (() => {
+                const content = nested(sample, ["definition", "content"]) ??
+                  nested(sample, ["content"]);
+                return content && typeof content === "object"
+                  ? Object.keys(content as Record<string, unknown>).join(",")
+                  : typeof content;
+              })()
+            }`,
+        );
+      }
+    } catch (error) {
+      // ADR-0006 punto 8: log de diagnostico si un supuesto de la doc del
+      // proveedor no se cumple (endpoint, paginacion, forma de la respuesta).
+      console.warn(
+        `klaviyo_campaign_messages_sync_skipped:${
+          error instanceof Error ? error.message : "unknown_error"
+        }`,
+      );
+    }
+
     const recordsRead =
-      resources.reduce((sum, rows) => sum + rows.length, 0) + 1;
+      resources.reduce((sum, rows) => sum + rows.length, 0) +
+      1 +
+      campaignMessagesWritten;
     await client
       .from("integration_sync_runs")
       .update({
         status: "succeeded",
         records_read: recordsRead,
         records_written: recordsRead,
+        // Limpia el rastro de un intento fallido anterior sobre la misma fila
+        // (mismo idempotency_key): si esta pasada completó, no debe seguir
+        // mostrando el error de la anterior en la UI.
+        records_failed: 0,
+        error_message: null,
         finished_at: now,
       })
       .eq("id", syncRun.id);
@@ -576,11 +740,33 @@ export async function listKlaviyoReports(
 // hablar de tendencias de email. Reporting API admite como maximo un ano por
 // solicitud, asi que el backfill va mes a mes.
 export const KLAVIYO_BACKFILL_MONTHS = 12;
+// Estadisticas de Reporting API que se piden en cada informe campaign/flow. El
+// sync guarda `raw_data.statistics` entero, asi que ampliar esta lista enriquece
+// todos los runs futuros y el backfill sin cambiar el resto del pipe. Nombres
+// validos para campaign-values-report y flow-values-report en la revision
+// 2026-04-15. `conversion_uniques` y `conversion_value` alimentan las columnas
+// `conversions`/`revenue`; el resto vive en `raw_data.statistics` y lo lee la
+// funcion SQL del panel.
 export const KLAVIYO_REPORT_STATISTICS = [
+  "recipients",
+  "delivered",
   "opens",
+  "opens_unique",
+  "open_rate",
   "clicks",
+  "clicks_unique",
+  "click_rate",
+  "click_to_open_rate",
   "conversion_uniques",
   "conversion_value",
+  "conversion_rate",
+  "revenue_per_recipient",
+  "unsubscribes",
+  "unsubscribe_rate",
+  "bounced",
+  "bounce_rate",
+  "spam_complaints",
+  "spam_complaint_rate",
 ];
 const KLAVIYO_REPORT_TYPES = [
   "campaign-values-report",
@@ -617,11 +803,28 @@ function monthPeriod(reference: Date, monthsAgo: number) {
  */
 export function nextKlaviyoBackfillPeriod(
   reference: Date,
-  existing: Array<{ report_type: string; period_start: string }>,
+  existing: Array<{
+    report_type: string;
+    period_start: string;
+    statistics?: unknown;
+  }>,
   months = KLAVIYO_BACKFILL_MONTHS,
+  requiredStatistics: readonly string[] = KLAVIYO_REPORT_STATISTICS,
 ): { type: KlaviyoReportType; periodStart: string; periodEnd: string } | null {
+  // Un mes cuenta como hecho solo si su run cubre TODAS las estadisticas
+  // requeridas. Un run antiguo pedido con menos stats (p. ej. antes de ampliar
+  // KLAVIYO_REPORT_STATISTICS con aperturas/clics/entregabilidad) NO cuenta: se
+  // vuelve a pedir para rellenar el historico. Filas sin el campo `statistics`
+  // (o con una forma inesperada) se consideran hechas -- compatibilidad.
+  const covers = (stats: unknown): boolean => {
+    if (!Array.isArray(stats)) return true;
+    const have = new Set(stats.map(String));
+    return requiredStatistics.every((stat) => have.has(stat));
+  };
   const done = new Set(
-    existing.map((row) => `${row.report_type}:${row.period_start}`),
+    existing
+      .filter((row) => covers(row.statistics))
+      .map((row) => `${row.report_type}:${row.period_start}`),
   );
   for (let monthsAgo = 1; monthsAgo <= months; monthsAgo += 1) {
     const period = monthPeriod(reference, monthsAgo);
@@ -689,7 +892,7 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
       // agotar la cuota de Reporting API ni bloquear el sync reciente.
       const { data: historicRuns } = await client
         .from("klaviyo_report_runs")
-        .select("report_type, period_start")
+        .select("report_type, period_start, statistics")
         .eq("account_id", account.id)
         .eq("status", "succeeded");
       const pending = nextKlaviyoBackfillPeriod(new Date(), historicRuns ?? []);

@@ -54,6 +54,9 @@ const apiEnvSchema = z.object({
   // Runtime de agentes IA (AI-00). Opcional: sin key, los endpoints de IA
   // devuelven 503 y el resto de la plataforma funciona igual.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  // Modelo Anthropic global opcional; permite actualizar el alias sin migrar
+  // agent_versions. AI_MODEL_ROUTING_JSON tiene prioridad por agente.
+  ANTHROPIC_MODEL: z.string().min(1).optional(),
   // Fallback de proveedor LLM (R-020/AI-09): si Anthropic falla de forma no
   // recuperable (error 5xx/overloaded, no un rechazo de contenido), el
   // runtime reintenta el mismo turno con OpenAI. Opcional: sin key, un fallo
@@ -125,6 +128,7 @@ export type LoadedApiEnv = {
   FATHOM_WEBHOOK_SECRET?: string;
   INTEGRATION_FEATURE_FLAGS?: string;
   ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_MODEL?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   AI_MODEL_ROUTING_JSON?: string;
@@ -285,6 +289,7 @@ export function loadApiEnv(
     ...(env.ANTHROPIC_API_KEY
       ? { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY }
       : {}),
+    ...(env.ANTHROPIC_MODEL ? { ANTHROPIC_MODEL: env.ANTHROPIC_MODEL } : {}),
     ...(env.OPENAI_API_KEY ? { OPENAI_API_KEY: env.OPENAI_API_KEY } : {}),
     ...(env.OPENAI_MODEL ? { OPENAI_MODEL: env.OPENAI_MODEL } : {}),
     ...(env.AI_MODEL_ROUTING_JSON

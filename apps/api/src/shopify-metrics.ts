@@ -65,6 +65,9 @@ type ShopifyMetricsData = {
     sales: ShopifyMetricsData["sales"];
     financial: { net_profit: number; net_margin_pct: number };
   } | null;
+  // Serie diaria para los sparklines de las tarjetas KPI. Vacia cuando se pide
+  // "Todo" (no hay ventana acotada) o si el bloque falla (no es fatal).
+  daily: Array<{ date: string; net_sales: number; orders_count: number }>;
 };
 
 function parsePeriodDays(daysInput: string | undefined): number | "all" {
@@ -147,6 +150,7 @@ function emptyMetricsData(
     },
     financial: emptyFinancialData(),
     previous_period: null,
+    daily: [],
   };
 }
 
@@ -227,6 +231,7 @@ export async function getShopifyMetrics(
       financialResult,
       previousSalesResult,
       previousFinancialResult,
+      dailyResult,
     ] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
@@ -274,6 +279,14 @@ export async function getShopifyMetrics(
             target_store_id: storeId,
           })
         : Promise.resolve({ data: null, error: null }),
+      periodStart
+        ? supabase.rpc("shopify_sales_daily", {
+            target_organization_id: organizationId,
+            period_start: periodStart.toISOString(),
+            period_end: periodEnd.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (salesResult.error) {
@@ -304,6 +317,19 @@ export async function getShopifyMetrics(
     if (previousFinancialResult.error) {
       logger.error("shopify_financial_summary_previous_period_failed", { organization_id: organizationId, error: previousFinancialResult.error.message });
     }
+    // No fatal: los sparklines son un adorno de las tarjetas KPI.
+    if (dailyResult.error) {
+      logger.error("shopify_sales_daily_failed", { organization_id: organizationId, error: dailyResult.error.message });
+    }
+
+    type DailyRow = { bucket_date: string; net_sales: number; orders_count: number };
+    const daily = !dailyResult.error && Array.isArray(dailyResult.data)
+      ? (dailyResult.data as DailyRow[]).map((row) => ({
+          date: row.bucket_date,
+          net_sales: Number(row.net_sales) || 0,
+          orders_count: Number(row.orders_count) || 0,
+        }))
+      : [];
 
     const sales = salesResult.data?.[0] ?? {
       orders_count: 0,
@@ -366,6 +392,7 @@ export async function getShopifyMetrics(
       margin,
       financial,
       previous_period: previousPeriod,
+      daily,
     };
 
     await setCached(env.REDIS_URL, cacheKey, data, METRICS_CACHE_TTL_SECONDS);

@@ -13,7 +13,7 @@
 - **Ultima validacion:** 2026-08-24
 - **Dependencias:** BE-07, DB-11, DB-10 (Instagram, bloqueada)
 - **Bloqueador:** Instagram/creatividades Meta bloqueadas por credenciales (igual que DB-06/DB-10).
-- **Decision ya tomada (contradice a este documento, alinear):** la contradiccion que senalaba la
+- **Decision ya tomada:** la contradiccion que senalaba la
   auditoria entre "FE-06 plantea un chat como pagina" y "FE-08 dice que la IA debe estar integrada, no
   ser un chat aparte" **ya esta resuelta en codigo**: existe `apps/web/src/components/copilot-panel.tsx`,
   un panel lateral global (boton flotante, ver `portal-shell.tsx`) — **no** existe ninguna pagina
@@ -44,9 +44,9 @@
   criticos, requieren mas contrato de backend): timeout, fuentes insuficientes, cita eliminada, documento
   procesandose, respuesta parcial, aprobacion caducada.
   - Ranking Instagram y analisis de creatividades Meta: sin empezar, bloqueados por credenciales.
-- **Siguiente accion:** actualizar este documento para describir el copiloto lateral real (no un chat de
-  pagina completa) y aclarar que la diferenciacion visual de tipos de respuesta es un criterio de
-  `AiDiagnosticSection`, no del copiloto conversacional.
+- **Siguiente accion:** validar visualmente en navegador con una sesion autenticada y, cuando existan
+  credenciales externas, ejecutar las pruebas live de Meta/Instagram. No queda pendiente crear una
+  pagina de chat independiente ni duplicar componentes de evidencia.
 
 Activar chat contextual, fuentes, aprobaciones e insights de contenido.
 

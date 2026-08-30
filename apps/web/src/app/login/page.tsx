@@ -3,8 +3,18 @@
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
-import { fetchBootstrap, getAccessToken } from "@/lib/bootstrap";
-import { Button, Card, ErrorBlock, Field, Input, LoadingBlock } from "@/components/ui";
+import {
+  Banner,
+  Button,
+  Card,
+  cn,
+  ErrorBlock,
+  EYEBROW,
+  Field,
+  Heading,
+  Input,
+  LoadingBlock,
+} from "@/components/ui";
 
 // FE-01: antes una sesion expirada (o un signOut forzado por el backend, ej.
 // consultor suspendido en caliente) redirigia aqui en silencio -- el usuario
@@ -48,52 +58,41 @@ function LoginPageContent() {
       return;
     }
 
-    // Consultores y admins aterrizan directamente en su panel de clientes;
-    // los clientes, en el dashboard de su tienda.
-    try {
-      const token = await getAccessToken();
-      const bootstrap = token ? await fetchBootstrap(token) : null;
-      const isConsultant = ["platform_admin", "consultant"].includes(
-        bootstrap?.profile.platform_role ?? "",
-      );
-      router.push(isConsultant ? "/consultor" : "/dashboard");
-    } catch {
-      router.push("/dashboard");
-    } finally {
-      setIsSubmitting(false);
-    }
+    // Todos aterrizan en Dashboard: vista general de la cartera para el
+    // consultor, de la tienda para el cliente.
+    router.push("/dashboard");
+    setIsSubmitting(false);
   }
 
   return (
-    <main className="grid min-h-screen bg-white text-black lg:grid-cols-2">
+    <main className="grid min-h-screen bg-white text-ink lg:grid-cols-2">
       {/* Panel de marca (oculto en móvil) */}
-      <aside className="hidden flex-col justify-between border-r border-line p-10 lg:flex">
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-brand">
-          EcomScaling IA
-        </p>
+      <aside className="hidden flex-col justify-between border-r border-edge p-10 lg:flex">
+        <p className={cn(EYEBROW, "text-brand")}>EcomScaling IA</p>
         <div>
-          <h2 className="font-display text-4xl leading-tight">
+          <Heading level={2} size="lg" className="max-w-xl">
             El centro operativo para escalar tiendas ecommerce.
-          </h2>
+          </Heading>
         </div>
-        <p className="font-mono text-xs text-muted">Acceso para consultores y clientes.</p>
+        <p className="text-xs text-muted">Acceso para consultores y clientes.</p>
       </aside>
 
       {/* Formulario */}
-      <div className="flex items-center justify-center bg-surface px-6 py-12 text-black lg:px-12">
-        <Card className="w-full max-w-md">
-          <p className="font-mono text-xs uppercase tracking-[0.18em] text-brand lg:hidden">
-            EcomScaling IA
-          </p>
-          <h1 className="mt-2 font-display text-3xl lg:mt-0">Inicia sesión</h1>
+      <div className="flex items-center justify-center bg-surface px-6 py-12 text-ink lg:px-12">
+        <Card
+          className="w-full max-w-md"
+          title="Inicia sesión"
+          description="Accede al centro operativo de tu organización."
+        >
+          <p className={cn(EYEBROW, "text-brand lg:hidden")}>EcomScaling IA</p>
 
           {sessionReason && REASON_MESSAGES[sessionReason] ? (
-            <p className="mt-4 rounded-md border border-line bg-warn-tint px-3 py-2 text-sm">
+            <Banner tone="warn" className="mt-4 text-sm">
               {REASON_MESSAGES[sessionReason]}
-            </p>
+            </Banner>
           ) : null}
 
-          <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
+          <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
             <Field label="Email">
               <Input
                 type="email"

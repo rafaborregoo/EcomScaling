@@ -32,14 +32,47 @@ const labels: Record<string, string> = {
   revenue: "Ingresos",
   currency_code: "Moneda",
   timezone: "Zona horaria",
+  timezone_name: "Zona horaria",
+  account_name: "Nombre de cuenta",
+  account_status_code: "Estado de la cuenta",
+  external_ad_account_id: "ID externo de cuenta publicitaria",
+  external_instagram_id: "ID externo de Instagram",
+  external_media_id: "ID externo de publicación",
+  media_type: "Tipo de publicación",
+  metric_name: "Métrica",
+  period_start: "Inicio del periodo",
+  period_end: "Fin del periodo",
+  last_synced_at: "Última sincronización",
+  captured_at: "Fecha de captura",
+  ad_account_id: "Cuenta publicitaria",
+  campaign_id: "Campaña",
+  ad_set_id: "Conjunto de anuncios",
+  ad_id: "Anuncio",
+  is_active: "Activo",
+  is_selected: "Seleccionado",
+  published_at: "Publicado el",
+  permalink: "Enlace permanente",
+  destination_url: "URL de destino",
+  primary_text: "Texto principal",
+  call_to_action: "Llamada a la acción",
+  headline: "Titular",
+  description: "Descripción",
   tracked: "Inventario controlado",
   requires_shipping: "Requiere envio",
   vendor: "Proveedor",
+  campaign_objective: "Objetivo de campaÃ±a",
+  meta_objective: "Objetivo de Meta",
   sku: "SKU",
 };
 
 const values: Record<string, string> = {
   paid: "pagado",
+  active: "activo",
+  draft: "borrador",
+  archived: "archivado",
+  unread: "sin leer",
+  read: "leído",
+  pending_model: "pendiente de modelo",
   pending: "pendiente",
   authorized: "autorizado",
   partially_paid: "parcialmente pagado",
@@ -72,18 +105,30 @@ const values: Record<string, string> = {
   owner: "Propietario",
   manager: "Manager",
   member: "Miembro",
+  image: "imagen",
+  video: "vídeo",
+  reel: "reel",
+  carousel: "carrusel",
+  story: "story",
+  unknown: "sin clasificar",
+  outcome_awareness: "reconocimiento",
+  outcome_traffic: "tr\u00E1fico",
+  outcome_engagement: "interacci\u00F3n",
+  outcome_leads: "clientes potenciales",
+  outcome_app_promotion: "promoci\u00F3n de app",
+  outcome_sales: "ventas",
 };
 
 export function displayLabel(value: string | null | undefined): string {
   if (!value) return "Sin indicar";
   const normalized = value.trim().toLowerCase();
-  return labels[normalized] ?? humanize(normalized);
+  return labels[normalized] ?? humanize(value.trim());
 }
 
 export function displayValue(value: string | null | undefined): string {
   if (!value) return "Sin indicar";
   const normalized = value.trim().toLowerCase();
-  return values[normalized] ?? humanize(normalized);
+  return values[normalized] ?? humanize(value.trim());
 }
 
 export function displayBoolean(value: boolean | null | undefined): string {
@@ -94,6 +139,7 @@ export function displayBoolean(value: boolean | null | undefined): string {
 
 function humanize(value: string): string {
   return value
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
     .replace(/[._-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }

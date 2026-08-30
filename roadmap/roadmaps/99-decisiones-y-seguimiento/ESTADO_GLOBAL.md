@@ -1,5 +1,59 @@
 # Estado global
 
+## Auditoría vigente 2026-08-26
+
+La base de datos está alineada en **75/75 migraciones** y el esquema generado pasa
+`GENERATED_SCHEMA_OK`. La suite IA actualizada pasa **60/60** en contratos, prompts,
+RAG y seguridad; los 10 agentes tienen prompts canónicos completos de nueve secciones.
+La UI usa el catálogo HeroUI compartido, con focus/accessibility gates en verde.
+Las referencias inferiores con 53/53 o 64 migraciones son históricas y no prevalecen
+sobre esta auditoría.
+
+## Incremento vigente 2026-08-26 — Contratos de canal y readiness IA
+
+AI-11 distingue ahora la salida de email Klaviyo de la salida de Meta Ads:
+`metaAdsOutputSchema` valida campaign, ad set, headline, primary text, CTA y
+destination URL, y el workspace renderiza cada canal con su preview adecuado.
+`GET /v1/ai/status` permite informar desde Marketing si faltan credenciales de
+Claude/OpenAI sin exponer secretos. Los iconos de producto están centralizados
+en Font Awesome Free y la superficie HeroUI mantiene sus gates de catálogo y
+accesibilidad.
+
+## Incremento vigente 2026-08-26 — AI-11, workspace de campañas
+
+El módulo de Campañas de marketing permite a owners/managers, consultores y
+platform admins crear, editar, revisar y aprobar borradores. El formulario
+responsive de HeroUI separa tipo de pieza, objetivo, audiencia, oferta,
+tono, CTA e indicaciones libres; `buildMarketingBrief` convierte esos campos
+en un contrato explícito para Claude y marca ausencias para evitar invenciones.
+La migración `20260826183000_ai_11_marketing_workspace_access.sql` extiende RLS
+a owners/managers para lecturas autenticadas de borradores y versiones. No se
+publica ni envía contenido automáticamente.
+
+La revisión del borrador usa Tabs compartidos de HeroUI para alternar entre
+preview aislado, texto plano y HTML; el componente admite paneles reales y
+mantiene overflow horizontal para viewport móvil.
+
+Para Meta Ads, el workspace expone un dry-run autenticado de la jerarquía
+`campaign → adset → creative → ad`. La UI solicita cuenta, nombres y presupuesto,
+presenta el plan como `PAUSED` y no ejecuta ninguna escritura externa hasta que
+existan credenciales, scopes y aprobación.
+
+Cuando Meta esté conectado, el plan reutiliza `/meta/assets` para seleccionar
+una cuenta publicitaria activa y prioriza la marcada por el usuario. Sin
+activos reales muestra fallback manual `act_<id>` y el estado honesto de
+conexión; no crea ni inventa cuentas.
+
+La inspección navegable de login confirmó que el foco de inputs ya no usa el
+outline azul grueso del preset: los campos aplican 1px sin offset, mientras que
+los controles no textuales conservan el foco accesible de 2px. Build web de
+producción: 18 rutas generadas correctamente.
+
+El boundary local de escritura Meta también incluye un executor inyectable:
+requiere aprobación explícita, ejecuta la jerarquía en orden, reanuda con IDs
+existentes y conserva la idempotency key. La operación Graph concreta sigue
+desactivada hasta validar documentación, scopes y credenciales reales.
+
 ## Incremento vigente 2026-08-26 — SQO-02, alerta de SLO cableada
 
 `runOpsHealthCheck` ya consulta `/health/slo` de una instancia real de la API vía `checkHttpSlo`
@@ -12,7 +66,7 @@ API/config/worker pasan.
 
 ## CorrecciÃ³n de evidencia vigente 2026-08-26
 
-La base remota y local estÃ¡n actualmente alineadas en 71 migraciones: no hay
+La base remota y local estÃ¡n actualmente alineadas en 75 migraciones: no hay
 migraciones locales pendientes ni migraciones remotas adicionales. Las 7
 migraciones recientes fueron revisadas, probadas con rollback y aplicadas en
 orden mediante Docker/psql debido al fallo `uv_spawn` de la CLI en Windows.

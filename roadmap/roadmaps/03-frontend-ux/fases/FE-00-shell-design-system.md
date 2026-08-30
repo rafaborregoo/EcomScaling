@@ -189,7 +189,7 @@ cache de bootstrap en memoria, panel del copiloto (A09) como boton flotante glob
 
 `packages/ui` ya no existe. El catalogo vive en `apps/web/src/components/ui/` sobre `@heroui/react`, con
 wrappers propios donde habia comportamiento que preservar (`Button`, `Card`, `Badge`, `Banner`, `Field`,
-`Input`, `Select` (nativo, excepcion documentada), `Textarea`, `LoadingBlock`, `ErrorBlock`, `EmptyState`,
+`Input`, `Select`, `Textarea`, `LoadingBlock`, `ErrorBlock`, `EmptyState`,
 `Tabs`, `Pagination`, `Combobox` (sin cambios de comportamiento, excepcion documentada), `Autocomplete`,
 `ConfirmDialog`, `Checkbox`, `Avatar`, `Breadcrumbs`, `NotificationBadge`) y re-exports directos de HeroUI
 para el resto (`Dropdown`, `Modal`, `Drawer`, `Toast`, `Tooltip`, `ListBox`, etc. -- lista
@@ -209,6 +209,11 @@ por eso (no relacionado con el cambio). El contenido de `answer`/`summary` de lo
 texto libre (los schemas Zod de `packages/ai` no producen datos tabulares fuera de
 `findings`/`recommendations`/`sources`) -- no hay mas superficie tabular real que migrar hoy sin inventar
 estructura donde el modelo solo devuelve texto.
+
+**Ajustes de formularios 2026-08-26:** `Field` utiliza el `Label` oficial de HeroUI y conserva el
+control anidado para una asociacion semantica consistente. `globals.css` mantiene un foco visible fino
+para campos y neutraliza el fondo azul de autofill del navegador sin eliminar el foco de teclado; ambos
+comportamientos se comprobaron visualmente en Login en escritorio y movil `390x844`.
 
 ## Criterios de cierre
 

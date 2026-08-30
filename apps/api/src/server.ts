@@ -18,10 +18,21 @@ import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { apiMetrics } from "./metrics.js";
 import { listAccountActions } from "./actions.js";
 import {
+  addMarketingDraftNote,
   deleteOrganization,
   deleteOrganizationStore,
+  getConsultantOverview,
   getOrganizationAccess,
+  listConsultantCalls,
+  listConsultantIntegrations,
+  listConsultantKnowledge,
+  listConsultantMarketing,
+  listConsultantOperations,
   listConsultantOrganizations,
+  listConsultantPlans,
+  listConsultantStores,
+  listMarketingDraftNotes,
+  listConsultants,
   listOrganizationStores,
   restoreOrganization,
   restoreOrganizationStore,
@@ -75,9 +86,14 @@ import {
   updateMetaAssetSelection,
 } from "./meta.js";
 import {
+  connectKlaviyoWithApiKey,
   createKlaviyoConnectionAuthUrl,
+  getKlaviyoEmailReport,
   handleKlaviyoOAuthCallback,
+  importKlaviyoTemplate,
   listKlaviyoConversionMetrics,
+  listKlaviyoTemplates,
+  previewKlaviyoTemplate,
   selectKlaviyoConversionMetric,
   triggerKlaviyoSync,
 } from "./klaviyo.js";
@@ -96,6 +112,7 @@ import {
 import {
   decideAgentOutput,
   getConsultantChatMessages,
+  getEmailAnalystDiagnostic,
   getMonitorDiagnostic,
   getKnowledgeManagerDiagnostic,
   getStockPlannerDiagnostic,
@@ -108,9 +125,13 @@ import {
   updateMarketingContentDraft,
   decideMarketingContentDraft,
   runMarketingContentDraft,
+  saveManualMarketingDraft,
+  submitMarketingContentDraft,
+  uploadMarketingAsset,
   listConsultantChatConversations,
   runCallAnalyst,
   runConsultantChatTurn,
+  runEmailAnalystAgent,
   runKnowledgeManagerAgent,
   runMonitorAgent,
   runStockPlannerAgent,
@@ -140,12 +161,23 @@ import {
 import {
   activateStrategicPlan,
   addMilestoneInternalNote,
+  getMilestoneInternalNotes,
+  getObjectives,
+  createObjective,
+  deactivateObjective,
+  setObjectiveActual,
+  listObjectiveDefinitions,
+  createObjectiveDefinition,
+  updateObjectiveDefinition,
+  archiveObjectiveDefinition,
   createMilestone,
   createMilestoneTask,
   createPhase,
   createStrategicPlan,
   getStrategicPlan,
   linkTaskToMilestone,
+  reorderMilestones,
+  reorderPhases,
   updateMilestone,
   updateMilestoneStatus,
   updatePhase,
@@ -637,6 +669,272 @@ export async function buildApp(): Promise<FastifyInstance> {
       authorization,
       auth.context,
     );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get<{ Querystring: { days?: string } }>(
+    "/v1/consultant/overview",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getConsultantOverview(
+        env,
+        authorization,
+        auth.context,
+        Number(request.query.days ?? "30"),
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get("/v1/consultant/marketing", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantMarketing(
+      env,
+      authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get<{ Params: { organizationId: string; draftId: string } }>(
+    "/v1/organizations/:organizationId/marketing/drafts/:draftId/notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listMarketingDraftNotes(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.params.draftId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; draftId: string };
+    Body: { body?: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/drafts/:draftId/notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await addMarketingDraftNote(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.draftId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.get("/v1/consultant/knowledge", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantKnowledge(
+      env,
+      authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get("/v1/consultant/stores", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantStores(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get("/v1/consultant/integrations", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantIntegrations(
+      env,
+      authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get("/v1/consultant/calls", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantCalls(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get("/v1/consultant/plans", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantPlans(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get("/v1/consultant/operations", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantOperations(
+      env,
+      authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get("/v1/admin/consultants", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await listConsultants(env, auth.context);
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
@@ -1461,6 +1759,85 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.post<{
+    Params: { organizationId: string };
+    Body: { apiKey?: string };
+  }>(
+    "/v1/organizations/:organizationId/integrations/klaviyo/connect-api-key",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const apiKey = request.body?.apiKey;
+      if (typeof apiKey !== "string" || !apiKey.trim()) {
+        return reply.code(400).send({ error: "missing_klaviyo_api_key" });
+      }
+      const result = await connectKlaviyoWithApiKey(
+        env,
+        auth.context,
+        request.params.organizationId,
+        apiKey,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/klaviyo/templates",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listKlaviyoTemplates(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string; templateId: string };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/templates/:templateId/preview",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await previewKlaviyoTemplate(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.templateId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { templateId?: string };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/templates/import",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const templateId = request.body?.templateId;
+      if (typeof templateId !== "string" || !templateId.trim()) {
+        return reply.code(400).send({ error: "missing_template_id" });
+      }
+      const result = await importKlaviyoTemplate(
+        env,
+        auth.context,
+        request.params.organizationId,
+        templateId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
   app.get<{ Params: { organizationId: string } }>(
     "/v1/organizations/:organizationId/klaviyo/metrics",
     async (request, reply) => {
@@ -1470,6 +1847,25 @@ export async function buildApp(): Promise<FastifyInstance> {
         env,
         auth.context,
         request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { days?: string };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/email-report",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await getKlaviyoEmailReport(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.days,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
@@ -2082,6 +2478,62 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.patch<{
+    Params: { organizationId: string; planId: string };
+    Body: { orderedIds?: string[] };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/:planId/phases/reorder",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await reorderPhases(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.planId,
+        request.body?.orderedIds,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; phaseId: string };
+    Body: { orderedIds?: string[] };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/phases/:phaseId/milestones/reorder",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await reorderMilestones(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.phaseId,
+        request.body?.orderedIds,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
   app.post<{
     Params: { organizationId: string; phaseId: string };
     Body: {
@@ -2170,6 +2622,36 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.get<{ Params: { organizationId: string; milestoneId: string } }>(
+    "/v1/organizations/:organizationId/milestones/:milestoneId/internal-notes",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getMilestoneInternalNotes(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.params.milestoneId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
   app.post<{
     Params: { organizationId: string; milestoneId: string };
     Body: { body?: string };
@@ -2195,6 +2677,217 @@ export async function buildApp(): Promise<FastifyInstance> {
       }
 
       return reply.code(201).send(result.data);
+    },
+  );
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/objectives",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getObjectives(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { metricKey?: string; targetValue?: number; period?: string };
+  }>(
+    "/v1/organizations/:organizationId/objectives",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await createObjective(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; targetId: string } }>(
+    "/v1/organizations/:organizationId/objectives/:targetId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await deactivateObjective(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.targetId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; targetId: string };
+    Body: { value?: number };
+  }>(
+    "/v1/organizations/:organizationId/objectives/:targetId/actual",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await setObjectiveActual(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.targetId,
+        request.body?.value,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  // Tipos de objetivo (catalogo editable del consultor) --------------------
+  app.get("/v1/consultant/objective-definitions", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+    if (!request.headers.authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listObjectiveDefinitions(
+      env,
+      request.headers.authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.post<{
+    Body: {
+      label?: string;
+      unit?: string;
+      direction?: string;
+      source?: string;
+      metricKey?: string | null;
+      organizationId?: string | null;
+    };
+  }>("/v1/consultant/objective-definitions", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await createObjectiveDefinition(
+      env,
+      auth.context,
+      request.body ?? {},
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return reply.code(201).send(result.data);
+  });
+
+  app.patch<{
+    Params: { definitionId: string };
+    Body: { label?: string; unit?: string; direction?: string };
+  }>(
+    "/v1/consultant/objective-definitions/:definitionId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await updateObjectiveDefinition(
+        env,
+        auth.context,
+        request.params.definitionId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { definitionId: string } }>(
+    "/v1/consultant/objective-definitions/:definitionId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await archiveObjectiveDefinition(
+        env,
+        auth.context,
+        request.params.definitionId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
     },
   );
 
@@ -2548,6 +3241,54 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // AI (A12): analista de email marketing (Klaviyo), mismo patron read-only.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/ai/email-analyst",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await getEmailAnalystDiagnostic(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/ai/email-analyst-run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await runEmailAnalystAgent(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
   app.get<{ Params: { organizationId: string } }>(
     "/v1/organizations/:organizationId/ai/budget",
     async (request, reply) => {
@@ -2692,6 +3433,43 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Guardar una plantilla del editor visual como borrador (sin IA).
+  app.post<{ Params: { organizationId: string }; Body: Record<string, unknown> }>(
+    "/v1/organizations/:organizationId/marketing/drafts/manual",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await saveManualMarketingDraft(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // Subir una imagen (base64) desde el ordenador para un bloque del editor.
+  app.post<{ Params: { organizationId: string }; Body: Record<string, unknown> }>(
+    "/v1/organizations/:organizationId/marketing/assets",
+    { bodyLimit: 8 * 1024 * 1024 },
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await uploadMarketingAsset(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
   app.get<{ Params: { organizationId: string } }>(
     "/v1/organizations/:organizationId/marketing/drafts",
     async (request, reply) => {
@@ -2751,6 +3529,25 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.organizationId,
         request.params.draftId,
         request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; draftId: string };
+  }>(
+    "/v1/organizations/:organizationId/marketing/drafts/:draftId/submit",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await submitMarketingContentDraft(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.draftId,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;

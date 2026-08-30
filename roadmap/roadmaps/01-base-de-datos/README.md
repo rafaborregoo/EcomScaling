@@ -1,6 +1,6 @@
 # Roadmap operativo - Base de datos
 
-> **Verificación vigente 2026-08-24:** `supabase migration list --linked` devuelve 64/64 migraciones
+> **Verificación vigente 2026-08-26:** `supabase migration list --linked` devuelve 75/75 migraciones
 > locales/remotas coincidentes; `supabase db push --linked --dry-run` informa que la base remota está al
 > día; y `node scripts/regenerate-generated-schema.mjs --check` pasa. La comprobación fue de lectura y
 > no modificó datos ni metadatos de producción.
@@ -55,15 +55,15 @@ para regenerarlo y `node scripts/regenerate-generated-schema.mjs --check` para d
 | DB-10 | `fases/DB-10-instagram.md`                | F14              | Instagram, media, insights y ganadores manuales.                                              |
 | DB-11 | `fases/DB-11-rag-consultor-ia.md`         | F13              | Knowledge, chunks, conversaciones, mensajes, pgvector y auditoria IA avanzada.                |
 
-## Checklist permanente — estado real (2026-07-20)
+## Checklist permanente — estado real (2026-08-26)
 
 Un checklist con casillas vacias no dice nada por si mismo; esto es lo que hay evidencia real de hoy,
-agregado sobre las fases con migracion aplicada (DB-00 a DB-08, DB-11). Detalle completo por fase en
-la seccion "Estado" de cada `fases/DB-XX-*.md`.
+agregado sobre las fases con migracion aplicada (DB-00 a DB-11 y ampliaciones operativas/IA). Detalle completo por fase en
+  la seccion "Estado" de cada `fases/DB-XX-*.md`.
 
 | Item                                                        | Estado real                            | Evidencia / gap                                                                                                                                                                                                            |
 | ----------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Migracion aplicable desde cero                              | Cumplido                               | 64/64 migraciones locales = remotas (`supabase migration list`, verificación vigente 2026-08-24).                                                                                                                          |
+| Migracion aplicable desde cero                              | Cumplido                               | 75/75 migraciones locales = remotas (`supabase migration list`, verificación vigente 2026-08-26).                                                                                                                          |
 | Constraints de integridad multi-tenant                      | Parcial                                | Triggers reales existen (`enforce_task_alert_same_org` en DB-07), pero no estan cubiertos por tests automatizados en todos los dominios.                                                                                   |
 | RLS activada en tablas expuestas                            | Cumplido                               | Confirmado por `rls-tenant-isolation.test.ts` (11/11) para las tablas cubiertas; sin verificar en RPC/vistas/Storage.                                                                                                      |
 | Grants revisados para `anon`/`authenticated`/`service_role` | Sin evidencia                          | No hay un test que verifique privilegios de schema (ver DB-00).                                                                                                                                                            |

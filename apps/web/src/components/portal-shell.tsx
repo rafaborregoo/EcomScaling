@@ -18,18 +18,30 @@ import {
   Breadcrumbs,
   Button,
   CloseIcon,
-  Combobox,
+  CompassIcon,
   ConfirmDialog,
+  DotGridIcon,
+  EmptyState,
   ErrorBlock,
+  HomeIcon,
   IconChevronRight,
   Link,
   LoadingBlock,
   MenuIcon,
+  PhoneIcon,
+  Select,
+  TasksIcon,
+  UsersIcon,
 } from "@/components/ui";
 import {
   ACTIVE_ORGANIZATION_STORAGE_KEY,
   ActiveOrganizationContext,
 } from "@/components/active-organization";
+import {
+  ADMIN_VIEW_MODE_STORAGE_KEY,
+  AdminViewModeContext,
+  type AdminViewMode,
+} from "@/components/admin-view-mode";
 import {
   ACTIVE_CONNECTION_STORAGE_KEY,
   ActiveConnectionContext,
@@ -46,58 +58,88 @@ type PortalShellProps = {
 type NavItem = { href: string; label: string };
 type NavGroup = { label: string; items: NavItem[] };
 
-// Navegacion por rol. Para consultores/admins el portal ES el panel de
-// consultor: "Clientes" va primero y el resto de secciones operan sobre el
-// cliente activo. Para clientes, la navegacion es su propia operacion.
+// Valores centinela para las opciones "Vista general" (cliente) y "Todas las
+// tiendas" de los selectores del header (el control no admite key vacia).
+const GENERAL_VIEW_KEY = "__all__";
+const ALL_STORES_KEY = "__all_stores__";
+
+// Rutas que operan sobre un cliente concreto y todavia NO tienen estado de
+// "vista general" propio: en vista general (sin cliente activo) muestran un
+// aviso para elegir uno. Dashboard ya tiene su propia vista general, por eso
+// no esta aqui. Segun cada modulo gane su parte general, sale de esta lista.
+const ORG_SCOPED_PREFIXES = ["/agentes", "/configuracion"];
+
+// Nav del consultor: lista plana, sin etiquetas de grupo. Dashboard y Clientes
+// primero (es por donde se empieza); el resto es lo que opera sobre el cliente
+// activo. "Ejecuciones IA" (/agentes) sigue fuera del nav. Configuración vive
+// al fondo (settingsNavItem).
 const consultantNavGroups: NavGroup[] = [
   {
-    label: "Consultoría",
-    items: [
-      { href: "/consultor", label: "Clientes" },
-      { href: "/agentes", label: "Ejecuciones IA" },
-      { href: "/marketing", label: "Marketing IA" },
-    ],
-  },
-  {
-    label: "Cliente activo",
+    label: "",
     items: [
       { href: "/dashboard", label: "Dashboard" },
-      { href: "/tareas", label: "Tareas" },
+      { href: "/tiendas", label: "Tiendas" },
+      { href: "/consultor", label: "Clientes" },
       { href: "/camino", label: "Mi Camino" },
+      { href: "/tareas", label: "Tareas" },
       { href: "/llamadas", label: "Llamadas" },
-    ],
-  },
-  {
-    label: "Datos del cliente",
-    items: [
+      { href: "/marketing", label: "Marketing" },
       { href: "/integraciones", label: "Integraciones" },
       { href: "/shopify", label: "Shopify" },
       { href: "/conocimiento", label: "Conocimiento" },
-      { href: "/configuracion", label: "Configuración" },
     ],
   },
 ];
 
-const clientNavGroups: NavGroup[] = [
+// Configuración vive al fondo del nav, junto a la cuenta (convención de
+// paneles minimalistas), no dentro de un grupo.
+const settingsNavItem: NavItem = { href: "/configuracion", label: "Configuración" };
+
+// Vista platform_admin: operacion de plataforma, no de clientes. Solo Rafa la
+// usa. Conocimiento / dashboard / integraciones etc. son del consultor, no de
+// aqui.
+const platformAdminNavGroups: NavGroup[] = [
   {
-    label: "Operación",
+    label: "Plataforma",
     items: [
-      { href: "/dashboard", label: "Dashboard" },
-      { href: "/tareas", label: "Tareas" },
-      { href: "/camino", label: "Mi Camino" },
-      { href: "/llamadas", label: "Llamadas" },
-    ],
-  },
-  {
-    label: "Datos y ajustes",
-    items: [
-      { href: "/integraciones", label: "Integraciones" },
-      { href: "/shopify", label: "Shopify" },
-      { href: "/conocimiento", label: "Conocimiento" },
-      { href: "/configuracion", label: "Configuración" },
+      { href: "/admin/consultores", label: "Consultores" },
+      { href: "/admin/observabilidad", label: "Observabilidad" },
+      { href: "/admin/logs", label: "Logs de errores" },
+      { href: "/admin/facturacion", label: "Facturación" },
     ],
   },
 ];
+
+// Nav del cliente final: misma lista plana que el consultor pero sin "Clientes"
+// (solo tiene la suya). Sin selector de cliente ni "vista general".
+const clientNavGroups: NavGroup[] = [
+  {
+    label: "",
+    items: [
+      { href: "/dashboard", label: "Dashboard" },
+      { href: "/camino", label: "Mi Camino" },
+      { href: "/tareas", label: "Tareas" },
+      { href: "/llamadas", label: "Llamadas" },
+      { href: "/marketing", label: "Marketing" },
+      { href: "/integraciones", label: "Integraciones" },
+      { href: "/shopify", label: "Shopify" },
+      { href: "/conocimiento", label: "Conocimiento" },
+    ],
+  },
+];
+
+// Iconos para la barra de navegacion inferior en movil (las 4 primeras rutas
+// del nav del rol + "Mas"). Sin icono -> icono generico.
+const NAV_ICONS: Record<
+  string,
+  (props: { className?: string; "aria-hidden"?: boolean }) => ReactNode
+> = {
+  "/dashboard": HomeIcon,
+  "/consultor": UsersIcon,
+  "/camino": CompassIcon,
+  "/tareas": TasksIcon,
+  "/llamadas": PhoneIcon,
+};
 
 function formatRole(role: string) {
   return role.replaceAll("_", " ");
@@ -300,15 +342,25 @@ function PortalShellContent({
     if (!bootstrapCache) {
       return organizationIdFromUrl ?? "";
     }
-    const validIds = bootstrapCache.bootstrap.memberships.map(
+    const { memberships, profile } = bootstrapCache.bootstrap;
+    const validIds = memberships.map(
       (membership) => membership.organization_id,
     );
     if (organizationIdFromUrl && validIds.includes(organizationIdFromUrl)) {
       return organizationIdFromUrl;
     }
     const stored = window.localStorage.getItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
-    return stored && validIds.includes(stored) ? stored : (validIds[0] ?? "");
+    if (stored && validIds.includes(stored)) {
+      return stored;
+    }
+    // Un consultor/admin arranca en "vista general" (sin cliente activo). Un
+    // cliente normal, que tiene una sola organizacion, arranca en la suya.
+    const isConsultantRole = ["platform_admin", "consultant"].includes(
+      profile.platform_role,
+    );
+    return isConsultantRole ? "" : (validIds[0] ?? "");
   });
+  const [adminViewMode, setAdminViewMode] = useState<AdminViewMode>("admin");
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [shopifyConnections, setShopifyConnections] = useState<
@@ -320,6 +372,21 @@ function PortalShellContent({
   useEffect(() => {
     setIsMobileNavOpen(false);
   }, [pathname]);
+
+  // Vista activa de platform_admin (persistida en localStorage). Se lee en un
+  // efecto para no arriesgar un mismatch de hidratación con el valor por
+  // defecto del render en servidor.
+  useEffect(() => {
+    const stored = window.localStorage.getItem(ADMIN_VIEW_MODE_STORAGE_KEY);
+    if (stored === "admin" || stored === "consultant") {
+      setAdminViewMode(stored);
+    }
+  }, []);
+
+  function selectAdminViewMode(mode: AdminViewMode) {
+    setAdminViewMode(mode);
+    window.localStorage.setItem(ADMIN_VIEW_MODE_STORAGE_KEY, mode);
+  }
 
   // WCAG 2.4.2 (Page Titled): antes todas las paginas compartian el mismo
   // <title>"EcomScaling IA" del layout raiz (los componentes de pagina son
@@ -382,9 +449,9 @@ function PortalShellContent({
         }
 
         const stored = readConnectionMap()[activeOrganizationId];
-        return stored && validIds.includes(stored)
-          ? stored
-          : (payload.selected_connection_id ?? validIds[0] ?? "");
+        // Por defecto: "" = todas las tiendas del cliente agregadas. Se elige
+        // una tienda concreta para el dashboard de esa tienda.
+        return stored && validIds.includes(stored) ? stored : "";
       });
     }
 
@@ -400,10 +467,12 @@ function PortalShellContent({
     if (activeOrganizationId) {
       writeConnectionMap(activeOrganizationId, connectionId);
     }
-    updateUrlParams({ connectionId });
+    updateUrlParams({ connectionId: connectionId || undefined });
   }
 
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
       try {
         // FE-01: si ya habia una sesion guardada (aunque `getAccessToken`
@@ -424,6 +493,9 @@ function PortalShellContent({
 
         const payload = await fetchBootstrap(accessToken);
         const accountActions = await fetchAccountActions(accessToken);
+        if (cancelled) {
+          return;
+        }
         setToken(accessToken);
         setBootstrap(payload);
         setActions(accountActions);
@@ -436,12 +508,16 @@ function PortalShellContent({
         // Organización activa global: la URL (?organizationId=...) gana sobre
         // todo -- es la fuente primaria (R-009). Si no hay URL valida, la que
         // ya estaba activa (remontaje via cache), si no la ultima elegida en
-        // localStorage, si no la primera membership.
+        // localStorage. Un consultor/admin sin nada de eso queda en "vista
+        // general" (""); un cliente normal cae en su unica organizacion.
         const stored = window.localStorage.getItem(
           ACTIVE_ORGANIZATION_STORAGE_KEY,
         );
         const validIds = payload.memberships.map(
           (membership) => membership.organization_id,
+        );
+        const isConsultantRole = ["platform_admin", "consultant"].includes(
+          payload.profile.platform_role,
         );
         setActiveOrganizationId((current) => {
           if (
@@ -453,34 +529,56 @@ function PortalShellContent({
           if (current && validIds.includes(current)) {
             return current;
           }
-          return stored && validIds.includes(stored)
-            ? stored
-            : (validIds[0] ?? "");
+          if (stored && validIds.includes(stored)) {
+            return stored;
+          }
+          return isConsultantRole ? "" : (validIds[0] ?? "");
         });
       } catch (loadError) {
+        // React Strict Mode (dev) monta este efecto dos veces: la primera
+        // peticion queda cancelada por el remount y llega aqui como
+        // AbortError ("The user aborted a request.") sin ser un fallo real
+        // -- el segundo montaje ya la reintenta. Ignorarla evita pintar ese
+        // mensaje crudo del navegador como si la cuenta no hubiera cargado.
+        if (cancelled || (loadError instanceof DOMException && loadError.name === "AbortError")) {
+          return;
+        }
         setError(
           loadError instanceof Error
             ? loadError.message
             : "Error cargando la cuenta",
         );
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     void load();
+    return () => {
+      cancelled = true;
+    };
   }, [organizationIdFromUrl, router]);
 
   function selectOrganization(organizationId: string) {
     setActiveOrganizationId(organizationId);
-    window.localStorage.setItem(
-      ACTIVE_ORGANIZATION_STORAGE_KEY,
-      organizationId,
-    );
+    if (organizationId) {
+      window.localStorage.setItem(
+        ACTIVE_ORGANIZATION_STORAGE_KEY,
+        organizationId,
+      );
+    } else {
+      // Vista general: sin cliente activo guardado.
+      window.localStorage.removeItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
+    }
     // La tienda activa es especifica de cada organizacion; se recalcula en
     // cuanto llega la lista de tiendas de la nueva organizacion.
     setActiveConnectionId("");
-    updateUrlParams({ organizationId, connectionId: undefined });
+    updateUrlParams({
+      organizationId: organizationId || undefined,
+      connectionId: undefined,
+    });
   }
 
   async function signOut() {
@@ -508,55 +606,109 @@ function PortalShellContent({
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
-  const visibleGroups = isConsultant ? consultantNavGroups : clientNavGroups;
+  const isPlatformAdmin = bootstrap.profile.platform_role === "platform_admin";
+  const inPlatformAdminView = isPlatformAdmin && adminViewMode === "admin";
+  // Consultor en vista general (sin cliente activo) sobre una ruta que necesita
+  // un cliente concreto: se muestra un aviso en vez del contenido de la pagina.
+  const needsClientForRoute =
+    isConsultant &&
+    !inPlatformAdminView &&
+    !activeOrganizationId &&
+    ORG_SCOPED_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    );
+  const visibleGroups = inPlatformAdminView
+    ? platformAdminNavGroups
+    : isConsultant
+      ? consultantNavGroups
+      : clientNavGroups;
+
+  const navRowClass = (active: boolean) =>
+    [
+      "flex items-center px-2 py-1.5 text-[0.8125rem] no-underline transition-colors hover:no-underline active:no-underline",
+      active
+        ? "font-medium text-brand"
+        : "text-muted hover:text-black",
+    ].join(" ");
+
+  const navGroupLabelClass =
+    "px-2 text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted";
 
   const navigation = (
-    <nav className="grid gap-5" aria-label="Navegacion principal">
+    <nav className="grid gap-6" aria-label="Navegacion principal">
+      {isPlatformAdmin ? (
+        <div className="grid gap-1.5">
+          <p className={navGroupLabelClass}>Vista</p>
+          <Select
+            className="w-full"
+            aria-label="Cambiar vista"
+            value={adminViewMode}
+            onChange={(value) => selectAdminViewMode(value as AdminViewMode)}
+            options={[
+              { value: "admin", label: "Platform admin" },
+              { value: "consultant", label: "Consultor" },
+            ]}
+          />
+        </div>
+      ) : null}
       {visibleGroups.map((group) => (
         <div key={group.label}>
-          <p className="px-3 font-mono text-[0.65rem] uppercase tracking-wider text-muted">
-            {group.label}
-          </p>
-          <div className="mt-2 grid gap-0.5">
-            {group.items.map((item) => {
-              const active = pathname === item.href;
-
-              return (
-                <Link
-                  key={item.href}
-                  aria-current={active ? "page" : undefined}
-                  className={[
-                    "flex min-h-10 items-center border-l-2 px-3 py-2 text-sm transition",
-                    active
-                      ? "border-brand bg-brand-tint font-medium text-black"
-                      : "border-transparent text-muted hover:bg-surface hover:text-black",
-                  ].join(" ")}
-                  href={item.href}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
+          {group.label ? (
+            <p className={navGroupLabelClass}>{group.label}</p>
+          ) : null}
+          <div className="mt-1.5 grid gap-px">
+            {group.items.map((item) => (
+              <Link
+                key={item.href}
+                aria-current={pathname === item.href ? "page" : undefined}
+                className={navRowClass(pathname === item.href)}
+                href={item.href}
+              >
+                {item.label}
+              </Link>
+            ))}
           </div>
         </div>
       ))}
+      {!inPlatformAdminView ? (
+        <div className="border-t border-edge pt-4">
+          <Link
+            aria-current={
+              pathname === settingsNavItem.href ? "page" : undefined
+            }
+            className={navRowClass(pathname === settingsNavItem.href)}
+            href={settingsNavItem.href}
+          >
+            {settingsNavItem.label}
+          </Link>
+        </div>
+      ) : null}
     </nav>
   );
 
   const accountBlock = (
-    <div className="border-t border-line pt-5 text-sm text-muted">
-      <div className="flex items-center gap-3">
+    <div className="border-t border-edge pt-4 text-sm text-muted">
+      <div className="flex items-center gap-2.5 px-2">
         <Avatar
           name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"}
           size="sm"
           color="accent"
         />
         <div className="min-w-0">
-          <p className="truncate text-black">
+          <p className="truncate text-[0.8125rem] text-black">
             {bootstrap.profile.full_name ?? bootstrap.user.email}
           </p>
-          <p className="mt-0.5 font-mono text-xs text-brand">
-            {formatRole(bootstrap.profile.platform_role)}
+          {/* Para consultor/admin el rol es informativo; para un cliente final
+            "user" no dice nada -- se muestra su organizacion. */}
+          <p className="truncate text-xs text-muted">
+            {isConsultant
+              ? formatRole(bootstrap.profile.platform_role)
+              : (bootstrap.memberships.find(
+                  (membership) =>
+                    membership.organization_id === activeOrganizationId,
+                )?.organization?.display_name ??
+                bootstrap.memberships[0]?.organization?.display_name ??
+                "")}
           </p>
         </div>
       </div>
@@ -564,7 +716,7 @@ function PortalShellContent({
         trigger={
           <Button
             variant="secondary"
-            className="mt-4 flex min-h-10 w-full items-center border border-edge px-3 py-2 text-left text-sm text-black transition hover:border-brand hover:text-brand"
+            className="mt-1.5 flex w-full items-center border-0 bg-transparent px-2 py-1.5 text-left text-[0.8125rem] text-muted transition-colors hover:text-black"
           >
             Cerrar sesión
           </Button>
@@ -578,6 +730,82 @@ function PortalShellContent({
     </div>
   );
 
+  // Barra inferior movil: las 4 primeras rutas del nav del rol + "Mas".
+  const bottomNavItems = visibleGroups.flatMap((group) => group.items).slice(0, 4);
+
+  // Selector de cliente / tienda: se muestra en la barra superior en desktop y
+  // en una fila propia en movil. Mismo contenido en ambos sitios.
+  const showClientSelect =
+    !inPlatformAdminView &&
+    (isConsultant
+      ? bootstrap.memberships.length >= 1
+      : bootstrap.memberships.length >= 2);
+  const showStoreSelect =
+    Boolean(activeOrganizationId) && shopifyConnections.length >= 2;
+
+  // Un consultor puede tener tiendas propias (membership real) ademas de las de
+  // su cartera (consultant_assignment). Solo cuando tiene de las dos clases se
+  // agrupan bajo encabezados; si no, la lista va plana como siempre.
+  const ownMemberships = bootstrap.memberships.filter(
+    (membership) => membership.accessSource === "membership",
+  );
+  const groupClientSelect =
+    isConsultant &&
+    ownMemberships.length > 0 &&
+    ownMemberships.length < bootstrap.memberships.length;
+  const clientSelectOptions = [
+    ...(isConsultant
+      ? [{ value: GENERAL_VIEW_KEY, label: "Vista general" }]
+      : []),
+    ...bootstrap.memberships.map((membership) => ({
+      value: membership.organization_id,
+      label: membership.organization?.display_name ?? membership.organization_id,
+      ...(groupClientSelect
+        ? {
+            section:
+              membership.accessSource === "membership"
+                ? "Mis tiendas"
+                : "Clientes",
+          }
+        : {}),
+    })),
+  ];
+  const clientSelectNode = showClientSelect ? (
+    <Select
+      bare
+      className="max-w-[16rem]"
+      aria-label="Cliente activo"
+      value={
+        isConsultant ? activeOrganizationId || GENERAL_VIEW_KEY : activeOrganizationId
+      }
+      onChange={(value) =>
+        selectOrganization(value === GENERAL_VIEW_KEY ? "" : value)
+      }
+      options={clientSelectOptions}
+    />
+  ) : null;
+  const storeSelectNode = showStoreSelect ? (
+    <Select
+      bare
+      className="max-w-[14rem]"
+      aria-label="Tienda"
+      value={activeConnectionId || ALL_STORES_KEY}
+      onChange={(value) =>
+        selectConnection(value === ALL_STORES_KEY ? "" : value)
+      }
+      options={[
+        { value: ALL_STORES_KEY, label: "Todas las tiendas" },
+        ...shopifyConnections.map((connection) => ({
+          value: connection.id,
+          label:
+            connection.provider_account_id ??
+            connection.provider_account_name ??
+            connection.id,
+        })),
+      ]}
+    />
+  ) : null;
+
   const activeMembership =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === activeOrganizationId,
@@ -589,106 +817,112 @@ function PortalShellContent({
 
   return (
     <>
-      <main className="min-h-screen bg-white pt-2 text-black">
+      <main className="min-h-screen bg-white text-black lg:pt-2">
         <a className="skip-link" href="#portal-content">
           Saltar al contenido principal
         </a>
-        {/* Barra superior solo móvil: marca + hamburguesa */}
-        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-white px-4 py-3 text-black lg:hidden">
-          <div>
-            <p className="font-mono text-[0.65rem] uppercase text-brand">
-              {eyebrow}
-            </p>
-            <p className="text-sm font-semibold">{title}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <NotificationsBell token={token} />
-            <Button
-              variant="secondary"
-              aria-expanded={isMobileNavOpen}
+        {/* App móvil (estilo Claude): barra superior aireada -- avatar/menú
+          circular a la izquierda, título + eyebrow centrados, notificaciones a
+          la derecha. La navegación vive en la barra inferior fija. */}
+        <div className="sticky top-0 z-30 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
+          <div className="flex items-center gap-2 px-3 py-2.5 text-black">
+            <button
+              type="button"
+              aria-label="Menú y cuenta"
               aria-controls="mobile-nav"
-              onClick={() => setIsMobileNavOpen((open) => !open)}
+              aria-expanded={isMobileNavOpen}
+              onClick={() => setIsMobileNavOpen(true)}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface"
             >
-              {isMobileNavOpen ? (
-                <CloseIcon aria-hidden />
-              ) : (
-                <MenuIcon aria-hidden />
-              )}
-              Menú
-            </Button>
+              <Avatar
+                name={
+                  bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"
+                }
+                size="sm"
+              />
+            </button>
+            <div className="min-w-0 flex-1 text-center">
+              <p className="truncate text-[0.7rem] leading-tight text-muted">
+                {eyebrow}
+              </p>
+              <p className="truncate text-[0.95rem] font-semibold leading-tight">
+                {title}
+              </p>
+            </div>
+            <div className="flex size-9 shrink-0 items-center justify-center">
+              <NotificationsBell token={token} />
+            </div>
           </div>
+          {clientSelectNode || storeSelectNode ? (
+            <div className="flex items-center justify-center gap-2 overflow-x-auto px-4 pb-2">
+              {clientSelectNode}
+              {storeSelectNode}
+            </div>
+          ) : null}
         </div>
 
-        {/* Panel de navegacion móvil desplegable */}
+        {/* Hoja inferior "Más": el resto del nav + la cuenta. */}
         {isMobileNavOpen ? (
-          <div
-            id="mobile-nav"
-            className="border-b border-line bg-white px-4 py-5 text-black lg:hidden"
-          >
-            {navigation}
-            <div className="mt-6">{accountBlock}</div>
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              aria-label="Cerrar menú"
+              className="absolute inset-0 bg-black/30"
+              onClick={() => setIsMobileNavOpen(false)}
+            />
+            <div
+              id="mobile-nav"
+              className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-[1rem] border-t border-edge bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5"
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-edge" />
+              {navigation}
+              <div className="mt-6">{accountBlock}</div>
+            </div>
           </div>
         ) : null}
 
-        <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
-          <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-line bg-white p-5 text-black lg:flex">
+        <div className="grid min-h-screen lg:grid-cols-[232px_1fr]">
+          <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-edge bg-white px-3 py-5 text-black lg:flex">
             <div>
-              <p className="font-mono text-xs uppercase text-brand">
+              <p className="px-2 text-sm font-semibold tracking-tight">
                 {eyebrow}
               </p>
-              <h1 className="mt-2 text-lg font-semibold">Centro operativo</h1>
-              <div className="mt-7">{navigation}</div>
+              <div className="mt-6">{navigation}</div>
             </div>
             {accountBlock}
           </aside>
 
           <section id="portal-content" tabIndex={-1} className="min-w-0">
-            <div className="hidden items-center justify-between border-b border-line px-6 py-3 lg:flex lg:px-10">
-              <Breadcrumbs
-                items={[
-                  { label: eyebrow, href: "/dashboard" },
-                  { label: title },
-                ]}
-              />
-              <NotificationsBell token={token} />
-            </div>
-            {/* Mini barra de contexto: solo se muestra si hay algo que seleccionar
-              (cliente activo o tienda). El indicador de rol/estado se quito por no
-              aportar nada al usuario. */}
-            {(isConsultant && bootstrap.memberships.length > 1) ||
-            shopifyConnections.length > 1 ? (
-            <div className="flex flex-wrap items-end gap-x-8 gap-y-4 border-b border-line bg-surface px-6 py-4 lg:px-10">
-                {isConsultant && bootstrap.memberships.length > 1 ? (
-                  <Combobox
-                    className="w-44"
-                    label="Cliente activo"
-                    value={activeOrganizationId}
-                    onChange={selectOrganization}
-                    options={bootstrap.memberships.map((membership) => ({
-                      value: membership.organization_id,
-                      label:
-                        membership.organization?.display_name ??
-                        membership.organization_id,
-                    }))}
-                  />
-                ) : null}
-                {shopifyConnections.length > 1 ? (
-                  <Combobox
-                    className="w-40"
-                    label="Tienda"
-                    value={activeConnectionId}
-                    onChange={selectConnection}
-                    options={shopifyConnections.map((connection) => ({
-                      value: connection.id,
-                      label:
-                        connection.provider_account_id ??
-                        connection.provider_account_name ??
-                        connection.id,
-                    }))}
-                  />
-                ) : null}
+            {/* Barra superior fija: breadcrumb + selector de cliente/tienda
+              activos, inline y minimalista (estilo Supabase). El consultor
+              siempre tiene el selector de cliente, con "Vista general" (sin
+              cliente) como estado por defecto. Un cliente normal solo lo ve si
+              pertenece a mas de una organizacion, y sin la opcion "Vista
+              general". Al elegir un cliente/tienda todo se scopea a el. */}
+            <div className="sticky top-0 z-20 hidden items-center gap-3 border-b border-edge bg-white px-6 py-2 lg:flex lg:px-10">
+              <Breadcrumbs items={[{ label: title }]} />
+              {clientSelectNode ? (
+                <>
+                  <span aria-hidden className="text-line">
+                    /
+                  </span>
+                  {clientSelectNode}
+                </>
+              ) : null}
+              {/* El selector de tienda solo aporta con >=2 tiendas. Con una
+                sola, "Todas" y esa tienda son lo mismo. */}
+              {storeSelectNode ? (
+                <>
+                  <span aria-hidden className="text-line">
+                    /
+                  </span>
+                  {storeSelectNode}
+                </>
+              ) : null}
+              <div className="ml-auto">
+                <NotificationsBell token={token} />
               </div>
-            ) : null}
+            </div>
 
             {activeOrganization ? (
               <AccountStateBanner
@@ -749,32 +983,94 @@ function PortalShellContent({
                 Integraciones.
               </div>
             ) : null}
-            <div className="px-6 pt-6 pb-14 lg:px-10">
-              <ActiveOrganizationContext.Provider
+            <div className="px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14">
+              <AdminViewModeContext.Provider
                 value={{
-                  organizationId:
-                    activeOrganizationId ||
-                    (bootstrap.memberships[0]?.organization_id ?? ""),
-                  setOrganizationId: selectOrganization,
+                  viewMode: adminViewMode,
+                  setViewMode: selectAdminViewMode,
                 }}
               >
-                <ActiveConnectionContext.Provider
+                <ActiveOrganizationContext.Provider
                   value={{
-                    connectionId: activeConnectionId,
-                    setConnectionId: selectConnection,
+                    // Un consultor puede estar en vista general -> "" real.
+                    // Un cliente normal siempre tiene su organizacion.
+                    organizationId: isConsultant
+                      ? activeOrganizationId
+                      : activeOrganizationId ||
+                        (bootstrap.memberships[0]?.organization_id ?? ""),
+                    setOrganizationId: selectOrganization,
                   }}
                 >
-                  {children(bootstrap, token)}
-                </ActiveConnectionContext.Provider>
-              </ActiveOrganizationContext.Provider>
+                  <ActiveConnectionContext.Provider
+                    value={{
+                      connectionId: activeConnectionId,
+                      setConnectionId: selectConnection,
+                    }}
+                  >
+                    {needsClientForRoute ? (
+                      <EmptyState
+                        title="Estás en vista general"
+                        hint="Esta sección opera sobre un cliente concreto. Elige uno en el selector «Cliente activo» de arriba, o abre tu cartera en Clientes."
+                        action={
+                          <Link href="/consultor">Ir a Clientes</Link>
+                        }
+                      />
+                    ) : (
+                      children(bootstrap, token)
+                    )}
+                  </ActiveConnectionContext.Provider>
+                </ActiveOrganizationContext.Provider>
+              </AdminViewModeContext.Provider>
             </div>
           </section>
         </div>
 
-        {activeOrganizationId || bootstrap.memberships[0]?.organization_id ? (
+        {/* Barra de navegación inferior (solo móvil): app nativa en web. */}
+        <nav
+          aria-label="Navegación principal"
+          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-edge bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
+        >
+          {bottomNavItems.map((item) => {
+            const Icon = NAV_ICONS[item.href] ?? DotGridIcon;
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={[
+                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[0.65rem] no-underline transition-colors hover:no-underline",
+                  active ? "text-brand" : "text-muted",
+                ].join(" ")}
+              >
+                <Icon className="size-5 shrink-0" aria-hidden />
+                <span className="max-w-full truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+          <button
+            type="button"
+            aria-expanded={isMobileNavOpen}
+            aria-controls="mobile-nav"
+            onClick={() => setIsMobileNavOpen((open) => !open)}
+            className={[
+              "flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[0.65rem] transition-colors",
+              isMobileNavOpen ? "text-brand" : "text-muted",
+            ].join(" ")}
+          >
+            {isMobileNavOpen ? (
+              <CloseIcon aria-hidden className="text-[1.15rem]" />
+            ) : (
+              <MenuIcon aria-hidden className="text-[1.15rem]" />
+            )}
+            Más
+          </button>
+        </nav>
+
+        {activeOrganizationId ? (
           <>
             <Button
-              className="fixed bottom-6 right-6 z-30"
+              className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 sm:right-6 lg:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]"
               aria-expanded={isCopilotOpen}
               aria-controls="copilot-panel"
               onClick={() => setIsCopilotOpen((open) => !open)}
@@ -783,10 +1079,7 @@ function PortalShellContent({
             </Button>
             {isCopilotOpen ? (
               <CopilotPanel
-                organizationId={
-                  activeOrganizationId ||
-                  (bootstrap.memberships[0]?.organization_id ?? "")
-                }
+                organizationId={activeOrganizationId}
                 onClose={() => setIsCopilotOpen(false)}
               />
             ) : null}

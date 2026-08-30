@@ -14,15 +14,18 @@ import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
-    LoadingBlock,
+  LoadingBlock,
   Heading,
   Accordion,
+  Badge,
   Button,
+  Banner,
   Card,
   EmptyState,
   ErrorBlock,
   Field,
   Input,
+  List,
   Select,
   Textarea,
   toast,
@@ -272,14 +275,14 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <Heading level={3} size="lg">
-            Añadir documento
-          </Heading>
+        <Card
+          title="Añadir documento"
+          description="Ingiere metodología, playbooks y contexto propio para los agentes."
+        >
 
           {canManageKnowledge ? (
             <>
-              <div className="mt-5 flex flex-wrap items-center gap-3">
+              <div className="mt-6 flex flex-wrap items-center gap-3">
                 <Button
                   type="button"
                   disabled={isSaving}
@@ -302,11 +305,10 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   }}
                 />
                 {isPlatformAdmin ? (
-                  <div className="flex items-baseline gap-2 font-mono text-xs uppercase tracking-wide text-muted">
-                    Destino
+                  <Field label="Destino">
                     <Select
                       aria-label="Destino"
-                      className="font-sans normal-case tracking-normal text-black"
+                      className="mt-2"
                       value={visibility}
                       onChange={(value) =>
                         setVisibility(value as "organization" | "global")
@@ -316,12 +318,12 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         { value: "global", label: "Global (metodología)" },
                       ]}
                     />
-                  </div>
+                  </Field>
                 ) : null}
               </div>
 
               <Accordion
-                className="mt-5 border-t border-line pt-3"
+                className="mt-6 border-t border-edge pt-3"
                 items={[
                   {
                     id: "paste-form",
@@ -353,29 +355,31 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               />
             </>
           ) : (
-            <div className="mt-4 rounded-md border border-line bg-surface px-4 py-4 text-sm leading-6 text-muted">
+            <Banner tone="warn" className="mt-4 text-sm">
               Solo los propietarios, managers, consultores y administradores de
               plataforma pueden añadir o indexar documentos. Puedes consultar el
               conocimiento y utilizar la búsqueda semántica.
-            </div>
+            </Banner>
           )}
         </Card>
 
-        <Card>
-          <Heading level={3} size="lg">
-            Búsqueda semántica
-          </Heading>
+        <Card
+          title="Búsqueda semántica"
+          description="Comprueba qué fragmentos recuperará el contexto RAG para una consulta."
+        >
           <form
-            className="mt-5 flex flex-col items-stretch gap-3 sm:flex-row sm:items-end"
+            className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end"
             onSubmit={submitSearch}
           >
-            <Input
-              className="w-full"
-              aria-label="Buscar en el conocimiento"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Ej: cuándo escalar inversión en ads"
-            />
+            <Field label="Consulta">
+              <Input
+                className="mt-2 w-full"
+                aria-label="Buscar en el conocimiento"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Ej: cuándo escalar inversión en ads"
+              />
+            </Field>
             <Button type="submit" disabled={isSearching}>
               {isSearching ? "..." : "Buscar"}
             </Button>
@@ -393,13 +397,13 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 matches.map((match) => (
                   <article
                     key={match.chunk_id}
-                    className="border-t border-line pt-3"
+                    className="border-t border-edge pt-3"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium">
                         {match.document_title}
                       </p>
-                      <span className="font-mono text-xs text-muted">
+                      <span className="text-xs text-muted">
                         {(match.similarity * 100).toFixed(0)}%
                       </span>
                     </div>
@@ -420,35 +424,35 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </Card>
       </div>
 
-      <Card>
-        <div className="border-b border-line px-4 py-3">
-          <Heading level={3} size="md">
-            Documentos ({documents.length})
-          </Heading>
-        </div>
-        <div className="flex flex-wrap gap-2 border-b border-line px-4 py-3">
+      <Card
+        title={`Documentos (${documents.length})`}
+        description="Separa el workspace humano de la memoria generada por los agentes."
+        actions={
+          <div className="flex flex-wrap gap-2">
           <Button
             type="button"
-            variant={documentView === "workspace" ? "primary" : "secondary"}
+            variant={documentView === "workspace" ? "primary" : "ghost"}
             onClick={() => setDocumentView("workspace")}
           >
             Workspace ({workspaceDocuments.length})
           </Button>
           <Button
             type="button"
-            variant={documentView === "memory" ? "primary" : "secondary"}
+            variant={documentView === "memory" ? "primary" : "ghost"}
             onClick={() => setDocumentView("memory")}
           >
             Memoria ({generatedMemory.length})
           </Button>
-        </div>
+          </div>
+        }
+      >
         {error ? (
           <div className="px-4 py-3">
             <ErrorBlock>{error}</ErrorBlock>
           </div>
         ) : isLoading ? (
           <div className="px-4 py-3">
-                <LoadingBlock label="Cargando documentos..." />
+            <LoadingBlock label="Cargando documentos..." />
           </div>
         ) : documents.length === 0 ? (
           <EmptyState
@@ -456,9 +460,9 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             hint="Ingiere el primero con el formulario de arriba para activar el conocimiento del workspace."
           />
         ) : (
-          <div className="divide-y divide-line">
+          <List>
             {visibleDocuments.map((document) => (
-              <div
+              <List.Item
                 key={document.id}
                 className="grid gap-2 px-4 py-3 md:grid-cols-[1fr_140px_110px_170px]"
               >
@@ -468,28 +472,170 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <p className="text-sm text-muted">{document.description}</p>
                   ) : null}
                 </div>
-                <span className="font-mono text-xs text-muted">
+                <span className="text-xs text-muted">
                   {document.visibility === "global" ? "global" : "organización"}
                 </span>
-                <span className="font-mono text-xs text-muted">
+                <span className="text-xs text-muted">
                   {displayValue(document.status)} · {displayValue(document.authority)}
                 </span>
-                <span className="font-mono text-xs text-muted">
+                <span className="text-xs text-muted">
                   {new Date(document.created_at).toLocaleDateString("es-ES")}
                 </span>
-              </div>
+              </List.Item>
             ))}
-          </div>
+          </List>
         )}
       </Card>
     </div>
   );
 }
 
+// --- Estado "vista general" de /conocimiento (consultor sin cliente activo):
+// cobertura de la base de conocimiento por cliente. ---
+
+type ConsultantKnowledgeRow = {
+  organization_id: string;
+  display_name: string;
+  doc_count: number;
+  last_updated_at: string | null;
+};
+
+const KNOWLEDGE_STALE_DAYS = 30;
+
+function ConsultantKnowledgeView() {
+  const { setOrganizationId } = useActiveOrganization();
+  const [rows, setRows] = useState<ConsultantKnowledgeRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    apiFetch("/v1/consultant/knowledge")
+      .then(async (response) => {
+        if (cancelled) return;
+        if (!response.ok) {
+          setError(await readApiError(response));
+          return;
+        }
+        const payload = (await response.json()) as {
+          portfolio: ConsultantKnowledgeRow[];
+        };
+        setRows(payload.portfolio);
+        setError(null);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setError("No se pudo cargar el conocimiento por un error de red.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (isLoading && !rows) {
+    return (
+      <div className="portal-page">
+        <LoadingBlock label="Cargando conocimiento de la cartera..." />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="portal-page">
+        <ErrorBlock>{error}</ErrorBlock>
+      </div>
+    );
+  }
+  if (!rows) return null;
+
+  const staleOrEmpty = (row: ConsultantKnowledgeRow) => {
+    if (row.doc_count === 0) return true;
+    if (!row.last_updated_at) return true;
+    const days = Math.floor(
+      (Date.now() - Date.parse(row.last_updated_at)) / (24 * 60 * 60 * 1000),
+    );
+    return days > KNOWLEDGE_STALE_DAYS;
+  };
+  const attentionCount = rows.filter(staleOrEmpty).length;
+  const sorted = [...rows].sort((a, b) => a.doc_count - b.doc_count);
+
+  return (
+    <div className="portal-page space-y-6">
+      <Card
+        title="Conocimiento · toda la cartera"
+        description={`${rows.length} clientes · ${attentionCount} sin documentos o sin actualizar en ${KNOWLEDGE_STALE_DAYS}+ días.`}
+      >
+        {sorted.length === 0 ? (
+          <EmptyState
+            title="Sin clientes"
+            hint="Cuando se te asigne un cliente, la cobertura de su conocimiento aparecerá aquí."
+          />
+        ) : (
+          <List>
+            {sorted.map((row) => {
+              const days = row.last_updated_at
+                ? Math.floor(
+                    (Date.now() - Date.parse(row.last_updated_at)) /
+                      (24 * 60 * 60 * 1000),
+                  )
+                : null;
+              return (
+                <List.Item
+                  as="button"
+                  key={row.organization_id}
+                  type="button"
+                  onClick={() => setOrganizationId(row.organization_id)}
+                  className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-surface"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{row.display_name}</span>
+                    {row.doc_count === 0 ? (
+                      <Badge tone="danger">Sin documentos</Badge>
+                    ) : null}
+                  </div>
+                  <span className="text-xs text-muted">
+                    {row.doc_count} doc{row.doc_count === 1 ? "" : "s"}
+                    {" · "}
+                    {days === null
+                      ? "nunca actualizado"
+                      : days <= 0
+                        ? "actualizado hoy"
+                        : `hace ${days} días`}
+                    {days !== null && days > KNOWLEDGE_STALE_DAYS ? (
+                      <span className="ml-2 text-warn-deep">desactualizado</span>
+                    ) : null}
+                  </span>
+                </List.Item>
+              );
+            })}
+          </List>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function KnowledgeRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organizationId } = useActiveOrganization();
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
+
+  if (isConsultant && !organizationId) {
+    return <ConsultantKnowledgeView />;
+  }
+
+  return <KnowledgeContent bootstrap={bootstrap} />;
+}
+
 export default function KnowledgePage() {
   return (
     <PortalShell title="Conocimiento">
-      {(bootstrap) => <KnowledgeContent bootstrap={bootstrap} />}
+      {(bootstrap) => <KnowledgeRouter bootstrap={bootstrap} />}
     </PortalShell>
   );
 }

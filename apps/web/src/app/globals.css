@@ -32,6 +32,23 @@
   /* Radio recto ya validado (auditoria de accesibilidad 2026-07-23); HeroUI
      usa por defecto radios grandes (rounded-3xl) que no se adoptan aqui. */
   --radius: 0.375rem;
+
+  /* Un solo radio en TODA la app (= listas / cards). HeroUI define su escala
+     como calc(--radius * N) dentro de @theme; aqui se colapsa toda a --radius,
+     tanto para las utilidades Tailwind (rounded-sm..3xl) como para las
+     referencias var(--radius-Nxl) directas del CSS de sus componentes. Los
+     circulos usan rounded-full, que NO esta en esta escala, asi que avatares,
+     switches y badges de conteo siguen redondos. Ver ADR-0020. */
+  --radius-xs: var(--radius);
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
+  --radius-4xl: var(--radius);
+  --radius-field: var(--radius);
+  --field-radius: var(--radius);
 }
 
 @theme {
@@ -62,11 +79,29 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  /* Una sola pila local para todo: cuerpo, titulares y cifras. */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Colapsa la escala de radios de HeroUI a --radius para que las utilidades
+     rounded-sm..rounded-3xl emitan todas el mismo valor (ver el bloque :root
+     y ADR-0020). rounded-full queda fuera: los circulos siguen redondos. */
+  --radius-xs: var(--radius);
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
+  --radius-4xl: var(--radius);
+
+  /* Una sola fuente estandar para todo: cuerpo, titulares y cifras.
+     IBM Plex Sans (self-hosted via next/font), con la pila del sistema de
+     fallback mientras carga. */
+  --font-sans:
+    var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --font-display:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
 }
 
 body {
@@ -82,6 +117,40 @@ body {
   outline-offset: 2px;
 }
 
+/* Los campos necesitan una señal más integrada con su propio borde. HeroUI
+   marca el estado con data-focused y su preset puede volver a imponer 2px. */
+:where(input, textarea, [data-slot="input"])[data-focused="true"] {
+  outline: 1px solid var(--color-brand) !important;
+  outline-offset: 0 !important;
+}
+
+/* La misma regla cubre el foco nativo cuando React Aria aún no ha aplicado
+   data-focused: los campos conservan una señal fina integrada en su borde,
+   mientras botones y controles mantienen el foco global de 2px. */
+:where(input, textarea, [data-slot="input"]):focus-visible {
+  outline: 1px solid var(--color-brand) !important;
+  outline-offset: 0 !important;
+}
+
+/* El navegador pinta de azul los campos autocompletados (especialmente email
+   y contraseña). Ese estado pertenece al navegador, no al sistema visual de
+   HeroUI, y resultaba más pesado que el foco fino del campo. */
+:where(input, textarea):-webkit-autofill,
+:where(input, textarea):-webkit-autofill:hover,
+:where(input, textarea):-webkit-autofill:focus {
+  background-color: var(--background) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--background) inset !important;
+  -webkit-text-fill-color: var(--foreground) !important;
+  caret-color: var(--foreground) !important;
+}
+
+:where(input, textarea):autofill {
+  background-color: var(--background) !important;
+  box-shadow: 0 0 0 1000px var(--background) inset !important;
+  color: var(--foreground) !important;
+  caret-color: var(--foreground) !important;
+}
+
 /* Ritmo SaaS compartido: el contenido respira en desktop y sigue siendo
    compacto en movil, sin que cada pagina invente su propia escala. */
 @layer components {
@@ -89,6 +158,115 @@ body {
     width: min(100%, 96rem);
     margin-inline: auto;
   }
+}
+
+/* Selector "bare" de la barra superior: dropdown inline sin caja (sin borde
+   ni fondo propio), sobre el mismo fondo de la barra, estilo selector de
+   proyecto de Supabase. Sin `@layer` a proposito: las clases de HeroUI
+   (`select__trigger`) van sin capa y ganarian a una regla en capa aunque
+   tuviera mas especificidad. */
+.select-bare [data-slot="select-trigger"] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.35rem;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0.2rem 0.35rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+.select-bare [data-slot="select-value"] {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.select-bare [data-slot="select-default-indicator"],
+.select-bare [data-slot="select-indicator"] {
+  position: static;
+  flex: none;
+  margin-left: auto;
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--color-muted);
+}
+
+.select-bare [data-slot="select-trigger"]:hover,
+.select-bare [data-slot="select-trigger"][data-open="true"] {
+  color: var(--color-ink);
+}
+
+/* Radio unico en toda la app. El colapso de la escala (bloques :root y
+   @theme inline de arriba) ya deja rounded-sm..3xl = --radius, asi que
+   botones, cards, inputs, selects, popovers, menus, dropdowns, tooltips,
+   tabs, alerts y chips heredan el mismo radio que las listas. Esta regla
+   explicita es solo un ancla defensiva para el boton. */
+button[data-slot="button"],
+a[data-slot="button"],
+[data-slot="button"] {
+  border-radius: var(--radius);
+}
+
+/* Excepciones: lo que es redondo POR DISEÑO se re-redondea tras el colapso
+   (avatar, badge de conteo, switch). */
+.avatar,
+[data-slot="avatar-fallback"],
+[data-slot="badge"],
+[data-slot="switch-control"],
+[data-slot="switch-thumb"] {
+  border-radius: 9999px;
+}
+
+/* Modal: el dialog de HeroUI viene con esquinas de 32px, sin borde y con
+   padding uniforme -- se veia despegado del resto. Lo alineamos con las
+   Card: borde fino, radio --radius, cabecera con separador y padding
+   propio del cuerpo. */
+div[data-slot="modal-dialog"] {
+  border-radius: var(--radius);
+  border: 1px solid var(--color-edge);
+  box-shadow: 0 20px 48px -16px rgb(15 15 15 / 0.28);
+  padding: 0;
+}
+
+div[data-slot="modal-header"] {
+  padding: 0.9rem 1.15rem;
+  border-bottom: 1px solid var(--color-edge);
+}
+
+[data-slot="modal-heading"] {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+div[data-slot="modal-body"] {
+  padding: 1.15rem;
+  color: var(--color-ink);
+}
+
+div[data-slot="modal-footer"] {
+  padding: 0.9rem 1.15rem;
+  border-top: 1px solid var(--color-edge);
+}
+
+div[data-slot="modal-header"] + div[data-slot="modal-body"],
+div[data-slot="modal-body"] + div[data-slot="modal-footer"],
+div[data-slot="modal-header"] + div[data-slot="modal-footer"] {
+  margin-top: 0;
+}
+
+[data-slot="modal-close-trigger"] {
+  top: 0.7rem;
+  right: 0.75rem;
 }
 
 .skip-link {

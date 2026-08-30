@@ -3,8 +3,10 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { useAdminViewMode } from "@/components/admin-view-mode";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { displayValue } from "@/lib/display-labels";
 import {
   AsyncState,
   Avatar,
@@ -15,6 +17,7 @@ import {
   Dropdown,
   EmptyState,
   ErrorBlock,
+  EYEBROW,
   Field,
   Heading,
   IconChevronDown,
@@ -22,11 +25,14 @@ import {
   Input,
   Label,
   Link,
+  List,
   LoadingBlock,
+  Modal,
+  PencilIcon,
   Select,
-  Table,
+  SettingsIcon,
   toast,
-  type TableColumnDef,
+  type Tone,
 } from "@/components/ui";
 import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
 
@@ -126,6 +132,118 @@ function attentionBadge(score: number) {
   return { label: "Al día", tone: "success" as const };
 }
 
+// Traduce attention.score (severidad + antiguedad + tareas vencidas, ver
+// consultant.ts) al mismo orden de revision que ya documenta
+// CHECKLIST-SALUD-CLIENTE.md: score, luego alertas criticas siempre, luego
+// antiguedad, luego tareas vencidas. Aqui solo se explica en una linea por
+// que un cliente esta donde esta, sin repetir el checklist a mano cada lunes.
+function attentionReasons(attention: ConsultantOrganization["attention"]): string {
+  const parts: string[] = [];
+  if (attention.critical_alerts > 0) {
+    parts.push(`${attention.critical_alerts} alerta(s) critica(s)`);
+  }
+  if (attention.high_alerts > 0) {
+    parts.push(`${attention.high_alerts} alerta(s) alta(s)`);
+  }
+  if (attention.oldest_alert_days >= 7) {
+    parts.push(`la mas antigua lleva ${attention.oldest_alert_days} dias abierta`);
+  }
+  if (attention.overdue_tasks > 0) {
+    parts.push(`${attention.overdue_tasks} tarea(s) vencida(s)`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "Revision pendiente";
+}
+
+/**
+ * Convierte la lista ya ordenada por `attention.score` en la vista que pide
+ * el checklist semanal: en cuanto se abre `/consultor` un lunes, por donde
+ * empezar y por que, sin escanear la tabla entera fila a fila. Los mismos
+ * tres tramos que ya usa `attentionBadge` (Urgente/Revisar/Vigilar) se usan
+ * aqui para agrupar, no se inventa una escala nueva.
+ */
+function PriorityQueue({
+  organizations,
+  onSelect,
+}: {
+  organizations: ConsultantOrganization[];
+  onSelect: (organizationId: string) => void;
+}) {
+  const urgent = organizations.filter((org) => org.attention.score >= 15);
+  const review = organizations.filter(
+    (org) => org.attention.score >= 5 && org.attention.score < 15,
+  );
+  const watch = organizations.filter(
+    (org) => org.attention.score > 0 && org.attention.score < 5,
+  );
+  const needsAttentionCount = urgent.length + review.length + watch.length;
+  const totalCriticalAlerts = organizations.reduce(
+    (sum, org) => sum + org.attention.critical_alerts,
+    0,
+  );
+  const totalOverdueTasks = organizations.reduce(
+    (sum, org) => sum + org.attention.overdue_tasks,
+    0,
+  );
+
+  const tiers: Array<{
+    key: string;
+    label: string;
+    tone: Tone;
+    items: ConsultantOrganization[];
+  }> = [
+    { key: "urgent", label: "Urgente hoy", tone: "danger", items: urgent },
+    { key: "review", label: "Revisar esta semana", tone: "warn", items: review },
+    { key: "watch", label: "Vigilar", tone: "neutral", items: watch },
+  ];
+
+  return (
+    <Card
+      title="Por dónde empezar esta semana"
+      description={`${organizations.length} cliente(s) · ${needsAttentionCount} necesitan atención · ${totalCriticalAlerts} alerta(s) crítica(s) · ${totalOverdueTasks} tarea(s) vencida(s)`}
+    >
+      {needsAttentionCount === 0 ? (
+        <p className="mt-4 text-[13px] text-success">
+          Todos al día. Buen momento para avanzar el plan estratégico de cada
+          cliente.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          {tiers
+            .filter((tier) => tier.items.length > 0)
+            .map((tier) => (
+              <div key={tier.key}>
+                <p className={EYEBROW}>
+                  {tier.label} ({tier.items.length})
+                </p>
+                <ul className="mt-2 space-y-2">
+                  {tier.items.map((organization) => (
+                    <li
+                      key={organization.id}
+                      className="flex items-start justify-between gap-3 border-b border-edge pb-2"
+                    >
+                      <div className="min-w-0">
+                        <Link
+                          href="/dashboard"
+                          onClick={() => onSelect(organization.id)}
+                        >
+                          {organization.display_name}
+                        </Link>
+                        <p className="mt-1 text-[13px] text-muted">
+                          {attentionReasons(organization.attention)}
+                        </p>
+                      </div>
+                      <Badge tone={tier.tone}>{organization.attention.score}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AccessPanel({ organizationId }: { organizationId: string }) {
   const [access, setAccess] = useState<OrganizationAccess | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +252,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
   const [consultantUserId, setConsultantUserId] = useState("");
   const [isPrimary, setIsPrimary] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const loadAccess = useCallback(async () => {
     try {
@@ -174,6 +293,49 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
       setError("No se pudo guardar el miembro. Revisa la conexión e inténtalo de nuevo.");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function removeMember(memberUserId: string) {
+    setRemovingId(memberUserId);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organizationId}/members`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: memberUserId, is_active: false }),
+        },
+      );
+      if (!response.ok) setError(await readApiError(response));
+      else await loadAccess();
+    } catch {
+      setError("No se pudo quitar el miembro. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  async function removeAssignment(assignmentConsultantUserId: string) {
+    setRemovingId(assignmentConsultantUserId);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organizationId}/assignments`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            consultant_user_id: assignmentConsultantUserId,
+            is_active: false,
+          }),
+        },
+      );
+      if (!response.ok) setError(await readApiError(response));
+      else await loadAccess();
+    } catch {
+      setError("No se pudo quitar el consultor. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -225,7 +387,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
 
   return (
     <section
-      className="mt-5 border-t border-line pt-4"
+      className="mt-6 border-t border-edge pt-4"
       aria-labelledby={`access-title-${organizationId}`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -238,7 +400,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
             gestionan fuera de este flujo.
           </p>
         </div>
-        <span className="font-mono text-xs uppercase tracking-wide text-muted">
+        <span className={EYEBROW}>
           {access.members.filter((member) => member.is_active).length} miembros
           ·{" "}
           {
@@ -249,25 +411,41 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
         </span>
       </div>
 
-      <div className="mt-4 grid gap-5 lg:grid-cols-2">
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
-          <h4 className="text-sm font-medium">Miembros</h4>
+          <h4 className="text-sm font-semibold text-ink">Miembros</h4>
           {access.members.length === 0 ? (
             <p className="mt-2 text-sm text-muted">Sin miembros asignados.</p>
           ) : (
-            <ul className="mt-2 divide-y divide-line border-y border-line">
+            <List as="ul" bordered className="mt-2">
               {access.members.map((member) => (
-                <li
+                <List.Item
+                  as="li"
                   key={member.id}
                   className="flex items-center justify-between gap-3 py-2 text-sm"
                 >
                   <span>{member.profile?.full_name ?? member.user_id}</span>
-                  <span className="font-mono text-xs uppercase text-muted">
-                    {member.role} · {member.is_active ? "activo" : "inactivo"}
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs text-muted">
+                      {displayValue(member.role)} ·{" "}
+                      {member.is_active ? "activo" : "inactivo"}
+                    </span>
+                    {member.is_active ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={removingId === member.user_id}
+                        onClick={() => void removeMember(member.user_id)}
+                      >
+                        {removingId === member.user_id
+                          ? "Quitando..."
+                          : "Quitar"}
+                      </Button>
+                    ) : null}
                   </span>
-                </li>
+                </List.Item>
               ))}
-            </ul>
+            </List>
           )}
           <form
             onSubmit={saveMember}
@@ -302,15 +480,18 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
         </div>
 
         <div>
-          <h4 className="text-sm font-medium">Consultores asignados</h4>
+          <h4 className="text-sm font-semibold text-ink">
+            Consultores asignados
+          </h4>
           {access.assignments.length === 0 ? (
             <p className="mt-2 text-sm text-muted">
               Sin consultores asignados.
             </p>
           ) : (
-            <ul className="mt-2 divide-y divide-line border-y border-line">
+            <List as="ul" bordered className="mt-2">
               {access.assignments.map((assignment) => (
-                <li
+                <List.Item
+                  as="li"
                   key={assignment.id}
                   className="flex items-center justify-between gap-3 py-2 text-sm"
                 >
@@ -318,13 +499,29 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
                     {assignment.profile?.full_name ??
                       assignment.consultant_user_id}
                   </span>
-                  <span className="font-mono text-xs uppercase text-muted">
-                    {assignment.is_primary ? "principal · " : ""}
-                    {assignment.is_active ? "activo" : "inactivo"}
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs text-muted">
+                      {assignment.is_primary ? "principal · " : ""}
+                      {assignment.is_active ? "activo" : "inactivo"}
+                    </span>
+                    {assignment.is_active ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={removingId === assignment.consultant_user_id}
+                        onClick={() =>
+                          void removeAssignment(assignment.consultant_user_id)
+                        }
+                      >
+                        {removingId === assignment.consultant_user_id
+                          ? "Quitando..."
+                          : "Quitar"}
+                      </Button>
+                    ) : null}
                   </span>
-                </li>
+                </List.Item>
               ))}
-            </ul>
+            </List>
           )}
           <form
             onSubmit={saveAssignment}
@@ -415,7 +612,7 @@ function EditOrganizationForm({
   return (
     <form
       onSubmit={save}
-      className="grid gap-3 border-b border-line pb-4 md:grid-cols-4 md:items-end"
+      className="grid gap-3 border-b border-edge pb-4 md:grid-cols-4 md:items-end"
     >
       <Field label="Nombre">
         <Input
@@ -431,7 +628,7 @@ function EditOrganizationForm({
           onChange={setStatus}
           options={ORGANIZATION_STATUSES.map((value) => ({
             value,
-            label: value,
+            label: ORGANIZATION_STATUS_LABELS[value] ?? value,
           }))}
         />
       </Field>
@@ -472,11 +669,13 @@ function EditOrganizationForm({
 function StoresPanel({
   organization,
   isPlatformAdmin,
+  canManageStores,
   onOrganizationDeleted,
   onOrganizationUpdated,
 }: {
   organization: ConsultantOrganization;
   isPlatformAdmin: boolean;
+  canManageStores: boolean;
   onOrganizationDeleted: () => void;
   onOrganizationUpdated: () => void;
 }) {
@@ -627,35 +826,34 @@ function StoresPanel({
       ) : stores.length === 0 ? (
         <p className="text-sm text-muted">Sin tiendas conectadas.</p>
       ) : (
-        <div className="divide-y divide-line">
+        <List>
           {stores.map((store) => (
-            <div
+            <List.Item
               key={store.id}
-              className="grid gap-2 py-2.5 text-sm md:grid-cols-[1fr_120px_140px_auto] md:items-center"
+              className="grid gap-2 py-3 text-sm md:grid-cols-[1fr_120px_140px_auto] md:items-center"
             >
               <span className="font-medium">
                 {store.provider_account_id ??
                   store.provider_account_name ??
                   store.id}
               </span>
-              <span
-                className={[
-                  "font-mono text-xs uppercase",
-                  store.status === "pending_deletion"
-                    ? "text-brand"
-                    : "text-muted",
-                ].join(" ")}
-              >
-                {store.status === "pending_deletion"
-                  ? "borrado en 30 dias"
-                  : store.status}
+              <span>
+                <Badge
+                  tone={
+                    store.status === "pending_deletion" ? "warn" : "neutral"
+                  }
+                >
+                  {store.status === "pending_deletion"
+                    ? "Borrado en 30 días"
+                    : displayValue(store.status)}
+                </Badge>
               </span>
               <span className="text-xs text-muted">
                 {store.last_sync_at
                   ? new Date(store.last_sync_at).toLocaleDateString("es-ES")
                   : "sin sync"}
               </span>
-              {isPlatformAdmin ? (
+              {canManageStores ? (
                 store.status === "pending_deletion" ? (
                   <Button
                     size="sm"
@@ -678,16 +876,16 @@ function StoresPanel({
                   </Button>
                 )
               ) : null}
-            </div>
+            </List.Item>
           ))}
-        </div>
+        </List>
       )}
 
       {isPlatformAdmin ? (
         <AccessPanel organizationId={organization.id} />
       ) : null}
 
-      <div className="mt-4 flex flex-wrap gap-4 border-t border-line pt-3">
+      <div className="mt-4 flex flex-wrap gap-4 border-t border-edge pt-3">
         <Link href={`/integraciones?organizationId=${organization.id}`}>
           Añadir tienda
         </Link>
@@ -703,7 +901,7 @@ function StoresPanel({
             </Button>
           ) : (
             <Dropdown>
-              <Button variant="secondary" size="sm">
+              <Button variant="ghost" size="sm">
                 Acciones rápidas
               </Button>
               <Dropdown.Popover>
@@ -772,9 +970,11 @@ function StoresPanel({
 function ConsultantPanel({
   token,
   isPlatformAdmin,
+  canManageStores,
 }: {
   token: string;
   isPlatformAdmin: boolean;
+  canManageStores: boolean;
 }) {
   const { setOrganizationId } = useActiveOrganization();
   const [organizations, setOrganizations] = useState<ConsultantOrganization[]>(
@@ -831,9 +1031,6 @@ function ConsultantPanel({
     );
   }
 
-  const needsAttention = organizations.filter(
-    (organization) => organization.attention.score > 0,
-  );
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredOrganizations = normalizedQuery
     ? organizations.filter(
@@ -843,151 +1040,15 @@ function ConsultantPanel({
       )
     : organizations;
 
-  const expandedOrganization = expandedId
-    ? filteredOrganizations.find(
-        (organization) => organization.id === expandedId,
-      )
-    : null;
-
-  // FE-07 (auditoria estructural 2026-07-29): antes esta lista era una tabla
-  // HTML a mano con una fila "detalle" anidada via colSpan -- el componente
-  // `Table` compartido (columnas estaticas, sin fila expandible) no admite
-  // ese patron. En vez de forzarlo dentro de la tabla, el detalle se muestra
-  // como una `Card` debajo, igual que el panel de detalle de Mi Camino
-  // (seleccionar un nodo del arbol -> panel debajo), mismo patron en toda la
-  // app en vez de dos formas distintas de "expandir" una fila.
-  const columns: TableColumnDef<ConsultantOrganization>[] = [
-    {
-      key: "name",
-      label: "Cliente",
-      render: (row) => (
-        <div className="flex items-center gap-3">
-          <Avatar name={row.display_name} size="sm" />
-          <div>
-            <Link href="/dashboard" onClick={() => setOrganizationId(row.id)}>
-              {row.display_name}
-            </Link>
-            <p
-              className={
-                row.status === "pending_deletion"
-                  ? "text-sm text-brand"
-                  : "text-sm text-muted"
-              }
-            >
-              {row.slug} -{" "}
-              {row.status === "pending_deletion"
-                ? "Borrado en 30 días"
-                : ORGANIZATION_STATUS_LABELS[row.status] ?? row.status}
-            </p>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: "stores",
-      label: "Tiendas",
-      render: (row) => (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
-        >
-          {row.store_count}{" "}
-          {expandedId === row.id ? (
-            <IconChevronUp aria-hidden />
-          ) : (
-            <IconChevronDown aria-hidden />
-          )}
-        </Button>
-      ),
-    },
-    {
-      key: "attention",
-      label: "Atención",
-      render: (row) => {
-        const badge = attentionBadge(row.attention.score);
-        return (
-          <Badge tone={badge.tone} title={`Puntuacion: ${row.attention.score}`}>
-            {badge.label}
-          </Badge>
-        );
-      },
-    },
-    {
-      key: "alerts",
-      label: "Alertas vivas",
-      render: (row) =>
-        row.attention.open_alerts === 0 ? (
-          <span className="text-muted">Sin alertas</span>
-        ) : (
-          <>
-            <span className="font-mono">{row.attention.open_alerts}</span>
-            {row.attention.critical_alerts > 0 ? (
-              <span className="ml-2 font-mono text-xs text-brand">
-                {row.attention.critical_alerts} criticas
-              </span>
-            ) : null}
-            {row.attention.oldest_alert_days > 0 ? (
-              <p className="mt-1 text-xs text-muted">
-                la más antigua lleva {row.attention.oldest_alert_days} días
-              </p>
-            ) : null}
-          </>
-        ),
-    },
-    {
-      key: "tasks",
-      label: "Tareas",
-      render: (row) => (
-        <>
-          <span className="font-mono">{row.attention.open_tasks}</span> abiertas
-          {row.attention.overdue_tasks > 0 ? (
-            <p className="mt-1 text-xs text-brand">
-              {row.attention.overdue_tasks} vencidas
-            </p>
-          ) : null}
-        </>
-      ),
-    },
-    {
-      key: "plan",
-      label: "Plan",
-      render: (row) => (
-        <span className="font-mono">
-          {row.subscription
-            ? `${row.subscription.plan_code} · ${SUBSCRIPTION_STATUS_LABELS[row.subscription.status] ?? row.subscription.status}`
-            : "Sin plan"}
-        </span>
-      ),
-    },
-    {
-      key: "actions",
-      label: "Ir a",
-      render: (row) => (
-        <div className="flex flex-wrap gap-2">
-          <Link href="/dashboard" onClick={() => setOrganizationId(row.id)}>
-            Dashboard
-          </Link>
-          <Link href="/tareas" onClick={() => setOrganizationId(row.id)}>
-            Tareas
-          </Link>
-        </div>
-      ),
-    },
-  ];
 
   return (
     <div className="portal-page space-y-6">
-      <Card>
-        <Heading size="lg">Qué cliente necesita atención hoy</Heading>
-        {needsAttention.length === 0 ? (
-          <p className="mt-1 font-mono text-xs uppercase tracking-wide text-success">
-            Todos al día
-          </p>
-        ) : null}
-      </Card>
+      <PriorityQueue organizations={organizations} onSelect={setOrganizationId} />
 
-      <Card>
+      <Card
+        title="Buscar cliente"
+        description="Filtra tu cartera por nombre o slug para abrir su panel operativo."
+      >
         <Field label="Buscar cliente">
           <Input
             type="search"
@@ -999,32 +1060,510 @@ function ConsultantPanel({
         </Field>
       </Card>
 
-      <Card>
-        <Table
-          ariaLabel="Clientes asignados"
-          columns={columns}
-          rows={filteredOrganizations}
-          emptyLabel={`Sin resultados para "${searchQuery}".`}
-        />
-      </Card>
+      <ObjectiveTypesCard organizations={organizations} />
 
-      {expandedOrganization ? (
-        <Card
-          kicker="Detalle del cliente"
-          title={expandedOrganization.display_name}
-        >
-          <StoresPanel
-            organization={expandedOrganization}
-            isPlatformAdmin={isPlatformAdmin}
-            onOrganizationDeleted={() => {
-              setExpandedId(null);
-              void load();
-            }}
-            onOrganizationUpdated={() => void load()}
-          />
-        </Card>
-      ) : null}
+      <Card
+        title="Clientes asignados"
+        description="Organizaciones disponibles para seguimiento y soporte."
+      >
+        {filteredOrganizations.length === 0 ? (
+          <p className="text-sm text-muted">
+            Sin resultados para &quot;{searchQuery}&quot;.
+          </p>
+        ) : (
+          <List as="ul">
+            {filteredOrganizations.map((row) => {
+              const badge = attentionBadge(row.attention.score);
+              const open = expandedId === row.id;
+              return (
+                <List.Item
+                  as="li"
+                  key={row.id}
+                  className="py-3 first:pt-1 last:pb-1"
+                >
+                  <div className="flex items-start gap-3">
+                    <Avatar name={row.display_name} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Link
+                          href="/dashboard"
+                          onClick={() => setOrganizationId(row.id)}
+                          className="font-medium no-underline hover:text-brand hover:no-underline"
+                        >
+                          {row.display_name}
+                        </Link>
+                        <Badge
+                          tone={badge.tone}
+                          title={`Puntuación: ${row.attention.score}`}
+                        >
+                          {badge.label}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-muted">
+                        {row.slug} ·{" "}
+                        {row.status === "pending_deletion"
+                          ? "Borrado en 30 días"
+                          : ORGANIZATION_STATUS_LABELS[row.status] ??
+                            row.status}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        {row.attention.open_alerts} alertas
+                        {row.attention.critical_alerts > 0 ? (
+                          <span className="text-danger">
+                            {" "}
+                            · {row.attention.critical_alerts} críticas
+                          </span>
+                        ) : null}
+                        {" · "}
+                        {row.attention.open_tasks} tareas
+                        {row.attention.overdue_tasks > 0 ? (
+                          <span className="text-danger">
+                            {" "}
+                            · {row.attention.overdue_tasks} vencidas
+                          </span>
+                        ) : null}
+                        {" · "}
+                        {row.subscription
+                          ? `${row.subscription.plan_code} · ${SUBSCRIPTION_STATUS_LABELS[row.subscription.status] ?? row.subscription.status}`
+                          : "Sin plan"}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Link
+                        href="/tareas"
+                        onClick={() => setOrganizationId(row.id)}
+                        className="px-2 py-1 text-xs text-muted no-underline hover:text-brand hover:no-underline"
+                      >
+                        Tareas
+                      </Link>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        aria-expanded={open}
+                        onClick={() => setExpandedId(open ? null : row.id)}
+                      >
+                        {row.store_count}{" "}
+                        {row.store_count === 1 ? "tienda" : "tiendas"}
+                        {open ? (
+                          <IconChevronUp aria-hidden />
+                        ) : (
+                          <IconChevronDown aria-hidden />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {open ? (
+                    <div className="mt-3 rounded-md border border-edge bg-surface p-4 sm:ml-11">
+                      <StoresPanel
+                        organization={row}
+                        isPlatformAdmin={isPlatformAdmin}
+                        canManageStores={canManageStores}
+                        onOrganizationDeleted={() => {
+                          setExpandedId(null);
+                          void load();
+                        }}
+                        onOrganizationUpdated={() => void load()}
+                      />
+                    </div>
+                  ) : null}
+                </List.Item>
+              );
+            })}
+          </List>
+        )}
+      </Card>
     </div>
+  );
+}
+
+// --- Tipos de objetivo (catalogo editable del consultor) -------------------
+// El consultor define aqui "tipos" de objetivo; el valor objetivo por cliente
+// se sigue poniendo 1 a 1 desde Mi Camino. Un tipo puede medirse con una
+// metrica de plataforma (Shopify/Meta, la app calcula el actual) o ser de
+// valor manual (el consultor teclea el actual en la card del objetivo).
+
+type ObjectiveDefinition = {
+  id: string;
+  organization_id: string | null;
+  slug: string;
+  label: string;
+  unit: "money" | "pct" | "count" | "ratio" | "number";
+  direction: "up" | "down";
+  source: "shopify" | "meta" | "manual";
+  metric_key: string | null;
+  created_at: string;
+};
+
+type ObjectiveBuiltin = {
+  key: string;
+  label: string;
+  unit: string;
+  direction: string;
+  source: string;
+  metric_key: string | null;
+};
+
+const OBJECTIVE_UNIT_LABELS: Record<string, string> = {
+  money: "Moneda (€)",
+  pct: "Porcentaje (%)",
+  count: "Recuento",
+  ratio: "Ratio (x)",
+  number: "Número",
+};
+
+function ObjectiveTypesCard({
+  organizations,
+}: {
+  organizations: ConsultantOrganization[];
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [definitions, setDefinitions] = useState<ObjectiveDefinition[] | null>(
+    null,
+  );
+  const [builtins, setBuiltins] = useState<ObjectiveBuiltin[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Alta
+  const [label, setLabel] = useState("");
+  const [source, setSource] = useState<"platform" | "manual">("platform");
+  const [metricKey, setMetricKey] = useState("");
+  const [unit, setUnit] = useState("number");
+  const [direction, setDirection] = useState<"up" | "down">("up");
+  const [scope, setScope] = useState("all");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await apiFetch("/v1/consultant/objective-definitions");
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      const payload = (await response.json()) as {
+        definitions: ObjectiveDefinition[];
+        builtins: ObjectiveBuiltin[];
+      };
+      setDefinitions(payload.definitions);
+      setBuiltins(payload.builtins);
+      setError(null);
+      if (!metricKey && payload.builtins[0]) {
+        setMetricKey(payload.builtins[0].key);
+      }
+    } catch {
+      setError("No se pudieron cargar los tipos de objetivo. Reintenta.");
+    }
+  }, [metricKey]);
+
+  useEffect(() => {
+    if (isOpen && definitions === null) void load();
+  }, [isOpen, definitions, load]);
+
+  async function createDefinition(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!label.trim()) return;
+    setIsSaving(true);
+    try {
+      const body =
+        source === "platform"
+          ? {
+              label: label.trim(),
+              source: builtins.find((b) => b.key === metricKey)?.source,
+              metricKey,
+              organizationId: scope === "all" ? null : scope,
+            }
+          : {
+              label: label.trim(),
+              source: "manual",
+              unit,
+              direction,
+              organizationId: scope === "all" ? null : scope,
+            };
+      const response = await apiFetch("/v1/consultant/objective-definitions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      toast.success("Tipo de objetivo creado.");
+      setLabel("");
+      setDefinitions(null);
+      await load();
+    } catch {
+      setError("No se pudo crear el tipo de objetivo. Reintenta.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function renameDefinition(id: string, nextLabel: string) {
+    setBusyId(id);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/objective-definitions/${id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label: nextLabel }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setDefinitions(null);
+      await load();
+    } catch {
+      setError("No se pudo actualizar el tipo de objetivo. Reintenta.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function archiveDefinition(id: string) {
+    setBusyId(id);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/objective-definitions/${id}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setDefinitions(null);
+      await load();
+    } catch {
+      setError("No se pudo borrar el tipo de objetivo. Reintenta.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const orgName = (id: string | null) =>
+    id === null
+      ? "Toda mi cartera"
+      : (organizations.find((o) => o.id === id)?.display_name ?? "Un cliente");
+
+  return (
+    <Card
+      title="Tipos de objetivo"
+      description="Catálogo de objetivos que puedes imponer a tus clientes desde Mi Camino. El valor objetivo se fija cliente por cliente; aquí solo defines los tipos."
+      actions={
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          aria-label="Configurar tipos de objetivo"
+          onClick={() => setIsOpen(true)}
+        >
+          <SettingsIcon aria-hidden /> Configurar
+        </Button>
+      }
+    >
+      <p className="text-sm text-muted">
+        {definitions === null
+          ? "Abre «Configurar» para gestionar tus tipos de objetivo."
+          : definitions.length === 0
+            ? "Solo los 8 objetivos estándar de plataforma. Añade tipos propios desde «Configurar»."
+            : `${definitions.length} tipo(s) propio(s) además de los 8 estándar de plataforma.`}
+      </p>
+
+      <Modal isOpen={isOpen} onOpenChange={(open) => setIsOpen(open)}>
+        <Modal.Backdrop>
+          <Modal.Container size="lg">
+            <Modal.Dialog aria-label="Configurar tipos de objetivo">
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <Modal.Heading>Tipos de objetivo</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                {error ? (
+                  <div className="mb-3">
+                    <ErrorBlock>{error}</ErrorBlock>
+                  </div>
+                ) : null}
+
+                <p className={EYEBROW}>Estándar de plataforma (siempre activos)</p>
+                <ul className="mt-1 flex flex-wrap gap-1.5">
+                  {builtins.map((b) => (
+                    <li key={b.key}>
+                      <Badge tone="neutral">{b.label}</Badge>
+                    </li>
+                  ))}
+                </ul>
+
+                <p className={`${EYEBROW} mt-4`}>Tus tipos propios</p>
+                {definitions === null ? (
+                  <p className="mt-1 text-sm text-muted">Cargando...</p>
+                ) : definitions.length === 0 ? (
+                  <p className="mt-1 text-sm text-muted">
+                    Todavía no has creado ninguno.
+                  </p>
+                ) : (
+                  <List as="ul" bordered className="mt-1">
+                    {definitions.map((def) => (
+                      <List.Item
+                        as="li"
+                        key={def.id}
+                        className="flex items-center justify-between gap-3 py-2 text-sm"
+                      >
+                        <span className="min-w-0">
+                          <span className="font-medium">{def.label}</span>
+                          <span className="ml-2 text-xs text-muted">
+                            {def.source === "manual"
+                              ? "Manual"
+                              : "Métrica de plataforma"}{" "}
+                            · {orgName(def.organization_id)}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Renombrar ${def.label}`}
+                            disabled={busyId === def.id}
+                            onClick={() => {
+                              const next = window.prompt(
+                                "Nuevo nombre del objetivo",
+                                def.label,
+                              );
+                              if (next && next.trim() && next.trim() !== def.label) {
+                                void renameDefinition(def.id, next.trim());
+                              }
+                            }}
+                          >
+                            <PencilIcon aria-hidden />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busyId === def.id}
+                            onClick={() => void archiveDefinition(def.id)}
+                          >
+                            {busyId === def.id ? "..." : "Borrar"}
+                          </Button>
+                        </span>
+                      </List.Item>
+                    ))}
+                  </List>
+                )}
+
+                <form
+                  onSubmit={createDefinition}
+                  className="mt-4 space-y-3 border-t border-edge pt-4"
+                >
+                  <p className={EYEBROW}>Nuevo tipo de objetivo</p>
+                  <Field label="Nombre">
+                    <Input
+                      className="mt-1"
+                      value={label}
+                      onChange={(event) => setLabel(event.target.value)}
+                      placeholder="p. ej. Suscriptores de newsletter"
+                      required
+                    />
+                  </Field>
+                  <div className="flex flex-wrap gap-3">
+                    <Field label="Cómo se mide">
+                      <Select
+                        className="mt-1"
+                        value={source}
+                        onChange={(value) =>
+                          setSource(value as "platform" | "manual")
+                        }
+                        options={[
+                          {
+                            value: "platform",
+                            label: "Métrica de plataforma",
+                          },
+                          { value: "manual", label: "Valor manual" },
+                        ]}
+                      />
+                    </Field>
+                    {source === "platform" ? (
+                      <Field label="Métrica">
+                        <Select
+                          className="mt-1"
+                          value={metricKey}
+                          onChange={setMetricKey}
+                          options={builtins.map((b) => ({
+                            value: b.key,
+                            label: b.label,
+                          }))}
+                        />
+                      </Field>
+                    ) : (
+                      <>
+                        <Field label="Unidad">
+                          <Select
+                            className="mt-1"
+                            value={unit}
+                            onChange={setUnit}
+                            options={Object.entries(OBJECTIVE_UNIT_LABELS).map(
+                              ([value, label2]) => ({ value, label: label2 }),
+                            )}
+                          />
+                        </Field>
+                        <Field label="Dirección">
+                          <Select
+                            className="mt-1"
+                            value={direction}
+                            onChange={(value) =>
+                              setDirection(value as "up" | "down")
+                            }
+                            options={[
+                              { value: "up", label: "Más es mejor" },
+                              { value: "down", label: "Menos es mejor" },
+                            ]}
+                          />
+                        </Field>
+                      </>
+                    )}
+                  </div>
+                  <Field label="Para quién">
+                    <Select
+                      className="mt-1"
+                      value={scope}
+                      onChange={setScope}
+                      options={[
+                        { value: "all", label: "Toda mi cartera" },
+                        ...organizations.map((o) => ({
+                          value: o.id,
+                          label: o.display_name,
+                        })),
+                      ]}
+                    />
+                  </Field>
+                  {source === "manual" ? (
+                    <p className="text-xs text-muted">
+                      Los objetivos manuales no tienen dato automático: tú
+                      introduces el valor actual en la card del objetivo, dentro
+                      de Mi Camino de cada cliente.
+                    </p>
+                  ) : null}
+                  <Button type="submit" size="sm" disabled={isSaving || !label.trim()}>
+                    {isSaving ? "Creando..." : "Crear tipo de objetivo"}
+                  </Button>
+                </form>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setIsOpen(false)}
+                >
+                  Cerrar
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+    </Card>
   );
 }
 
@@ -1032,11 +1571,33 @@ export default function ConsultantPage() {
   return (
     <PortalShell title="Clientes">
       {(bootstrap, token) => (
-        <ConsultantPanel
+        <ConsultantPanelWithViewMode
           token={token}
-          isPlatformAdmin={bootstrap.profile.platform_role === "platform_admin"}
+          platformRole={bootstrap.profile.platform_role}
         />
       )}
     </PortalShell>
+  );
+}
+
+// Separacion de capacidades:
+//  - canManageStores: borrar/restaurar una tienda del cliente. Es del rol
+//    consultor -> tambien en la vista "consultor" de un platform_admin.
+//  - isPlatformAdmin (vista admin): editar/borrar el cliente entero y el panel
+//    de accesos. Se apaga cuando un platform_admin cambia a la vista consultor.
+function ConsultantPanelWithViewMode({
+  token,
+  platformRole,
+}: {
+  token: string;
+  platformRole: string;
+}) {
+  const { viewMode } = useAdminViewMode();
+  return (
+    <ConsultantPanel
+      token={token}
+      isPlatformAdmin={platformRole === "platform_admin" && viewMode === "admin"}
+      canManageStores={["consultant", "platform_admin"].includes(platformRole)}
+    />
   );
 }

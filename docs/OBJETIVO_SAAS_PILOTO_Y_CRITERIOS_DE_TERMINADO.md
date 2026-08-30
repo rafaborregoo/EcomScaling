@@ -2,11 +2,11 @@
 
 > **Estado ejecutivo vigente 2026-08-26:** el núcleo del piloto está implementado. Shopify es el
 > conector operativo; Meta Ads, Klaviyo e Instagram están preparados para activarse sin rediseñar la
-> UI ni los agentes. Supabase está alineado con 71 migraciones locales/remotas y los tipos oficiales
+> UI ni los agentes. Supabase está alineado con 75 migraciones locales/remotas y los tipos oficiales
 > se regeneraron desde `public,private`. Lo pendiente real es validación con proveedores, QA manual
 > final, restore drill y observabilidad/APM avanzada; no falta construir un CRM completo.
 
-> Estado canonico vigente 2026-08-24: hay 64 migraciones locales/remotas alineadas, con
+> Estado canonico vigente 2026-08-26: hay 75 migraciones locales/remotas alineadas, con
 > `supabase db push --linked --include-all --dry-run` al dia y `supabase db lint` sin errores.
 > Las cifras 55/56/59/60 que aparecen mas abajo pertenecen a auditorias historicas y quedan
 > supersedidas por esta correccion y por `ESTADO_GLOBAL.md`.
@@ -27,8 +27,8 @@
 > cubre el piloto en una instancia; la agregacion compartida y APM se activan
 > cuando exista la infraestructura externa correspondiente.
 
-> Actualizacion vigente 2026-08-20: se aplico en produccion la foundation DB-10 de Instagram, aditiva
-> y sin datos. Hay 64 migraciones locales/remotas alineadas; dry-run y
+> Actualizacion vigente 2026-08-26: se aplico en produccion la foundation DB-10 de Instagram, aditiva
+> y sin datos. Hay 75 migraciones locales/remotas alineadas; dry-run y
 > lint de Supabase pasan.
 
 > Verificacion adicional 2026-08-02: el catalogo UI vigente centraliza tambien `Drawer`,
@@ -49,7 +49,7 @@
 > (`20260802152000`) y el total vigente pasó a 60 antes de los forward-fixes posteriores.
 
 > Nota histórica supersedida: una auditoría intermedia registró 132 archivos Markdown y 59 migraciones;
-> el estado vigente es el de la cabecera (134 Markdown y 64 migraciones locales/remotas alineadas) y no hay migraciones
+> el estado vigente es el de la cabecera (134 Markdown y 75 migraciones locales/remotas alineadas) y no hay migraciones
 > pendientes según el dry-run. Klaviyo ya tiene DB-09 aplicada y un vertical slice parcial de OAuth,
 > credenciales cifradas, sync agregado, Reporting API, métrica de conversión y reconciliación programada.
 > Siguen pendientes la validación externa, el backfill profundo, el reporting visual y las pruebas con

@@ -4,6 +4,7 @@ import {
   buildKlaviyoSyncIdempotencyKey,
   KLAVIYO_BACKFILL_MONTHS,
   KLAVIYO_INCREMENTAL_BUCKET_HOURS,
+  KLAVIYO_REPORT_STATISTICS,
   nextKlaviyoBackfillPeriod,
 } from "./klaviyo-sync.js";
 
@@ -113,6 +114,54 @@ test("el historico completo no genera mas solicitudes de reporting", () => {
     done.push(
       { report_type: "campaign-values-report", period_start: start },
       { report_type: "flow-values-report", period_start: start },
+    );
+  }
+  assert.equal(nextKlaviyoBackfillPeriod(reference, done), null);
+});
+
+test("un mes con estadisticas antiguas se vuelve a pedir para rellenar el historico", () => {
+  const staleStats = ["opens", "clicks", "conversion_uniques", "conversion_value"];
+  const done = [
+    {
+      report_type: "campaign-values-report",
+      period_start: "2026-07-01",
+      statistics: staleStats,
+    },
+    {
+      report_type: "flow-values-report",
+      period_start: "2026-07-01",
+      statistics: KLAVIYO_REPORT_STATISTICS,
+    },
+  ];
+  // El flow de julio esta completo; la campana de julio tiene stats antiguas -> se repite.
+  assert.deepEqual(nextKlaviyoBackfillPeriod(reference, done), {
+    type: "campaign-values-report",
+    periodStart: "2026-07-01",
+    periodEnd: "2026-07-31",
+  });
+});
+
+test("un mes con las estadisticas completas no se vuelve a pedir", () => {
+  const done: Array<{
+    report_type: string;
+    period_start: string;
+    statistics: string[];
+  }> = [];
+  for (let monthsAgo = 1; monthsAgo <= KLAVIYO_BACKFILL_MONTHS; monthsAgo += 1) {
+    const start = new Date(Date.UTC(2026, 7 - monthsAgo, 1))
+      .toISOString()
+      .slice(0, 10);
+    done.push(
+      {
+        report_type: "campaign-values-report",
+        period_start: start,
+        statistics: [...KLAVIYO_REPORT_STATISTICS],
+      },
+      {
+        report_type: "flow-values-report",
+        period_start: start,
+        statistics: [...KLAVIYO_REPORT_STATISTICS],
+      },
     );
   }
   assert.equal(nextKlaviyoBackfillPeriod(reference, done), null);

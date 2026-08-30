@@ -174,11 +174,12 @@ async function upsertAlertWithTask(
               detection.templateValues,
             )
           : null,
-        category:
+        categories: [
           template.code === "integration_sync_failed" &&
           typeof detection.contextData?.provider === "string"
             ? normalizeProviderCategory(detection.contextData.provider)
             : template.category,
+        ],
       })
       .select("id")
       .single();
@@ -523,7 +524,7 @@ export async function listOperations(
     supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, category, title, description, due_at, is_visible_to_client, created_at, updated_at, task_comments(id, body, is_internal, author_user_id, created_at)",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at, task_comments(id, body, is_internal, author_user_id, created_at)",
       )
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
@@ -583,6 +584,7 @@ export async function createTask(
     description?: string | null;
     priority?: string;
     category?: string;
+    categories?: string[];
     dueAt?: string | null;
     isVisibleToClient?: boolean;
   },
@@ -602,11 +604,14 @@ export async function createTask(
   )
     ? (input.priority as (typeof TASK_PRIORITIES)[number])
     : "medium";
-  const category = TASK_CATEGORIES.includes(
-    input.category as (typeof TASK_CATEGORIES)[number],
-  )
-    ? (input.category as (typeof TASK_CATEGORIES)[number])
-    : "general";
+  // Acepta `categories` (nuevo, 1+) o `category` (compat, 1). Filtra a valores
+  // validos, dedupe, y cae a ['general'] si no queda ninguna.
+  const requested = input.categories ?? (input.category ? [input.category] : []);
+  const valid = [...new Set(requested)].filter((value): value is
+    (typeof TASK_CATEGORIES)[number] =>
+    (TASK_CATEGORIES as readonly string[]).includes(value),
+  );
+  const categories = valid.length > 0 ? valid : ["general"];
 
   const supabase = createServiceClient(env);
   const { data, error } = await supabase
@@ -616,7 +621,7 @@ export async function createTask(
       title,
       description: input.description?.trim() || null,
       priority,
-      category,
+      categories,
       due_at: input.dueAt || null,
       source: "manual",
       created_by: context.user.id,
@@ -625,7 +630,7 @@ export async function createTask(
       is_visible_to_client: input.isVisibleToClient ?? true,
     })
     .select(
-      "id, alert_id, source, status, priority, category, title, description, due_at, is_visible_to_client, created_at, updated_at",
+      "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at",
     )
     .single();
 
@@ -644,7 +649,11 @@ export async function createTask(
     action: "operations.create_task",
     entityType: "task",
     entityId: data.id,
-    newData: { title: data.title, priority: data.priority, category: data.category },
+    newData: {
+      title: data.title,
+      priority: data.priority,
+      categories: data.categories,
+    },
   });
 
   return {

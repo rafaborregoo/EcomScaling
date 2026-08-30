@@ -92,8 +92,8 @@ repetidos) — en ese caso, avisar igual que un fallo de sync.
 ## Escalado
 
 Si el presupuesto plano (`maxCostUsd: 1` por run) resulta insuficiente para el uso legítimo de algún
-agente, es señal de que hace falta presupuesto por agente/organización (AI-09, propuesto, no
-implementado) en vez de seguir subiendo el límite global.
+agente, configura `AI_PLAN_BUDGETS_JSON` por plan/agente antes de subir el límite global. El enlace
+técnico ya está implementado en AI-09; siguen pendientes únicamente los valores comerciales finales.
 
 ## Evidencias a conservar
 

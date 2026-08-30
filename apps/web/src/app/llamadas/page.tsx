@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { displayValue } from "@/lib/display-labels";
 import { isSummaryCurrentForTranscript } from "./summary-visibility";
 import {
   AsyncState,
@@ -12,13 +13,18 @@ import {
   Heading,
   Accordion,
   Alert,
+  Badge,
   Button,
   Card,
+  cn,
   EmptyState,
   ErrorBlock,
+  EYEBROW,
   Field,
   Input,
   Link,
+  List,
+  Modal,
   Select,
   Textarea,
   toast,
@@ -98,10 +104,10 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
     <div className="mt-3 space-y-3 text-sm">
       {detail?.facts?.length ? (
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+          <p className={EYEBROW}>
             Hechos
           </p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          <ul className="mt-1 list-disc space-y-1 pl-5">
             {detail.facts.map((fact, index) => (
               <li key={index}>{fact}</li>
             ))}
@@ -111,10 +117,10 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
 
       {decisions.length ? (
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+          <p className={EYEBROW}>
             Decisiones
           </p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          <ul className="mt-1 list-disc space-y-1 pl-5">
             {decisions.map((decision, index) => (
               <li key={index}>{decision}</li>
             ))}
@@ -124,14 +130,14 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
 
       {detail?.recommendations?.length ? (
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+          <p className={EYEBROW}>
             Recomendaciones
           </p>
           <ul className="mt-1 space-y-1">
             {detail.recommendations.map((rec, index) => (
               <li key={index}>
                 <span className="font-medium">{rec.action}</span>{" "}
-                <span className="font-mono text-xs text-muted">
+                <span className="text-xs text-muted">
                   ({priorityLabels[rec.priority] ?? rec.priority})
                 </span>
                 {rec.rationale ? (
@@ -145,10 +151,10 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
 
       {detail?.risks?.length ? (
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+          <p className={EYEBROW}>
             Riesgos
           </p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          <ul className="mt-1 list-disc space-y-1 pl-5">
             {detail.risks.map((risk, index) => (
               <li key={index}>{risk}</li>
             ))}
@@ -158,14 +164,14 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
 
       {detail?.proposed_tasks?.length ? (
         <div>
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+          <p className={EYEBROW}>
             Tareas propuestas (se crean al aprobar)
           </p>
-          <ul className="mt-1 space-y-0.5">
+          <ul className="mt-1 space-y-1">
             {detail.proposed_tasks.map((task, index) => (
               <li key={index} className="flex flex-wrap items-baseline gap-2">
                 <span>{task.title}</span>
-                <span className="font-mono text-xs text-muted">
+                <span className="text-xs text-muted">
                   {priorityLabels[task.priority] ?? task.priority} ·{" "}
                   {task.owner}
                 </span>
@@ -177,10 +183,8 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
 
       {detail?.warnings?.length ? (
         <div className="border-l-2 border-warn pl-3">
-          <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-warn-deep">
-            Avisos
-          </p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted">
+          <p className={cn(EYEBROW, "text-warn-deep")}>Avisos</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-muted">
             {detail.warnings.map((warning, index) => (
               <li key={index}>{warning}</li>
             ))}
@@ -422,24 +426,18 @@ function CallDetail({
   }
 
   return (
-    <Card className="overflow-hidden">
-      <header className="-mx-4 -mt-4 flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-4 sm:-mx-5 sm:px-5">
-        <div>
-          <p className="font-medium">{call.title}</p>
-          <p className="mt-1 text-sm text-muted">
-            {callTypeLabels[call.call_type] ?? call.call_type} -{" "}
-            {formatDate(call.held_at ?? call.scheduled_at)}
-            {call.duration_minutes ? ` - ${call.duration_minutes} min` : ""}
-          </p>
-        </div>
+    <Card
+      title={call.title}
+      description={
+        `${callTypeLabels[call.call_type] ?? call.call_type} · ${formatDate(call.held_at ?? call.scheduled_at)}${call.duration_minutes ? ` · ${call.duration_minutes} min` : ""}`
+      }
+      actions={
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs uppercase tracking-wide text-muted">
+          <span className="text-xs text-muted">
             {callStatusLabels[call.status] ?? call.status}
           </span>
           {!call.is_visible_to_client && isConsultant ? (
-            <span className="font-mono text-xs uppercase tracking-wide text-warn-deep">
-              oculta al cliente
-            </span>
+            <Badge tone="warn">Oculta al cliente</Badge>
           ) : null}
           {call.recording_url ? (
             <Link href={call.recording_url} target="_blank" rel="noreferrer">
@@ -458,24 +456,21 @@ function CallDetail({
             </Button>
           ) : null}
         </div>
-      </header>
-
-      <div className="space-y-5 pt-4">
+      }
+    >
+      <div className="space-y-6">
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
         {publishedSummary ? (
-          <section className="rounded-md border border-line bg-surface p-4">
-            <p className="text-xs font-medium uppercase text-muted">
-              Resumen de la llamada
-            </p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
+          <Card title="Resumen de la llamada">
+            <p className="whitespace-pre-wrap text-sm leading-6">
               {publishedSummary.summary}
             </p>
             <StructuredSummary summary={publishedSummary} />
             <p className="mt-2 text-xs text-muted">
               Publicado el {formatDate(publishedSummary.published_at)}
             </p>
-          </section>
+          </Card>
         ) : !isConsultant ? (
           <p className="text-sm text-muted">
             El resumen estara disponible cuando se publique.
@@ -510,7 +505,7 @@ function CallDetail({
                       Aprobar y publicar
                     </Button>
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
                       type="button"
                       disabled={isBusy}
@@ -524,7 +519,7 @@ function CallDetail({
             ))}
 
             <Accordion
-              className="border border-line"
+              className="border border-edge"
               items={[
                 {
                   id: "transcript",
@@ -562,7 +557,7 @@ function CallDetail({
                         </form>
                       ) : (
                         <Button
-                          variant="secondary"
+                          variant="ghost"
                           size="sm"
                           type="button"
                           onClick={() => setShowTranscriptForm(true)}
@@ -580,7 +575,7 @@ function CallDetail({
 
             {showSummaryForm ? (
               <form
-                className="space-y-2 border-t border-line pt-3"
+                className="space-y-2 border-t border-edge pt-3"
                 onSubmit={submitSummary}
               >
                 <p className="text-sm font-medium">
@@ -616,7 +611,7 @@ function CallDetail({
                   {isBusy ? "Generando..." : "Generar resumen con IA"}
                 </Button>
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   type="button"
                   onClick={() => setShowSummaryForm(true)}
                 >
@@ -629,13 +624,13 @@ function CallDetail({
 
         {call.call_task_links.length > 0 ? (
           <section>
-            <p className="text-xs font-medium uppercase text-muted">
+            <p className={EYEBROW}>
               Tareas de esta llamada
             </p>
             <ul className="mt-2 space-y-1">
               {call.call_task_links.map((link) => (
                 <li key={link.id} className="flex items-center gap-2 text-sm">
-                  <span className="font-mono text-xs text-muted">
+                  <span className="text-xs text-muted">
                     {taskStatusLabels[link.tasks?.status ?? ""] ?? "Sin estado"}
                   </span>
                   <span>{link.tasks?.title ?? link.task_id}</span>
@@ -673,7 +668,7 @@ function CallDetail({
                 placeholder="Nota interna (solo consultores)..."
               />
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
                 type="submit"
                 className="w-full sm:w-auto"
@@ -686,15 +681,13 @@ function CallDetail({
         ) : null}
 
         {isConsultant && call.call_internal_notes.length > 0 ? (
-          <section className="border-l-2 border-edge py-0.5 pl-3">
-            <p className="text-xs font-medium uppercase text-muted">
-              Notas internas
-            </p>
+          <section className="border-l-2 border-edge py-1 pl-3">
+            <p className={EYEBROW}>Notas internas</p>
             <ul className="mt-2 space-y-2">
               {call.call_internal_notes.map((note) => (
                 <li key={note.id} className="text-sm">
                   {note.body}
-                  <span className="ml-2 font-mono text-xs text-muted">
+                  <span className="ml-2 text-xs text-muted">
                     {formatDate(note.created_at)}
                   </span>
                 </li>
@@ -803,55 +796,81 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page space-y-6">
-      <section className="flex flex-wrap items-baseline justify-between gap-3 border-t border-ink/20 pt-5">
+      <section className="flex flex-wrap items-baseline justify-between gap-3">
         <Heading size="lg">Llamadas de consultoría</Heading>
         {isConsultant ? (
-          <Button
-            type="button"
-            onClick={() => setShowCreateForm((value) => !value)}
+          <Modal
+            isOpen={showCreateForm}
+            onOpenChange={(open) => {
+              setShowCreateForm(open);
+              if (!open) setCreateError(null);
+            }}
           >
-            {showCreateForm ? "Cerrar" : "Registrar llamada"}
-          </Button>
+            <Modal.Trigger>
+              <Button type="button">Registrar llamada</Button>
+            </Modal.Trigger>
+            <Modal.Backdrop>
+              <Modal.Container size="lg">
+                <Modal.Dialog aria-label="Registrar llamada">
+                  <form onSubmit={submitCreate}>
+                    <Modal.Header>
+                      <Modal.Heading>Registrar llamada</Modal.Heading>
+                    </Modal.Header>
+                    <Modal.Body>
+                      <div className="space-y-4">
+                        <Field label="Título">
+                          <Input
+                            value={newTitle}
+                            onChange={(event) => setNewTitle(event.target.value)}
+                            placeholder="Ej: Revisión mensual julio"
+                          />
+                        </Field>
+                        <Field label="Tipo">
+                          <Select
+                            aria-label="Tipo"
+                            value={newType}
+                            onChange={setNewType}
+                            options={Object.entries(callTypeLabels).map(
+                              ([value, label]) => ({ value, label }),
+                            )}
+                          />
+                        </Field>
+                        <Field label="Enlace grabación (Loom/Fathom, opcional)">
+                          <Input
+                            value={newRecordingUrl}
+                            onChange={(event) =>
+                              setNewRecordingUrl(event.target.value)
+                            }
+                            placeholder="https://www.loom.com/share/..."
+                          />
+                        </Field>
+                        {createError ? (
+                          <ErrorBlock>{createError}</ErrorBlock>
+                        ) : null}
+                      </div>
+                    </Modal.Body>
+                    <Modal.Footer>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setShowCreateForm(false)}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={isCreating || !newTitle.trim()}
+                      >
+                        {isCreating ? "Creando..." : "Crear llamada"}
+                      </Button>
+                    </Modal.Footer>
+                  </form>
+                </Modal.Dialog>
+              </Modal.Container>
+            </Modal.Backdrop>
+          </Modal>
         ) : null}
       </section>
-
-      {showCreateForm && isConsultant ? (
-        <form
-          className="space-y-4 rounded-md border border-line bg-surface p-4 sm:p-5"
-          onSubmit={submitCreate}
-        >
-          <div className="grid gap-3 md:grid-cols-[1fr_200px_1fr]">
-            <Field label="Titulo">
-              <Input
-                value={newTitle}
-                onChange={(event) => setNewTitle(event.target.value)}
-                placeholder="Ej: Revisión mensual julio"
-              />
-            </Field>
-            <Field label="Tipo">
-              <Select
-                aria-label="Tipo"
-                value={newType}
-                onChange={setNewType}
-                options={Object.entries(callTypeLabels).map(
-                  ([value, label]) => ({ value, label }),
-                )}
-              />
-            </Field>
-            <Field label="Enlace grabacion (Loom/Fathom, opcional)">
-              <Input
-                value={newRecordingUrl}
-                onChange={(event) => setNewRecordingUrl(event.target.value)}
-                placeholder="https://www.loom.com/share/..."
-              />
-            </Field>
-          </div>
-          <Button type="submit" disabled={isCreating || !newTitle.trim()}>
-            {isCreating ? "Creando..." : "Crear llamada"}
-          </Button>
-          {createError ? <ErrorBlock>{createError}</ErrorBlock> : null}
-        </form>
-      ) : null}
 
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
@@ -880,10 +899,179 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
 }
 
+// --- Estado "vista general" de /llamadas (consultor sin cliente activo):
+// llamadas de toda la cartera, resúmenes pendientes de aprobar primero. ---
+
+type ConsultantCallRow = {
+  id: string;
+  title: string;
+  call_type: string;
+  status: string;
+  held_at: string | null;
+  created_at: string;
+  organization_id: string;
+  organization_name: string;
+  summary_pending: boolean;
+  has_published_summary: boolean;
+};
+
+function ConsultantCallsView() {
+  const { setOrganizationId } = useActiveOrganization();
+  const [data, setData] = useState<{
+    calls: ConsultantCallRow[];
+    organizations: Array<{ id: string; display_name: string }>;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [clientFilter, setClientFilter] = useState("all");
+  const [onlyPending, setOnlyPending] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    apiFetch("/v1/consultant/calls")
+      .then(async (response) => {
+        if (cancelled) return;
+        if (!response.ok) {
+          setError(await readApiError(response));
+          return;
+        }
+        setData(
+          (await response.json()) as {
+            calls: ConsultantCallRow[];
+            organizations: Array<{ id: string; display_name: string }>;
+          },
+        );
+        setError(null);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setError("No se pudieron cargar las llamadas por un error de red.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (isLoading && !data) {
+    return (
+      <div className="portal-page">
+        <LoadingBlock label="Cargando llamadas de la cartera..." />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="portal-page">
+        <ErrorBlock>{error}</ErrorBlock>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const pendingCount = data.calls.filter((call) => call.summary_pending).length;
+  const filtered = data.calls
+    .filter(
+      (call) => clientFilter === "all" || call.organization_id === clientFilter,
+    )
+    .filter((call) => !onlyPending || call.summary_pending)
+    .sort(
+      (a, b) =>
+        Number(b.summary_pending) - Number(a.summary_pending) ||
+        Date.parse(b.held_at ?? b.created_at) -
+          Date.parse(a.held_at ?? a.created_at),
+    );
+
+  return (
+    <div className="portal-page space-y-6">
+      <Card
+        title="Llamadas · toda la cartera"
+        description={`${data.calls.length} llamadas · ${pendingCount} con resumen pendiente de aprobar`}
+      >
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Select
+            className="w-52"
+            aria-label="Filtrar por cliente"
+            value={clientFilter}
+            onChange={setClientFilter}
+            options={[
+              { value: "all", label: "Todos los clientes" },
+              ...data.organizations.map((organization) => ({
+                value: organization.id,
+                label: organization.display_name,
+              })),
+            ]}
+          />
+          <Button
+            variant={onlyPending ? "primary" : "secondary"}
+            size="sm"
+            onClick={() => setOnlyPending((value) => !value)}
+          >
+            Solo pendientes de aprobar
+          </Button>
+        </div>
+
+        {filtered.length === 0 ? (
+          <EmptyState
+            title="Sin llamadas para este filtro"
+            hint="Cambia el filtro o abre un cliente para registrar una llamada."
+          />
+        ) : (
+          <List>
+            {filtered.map((call) => (
+              <List.Item
+                as="button"
+                key={call.id}
+                type="button"
+                onClick={() => setOrganizationId(call.organization_id)}
+                className="flex w-full items-start justify-between gap-4 py-3 text-left hover:bg-surface"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {call.summary_pending ? (
+                      <Badge tone="warn">Resumen pendiente</Badge>
+                    ) : call.has_published_summary ? (
+                      <Badge tone="success">Resumen publicado</Badge>
+                    ) : null}
+                    <span className="font-medium">{call.title}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-muted">
+                    {call.organization_name} · {displayValue(call.call_type)} ·{" "}
+                    {displayValue(call.status)}
+                    {call.held_at
+                      ? ` · ${new Date(call.held_at).toLocaleDateString("es-ES")}`
+                      : ""}
+                  </p>
+                </div>
+              </List.Item>
+            ))}
+          </List>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function CallsRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organizationId } = useActiveOrganization();
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
+
+  if (isConsultant && !organizationId) {
+    return <ConsultantCallsView />;
+  }
+
+  return <CallsContent bootstrap={bootstrap} />;
+}
+
 export default function CallsPage() {
   return (
     <PortalShell title="Llamadas">
-      {(bootstrap) => <CallsContent bootstrap={bootstrap} />}
+      {(bootstrap) => <CallsRouter bootstrap={bootstrap} />}
     </PortalShell>
   );
 }

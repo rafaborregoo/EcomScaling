@@ -55,8 +55,11 @@ export function buildMetaAdCreationPlan(
 ): MetaAdCreationPlanResult {
   const adAccountId = normalizeMetaAdAccountId(input.adAccountId);
   if (!adAccountId) return { ok: false, error: "meta_ad_account_id_invalid" };
-  if (!nonEmpty(input.campaignName) || !nonEmpty(input.campaignObjective)) {
+  if (!nonEmpty(input.campaignName)) {
     return { ok: false, error: "meta_campaign_fields_required" };
+  }
+  if (!/^OUTCOME_[A-Z_]+$/.test(input.campaignObjective.trim())) {
+    return { ok: false, error: "meta_campaign_objective_invalid" };
   }
   if (!nonEmpty(input.adSetName) || !nonEmpty(input.creativeName) || !nonEmpty(input.adName)) {
     return { ok: false, error: "meta_ad_hierarchy_names_required" };
@@ -90,4 +93,3 @@ export function buildMetaAdCreationPlan(
     },
   };
 }
-

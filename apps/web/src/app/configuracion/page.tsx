@@ -16,6 +16,7 @@ import {
   ErrorBlock,
   Field,
   Input,
+  List,
   LoadingBlock,
   Select,
   Table,
@@ -191,11 +192,21 @@ type FixedExpense = {
   valid_until: string | null;
 };
 
+type ShippingRule = {
+  id: string;
+  name: string;
+  country_code: string | null;
+  cost_per_order: number;
+  currency_code: string;
+  min_order_total: number | null;
+  max_order_total: number | null;
+};
+
 type FinancialConfigResponse = {
   organization_id: string;
   settings: FinancialSettings;
   fixed_expenses: FixedExpense[];
-  shipping_cost_rules: unknown[];
+  shipping_cost_rules: ShippingRule[];
   metric_targets: unknown[];
 };
 
@@ -219,6 +230,10 @@ function FinancialConfigSection({
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [busyExpenseId, setBusyExpenseId] = useState<string | null>(null);
+  const [isAddingShippingRule, setIsAddingShippingRule] = useState(false);
+  const [busyShippingRuleId, setBusyShippingRuleId] = useState<string | null>(
+    null,
+  );
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   const [paymentFeePct, setPaymentFeePct] = useState("");
@@ -230,6 +245,11 @@ function FinancialConfigSection({
   const [expensePeriod, setExpensePeriod] = useState<"monthly" | "yearly">(
     "monthly",
   );
+
+  const [ruleName, setRuleName] = useState("");
+  const [ruleCountryCode, setRuleCountryCode] = useState("");
+  const [ruleCostPerOrder, setRuleCostPerOrder] = useState("");
+  const [ruleMinOrderTotal, setRuleMinOrderTotal] = useState("");
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
@@ -355,6 +375,70 @@ function FinancialConfigSection({
     }
   }
 
+  async function addShippingRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsAddingShippingRule(true);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/shipping-rules`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: ruleName,
+            countryCode: ruleCountryCode.trim()
+              ? ruleCountryCode.trim().toUpperCase()
+              : null,
+            costPerOrder: Number(ruleCostPerOrder),
+            minOrderTotal: ruleMinOrderTotal ? Number(ruleMinOrderTotal) : 0,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      setRuleName("");
+      setRuleCountryCode("");
+      setRuleCostPerOrder("");
+      setRuleMinOrderTotal("");
+      void loadConfig();
+    } catch {
+      setError(
+        "No se pudo añadir la regla de envío por un error de red. Reintenta.",
+      );
+    } finally {
+      setIsAddingShippingRule(false);
+    }
+  }
+
+  async function removeShippingRule(ruleId: string) {
+    setError(null);
+    setBusyShippingRuleId(ruleId);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/shipping-rules/${ruleId}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      void loadConfig();
+    } catch {
+      setError(
+        "No se pudo quitar la regla de envío por un error de red. Reintenta.",
+      );
+    } finally {
+      setBusyShippingRuleId(null);
+    }
+  }
+
   if (isLoading) {
     return <LoadingBlock label="Cargando configuración financiera..." />;
   }
@@ -436,16 +520,20 @@ function FinancialConfigSection({
       >
         {canManage ? (
           <form className="grid gap-4 md:grid-cols-4" onSubmit={addExpense}>
-            <Input
-              className="md:col-span-2"
-              value={expenseName}
-              onChange={(event) => setExpenseName(event.target.value)}
-              placeholder="Nombre (p. ej. Klaviyo, nóminas...)"
-              required
-            />
-            <div className="flex gap-2">
+            <div className="md:col-span-2">
+              <Field label="Nombre del gasto">
+                <Input
+                  className="mt-2"
+                  value={expenseName}
+                  onChange={(event) => setExpenseName(event.target.value)}
+                  placeholder="Ej.: Klaviyo, nóminas..."
+                  required
+                />
+              </Field>
+            </div>
+            <Field label="Importe">
               <Input
-                className="min-w-0 flex-1"
+                className="mt-2"
                 type="number"
                 step="0.01"
                 min="0"
@@ -454,8 +542,10 @@ function FinancialConfigSection({
                 placeholder="Importe"
                 required
               />
+            </Field>
+            <Field label="Periodicidad">
               <Select
-                aria-label="Periodicidad del gasto"
+                className="mt-2"
                 value={expensePeriod}
                 onChange={(value) =>
                   setExpensePeriod(value === "yearly" ? "yearly" : "monthly")
@@ -465,14 +555,14 @@ function FinancialConfigSection({
                   { value: "yearly", label: "al año" },
                 ]}
               />
-            </div>
+            </Field>
             <Button className="w-full md:w-auto" type="submit" disabled={isAddingExpense}>
               {isAddingExpense ? "Añadiendo..." : "Añadir gasto"}
             </Button>
           </form>
         ) : null}
 
-        <div className="mt-4 divide-y divide-line border-t border-line">
+        <List className="mt-4 border-t border-edge">
           {(config?.fixed_expenses ?? []).length === 0 ? (
             <EmptyState
               title="Sin gastos fijos configurados"
@@ -480,13 +570,13 @@ function FinancialConfigSection({
             />
           ) : (
             (config?.fixed_expenses ?? []).map((expense) => (
-              <div
+              <List.Item
                 key={expense.id}
                 className="flex items-center justify-between gap-4 py-3"
               >
                 <div>
                   <p className="text-sm font-medium">{expense.name}</p>
-                  <p className="font-mono text-xs text-muted">
+                  <p className="text-xs text-muted">
                     desde {expense.valid_from}
                     {expense.valid_until ? ` hasta ${expense.valid_until}` : ""}
                   </p>
@@ -498,7 +588,7 @@ function FinancialConfigSection({
                   </p>
                   {canManage ? (
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
                       type="button"
                       onClick={() => void removeExpense(expense.id)}
@@ -508,10 +598,122 @@ function FinancialConfigSection({
                     </Button>
                   ) : null}
                 </div>
-              </div>
+              </List.Item>
             ))
           )}
-        </div>
+        </List>
+      </Card>
+
+      <Card
+        title="Reglas de envío"
+        description="Coste de envío por país o tramo de importe: sustituye al envío medio para los pedidos que las cumplan."
+      >
+        {canManage ? (
+          <form
+            className="grid gap-4 md:grid-cols-4"
+            onSubmit={addShippingRule}
+          >
+            <div className="md:col-span-2">
+              <Field label="Nombre de la regla">
+                <Input
+                  className="mt-2"
+                  value={ruleName}
+                  onChange={(event) => setRuleName(event.target.value)}
+                  placeholder="Ej.: Envío nacional"
+                  required
+                />
+              </Field>
+            </div>
+            <Field label="País (opcional)">
+              <Input
+                className="mt-2"
+                value={ruleCountryCode}
+                maxLength={2}
+                onChange={(event) =>
+                  setRuleCountryCode(event.target.value.toUpperCase())
+                }
+                placeholder="ES"
+              />
+            </Field>
+            <Field label="Coste por pedido">
+              <Input
+                className="mt-2"
+                type="number"
+                step="0.01"
+                min="0"
+                value={ruleCostPerOrder}
+                onChange={(event) => setRuleCostPerOrder(event.target.value)}
+                placeholder="4.50"
+                required
+              />
+            </Field>
+            <Field label="Importe mínimo (opcional)">
+              <Input
+                className="mt-2"
+                type="number"
+                step="0.01"
+                min="0"
+                value={ruleMinOrderTotal}
+                onChange={(event) => setRuleMinOrderTotal(event.target.value)}
+                placeholder="0"
+              />
+            </Field>
+            <Button
+              className="w-full md:w-auto"
+              type="submit"
+              disabled={isAddingShippingRule}
+            >
+              {isAddingShippingRule ? "Añadiendo..." : "Añadir regla"}
+            </Button>
+          </form>
+        ) : null}
+
+        <List className="mt-4 border-t border-edge">
+          {(config?.shipping_cost_rules ?? []).length === 0 ? (
+            <EmptyState
+              title="Sin reglas de envío"
+              hint="Sin reglas se usa el envío medio por pedido para todo el negocio."
+            />
+          ) : (
+            (config?.shipping_cost_rules ?? []).map((rule) => (
+              <List.Item
+                key={rule.id}
+                className="flex items-center justify-between gap-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-medium">{rule.name}</p>
+                  <p className="text-xs text-muted">
+                    {rule.country_code ?? "cualquier país"}
+                    {rule.min_order_total
+                      ? ` · desde ${Number(rule.min_order_total).toFixed(2)}`
+                      : ""}
+                    {rule.max_order_total
+                      ? ` hasta ${Number(rule.max_order_total).toFixed(2)}`
+                      : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <p className="font-mono text-sm">
+                    {Number(rule.cost_per_order).toFixed(2)} /pedido
+                  </p>
+                  {canManage ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      onClick={() => void removeShippingRule(rule.id)}
+                      disabled={busyShippingRuleId === rule.id}
+                    >
+                      {busyShippingRuleId === rule.id
+                        ? "Quitando..."
+                        : "Quitar"}
+                    </Button>
+                  ) : null}
+                </div>
+              </List.Item>
+            ))
+          )}
+        </List>
       </Card>
     </div>
   );
@@ -561,7 +763,10 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {tab === "general" ? (
         <div className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
-            <Card title="Perfil">
+            <Card
+              title="Perfil"
+              description="Identidad y permisos de la cuenta activa."
+            >
               <dl className="space-y-3 text-sm">
                 <InfoRow label="Nombre">
                   {bootstrap.profile.full_name ?? "Sin nombre"}
@@ -570,14 +775,17 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   {bootstrap.user.email ?? "Sin email"}
                 </InfoRow>
                 <InfoRow label="Rol plataforma">
-                  <span className="font-mono text-brand">
+                  <span className="font-mono">
                     {displayValue(bootstrap.profile.platform_role)}
                   </span>
                 </InfoRow>
               </dl>
             </Card>
 
-            <Card title="Organización activa">
+            <Card
+              title="Organización activa"
+              description="Contexto operativo y plan aplicado a esta organización."
+            >
               <dl className="space-y-3 text-sm">
                 <InfoRow label="Nombre">
                   {organization?.display_name ?? "Sin organización"}
@@ -593,7 +801,7 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </span>
                 </InfoRow>
                 <InfoRow label="Plan">
-                  <span className="font-mono text-brand">
+                  <span className="font-mono">
                     {subscription
                       ? `${subscription.plan_code} · ${displayValue(subscription.status)}`
                       : "Sin plan"}

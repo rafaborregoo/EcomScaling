@@ -97,7 +97,7 @@ export function OnboardingChecklist({
         {steps.map((step, index) => (
           <li
             key={step.title}
-            className="border-t border-line pt-3"
+            className="border-t border-edge pt-3"
             aria-current={step.state === "current" ? "step" : undefined}
           >
             <div className="flex items-center justify-between gap-2">

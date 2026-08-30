@@ -1177,6 +1177,11 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   outputContract?: OutputContract<TOutput>;
   budget?: AgentBudget;
   resilience?: Partial<AgentResiliencePolicy>;
+  /**
+   * Imágenes adjuntas al mensaje de usuario (visión). `url` debe ser pública y
+   * de confianza -- el backend valida el origen antes de llamar aquí.
+   */
+  images?: Array<{ url: string; role?: string }>;
 }): Promise<AgentTurnResult<TOutput>> {
   const input = agentInputSchema.parse(params.input);
   const client = new Anthropic({ apiKey: params.apiKey });
@@ -1188,6 +1193,12 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     (defaultOutputContract as unknown as OutputContract<TOutput>);
 
   const contextText = serializeUntrustedContextBlocks(params.contextBlocks).text;
+
+  const attachedImages = (params.images ?? []).slice(0, 8);
+  const imageBlocks: Anthropic.ImageBlockParam[] = attachedImages.map((img) => ({
+    type: "image",
+    source: { type: "url", url: img.url },
+  }));
 
   const messages: Anthropic.MessageParam[] = [
     {
@@ -1201,6 +1212,15 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
             input.time_range
               ? `Periodo: ${input.time_range.start} a ${input.time_range.end}`
               : null,
+            attachedImages.length > 0
+              ? "\nImagenes adjuntas (en el mismo orden que abajo). Usa la URL EXACTA al referenciar una imagen de contenido; las de rol 'referencia' son solo guia visual, no las incrustes:\n" +
+                attachedImages
+                  .map(
+                    (img, index) =>
+                      `${index + 1}. [${img.role ?? "contenido"}] ${img.url}`,
+                  )
+                  .join("\n")
+              : null,
             "",
             "Contexto verificado:",
             contextText,
@@ -1208,6 +1228,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
             .filter((line) => line !== null)
             .join("\n"),
         },
+        ...imageBlocks,
       ],
     },
   ];

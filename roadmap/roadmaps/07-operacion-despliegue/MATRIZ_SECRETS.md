@@ -53,6 +53,7 @@ publicar en la UI un flujo OAuth que no puede completarse:
 | Variable                    | Si falta                                                               |
 | --------------------------- | ---------------------------------------------------------------------- |
 | `ANTHROPIC_API_KEY`         | Los endpoints de IA devuelven 503; el resto de la plataforma funciona. |
+| `ANTHROPIC_MODEL`           | Se usa el modelo persistido en `agent_versions`; el routing por agente mantiene prioridad. |
 | `OPENAI_API_KEY`/`_MODEL`   | Sin fallback de proveedor LLM: un fallo de Anthropic es un fallo.      |
 | `AI_MODEL_ROUTING_JSON`     | Se usan el modelo de `agent_versions` y los budgets por defecto; permite configurar overrides por agente sin migración. |
 | `AI_PLAN_BUDGETS_JSON`      | Se usan defaults conservadores; permite limites diarios, por turno, tools y complejidad por plan sin migracion. |

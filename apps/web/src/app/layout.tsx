@@ -1,11 +1,33 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Sans } from "next/font/google";
 import { AriaRouterProvider } from "@/components/aria-router-provider";
 import { Toast } from "@/components/ui";
 import "./globals.css";
 
+// Fuente estandar de todo el CRM, self-hosted en build (sin request a Google
+// en runtime). IBM Plex Sans no es variable: hay que declarar los pesos.
+const plexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-plex-sans",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "EcomScaling IA",
   description: "Portal operativo para clientes y consultores de EcomScaling.",
+  // El portal se usa como app instalada en el móvil (Añadir a pantalla de
+  // inicio): sin barra de navegador, arranque a pantalla completa.
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "EcomScaling" },
+};
+
+// `viewport-fit=cover` habilita las env(safe-area-inset-*) que usan la barra
+// inferior y el contenido para respetar el notch / franja del gesto en iOS.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({
@@ -14,7 +36,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className="h-full antialiased" suppressHydrationWarning>
+    <html
+      lang="es"
+      className={`h-full antialiased ${plexSans.variable}`}
+      suppressHydrationWarning
+    >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <AriaRouterProvider>
           {children}

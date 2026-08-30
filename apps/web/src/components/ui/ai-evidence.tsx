@@ -19,7 +19,7 @@ export function AiEvidence({
   const presentation = getAiEvidencePresentation(sources, warnings);
   return (
     <section
-      className="mt-4 border-l-2 border-line pl-3"
+      className="mt-4 border-l-2 border-edge pl-3"
       role="region"
       aria-labelledby={titleId}
     >

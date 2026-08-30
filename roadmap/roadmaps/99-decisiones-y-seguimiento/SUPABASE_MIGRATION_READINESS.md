@@ -19,19 +19,19 @@ Las siete migraciones pendientes fueron revisadas, ejecutadas primero en una tra
 con `ROLLBACK` y aplicadas después en orden contra el proyecto `cthjwpeygpzwdmjkxeqa` mediante
 `psql` dentro de Docker con red host, porque `db push` de la CLI falla en Windows con `uv_spawn`.
 
-La verificación posterior confirma `localCount=71`, `remoteCount=71`, `pendingLocal=[]` y
+La verificación posterior confirma `localCount=75`, `remoteCount=75`, `pendingLocal=[]` y
 `remoteOnly=[]`. También existen en remoto las tablas de evidencia de evals, la cola de memoria,
 la cola Fathom, `agent_sql_gateway` y `knowledge_search_hybrid`. El MCP sigue sin permisos para
 este proyecto, pero ya no bloquea la migración porque el acceso PostgreSQL directo está operativo.
 
-## Historial remoto verificado
+## Historial remoto verificado (diagnóstico supersedido)
 
 > Typegen oficial 2026-08-26: se regeneró desde el mismo `SUPABASE_DB_URL` con los esquemas
 > `public,private` y actualizó `packages/db/src/database.types.ts` (7.393 líneas). El archivo
 > contiene AI-26, `processing_started_at`, `external_recording_id` y los RPC nuevos; typecheck
 > de db/API/web pasa.
 
-La CLI `2.109.1` ejecutada vía `npx` pudo conectarse usando `SUPABASE_DB_URL`
+El siguiente bloque conserva el diagnóstico previo a la alineación vigente. La CLI `2.109.1` ejecutada vía `npx` pudo conectarse usando `SUPABASE_DB_URL`
 sin mostrar la contraseña. El remoto tiene aplicadas migraciones hasta
 `20260824120000`. Hay 7 migraciones locales posteriores todavía no aplicadas:
 
@@ -62,9 +62,8 @@ una salida incompleta.
 ## Informe reproducible de drift
 
 `scripts/report-supabase-migration-drift.mjs` compara el historial local y remoto
-sin ejecutar mutaciones. La última ejecución detectó 71 migraciones locales, 64
-remotas y las siete pendientes listadas arriba; termina con `drift_detected` y
-`mutationPerformed: false`.
+sin ejecutar mutaciones. La ejecución vigente detecta 75 migraciones locales y 75
+remotas, sin pendientes; termina con `aligned` y `mutationPerformed: false`.
 
 ## Advisors remotos
 

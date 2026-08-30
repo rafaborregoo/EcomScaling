@@ -1,3 +1,4 @@
+import { RunnableLambda } from "@langchain/core/runnables";
 import { END, START, StateGraph, StateSchema } from "@langchain/langgraph";
 import { z } from "zod";
 
@@ -73,6 +74,7 @@ export function resolveAgentOrchestrationMode(
 export async function runOperationThroughLangGraph<Result>(
   operation: () => Promise<Result> | Result,
 ): Promise<Result> {
+  const protectedOperation = RunnableLambda.from(async () => operation());
   const state = new StateSchema({
     input: z.string().default("agent-turn"),
     output: z.unknown().default(null),
@@ -80,7 +82,7 @@ export async function runOperationThroughLangGraph<Result>(
   });
   const graph = new StateGraph(state)
     .addNode("execute_protected_turn", async () => ({
-      output: await operation(),
+      output: await protectedOperation.invoke({}),
       status: "completed" as const,
     }))
     .addEdge(START, "execute_protected_turn")

@@ -36,6 +36,30 @@ test("el cliente Klaviyo fija revision, Bearer y sigue links.next por cursor", a
   assert.equal(new URL(calls[1]!.url).hostname, "a.klaviyo.com");
 });
 
+test("el cliente Klaviyo usa el esquema Klaviyo-API-Key con private keys pk_", async () => {
+  const seen: Array<string | null> = [];
+  const bearer = createKlaviyoClient("oauth-access-token", {
+    fetchImpl: async (_input, init) => {
+      seen.push(new Headers(init?.headers).get("authorization"));
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    },
+  });
+  await bearer.listResources("lists");
+
+  const apiKey = createKlaviyoClient("pk_ABC123", {
+    fetchImpl: async (_input, init) => {
+      seen.push(new Headers(init?.headers).get("authorization"));
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    },
+  });
+  await apiKey.listResources("lists");
+
+  assert.deepEqual(seen, [
+    "Bearer oauth-access-token",
+    "Klaviyo-API-Key pk_ABC123",
+  ]);
+});
+
 test("el cliente Klaviyo rechaza paginacion fuera del host permitido", async () => {
   const client = createKlaviyoClient("token", {
     fetchImpl: async () =>

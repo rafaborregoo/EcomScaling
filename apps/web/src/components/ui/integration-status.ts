@@ -1,4 +1,5 @@
 import type { Tone } from "./badge";
+import { displayValue } from "@/lib/display-labels";
 
 export type IntegrationConfigurationStatus =
   "configured" | "credentials_missing" | "feature_disabled" | "not_implemented";
@@ -58,7 +59,7 @@ export function getIntegrationStatusPresentation({
 
   return (
     healthLabels[healthStatus ?? ""] ?? {
-      label: connectionStatus,
+      label: displayValue(connectionStatus),
       tone: "neutral",
     }
   );

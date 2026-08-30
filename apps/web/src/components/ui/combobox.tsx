@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react";
 import { ComboBox, Input, Label, ListBox } from "@heroui/react";
+import { cn } from "./cn";
+import { EYEBROW } from "./typography";
 
 export type ComboboxOption = { value: string; label: string; hint?: string };
 
@@ -31,7 +33,7 @@ export function Combobox({
       onSelectionChange={(key) => onChange(key ? String(key) : "")}
       allowsEmptyCollection
     >
-      <Label className="block font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">{label}</Label>
+      <Label className={cn("block", EYEBROW)}>{label}</Label>
       <ComboBox.InputGroup>
         <Input placeholder={placeholder} />
         <ComboBox.Trigger />

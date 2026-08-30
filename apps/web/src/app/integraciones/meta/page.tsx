@@ -1,0 +1,297 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { PortalShell } from "@/components/portal-shell";
+import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import {
+  AsyncState,
+  Banner,
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  ErrorBlock,
+  LoadingBlock,
+} from "@/components/ui";
+import {
+  BackToHub,
+  ConnectionFacts,
+  LastErrorBanner,
+  ProviderStatusCard,
+  Steps,
+  readErr,
+  useIntegrations,
+  type MetaAssetsResponse,
+} from "../shared";
+
+function useMetaAssets(organizationId: string | null, connectionId: string | null) {
+  const [assets, setAssets] = useState<MetaAssetsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!organizationId || !connectionId) {
+      setAssets(null);
+      setError(null);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/meta/assets`,
+      );
+      if (!response.ok) {
+        setError(await readErr(response));
+        setAssets(null);
+        return;
+      }
+      setAssets((await response.json()) as MetaAssetsResponse);
+    } catch {
+      setError("No se pudieron cargar las cuentas de Meta. Reintenta.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [organizationId, connectionId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { assets, setAssets, error, isLoading, reload: load };
+}
+
+function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organization, provider, isLoading, error, actions, pending, actionError } =
+    useIntegrations(bootstrap);
+  const meta = provider("meta_ads");
+  const connectionId = meta?.connection?.id ?? null;
+  const { assets, setAssets, error: assetsError, isLoading: assetsLoading } =
+    useMetaAssets(organization?.id ?? null, connectionId);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  if (isLoading) {
+    return <AsyncState status="loading" loadingLabel="Cargando Meta Ads..." />;
+  }
+  if (error) {
+    return (
+      <div className="portal-page space-y-4">
+        <BackToHub />
+        <ErrorBlock>{error}</ErrorBlock>
+      </div>
+    );
+  }
+  if (!meta) {
+    return (
+      <div className="portal-page space-y-4">
+        <BackToHub />
+        <AsyncState
+          status="empty"
+          emptyTitle="Meta Ads no está disponible"
+          emptyHint="Este conector no aparece en la configuración de esta organización."
+        />
+      </div>
+    );
+  }
+
+  const configured = meta.configuration.status === "configured";
+
+  async function saveSelection() {
+    if (!organization || !assets) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaveMessage(null);
+    const adAccountIds = assets.ad_accounts
+      .filter((asset) => asset.is_selected)
+      .map((asset) => asset.id);
+    try {
+      const selectionResponse = await apiFetch(
+        `/v1/organizations/${organization.id}/meta/assets/selection`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adAccountIds }),
+        },
+      );
+      if (!selectionResponse.ok) {
+        setSaveError(await readErr(selectionResponse));
+        return;
+      }
+      const syncResponse = await apiFetch(
+        `/v1/organizations/${organization.id}/meta/sync`,
+        { method: "POST" },
+      );
+      if (!syncResponse.ok) {
+        setSaveError(await readErr(syncResponse));
+        return;
+      }
+      setSaveMessage(
+        "Cuentas guardadas. La sincronización inicial se ha puesto en cola.",
+      );
+    } catch {
+      setSaveError("No se pudieron guardar las cuentas de Meta. Reintenta.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="portal-page space-y-6">
+      <BackToHub />
+
+      <ProviderStatusCard provider={meta}>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          Importa gasto, impresiones, clics y resultados por campaña de las
+          cuentas publicitarias que elijas. Solo se sincronizan las cuentas
+          marcadas.
+        </p>
+      </ProviderStatusCard>
+
+      <Card title="Autorizar Meta">
+        {!configured ? (
+          <Banner tone="warn">
+            La app de Meta no está configurada en el servidor todavía
+            (<span className="font-mono">META_APP_ID</span> /{" "}
+            <span className="font-mono">META_APP_SECRET</span>).
+          </Banner>
+        ) : (
+          <>
+            <Steps
+              items={[
+                <>
+                  Pulsa{" "}
+                  <span className="font-medium">
+                    {meta.connection ? "Reautorizar" : "Conectar"} Meta Ads
+                  </span>{" "}
+                  e inicia sesión en Facebook con un usuario con acceso al
+                  Business Manager.
+                </>,
+                <>
+                  Concede los permisos de lectura de anuncios y vuelves aquí
+                  automáticamente.
+                </>,
+                <>
+                  Abajo elige las cuentas publicitarias a sincronizar y guarda.
+                </>,
+              ]}
+            />
+            <Button
+              className="mt-4"
+              type="button"
+              onClick={() => void actions.connectMeta()}
+              disabled={pending === "meta"}
+            >
+              {pending === "meta"
+                ? "Conectando..."
+                : meta.connection
+                  ? "Reautorizar Meta Ads"
+                  : "Conectar Meta Ads"}
+            </Button>
+            {actionError ? (
+              <Banner className="mt-3" tone="danger">
+                {actionError}
+              </Banner>
+            ) : null}
+          </>
+        )}
+      </Card>
+
+      {meta.connection ? (
+        <Card
+          title="Cuentas publicitarias"
+          description="Solo se sincronizan las cuentas marcadas. El identificador externo permite verificar el acceso."
+        >
+          {assetsLoading ? (
+            <LoadingBlock label="Cargando cuentas publicitarias..." />
+          ) : assetsError ? (
+            <Banner tone="danger">{assetsError}</Banner>
+          ) : !assets || assets.ad_accounts.length === 0 ? (
+            <EmptyState
+              title="Aún no hay cuentas descubiertas"
+              hint="Meta no ha devuelto cuentas para esta conexión. Revisa permisos o vuelve a autorizar."
+            />
+          ) : (
+            <>
+              <fieldset
+                className="space-y-2"
+                aria-label="Cuentas publicitarias Meta"
+              >
+                <legend className="sr-only">Cuentas publicitarias Meta</legend>
+                {assets.ad_accounts.map((asset) => (
+                  <Checkbox
+                    key={asset.id}
+                    checked={asset.is_selected}
+                    disabled={!asset.is_active || saving}
+                    className="flex items-start gap-3 rounded-md border border-edge p-3"
+                    onChange={(checked) => {
+                      setAssets((current) =>
+                        current
+                          ? {
+                              ...current,
+                              ad_accounts: current.ad_accounts.map((item) =>
+                                item.id === asset.id
+                                  ? { ...item, is_selected: checked }
+                                  : item,
+                              ),
+                            }
+                          : current,
+                      );
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-ink">
+                        {asset.name}
+                      </span>
+                      <span className="block font-mono text-xs text-muted">
+                        {asset.external_id}
+                      </span>
+                      {asset.currency_code || asset.timezone_name ? (
+                        <span className="block text-xs text-muted">
+                          {[asset.currency_code, asset.timezone_name]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      ) : null}
+                    </span>
+                  </Checkbox>
+                ))}
+              </fieldset>
+              {saveMessage ? (
+                <p className="mt-3 text-xs text-success">{saveMessage}</p>
+              ) : null}
+              {saveError ? (
+                <Banner className="mt-3" tone="danger">
+                  {saveError}
+                </Banner>
+              ) : null}
+              <Button
+                className="mt-3"
+                type="button"
+                onClick={() => void saveSelection()}
+                disabled={saving}
+              >
+                {saving ? "Guardando..." : "Guardar y sincronizar"}
+              </Button>
+            </>
+          )}
+        </Card>
+      ) : null}
+
+      <LastErrorBanner provider={meta} />
+
+      <Card title="Estado de la conexión">
+        <ConnectionFacts provider={meta} />
+      </Card>
+    </div>
+  );
+}
+
+export default function MetaPage() {
+  return (
+    <PortalShell title="Integración · Meta Ads">
+      {(bootstrap) => <MetaIntegrationPage bootstrap={bootstrap} />}
+    </PortalShell>
+  );
+}

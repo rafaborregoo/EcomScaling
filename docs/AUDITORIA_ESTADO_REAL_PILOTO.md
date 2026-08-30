@@ -19,12 +19,12 @@
 > separaron en `test:remote` y exigen confirmación explícita y un proyecto de
 > pruebas distinto del proyecto de producción.
 
-> Verificación de base de datos 2026-08-24: 64 migraciones locales/remotas
+> Verificación de base de datos 2026-08-26: 75 migraciones locales/remotas
 > alineadas, `db push --linked --dry-run` devuelve que la base está al día y
 > `db lint` no encuentra errores en `public`. La comprobación fue de lectura;
 > no se escribieron datos de negocio.
 
-> Correccion de conteo 2026-08-24: tras aplicar AI-13 hay 64 migraciones
+> Correccion de conteo 2026-08-26: tras aplicar AI-13 hay 75 migraciones
 > locales/remotas alineadas; las cifras anteriores de 62 son historicas.
 
 > El guard de seeds tambien protege `seed-shopify-store`: exige
@@ -73,7 +73,7 @@
 > siguen pendientes.
 
 > Lint y esquema 2026-08-20: ESLint directo de `apps/web/src` pasa sin errores y
-> `regenerate-generated-schema.mjs --check` confirma las 64 migraciones.
+> `regenerate-generated-schema.mjs --check` confirma las 75 migraciones.
 
 > Auditoría documental 2026-08-20: se corrigieron tres enlaces relativos rotos en DB-06, BE-04 y
 > RB-005; el escaneo de enlaces locales Markdown queda en `MARKDOWN_LOCAL_LINKS_OK`.
@@ -151,7 +151,7 @@
 > remoto estan alineados y `supabase db push --dry-run` devuelve `Remote database is up to date`.
 
 > **Correccion de evidencia 2026-08-02:** la cifra anterior de 56 migraciones era historica. El
-> estado vigente es 64 migraciones locales/remotas alineadas; `db push --dry-run` y `db lint` pasan.
+> estado vigente es 75 migraciones locales/remotas alineadas; `db push --dry-run` y `db lint` pasan.
 > Ademas, los feature flags de Meta/Klaviyo protegen rutas, callbacks, runners internos y el worker
 > de reconciliacion, por lo que un conector desactivado no puede activarse por una ruta alternativa.
 
@@ -258,7 +258,7 @@ EcomScaling tiene una base funcional para operar con Shopify y un runtime IA con
 > no encuentra errores en el esquema publico.
 
 > Verificacion de fuente DB 2026-08-20: `node scripts/regenerate-generated-schema.mjs --check`
-> pasa y `schema_generado_desde_migraciones.sql` contiene las 64 migraciones,
+> pasa y `schema_generado_desde_migraciones.sql` contiene las 75 migraciones,
 > incluida DB-10. CI ejecuta este check para evitar drift documental.
 
 > Verificacion de seeds 2026-08-20: `seed-demo-user` exige
@@ -356,7 +356,7 @@ La misma pantalla queda sin warnings de ESLint: el fetch inicial remoto está ju
 en el efecto de montaje y typecheck/lint/contrato de portal pasan.
 
 Verificación de integración 2026-08-21: typecheck directo de API y web, `next build` con 18/18 rutas,
-`GENERATED_SCHEMA_OK` para 64 migraciones y `MARKDOWN_LOCAL_LINKS_OK` pasan después del cambio.
+`GENERATED_SCHEMA_OK` para 75 migraciones y `MARKDOWN_LOCAL_LINKS_OK` pasan después del cambio.
 
 La suite unitaria API configurada para CI pasa 52/52 directamente, incluyendo contratos de
 integraciones, circuit breaker IA, webhooks Shopify, Klaviyo, Meta, observabilidad y sanitización
@@ -422,7 +422,7 @@ honestos, no datos simulados.
   agregacion multi-instancia. Siguen abiertos restore drill, politicas de retencion/exportacion y
   validacion externa de proveedores.
 
-Las 64 migraciones locales/remotas siguen alineadas y `regenerate-generated-schema.mjs --check` pasa.
+Las 75 migraciones locales/remotas siguen alineadas y `regenerate-generated-schema.mjs --check` pasa.
 Los gates de producto, catalogo UI, accesibilidad y enlaces Markdown pasan. Los contratos de integraciones
 pasan 14/14 con `npx tsx --test`; la suite IA pasa 50/50. El CI manual genera SBOM, construye API/worker y
 ejecuta Trivy; no se afirma un build Docker local en esta sesion. Shopify sigue siendo el unico conector

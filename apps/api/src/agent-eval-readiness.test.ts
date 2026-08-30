@@ -37,7 +37,7 @@ test("fallback local preparado no simula evidencia remota", () => {
     remoteEvidenceAvailable: false,
   });
   assert.equal(response.source, "local_prepared");
-  assert.equal(response.coveredAgents, 10);
+  assert.equal(response.coveredAgents, 11);
   assert.equal(response.offlineRunRecorded, false);
   assert.equal(response.liveVerified, false);
 });

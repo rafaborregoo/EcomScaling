@@ -14,8 +14,11 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
+  EYEBROW,
+  Field,
   Heading,
   LoadingBlock,
+  Modal,
   Table,
   Textarea,
   toast,
@@ -168,8 +171,8 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [evalReadiness, setEvalReadiness] = useState<AgentEvalReadiness>({
-    coveredAgents: 10,
-    totalAgents: 10,
+    coveredAgents: 11,
+    totalAgents: 11,
     offlineRunRecorded: false,
     liveVerified: false,
     datasetVersion: "2026-08-26.v1",
@@ -355,7 +358,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </Badge>
             {output?.status === "pending_approval" ? (
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
                 type="button"
                 onClick={() => {
@@ -390,7 +393,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       label: "",
       render: (row) => (
         <Button
-          variant="secondary"
+          variant="ghost"
           size="sm"
           type="button"
           onClick={() => openTrace(row.id)}
@@ -465,13 +468,11 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     <div className="portal-page space-y-6">
       <Heading level={1} size="lg">Ejecuciones de agentes IA</Heading>
-      <p className="text-sm text-muted">
-        Panel tecnico (AI-12, Observability &amp; tracing): reconstruye una
-        ejecucion completa sin consultar varias tablas a mano.
-      </p>
-      <p className="text-xs text-muted">
-        Las salidas con propuestas permanecen pendientes de revisión humana;
-        esta vista no ejecuta cambios por sí sola.
+      <p className="text-[13px] text-muted">
+        Panel técnico (AI-12, Observability &amp; tracing): reconstruye una
+        ejecución completa sin consultar varias tablas a mano. Las salidas con
+        propuestas quedan pendientes de revisión humana; esta vista no ejecuta
+        cambios por sí sola.
       </p>
 
       <AgentEvalReadinessPanel
@@ -481,7 +482,11 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         liveVerified={evalReadiness.liveVerified}
       />
 
-      <Card kicker="Control de costes" title="Presupuesto diario de IA">
+      <Card
+        kicker="Control de costes"
+        title="Presupuesto diario de IA"
+        description="Supervisa el consumo de los agentes antes de alcanzar el límite operativo de la organización."
+      >
         {budgetLoading ? (
           <LoadingBlock label="Consultando presupuesto..." />
         ) : budgetError ? (
@@ -515,7 +520,10 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         )}
       </Card>
 
-      <Card title="Ejecuciones recientes">
+      <Card
+        title="Ejecuciones recientes"
+        description="Consulta el estado, coste, latencia y trazabilidad de cada ejecución."
+      >
         {isLoading ? (
           <AsyncState status="loading" loadingLabel="Cargando ejecuciones..." />
         ) : error ? (
@@ -534,98 +542,137 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         )}
       </Card>
 
-      {reviewOutput ? (
-        <Card
-          kicker="Revisión humana"
-          title={`Propuesta de ${reviewOutput.runId}`}
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-muted">
-              Esta propuesta está en shadow mode. Revisa el contenido y la
-              evidencia antes de materializar las tareas sugeridas.
-            </p>
-            {reviewOutput.output.output?.answer ? (
-              <p className="whitespace-pre-wrap text-sm text-ink">
-                {reviewOutput.output.output.answer}
-              </p>
-            ) : null}
-            <div className="rounded-md border border-edge bg-surface p-4 text-xs text-muted">
-              <p className="font-medium text-ink">Evidencia y citas</p>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap">
-                {JSON.stringify(
-                  {
-                    evidence: reviewOutput.output.output?.evidence ?? [],
-                    findings: reviewOutput.output.output?.findings ?? [],
-                    sources: reviewOutput.output.output?.sources ?? [],
-                    citations: reviewOutput.output.output?.citations ?? [],
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
-            </div>
-            <div className="rounded-md border border-edge bg-surface p-4 text-xs text-muted">
-              <p className="font-medium text-ink">Escrituras propuestas</p>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap">
-                {JSON.stringify(
-                  reviewOutput.output.output?.proposed_writes ?? [],
-                  null,
-                  2,
-                )}
-              </pre>
-            </div>
-            <Textarea
-              aria-label="Motivo de la decisión"
-              className="min-h-20"
-              placeholder="Motivo (opcional)"
-              value={reviewReason}
-              onChange={(event) => setReviewReason(event.target.value)}
-              disabled={isDeciding}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                onClick={() => void decideOutput("approved")}
-                disabled={isDeciding}
-              >
-                {isDeciding ? "Guardando..." : "Aprobar y crear tareas"}
-              </Button>
-              <Button
-                variant="secondary"
-                type="button"
-                onClick={() => void decideOutput("rejected")}
-                disabled={isDeciding}
-              >
-                Rechazar propuesta
-              </Button>
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={() => setReviewOutput(null)}
-                disabled={isDeciding}
-              >
-                Cerrar
-              </Button>
-            </div>
-          </div>
-        </Card>
-      ) : null}
+      <Modal
+        isOpen={reviewOutput !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReviewOutput(null);
+            setReviewReason("");
+          }
+        }}
+      >
+        <Modal.Backdrop>
+          <Modal.Container size="lg">
+            <Modal.Dialog aria-label="Revisar propuesta del agente">
+              <Modal.Header>
+                <Modal.Heading>
+                  {reviewOutput
+                    ? `Propuesta de ${reviewOutput.runId}`
+                    : "Propuesta"}
+                </Modal.Heading>
+              </Modal.Header>
+              {reviewOutput ? (
+                <>
+                  <Modal.Body>
+                    <div className="space-y-4">
+                      <p className="text-[13px] text-muted">
+                        Esta propuesta está en shadow mode. Revisa el contenido y
+                        la evidencia antes de materializar las tareas sugeridas.
+                      </p>
+                      {reviewOutput.output.output?.answer ? (
+                        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
+                          {reviewOutput.output.output.answer}
+                        </p>
+                      ) : null}
+                      <div>
+                        <p className={EYEBROW}>Evidencia y citas</p>
+                        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-edge bg-surface p-3 text-xs">
+                          {JSON.stringify(
+                            {
+                              evidence:
+                                reviewOutput.output.output?.evidence ?? [],
+                              findings:
+                                reviewOutput.output.output?.findings ?? [],
+                              sources:
+                                reviewOutput.output.output?.sources ?? [],
+                              citations:
+                                reviewOutput.output.output?.citations ?? [],
+                            },
+                            null,
+                            2,
+                          )}
+                        </pre>
+                      </div>
+                      <div>
+                        <p className={EYEBROW}>Escrituras propuestas</p>
+                        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-edge bg-surface p-3 text-xs">
+                          {JSON.stringify(
+                            reviewOutput.output.output?.proposed_writes ?? [],
+                            null,
+                            2,
+                          )}
+                        </pre>
+                      </div>
+                      <Field label="Motivo de la decisión (opcional)">
+                        <Textarea
+                          aria-label="Motivo de la decisión"
+                          className="mt-2 min-h-20"
+                          placeholder="Deja contexto para el siguiente revisor…"
+                          value={reviewReason}
+                          onChange={(event) =>
+                            setReviewReason(event.target.value)
+                          }
+                          disabled={isDeciding}
+                        />
+                      </Field>
+                    </div>
+                  </Modal.Body>
+                  <Modal.Footer>
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      onClick={() => void decideOutput("rejected")}
+                      disabled={isDeciding}
+                    >
+                      Rechazar propuesta
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void decideOutput("approved")}
+                      disabled={isDeciding}
+                    >
+                      {isDeciding ? "Guardando..." : "Aprobar y crear tareas"}
+                    </Button>
+                  </Modal.Footer>
+                </>
+              ) : null}
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
 
-      {selectedRunId ? (
-        <Card kicker="Traza de ejecucion" title={selectedRunId}>
-          {isTraceLoading ? (
-            <LoadingBlock label="Cargando traza..." />
-          ) : traceError ? (
-            <ErrorBlock>{traceError}</ErrorBlock>
-          ) : trace ? (
-            <div className="space-y-6">
+      <Modal
+        isOpen={selectedRunId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedRunId(null);
+            setTrace(null);
+            setTraceError(null);
+          }
+        }}
+      >
+        <Modal.Backdrop>
+          <Modal.Container size="cover">
+            <Modal.Dialog aria-label="Traza de ejecución del agente">
+              <Modal.Header>
+                <Modal.Heading>
+                  {selectedRunId ?? "Traza de ejecución"}
+                </Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                {isTraceLoading ? (
+                  <LoadingBlock label="Cargando traza..." />
+                ) : traceError ? (
+                  <ErrorBlock>{traceError}</ErrorBlock>
+                ) : trace ? (
+                  <div className="space-y-6">
               <div>
                 <p className="text-sm font-medium">
                   {getAgentCatalogEntry(
                     trace.run.agent_versions?.agent_definitions.code ?? "",
                   )?.displayName ?? "Agente IA"}
                 </p>
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                <p className={EYEBROW}>
                   {trace.run.agent_versions?.agent_definitions.code} ·{" "}
                   {trace.run.agent_versions?.model} v
                   {trace.run.agent_versions?.version}
@@ -641,7 +688,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
 
               <div>
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                <p className={EYEBROW}>
                   Pasos
                 </p>
                 <Table
@@ -654,7 +701,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
 
               <div>
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                <p className={EYEBROW}>
                   Llamadas a herramientas
                 </p>
                 <Table
@@ -667,7 +714,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
 
               <div>
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                <p className={EYEBROW}>
                   Snapshots de contexto
                 </p>
                 <Table
@@ -680,7 +727,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
 
               <div>
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                <p className={EYEBROW}>
                   Consultas SQL
                 </p>
                 <Table
@@ -691,10 +738,13 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   emptyLabel="Sin consultas SQL en esta ejecucion."
                 />
               </div>
-            </div>
-          ) : null}
-        </Card>
-      ) : null}
+                  </div>
+                ) : null}
+              </Modal.Body>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
     </div>
   );
 }

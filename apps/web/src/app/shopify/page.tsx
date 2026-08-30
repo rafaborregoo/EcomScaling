@@ -9,16 +9,21 @@ import { formatMoney } from "@/lib/money";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
 import {
   AsyncState,
+  Badge,
   Banner,
   Button,
   Card,
   EmptyState,
   ErrorBlock,
+  EYEBROW,
+  Field,
   Heading,
   IconChevronRight,
   Input,
   Link,
+  List,
   LoadingBlock,
+  Select,
 } from "@/components/ui";
 
 type ShopifyMetrics = {
@@ -283,18 +288,14 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page space-y-6">
-      <Card>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <Heading level={1} size="lg">
-              {overview.store?.shop_name ?? "Sin tienda conectada"}
-            </Heading>
-            <p className="mt-1 font-mono text-xs text-muted">
-              {overview.store?.primary_domain ??
-                overview.store?.myshopify_domain ??
-                "sin dominio"}
-            </p>
-          </div>
+      <Card
+        title={overview.store?.shop_name ?? "Sin tienda conectada"}
+        description={
+          overview.store?.primary_domain ??
+          overview.store?.myshopify_domain ??
+          "sin dominio"
+        }
+        actions={
           <div className="flex flex-wrap gap-3">
             <Button
               type="button"
@@ -318,7 +319,8 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 : "Sincronizar ahora"}
             </Button>
           </div>
-        </div>
+        }
+      >
         {syncError ? (
           <div className="mt-3">
             <ErrorBlock>{syncError}</ErrorBlock>
@@ -335,23 +337,23 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : null}
       </Card>
 
-      <Card>
-          <div className="-mx-4 -mt-4 flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:-mx-5 sm:px-5">
-          <Heading size="lg">Ventas</Heading>
+      <Card
+        title="Ventas"
+        actions={
           <div className="flex flex-wrap gap-2">
             {periodOptions.map((option) => (
               <Button
                 key={option.days}
                 size="sm"
-                variant={periodDays === option.days ? "primary" : "secondary"}
+                variant={periodDays === option.days ? "primary" : "ghost"}
                 onClick={() => setPeriodDays(option.days)}
               >
                 {option.label}
               </Button>
             ))}
           </div>
-        </div>
-
+        }
+      >
         {metricsError ? (
           <div className="p-4">
             <ErrorBlock>{metricsError}</ErrorBlock>
@@ -363,53 +365,53 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : (
           <>
             <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-6">
-              <article className="border-b border-line p-4 xl:border-r">
+              <article className="border-b border-edge p-4 xl:border-r">
                 <p className="text-sm text-muted">Ventas brutas</p>
                 <p className="mt-2 font-mono text-xl">
                   {formatMoney(metrics.sales.gross_sales, currency)}
                 </p>
               </article>
-              <article className="border-b border-line p-4 xl:border-r">
+              <article className="border-b border-edge p-4 xl:border-r">
                 <p className="text-sm text-muted">Ventas netas</p>
                 <p className="mt-2 font-mono text-xl">
                   {formatMoney(metrics.sales.net_sales, currency)}
                 </p>
               </article>
-              <article className="border-b border-line p-4 xl:border-r">
+              <article className="border-b border-edge p-4 xl:border-r">
                 <p className="text-sm text-muted">Pedidos</p>
                 <p className="mt-2 font-mono text-xl">
                   {metrics.sales.orders_count}
                 </p>
               </article>
-              <article className="border-b border-line p-4 xl:border-r">
+              <article className="border-b border-edge p-4 xl:border-r">
                 <p className="text-sm text-muted">Ticket medio (AOV)</p>
                 <p className="mt-2 font-mono text-xl">
                   {formatMoney(metrics.sales.aov, currency)}
                 </p>
               </article>
-              <article className="border-b border-line p-4 xl:border-r">
+              <article className="border-b border-edge p-4 xl:border-r">
                 <p className="text-sm text-muted">Unidades vendidas</p>
                 <p className="mt-2 font-mono text-xl">
                   {metrics.sales.units_sold}
                 </p>
               </article>
-              <article className="border-b border-line p-4">
+              <article className="border-b border-edge p-4">
                 <p className="text-sm text-muted">Reembolsos</p>
-                <p className="mt-2 font-mono text-xl text-brand">
+                <p className="mt-2 font-mono text-xl text-warn">
                   {formatMoney(metrics.sales.refunds, currency)}
                 </p>
               </article>
             </div>
 
             <div className="grid gap-0 md:grid-cols-3">
-              <div className="border-b border-line p-4 md:border-r">
+              <div className="border-b border-edge p-4 md:border-r">
                 <Heading level={3} size="md">
                   Productos top
                 </Heading>
-                <div className="mt-3 divide-y divide-line">
+                <List className="mt-3">
                   {metrics.top_products.length ? (
                     metrics.top_products.map((product) => (
-                      <div
+                      <List.Item
                         key={product.product_id}
                         className="flex items-center justify-between gap-3 py-2 text-sm"
                       >
@@ -418,16 +420,16 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           {product.quantity_sold}u /{" "}
                           {formatMoney(product.revenue, currency)}
                         </span>
-                      </div>
+                      </List.Item>
                     ))
                   ) : (
                     <p className="py-2 text-sm text-muted">
                       Sin ventas en el periodo seleccionado.
                     </p>
                   )}
-                </div>
+                </List>
               </div>
-              <div className="border-b border-line p-4 md:border-r">
+              <div className="border-b border-edge p-4 md:border-r">
                 <Heading level={3} size="md">
                   Stock
                 </Heading>
@@ -446,13 +448,13 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </div>
                   <div>
                     <p className="text-xs text-muted">Stock bajo (&le;5)</p>
-                    <p className="font-mono text-lg text-brand">
+                    <p className="font-mono text-lg text-warn">
                       {metrics.stock.low_stock_items}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted">Sin stock</p>
-                    <p className="font-mono text-lg text-brand">
+                    <p className="font-mono text-lg text-danger">
                       {metrics.stock.out_of_stock_items}
                     </p>
                   </div>
@@ -484,25 +486,28 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   onSubmit={(event) => void saveCost(event)}
                   className="mt-4 space-y-2"
                 >
-                  <p className="text-xs font-medium uppercase text-muted">
-                    Cargar coste por SKU
-                  </p>
-                  <Input
-                    type="text"
-                    placeholder="SKU"
-                    value={costSku}
-                    onChange={(event) => setCostSku(event.target.value)}
-                  />
-                    <div className="flex flex-col gap-2 sm:flex-row">
+                  <p className={EYEBROW}>Cargar coste por SKU</p>
+                  <Field label="SKU">
                     <Input
-                      className="w-full"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="Coste unitario"
-                      value={costUnitCost}
-                      onChange={(event) => setCostUnitCost(event.target.value)}
+                      className="mt-2"
+                      type="text"
+                      placeholder="Ej. CAMISETA-NEGRA-M"
+                      value={costSku}
+                      onChange={(event) => setCostSku(event.target.value)}
                     />
+                  </Field>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <Field label="Coste unitario">
+                      <Input
+                        className="mt-2 w-full"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0,00"
+                        value={costUnitCost}
+                        onChange={(event) => setCostUnitCost(event.target.value)}
+                      />
+                    </Field>
                     <Button
                       type="submit"
                       className="whitespace-nowrap"
@@ -513,9 +518,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       {isSavingCost ? "Guardando..." : "Guardar"}
                     </Button>
                   </div>
-                  {costFeedback ? (
-                    <p className="text-xs text-muted">{costFeedback}</p>
-                  ) : null}
+                  {costFeedback ? <p className="text-xs text-muted">{costFeedback}</p> : null}
                 </form>
               </div>
             </div>
@@ -540,10 +543,215 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
 }
 
+// --- Estado "vista general" de /shopify (consultor sin cliente activo):
+// todas las tiendas de la cartera con su frescura de sincronización. ---
+
+type ConsultantStoreRow = {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  name: string;
+  status: string;
+  connected_at: string | null;
+  last_sync_at: string | null;
+};
+
+const STALE_SYNC_DAYS = 2;
+
+function syncAge(lastSyncAt: string | null): {
+  label: string;
+  stale: boolean;
+} {
+  if (!lastSyncAt) return { label: "sin sincronizar", stale: true };
+  const days = Math.floor(
+    (Date.now() - Date.parse(lastSyncAt)) / (24 * 60 * 60 * 1000),
+  );
+  if (days <= 0) return { label: "hoy", stale: false };
+  if (days === 1) return { label: "ayer", stale: false };
+  return { label: `hace ${days} días`, stale: days > STALE_SYNC_DAYS };
+}
+
+function ConsultantStoresView() {
+  const { setOrganizationId } = useActiveOrganization();
+  const { setConnectionId } = useActiveConnection();
+  const [data, setData] = useState<{
+    stores: ConsultantStoreRow[];
+    organizations: Array<{ id: string; display_name: string }>;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [clientFilter, setClientFilter] = useState("all");
+  const [onlyIssues, setOnlyIssues] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    apiFetch("/v1/consultant/stores")
+      .then(async (response) => {
+        if (cancelled) return;
+        if (!response.ok) {
+          setError(`No se pudieron cargar las tiendas (HTTP ${response.status}).`);
+          return;
+        }
+        setData(
+          (await response.json()) as {
+            stores: ConsultantStoreRow[];
+            organizations: Array<{ id: string; display_name: string }>;
+          },
+        );
+        setError(null);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setError("No se pudieron cargar las tiendas por un error de red.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (isLoading && !data) {
+    return (
+      <div className="portal-page">
+        <LoadingBlock label="Cargando tiendas de la cartera..." />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="portal-page">
+        <ErrorBlock>{error}</ErrorBlock>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const isIssue = (store: ConsultantStoreRow) =>
+    ["error", "reauthorization_required", "needs_reauth"].includes(
+      store.status,
+    ) || syncAge(store.last_sync_at).stale;
+  const issueCount = data.stores.filter(isIssue).length;
+  const rows = data.stores
+    .filter(
+      (store) =>
+        clientFilter === "all" || store.organization_id === clientFilter,
+    )
+    .filter((store) => !onlyIssues || isIssue(store));
+
+  function openStore(store: ConsultantStoreRow) {
+    setOrganizationId(store.organization_id);
+    setConnectionId(store.id);
+  }
+
+  return (
+    <div className="portal-page space-y-6">
+      <Card
+        title="Tiendas Shopify · toda la cartera"
+        description={`${data.stores.length} tiendas · ${issueCount} en error o con la sincronización parada.`}
+      >
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Select
+            className="w-52"
+            aria-label="Filtrar por cliente"
+            value={clientFilter}
+            onChange={setClientFilter}
+            options={[
+              { value: "all", label: "Todos los clientes" },
+              ...data.organizations.map((organization) => ({
+                value: organization.id,
+                label: organization.display_name,
+              })),
+            ]}
+          />
+          <Button
+            variant={onlyIssues ? "primary" : "secondary"}
+            size="sm"
+            onClick={() => setOnlyIssues((value) => !value)}
+          >
+            Solo con incidencias
+          </Button>
+        </div>
+
+        {rows.length === 0 ? (
+          <EmptyState
+            title={
+              onlyIssues ? "Ninguna tienda con incidencias" : "Sin tiendas"
+            }
+            hint={
+              onlyIssues
+                ? "Toda la cartera sincronizando al día."
+                : "Los clientes conectan sus tiendas desde Integraciones."
+            }
+          />
+        ) : (
+          <List>
+            {rows.map((store) => {
+              const age = syncAge(store.last_sync_at);
+              const brokenStatus = [
+                "error",
+                "reauthorization_required",
+                "needs_reauth",
+              ].includes(store.status);
+              return (
+                <List.Item
+                  as="button"
+                  key={store.id}
+                  type="button"
+                  onClick={() => openStore(store)}
+                  className="flex w-full items-start justify-between gap-4 py-3 text-left hover:bg-surface"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        tone={
+                          brokenStatus
+                            ? "danger"
+                            : store.status === "connected"
+                              ? "success"
+                              : "neutral"
+                        }
+                      >
+                        {store.status}
+                      </Badge>
+                      <span className="font-medium">{store.name}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      {store.organization_name} · sync {age.label}
+                    </p>
+                  </div>
+                  {age.stale && !brokenStatus ? (
+                    <Badge tone="warn">sync parada</Badge>
+                  ) : null}
+                </List.Item>
+              );
+            })}
+          </List>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function ShopifyRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organizationId } = useActiveOrganization();
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
+
+  if (isConsultant && !organizationId) {
+    return <ConsultantStoresView />;
+  }
+
+  return <ShopifyBusinessView bootstrap={bootstrap} />;
+}
+
 export default function ShopifyPage() {
   return (
     <PortalShell title="Shopify">
-      {(bootstrap) => <ShopifyBusinessView bootstrap={bootstrap} />}
+      {(bootstrap) => <ShopifyRouter bootstrap={bootstrap} />}
     </PortalShell>
   );
 }

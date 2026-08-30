@@ -1,6 +1,6 @@
 # AI-12 - Ingenieria de agentes (10 disciplinas)
 
-> **Evidencia transversal vigente 2026-08-24:** el contrato/calidad IA pasa 53/53 con
+> **Evidencia transversal vigente 2026-08-26:** el contrato/calidad IA pasa 60/60 con
 > `npx tsx --test packages/ai/src/index.test.ts`. El API registra runs y coste estimado
 > con etiquetas de baja cardinalidad para diagnosticos, A01, A11 y A09/chat; no incluye
 > prompts, contexto ni datos de tenant. Las referencias inferiores que describen routing,
@@ -9,10 +9,10 @@
 > **Incremento de prompts 2026-08-24:** `buildAgentSystemPrompt` centraliza invariantes de
 > producción (contexto verificado, separación hecho/inferencia, abstención, evidencia/fuentes,
 > aprobación humana y límites del backend) y se aplica a los adaptadores Anthropic y OpenAI.
-> La suite directa vigente pasa 53/53; la validación real de modelos sigue pendiente de credenciales.
+> La suite directa vigente pasa 60/60; la validación real de modelos sigue pendiente de credenciales.
 
-> **Contrato canónico 2026-08-24:** `renderAgentPromptSections` fija las ocho secciones obligatorias
-> (`ROLE` a `FAILURE BEHAVIOUR`) y `EXAMPLES` opcional. La suite directa vigente pasa 53/53.
+> **Contrato canónico 2026-08-26:** `renderAgentPromptSections` fija las ocho secciones obligatorias
+> (`ROLE` a `FAILURE BEHAVIOUR`) y `EXAMPLES` opcional. La suite directa vigente pasa 60/60.
 
 > Correccion documental 2026-08-21: AI-09 ya tiene fase y runtime implementados parcialmente.
 > Las referencias inferiores a routing, presupuesto por organizacion y circuit breaker como
@@ -34,6 +34,16 @@
 > disponibilidad y límites. Lo que sigue pendiente es la ejecución shadow/live
 > con proveedores reales y la observabilidad agregada multi-instancia.
 
+> **Routing y presupuesto vigentes 2026-08-26:** `AI_MODEL_ROUTING_JSON` permite seleccionar modelo y
+> límites por agente/proveedor dentro de `runAgentTurnWithFallback`; `resolvePlanBudget` aplica además
+> el presupuesto del plan y su multiplicador de complejidad. Las referencias de la tabla que lo describen
+> como `planned` o como límite plano son históricas.
+
+> **Cierre de disciplinas 2026-08-26:** Context Engineering, Memory Architecture, Guardrails &
+> permissions y Human-in-the-loop tienen implementación, tests y fronteras runtime verificables. La
+> evaluación transversal de prompts cubre los 10 agentes; los pendientes de esta fase son únicamente
+> shadow/live con proveedores reales, historial comparativo y observabilidad agregada/APM.
+
 ## Estado
 
 - **Estado real:** `verification_pending` (**mejorado 2026-07-28**: las 10 disciplinas tienen ahora
@@ -41,7 +51,7 @@
   siguen pendientes, ver "Siguiente accion", y porque el criterio de cierre de cada disciplina no esta
   formalizado como checklist verificable de forma independiente.)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-08-24
+- **Ultima validacion:** 2026-08-26
 - **Dependencias:** AI-00, AI-03, AI-04, AI-06, AI-07, AI-09, AI-10, SQO-02
 - **Bloqueador:** ninguno
 - **Evidencia:** ver tabla de mapeo abajo, cada fila cita el archivo/fase/test real que cubre cada
@@ -90,9 +100,9 @@ ellas.
       reconstruyen una ejecucion completa sin consultar SQL a mano. Falta metricas agregadas/APM (fuera de
       alcance, infraestructura de pago).
 - [x] **Tool Design contractual**: catálogo centralizado, contratos de tools futuras, límites y disponibilidad honesta (`packages/ai/src/tool-layer.ts`, AI-23/24). Los executors remotos de escritura siguen desactivados hasta autorización.
-- [ ] Las 6 disciplinas restantes (Context, Memory, Guardrails, Human-in-the-loop) ya tienen
-      implementacion real -- cierre pendiente es principalmente documentacion explicita de la practica
-      como tal, no codigo nuevo urgente.
+- [x] **Context, Memory, Guardrails y Human-in-the-loop**: implementación real, contratos de acceso,
+      anti-injection, aprobación y tests verificables. El cierre restante es validación shadow/live,
+      historial comparativo y observabilidad agregada, no código urgente.
 
 ## AI-00A: Tool Layer Foundation
 

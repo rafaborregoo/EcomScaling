@@ -1,10 +1,17 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { AlertDialog } from "@heroui/react";
+import { useState, type ReactNode } from "react";
+import { Modal } from "@heroui/react";
+import { Button } from "./button";
 
 type ConfirmStatus = "default" | "accent" | "success" | "warning" | "danger";
 
+// Migrado de AlertDialog a Modal (2026-08-28): AlertDialog.CloseTrigger es el
+// `CloseButton` de HeroUI (botón-icono circular, tamaño fijo) -- estilarlo con
+// texto + clases propias dejaba los botones "Cancelar"/"Confirmar" como
+// círculos azules con el texto desbordado. Modal + el `Button` del catálogo
+// dan los mismos estados/jerarquía que el resto de la app y ya está estilado
+// globalmente (borde, radio, cabecera con separador).
 export function ConfirmDialog({
   trigger,
   title,
@@ -22,33 +29,43 @@ export function ConfirmDialog({
   status?: ConfirmStatus;
   onConfirm: () => void;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+
   return (
-    <AlertDialog>
-      <AlertDialog.Trigger>{trigger}</AlertDialog.Trigger>
-      <AlertDialog.Backdrop>
-        <AlertDialog.Container>
-          <AlertDialog.Dialog>
-            <AlertDialog.CloseTrigger />
-            <AlertDialog.Header>
-              <AlertDialog.Icon status={status} />
-              <AlertDialog.Heading>{title}</AlertDialog.Heading>
-            </AlertDialog.Header>
-            {description ? <AlertDialog.Body>{description}</AlertDialog.Body> : null}
-            <AlertDialog.Footer>
-              {/* AlertDialog.CloseTrigger ya es el elemento <button> (extiende el
-                  Button primitivo de react-aria) -- se estiliza directamente en
-                  vez de anidar otro Button, para no anidar dos <button>. */}
-              <AlertDialog.CloseTrigger className="min-h-9 border border-edge bg-white px-3 py-2 text-sm font-medium text-ink transition hover:border-brand hover:text-brand">{cancelLabel}</AlertDialog.CloseTrigger>
-              <AlertDialog.CloseTrigger
-                onPress={onConfirm}
-                className={status === "danger" ? "min-h-9 border border-danger bg-danger px-3 py-2 text-sm font-medium text-white transition hover:opacity-90" : "min-h-9 border border-brand bg-brand px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-deep"}
+    <Modal isOpen={isOpen} onOpenChange={setIsOpen}>
+      <Modal.Trigger>{trigger}</Modal.Trigger>
+      <Modal.Backdrop>
+        <Modal.Container size="sm">
+          <Modal.Dialog
+            aria-label={typeof title === "string" ? title : "Confirmar"}
+          >
+            <Modal.Header>
+              <Modal.Heading>{title}</Modal.Heading>
+            </Modal.Header>
+            {description ? (
+              <Modal.Body>
+                <p className="text-[13px] leading-relaxed text-ink">
+                  {description}
+                </p>
+              </Modal.Body>
+            ) : null}
+            <Modal.Footer>
+              <Button variant="ghost" onClick={() => setIsOpen(false)}>
+                {cancelLabel}
+              </Button>
+              <Button
+                variant={status === "danger" ? "danger" : "primary"}
+                onClick={() => {
+                  onConfirm();
+                  setIsOpen(false);
+                }}
               >
                 {confirmLabel}
-              </AlertDialog.CloseTrigger>
-            </AlertDialog.Footer>
-          </AlertDialog.Dialog>
-        </AlertDialog.Container>
-      </AlertDialog.Backdrop>
-    </AlertDialog>
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }

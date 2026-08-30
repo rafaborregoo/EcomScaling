@@ -2,7 +2,21 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
-import { Badge, BellIcon, Button, ErrorBlock, LoadingBlock, NotificationBadge, Popover, toast } from "@/components/ui";
+import {
+  ArchiveIcon,
+  BellIcon,
+  Button,
+  CheckAllIcon,
+  cn,
+  ErrorBlock,
+  LoadingBlock,
+  Link,
+  List,
+  Modal,
+  Popover,
+  RetryIcon,
+  toast,
+} from "@/components/ui";
 
 type Notification = {
   id: string;
@@ -31,6 +45,21 @@ function formatRelativeTime(isoDate: string) {
   return `hace ${diffDays} d`;
 }
 
+// El panel de notificaciones se muestra como Popover anclado a la campana en
+// desktop y como Drawer inferior (hoja) en movil -- la misma lista, el
+// contenedor cambia con el ancho. Ambos son primitivos de HeroUI.
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(true);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return isDesktop;
+}
+
 /** Bell de notificaciones en el shell (DB-01, gap real cerrado 2026-07-29):
  * `notifications` ya insertaba filas reales (alertas nuevas notificadas a
  * owner/manager, ver operations.ts) pero ninguna vista las mostraba nunca --
@@ -38,58 +67,87 @@ function formatRelativeTime(isoDate: string) {
  * comparten este componente; solo cambia lo que cada uno recibe (RLS ya
  * filtra por `user_id`). */
 export function NotificationsBell({ token }: { token: string }) {
+  const isDesktop = useIsDesktop();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // La primera carga es al montar el shell (para el badge). Cuando el usuario
+  // abre el panel la lista ya viene cargada; solo se refresca en segundo plano
+  // sin mostrar el bloque "Cargando..." -- ese spinner solo aparece la primera
+  // vez, nunca al abrir.
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    setIsLoading(true);
-    setLoadError(null);
+    if (!hasLoaded) setIsLoading(true);
     try {
       const response = await apiFetch("/v1/notifications");
       if (!response.ok) {
-        setLoadError("No se pudieron cargar las notificaciones.");
+        if (!hasLoaded) {
+          setLoadError("No se pudieron cargar las notificaciones.");
+        }
         return;
       }
-      const payload = (await response.json()) as { notifications: Notification[]; unread_count: number };
+      const payload = (await response.json()) as {
+        notifications: Notification[];
+        unread_count: number;
+      };
       setNotifications(payload.notifications);
       setUnreadCount(payload.unread_count);
+      setLoadError(null);
+      setHasLoaded(true);
     } catch {
-      setLoadError("No se pudieron cargar las notificaciones.");
+      if (!hasLoaded) {
+        setLoadError("No se pudieron cargar las notificaciones.");
+      }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [hasLoaded]);
 
   // Cuenta de no leidas al montar (para el badge), sin abrir el panel.
   useEffect(() => {
     void load();
   }, [load, token]);
 
-  async function markStatus(notificationId: string, status: "read" | "archived") {
+  function handleOpenChange(open: boolean) {
+    setIsOpen(open);
+    if (open) void load();
+  }
+
+  async function markStatus(
+    notificationId: string,
+    status: "read" | "archived",
+  ) {
     try {
-    const response = await apiFetch(`/v1/notifications/${notificationId}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (!response.ok) {
-      toast.danger("No se pudo actualizar la notificación.");
-      return;
-    }
-    const wasUnread = notifications.some(
-      (item) => item.id === notificationId && item.status === "unread",
-    );
-    if (status === "archived") {
-      setNotifications((current) => current.filter((item) => item.id !== notificationId));
-    } else {
-      setNotifications((current) =>
-        current.map((item) => (item.id === notificationId ? { ...item, status } : item)),
+      const response = await apiFetch(
+        `/v1/notifications/${notificationId}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
       );
-    }
-    if (wasUnread) setUnreadCount((current) => Math.max(0, current - 1));
+      if (!response.ok) {
+        toast.danger("No se pudo actualizar la notificación.");
+        return;
+      }
+      const wasUnread = notifications.some(
+        (item) => item.id === notificationId && item.status === "unread",
+      );
+      if (status === "archived") {
+        setNotifications((current) =>
+          current.filter((item) => item.id !== notificationId),
+        );
+      } else {
+        setNotifications((current) =>
+          current.map((item) =>
+            item.id === notificationId ? { ...item, status } : item,
+          ),
+        );
+      }
+      if (wasUnread) setUnreadCount((current) => Math.max(0, current - 1));
     } catch {
       toast.danger("No se pudo actualizar la notificación.");
     }
@@ -97,95 +155,193 @@ export function NotificationsBell({ token }: { token: string }) {
 
   async function markAllRead() {
     try {
-    const response = await apiFetch("/v1/notifications/read-all", { method: "POST" });
-    if (!response.ok) {
-      toast.danger("No se pudieron marcar todas como leídas.");
-      return;
-    }
-    setNotifications((current) => current.map((item) => ({ ...item, status: "read" })));
-    setUnreadCount(0);
-    toast.success("Notificaciones marcadas como leídas.");
+      const response = await apiFetch("/v1/notifications/read-all", {
+        method: "POST",
+      });
+      if (!response.ok) {
+        toast.danger("No se pudieron marcar todas como leídas.");
+        return;
+      }
+      setNotifications((current) =>
+        current.map((item) => ({ ...item, status: "read" })),
+      );
+      setUnreadCount(0);
+      toast.success("Notificaciones marcadas como leídas.");
     } catch {
       toast.danger("No se pudieron marcar todas como leídas.");
     }
   }
 
-  return (
-    <Popover isOpen={isOpen} onOpenChange={setIsOpen}>
-      <Popover.Trigger>
-        <NotificationBadge count={unreadCount > 0 ? unreadCount : undefined}>
-          <Button
-            variant="secondary"
-            size="sm"
-            aria-label={`Notificaciones${unreadCount > 0 ? ` (${unreadCount} sin leer)` : ""}`}
-            onClick={() => void load()}
+  const renderBell = (onClick?: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Notificaciones${
+        unreadCount > 0 ? ` (${unreadCount} sin leer)` : ""
+      }`}
+      className={cn(
+        "relative inline-flex size-9 items-center justify-center bg-transparent transition-colors",
+        unreadCount > 0 ? "text-black" : "text-muted hover:text-black",
+      )}
+    >
+      <BellIcon aria-hidden="true" className="size-[1.2rem]" />
+      {unreadCount > 0 ? (
+        <span
+          className="absolute -right-0.5 -top-0.5 flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[0.65rem] font-semibold leading-none text-white"
+          aria-hidden="true"
+        >
+          {unreadCount > 99 ? "99+" : unreadCount}
+        </span>
+      ) : null}
+    </button>
+  );
+
+  const header = (
+    <div className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
+      <div className="flex items-center gap-2">
+        <p className="text-sm font-semibold tracking-[-0.01em]">Notificaciones</p>
+        {unreadCount > 0 ? (
+          <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[0.7rem] font-semibold leading-5 text-white">
+            {unreadCount}
+          </span>
+        ) : null}
+      </div>
+      {unreadCount > 0 ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          className="min-w-0 gap-1.5 px-2 text-xs text-muted hover:text-black"
+          onClick={() => void markAllRead()}
+        >
+          <CheckAllIcon aria-hidden="true" className="size-3.5" />
+          Marcar todas
+        </Button>
+      ) : null}
+    </div>
+  );
+
+  const body = isLoading && notifications.length === 0 ? (
+    <LoadingBlock label="Cargando notificaciones..." />
+  ) : loadError ? (
+    <div className="p-3">
+      <ErrorBlock>{loadError}</ErrorBlock>
+      <Button
+        className="mt-3 gap-1.5"
+        variant="secondary"
+        size="sm"
+        onClick={() => void load()}
+      >
+        <RetryIcon aria-hidden="true" className="size-3.5" />
+        Reintentar
+      </Button>
+    </div>
+  ) : notifications.length === 0 ? (
+    <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
+      <BellIcon aria-hidden="true" className="size-5 text-muted" />
+      <p className="text-sm text-muted">Sin notificaciones.</p>
+    </div>
+  ) : (
+    <List as="ul">
+      {notifications.map((notification) => {
+        const isUnread = notification.status === "unread";
+        return (
+          <List.Item
+            as="li"
+            key={notification.id}
+            className={cn(
+              "group flex gap-3 px-4 py-3 transition-colors",
+              isUnread
+                ? "border-l-2 border-brand bg-brand-tint/30"
+                : "border-l-2 border-transparent hover:bg-black/[0.02]",
+            )}
           >
-            <BellIcon aria-hidden="true" />
-          </Button>
-        </NotificationBadge>
-      </Popover.Trigger>
-
-      <Popover.Content placement="bottom end" className="w-[min(22rem,calc(100vw-2rem))] p-0">
-        <Popover.Dialog aria-label="Notificaciones" className="max-h-[min(32rem,calc(100vh-6rem))] overflow-y-auto p-0">
-          <div className="flex items-center justify-between border-b border-line px-3 py-2">
-            <p className="text-sm font-medium">Notificaciones</p>
-            {unreadCount > 0 ? (
-              <Button variant="secondary" size="sm" type="button" onClick={() => void markAllRead()}>
-                Marcar todas leídas
-              </Button>
-            ) : null}
-          </div>
-
-          {isLoading ? (
-            <LoadingBlock label="Cargando notificaciones..." />
-          ) : loadError ? (
-            <div className="p-3">
-              <ErrorBlock>{loadError}</ErrorBlock>
-              <Button className="mt-3" variant="secondary" size="sm" onClick={() => void load()}>
-                Reintentar
-              </Button>
+            <div className="min-w-0 flex-1">
+              <Link
+                href={safeActionUrl(notification.action_url)}
+                className="block max-w-full text-sm font-medium text-black no-underline hover:underline"
+                onClick={() => {
+                  if (isUnread) void markStatus(notification.id, "read");
+                  setIsOpen(false);
+                }}
+              >
+                <span className="line-clamp-2 leading-5">
+                  {notification.title}
+                </span>
+              </Link>
+              {notification.message ? (
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">
+                  {notification.message}
+                </p>
+              ) : null}
+              <div className="mt-1.5 flex items-center gap-2 text-[0.7rem] text-muted">
+                {isUnread ? (
+                  <span
+                    className="size-1.5 shrink-0 rounded-full bg-brand"
+                    aria-hidden="true"
+                  />
+                ) : null}
+                <span>{formatRelativeTime(notification.created_at)}</span>
+              </div>
             </div>
-          ) : notifications.length === 0 ? (
-            <p className="px-3 py-4 text-sm text-muted">Sin notificaciones.</p>
-          ) : (
-            <ul className="divide-y divide-line">
-              {notifications.map((notification) => (
-                <li key={notification.id} className={["px-3 py-2.5", notification.status === "unread" ? "bg-brand-tint/40" : ""].join(" ")}>
-                  <div className="flex items-start justify-between gap-2">
-                    <a
-                      href={safeActionUrl(notification.action_url)}
-                      className="min-w-0 flex-1"
-                      onClick={() => {
-                        if (notification.status === "unread") {
-                          void markStatus(notification.id, "read");
-                        }
-                        setIsOpen(false);
-                      }}
-                    >
-                      <p className="text-sm font-medium">{notification.title}</p>
-                      {notification.message ? (
-                        <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted">{notification.message}</p>
-                      ) : null}
-                      <p className="mt-1 font-mono text-[0.65rem] text-muted">{formatRelativeTime(notification.created_at)}</p>
-                    </a>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {notification.status === "unread" ? <Badge tone="brand">Nueva</Badge> : null}
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        type="button"
-                        onClick={() => void markStatus(notification.id, "archived")}
-                      >
-                        Archivar
-                      </Button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Popover.Dialog>
-      </Popover.Content>
-    </Popover>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              aria-label="Archivar notificación"
+              title="Archivar"
+              className="size-8 min-w-0 shrink-0 justify-center p-0 text-muted opacity-60 transition hover:bg-black/5 hover:text-black hover:opacity-100"
+              onClick={() => void markStatus(notification.id, "archived")}
+            >
+              <ArchiveIcon aria-hidden="true" className="size-4" />
+            </Button>
+          </List.Item>
+        );
+      })}
+    </List>
+  );
+
+  if (isDesktop) {
+    return (
+      <Popover isOpen={isOpen} onOpenChange={handleOpenChange}>
+        <Popover.Trigger>{renderBell()}</Popover.Trigger>
+        <Popover.Content
+          placement="bottom end"
+          className="w-[24rem] overflow-hidden rounded-xl p-0 shadow-lg"
+        >
+          <Popover.Dialog
+            aria-label="Notificaciones"
+            className="flex max-h-[min(34rem,calc(100vh-6rem))] flex-col p-0"
+          >
+            {header}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {body}
+            </div>
+          </Popover.Dialog>
+        </Popover.Content>
+      </Popover>
+    );
+  }
+
+  // Movil: hoja inferior. El Modal de HeroUI ya se ancla abajo en pantallas
+  // pequeñas (data-placement="auto" -> mt-auto), asi que hace de bottom sheet
+  // sin un primitivo aparte.
+  return (
+    <>
+      {renderBell(() => handleOpenChange(true))}
+      <Modal isOpen={isOpen} onOpenChange={handleOpenChange}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog
+              aria-label="Notificaciones"
+              className="w-full max-w-none overflow-hidden p-0"
+            >
+              {header}
+              <div className="max-h-[70vh] overflow-y-auto">{body}</div>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+    </>
   );
 }

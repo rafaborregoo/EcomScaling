@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Card } from "@/components/ui";
+import { Card, EYEBROW, Heading, Link } from "@/components/ui";
 
 export const metadata: Metadata = {
   title: "Política de privacidad — EcomScaling IA",
@@ -12,9 +12,9 @@ const CONTACT_EMAIL = "rafael@noraapp.es";
 export default function PrivacyPolicyPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-12 sm:px-6">
-      <header className="flex flex-col gap-1">
-        <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">EcomScaling IA</p>
-        <h1 className="text-2xl font-semibold">Política de privacidad</h1>
+      <header className="flex flex-col gap-2">
+        <p className={EYEBROW}>EcomScaling IA</p>
+        <Heading level={1} size="lg">Política de privacidad</Heading>
         <p className="text-sm text-muted">Última actualización: {LAST_UPDATED}</p>
       </header>
 
@@ -74,9 +74,9 @@ export default function PrivacyPolicyPage() {
           Conservamos los datos mientras la cuenta del cliente esté activa. Un cliente puede solicitar
           en cualquier momento la eliminación de su cuenta y de los datos conectados (incluyendo
           tokens y datos importados desde Meta Ads o Shopify) escribiendo a{" "}
-          <a className="underline" href={`mailto:${CONTACT_EMAIL}`}>
+          <Link className="underline" href={`mailto:${CONTACT_EMAIL}`}>
             {CONTACT_EMAIL}
-          </a>
+          </Link>
           . Atenderemos la solicitud en un plazo razonable y confirmaremos por correo cuando se haya
           completado.
         </p>
@@ -90,9 +90,9 @@ export default function PrivacyPolicyPage() {
         <p>
           Puedes solicitar en cualquier momento el acceso, la rectificación o la eliminación de tus
           datos personales, así como retirar tu consentimiento para el tratamiento, escribiendo a{" "}
-          <a className="underline" href={`mailto:${CONTACT_EMAIL}`}>
+          <Link className="underline" href={`mailto:${CONTACT_EMAIL}`}>
             {CONTACT_EMAIL}
-          </a>
+          </Link>
           .
         </p>
       </Card>
@@ -100,9 +100,9 @@ export default function PrivacyPolicyPage() {
       <Card title="Contacto">
         <p>
           Para cualquier duda sobre esta política o sobre el tratamiento de tus datos, escríbenos a{" "}
-          <a className="underline" href={`mailto:${CONTACT_EMAIL}`}>
+          <Link className="underline" href={`mailto:${CONTACT_EMAIL}`}>
             {CONTACT_EMAIL}
-          </a>
+          </Link>
           .
         </p>
       </Card>

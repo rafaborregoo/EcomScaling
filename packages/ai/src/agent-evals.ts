@@ -18,6 +18,7 @@ export const ALL_AGENT_CODES = [
   "a08_gestor_conocimiento",
   "a09_copiloto_consultor",
   "a11_generador_marketing",
+  "a12_analista_email",
 ] as const;
 
 export const ACTIVE_AGENT_CODES = ALL_AGENT_CODES;
@@ -46,6 +47,7 @@ export const AGENT_EVAL_MATRIX: Readonly<Record<ActiveAgentCode, readonly AgentE
   a08_gestor_conocimiento: [...COMMON_CASES, { id: "knowledge_has_provenance", category: "quality", expected: "preserves source, authority and audience provenance" }],
   a09_copiloto_consultor: [...COMMON_CASES, { id: "consultant_is_read_only", category: "quality", expected: "does not write or publish from chat" }],
   a11_generador_marketing: [...COMMON_CASES, { id: "marketing_is_draft_only", category: "quality", expected: "returns safe portable draft and requires human approval" }],
+  a12_analista_email: [...COMMON_CASES, { id: "email_analysis_separates_notice_from_task", category: "quality", expected: "keeps low-effort tweaks in recommendations and only structural email work in proposed_writes, never Shopify tasks" }],
 };
 
 export type AgentEvalResult = {

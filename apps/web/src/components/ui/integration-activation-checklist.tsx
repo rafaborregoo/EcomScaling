@@ -6,7 +6,7 @@ export function IntegrationActivationChecklist({ ready, missing }: { ready: bool
   const titleId = `${useId()}-integration-activation-title`;
   return (
     <section
-    className="mt-4 border-l-2 border-line pl-3"
+    className="mt-4 border-l-2 border-edge pl-3"
     role="region"
     aria-labelledby={titleId}
     aria-live="polite"

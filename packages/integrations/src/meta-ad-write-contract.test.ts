@@ -31,6 +31,12 @@ test("rechaza presupuestos, ids y secretos inválidos", () => {
   assert.equal(buildMetaAdCreationPlan({ ...input, creativeSpec: { app_secret: "secret" } }).ok, false);
 });
 
+test("rechaza objetivos internos de negocio en el contrato de Meta", () => {
+  const result = buildMetaAdCreationPlan({ ...input, campaignObjective: "conversion" });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error, "meta_campaign_objective_invalid");
+});
+
 test("permite reanudar una propuesta con ids ya creados sin cambiar estado", () => {
   const result = buildMetaAdCreationPlan(input, {
     campaignId: "cmp-1",
@@ -42,4 +48,3 @@ test("permite reanudar una propuesta con ids ya creados sin cambiar estado", () 
   assert.equal(result.plan.existingExternalIds.adSetId, "adset-1");
   assert.equal(result.plan.status, "PAUSED");
 });
-

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Image from "next/image";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
@@ -11,19 +11,26 @@ import { formatMoney } from "@/lib/money";
 import { displayValue } from "@/lib/display-labels";
 import {
   Badge,
+  Banner,
+  BarChart,
   ButtonLink,
   Card,
   Heading,
   Button,
   EmptyState,
   ErrorBlock,
+  EYEBROW,
   Link,
+  List,
   LoadingBlock,
+  Metric,
   Table,
   Tabs,
   type TableColumnDef,
+  type Tone,
 } from "@/components/ui";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { KlaviyoEmailPanel } from "@/components/klaviyo-email-panel";
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
 
 type DashboardTab = "todo" | "shopify" | "meta" | "klaviyo";
@@ -111,6 +118,7 @@ type ShopifyMetrics = {
     sales: { orders_count: number; net_sales: number; aov: number };
     financial: { net_profit: number };
   } | null;
+  daily?: Array<{ date: string; net_sales: number; orders_count: number }>;
 };
 
 // FE-02: "+12,3%" / "-5,1%" vs el periodo anterior (mismo numero de dias,
@@ -127,28 +135,41 @@ function periodDeltaPct(
   return ((current - previous) / Math.abs(previous)) * 100;
 }
 
+// Color del sparkline según la dirección del cambio vs. periodo anterior.
+function trendToneFor(
+  current: number,
+  previous: number | undefined | null,
+): "brand" | "success" | "danger" {
+  const delta = periodDeltaPct(current, previous);
+  if (delta === null || delta === 0) return "brand";
+  return delta > 0 ? "success" : "danger";
+}
+
 function PeriodDeltaBadge({
   current,
   previous,
+  label,
 }: {
   current: number;
   previous: number | undefined | null;
+  label?: string;
 }) {
   const deltaPct = periodDeltaPct(current, previous);
   if (deltaPct === null) {
     return null;
   }
-  const tone = deltaPct > 0 ? "success" : deltaPct < 0 ? "danger" : "neutral";
-  const sign = deltaPct > 0 ? "+" : "";
+  const up = deltaPct > 0;
+  const flat = deltaPct === 0;
+  const color = flat ? "text-muted" : up ? "text-success" : "text-danger";
   return (
-    <Badge
-      tone={tone}
-      className="mt-1"
+    <p
+      className={`text-xs ${color}`}
       title="vs. el periodo anterior (mismo numero de dias)"
     >
-      {sign}
-      {deltaPct.toFixed(1)}%
-    </Badge>
+      <span aria-hidden="true">{flat ? "→" : up ? "↑" : "↓"}</span>{" "}
+      {Math.abs(deltaPct).toFixed(1)}%
+      {label ? <span className="text-muted"> {label}</span> : null}
+    </p>
   );
 }
 
@@ -164,6 +185,7 @@ type MetaMetrics = {
     cac: number | null;
     days_with_data: number;
   };
+  daily?: Array<{ date: string; spend: number }>;
 };
 
 type StoreMetricsSummary = {
@@ -209,8 +231,11 @@ function buildFocusItems({
   metaMetrics: MetaMetrics | null;
 }): FocusItem[] {
   const items: FocusItem[] = [];
+  // Estados de alerta reales: open/acknowledged/resolved/dismissed (ver
+  // operations.ts). "ignored" es un estado de tarea, no de alerta -- una
+  // alerta descartada quedaba "activa" para siempre en este panel.
   const openAlerts = (operations?.alerts ?? []).filter(
-    (alert) => !["resolved", "ignored"].includes(alert.status),
+    (alert) => !["resolved", "dismissed"].includes(alert.status),
   );
   const openTasks = (operations?.tasks ?? []).filter((task) =>
     ["pending", "in_progress"].includes(task.status),
@@ -354,7 +379,7 @@ function AdaptiveFocus({
     <Card
       title={
         <div>
-          <p className="font-mono text-xs uppercase tracking-wider text-muted">
+          <p className={EYEBROW}>
             Ordenado por impacto
           </p>
           <Heading size="lg">Qué requiere atención</Heading>
@@ -376,11 +401,11 @@ function AdaptiveFocus({
             <Link
               key={item.id}
               href={item.href}
-              className="group border border-line p-4 transition-colors hover:border-ink"
+              className="group rounded-md border border-edge p-4 transition-colors hover:border-ink"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+                  <p className={EYEBROW}>
                     {item.eyebrow}
                   </p>
                   <p className="mt-1 font-medium group-hover:underline">
@@ -416,12 +441,16 @@ function PeriodSelector({
   onPeriodChange: (value: "7" | "30" | "90" | "all") => void;
 }) {
   return (
-    <div className="flex gap-5">
+    <div
+      className="flex flex-wrap gap-2"
+      role="group"
+      aria-label="Periodo de métricas"
+    >
       {PERIOD_OPTIONS.map((option) => (
         <Button
           key={option}
           size="sm"
-          variant={periodDays === option ? "primary" : "secondary"}
+          variant={periodDays === option ? "primary" : "ghost"}
           onClick={() => onPeriodChange(option)}
         >
           {option === "all" ? "Todo" : `${option}d`}
@@ -429,6 +458,500 @@ function PeriodSelector({
       ))}
     </div>
   );
+}
+
+// --- Estado "vista general" del Dashboard (consultor sin cliente activo) ---
+// Cuatro pestañas: Hoy (por donde empezar), Negocio (KPIs agregados), Salud
+// (semaforo por cliente), Tareas (backlog de la cartera).
+
+type PortfolioClient = {
+  organization_id: string;
+  display_name: string;
+  store_count: number;
+  plan_status: string | null;
+  score: number;
+  tier: "urgente" | "revisar" | "vigilar" | "al_dia";
+  open_alerts: number;
+  critical_alerts: number;
+  high_alerts: number;
+  oldest_alert_days: number;
+  open_tasks: number;
+  overdue_tasks: number;
+  data_issues: string[];
+};
+
+type PortfolioTask = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  due_at: string | null;
+  is_overdue: boolean;
+  organization_id: string;
+  organization_name: string;
+};
+
+type ConsultantOverview = {
+  window_days: number;
+  clients: number;
+  stores: number;
+  plan_mix: Record<string, number>;
+  business: {
+    net_sales: number;
+    orders: number;
+    meta_spend: number;
+    meta_purchase_value: number;
+    roas: number | null;
+    prev_net_sales: number;
+    prev_orders: number;
+    prev_meta_spend: number;
+  };
+  portfolio: PortfolioClient[];
+  tasks: PortfolioTask[];
+};
+
+type GeneralTab = "hoy" | "negocio" | "salud" | "tareas";
+
+const TIER_META: Record<
+  PortfolioClient["tier"],
+  { label: string; tone: Tone }
+> = {
+  urgente: { label: "Urgente", tone: "danger" },
+  revisar: { label: "Revisar", tone: "warn" },
+  vigilar: { label: "Vigilar", tone: "neutral" },
+  al_dia: { label: "Al día", tone: "success" },
+};
+
+function clientReason(client: PortfolioClient): string {
+  const parts: string[] = [];
+  if (client.critical_alerts > 0) parts.push(`${client.critical_alerts} críticas`);
+  if (client.high_alerts > 0) parts.push(`${client.high_alerts} altas`);
+  if (client.oldest_alert_days >= 7)
+    parts.push(`la más antigua: ${client.oldest_alert_days}d`);
+  if (client.overdue_tasks > 0)
+    parts.push(`${client.overdue_tasks} tareas vencidas`);
+  return parts.length > 0 ? parts.join(" · ") : "Revisión pendiente";
+}
+
+function GeneralOverview({
+  onSelectClient,
+}: {
+  onSelectClient: (organizationId: string) => void;
+}) {
+  const [tab, setTab] = useState<GeneralTab>("hoy");
+  const [periodDays, setPeriodDays] = useState<"7" | "30" | "90" | "all">("30");
+  const [data, setData] = useState<ConsultantOverview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // El overview agrega ventas/gasto por ventana movil; "Todo" no aplica.
+  const days = periodDays === "all" ? "90" : periodDays;
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    apiFetch(`/v1/consultant/overview?days=${days}`)
+      .then(async (response) => {
+        if (cancelled) return;
+        if (!response.ok) {
+          setError(`No se pudo cargar la vista general (HTTP ${response.status}).`);
+          setData(null);
+          return;
+        }
+        setData((await response.json()) as ConsultantOverview);
+        setError(null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError("No se pudo cargar la vista general por un error de red.");
+          setData(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [days]);
+
+  if (isLoading && !data) {
+    return (
+      <div className="portal-page">
+        <LoadingBlock label="Cargando cartera..." />
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="portal-page">
+        <ErrorBlock>{error}</ErrorBlock>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const ranked = [...data.portfolio].sort((a, b) => b.score - a.score);
+  const needAttention = ranked.filter((client) => client.tier !== "al_dia");
+  const totalCritical = data.portfolio.reduce(
+    (sum, client) => sum + client.critical_alerts,
+    0,
+  );
+  const totalOverdue = data.tasks.filter((task) => task.is_overdue).length;
+  const withDataIssues = data.portfolio.filter(
+    (client) => client.data_issues.length > 0,
+  );
+
+  return (
+    <div className="portal-page space-y-6">
+      <div>
+        <p className={EYEBROW}>
+          Vista general
+        </p>
+        <Heading size="lg">
+          {data.clients} clientes · {data.stores} tiendas
+        </Heading>
+      </div>
+
+      <Tabs
+        value={tab}
+        onChange={(value) => setTab(value as GeneralTab)}
+        items={[
+          { value: "hoy", label: "Hoy" },
+          { value: "negocio", label: "Negocio" },
+          { value: "salud", label: "Salud" },
+          { value: "tareas", label: `Tareas (${data.tasks.length})` },
+        ]}
+      />
+
+      {tab === "hoy" ? (
+        <Card
+          title="Por dónde empezar"
+          description={`${needAttention.length} clientes necesitan atención · ${totalCritical} alertas críticas · ${totalOverdue} tareas vencidas`}
+        >
+          {needAttention.length === 0 ? (
+            <p className="text-sm text-success">
+              Toda la cartera al día. Buen momento para avanzar planes
+              estratégicos.
+            </p>
+          ) : (
+            <div className="space-y-6">
+              {(["urgente", "revisar", "vigilar"] as const).map((tier) => {
+                const items = needAttention.filter(
+                  (client) => client.tier === tier,
+                );
+                if (items.length === 0) return null;
+                return (
+                  <div key={tier}>
+                    <p className={EYEBROW}>
+                      {TIER_META[tier].label} ({items.length})
+                    </p>
+                    <List className="mt-2">
+                      {items.map((client) => (
+                        <List.Item
+                          as="button"
+                          key={client.organization_id}
+                          type="button"
+                          onClick={() =>
+                            onSelectClient(client.organization_id)
+                          }
+                          className="flex w-full items-start justify-between gap-4 py-3 text-left text-sm hover:bg-surface"
+                        >
+                          <span className="min-w-0">
+                            <span className="font-medium">
+                              {client.display_name}
+                            </span>
+                            <span className="mt-1 block text-xs text-muted">
+                              {clientReason(client)}
+                            </span>
+                          </span>
+                          <Badge tone={TIER_META[tier].tone}>
+                            {client.score}
+                          </Badge>
+                        </List.Item>
+                      ))}
+                    </List>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      ) : null}
+
+      {tab === "negocio" ? (
+        <>
+          <Card
+            title={`Negocio agregado · últimos ${data.window_days} días`}
+            actions={
+              <PeriodSelector
+                periodDays={periodDays}
+                onPeriodChange={setPeriodDays}
+              />
+            }
+          >
+            <div className="grid gap-x-8 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
+              <OverviewTile
+                label="Facturación neta"
+                value={formatMoney(data.business.net_sales)}
+                delta={
+                  <PeriodDeltaBadge
+                    current={data.business.net_sales}
+                    previous={data.business.prev_net_sales}
+                  />
+                }
+              />
+              <OverviewTile
+                label="Pedidos"
+                value={String(data.business.orders)}
+                delta={
+                  <PeriodDeltaBadge
+                    current={data.business.orders}
+                    previous={data.business.prev_orders}
+                  />
+                }
+              />
+              <OverviewTile
+                label="Inversión Meta"
+                value={formatMoney(data.business.meta_spend)}
+                delta={
+                  <PeriodDeltaBadge
+                    current={data.business.meta_spend}
+                    previous={data.business.prev_meta_spend}
+                  />
+                }
+              />
+              <OverviewTile
+                label="ROAS agregado"
+                value={
+                  data.business.roas != null
+                    ? `${data.business.roas.toFixed(2)}x`
+                    : "—"
+                }
+              />
+              <OverviewTile
+                label="Valor de compra Meta"
+                value={formatMoney(data.business.meta_purchase_value)}
+              />
+            </div>
+
+            {Object.keys(data.plan_mix).length > 0 ? (
+              <div className="mt-4 border-t border-edge pt-4">
+                <p className={EYEBROW}>Clientes por plan</p>
+                {Object.keys(data.plan_mix).length >= 2 ? (
+                  <div className="mt-2">
+                    <BarChart
+                      data={Object.entries(data.plan_mix).map(
+                        ([status, count]) => ({
+                          plan: displayValue(status),
+                          count,
+                        }),
+                      )}
+                      xKey="plan"
+                      series={[{ key: "count", label: "Clientes" }]}
+                      height={180}
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {Object.entries(data.plan_mix).map(([status, count]) => (
+                      <Badge key={status} tone="neutral">
+                        {displayValue(status)}: {count}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </Card>
+
+          <Card title="Klaviyo">
+            <p className="text-sm text-muted">
+              Conector preparado, sin cuentas conectadas. El email marketing no
+              entra todavía en el agregado.
+            </p>
+          </Card>
+        </>
+      ) : null}
+
+      {tab === "salud" ? (
+        <Card
+          title="Salud de la cartera"
+          description="Semáforo por cliente. Ordenado por lo que más atención necesita."
+        >
+          <Table
+            ariaLabel="Salud de la cartera"
+            columns={[
+              {
+                key: "client",
+                label: "Cliente",
+                render: (row) => (
+                  <span className="font-medium">{row.display_name}</span>
+                ),
+              },
+              {
+                key: "stores",
+                label: "Tiendas",
+                render: (row) => String(row.store_count),
+              },
+              {
+                key: "plan",
+                label: "Plan",
+                render: (row) =>
+                  row.plan_status ? displayValue(row.plan_status) : "—",
+              },
+              {
+                key: "state",
+                label: "Estado",
+                render: (row) => (
+                  <Badge tone={TIER_META[row.tier].tone}>
+                    {TIER_META[row.tier].label}
+                  </Badge>
+                ),
+              },
+              {
+                key: "alerts",
+                label: "Alertas",
+                render: (row) =>
+                  row.open_alerts === 0 ? (
+                    <span className="text-muted">—</span>
+                  ) : (
+                    <span>
+                      {row.open_alerts}
+                      {row.critical_alerts > 0 ? (
+                        <span className="ml-1 text-xs text-danger">
+                          ({row.critical_alerts} crít.)
+                        </span>
+                      ) : null}
+                    </span>
+                  ),
+              },
+              {
+                key: "overdue",
+                label: "Tareas vencidas",
+                render: (row) => String(row.overdue_tasks),
+              },
+              {
+                key: "data",
+                label: "Datos",
+                render: (row) =>
+                  row.data_issues.length === 0 ? (
+                    <span className="text-muted">OK</span>
+                  ) : (
+                    <span className="flex flex-wrap gap-1">
+                      {row.data_issues.map((issue) => (
+                        <Badge key={issue} tone="warn">
+                          {issue}
+                        </Badge>
+                      ))}
+                    </span>
+                  ),
+              },
+              {
+                key: "open",
+                label: "",
+                render: (row) => (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onSelectClient(row.organization_id)}
+                  >
+                    Abrir
+                  </Button>
+                ),
+              },
+            ]}
+            rows={ranked.map((client) => ({ ...client, id: client.organization_id }))}
+          />
+        </Card>
+      ) : null}
+
+      {tab === "tareas" ? (
+        <Card
+          title="Tareas de la cartera"
+          description="Tareas abiertas de todos tus clientes. Las vencidas, primero."
+        >
+          <Table
+            ariaLabel="Tareas de la cartera"
+            emptyLabel="No hay tareas abiertas en la cartera."
+            columns={[
+              {
+                key: "title",
+                label: "Tarea",
+                render: (row) => (
+                  <span className="font-medium">{row.title}</span>
+                ),
+              },
+              {
+                key: "client",
+                label: "Cliente",
+                render: (row) => row.organization_name,
+              },
+              {
+                key: "priority",
+                label: "Prioridad",
+                render: (row) => (
+                  <Badge
+                    tone={
+                      ["urgent", "high"].includes(row.priority)
+                        ? "warn"
+                        : "neutral"
+                    }
+                  >
+                    {displayValue(row.priority)}
+                  </Badge>
+                ),
+              },
+              {
+                key: "due",
+                label: "Vence",
+                render: (row) =>
+                  !row.due_at ? (
+                    <span className="text-muted">sin fecha</span>
+                  ) : row.is_overdue ? (
+                    <span className="text-danger">
+                      vencida ({new Date(row.due_at).toLocaleDateString("es-ES")})
+                    </span>
+                  ) : (
+                    new Date(row.due_at).toLocaleDateString("es-ES")
+                  ),
+              },
+              {
+                key: "open",
+                label: "",
+                render: (row) => (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onSelectClient(row.organization_id)}
+                  >
+                    Ir al cliente
+                  </Button>
+                ),
+              },
+            ]}
+            rows={data.tasks}
+          />
+        </Card>
+      ) : null}
+    </div>
+  );
+}
+
+function OverviewTile({
+  label,
+  value,
+  delta,
+}: {
+  label: string;
+  value: string;
+  delta?: ReactNode;
+}) {
+  return <Metric label={label} value={value} delta={delta} />;
 }
 
 function StoresOverviewTable({
@@ -528,9 +1051,7 @@ function StoresOverviewTable({
       key: "status",
       label: "Estado",
       render: (row) => (
-        <span className="font-mono text-xs uppercase text-muted">
-          {displayValue(row.status)}
-        </span>
+        <span className="text-xs text-muted">{displayValue(row.status)}</span>
       ),
     },
     {
@@ -603,7 +1124,7 @@ function StoresOverviewTable({
 
   return (
     <Card
-      title={<Heading size="lg">Todas las tiendas</Heading>}
+      title="Todas las tiendas"
       actions={
         <PeriodSelector
           periodDays={periodDays}
@@ -818,8 +1339,9 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void loadOperations();
   }, [organization]);
 
+  // La tabla comparativa "Todas las tiendas" solo aporta con 2+ tiendas.
   const showStoresOverview =
-    isConsultant && organization && shopifyConnections.length > 0;
+    isConsultant && Boolean(organization) && shopifyConnections.length > 1;
 
   // FE-01 (gap confirmado 2026-07-22: "sin contrato de UX para usuario sin
   // organizacion"). Sin esto, un cliente con memberships vacio (invitado
@@ -912,15 +1434,10 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
       ) : null}
 
-      {activeTab === "klaviyo" ? (
-        <EmptyState
-          title="Klaviyo preparado, pero no disponible"
-          hint="El conector de Klaviyo está preparado en el dominio, pero aún no está habilitado para conectar cuentas reales. No se muestran métricas simuladas."
-          action={
-            <ButtonLink href="/integraciones">
-              Ver estado del conector
-            </ButtonLink>
-          }
+      {activeTab === "klaviyo" && organization ? (
+        <KlaviyoEmailPanel
+          organizationId={organization.id}
+          variant={isConsultant ? "consultant" : "client"}
         />
       ) : null}
 
@@ -934,7 +1451,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   : "Resumen ejecutivo"}
               </Heading>
               {metrics ? (
-                <p className="font-mono text-xs text-muted">
+                <p className="text-xs text-muted">
                   hasta {new Date(metrics.period.end).toLocaleString()}
                 </p>
               ) : null}
@@ -958,92 +1475,111 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <div className="p-4">
               <ErrorBlock>{metricsError}</ErrorBlock>
             </div>
-          ) : metrics ? (
+          ) : (
             <>
-              <div className="mt-3 grid gap-x-8 border-b border-line pb-2 md:grid-cols-3 xl:grid-cols-6">
-                <article className="py-4 md:pr-8">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Facturación neta
+              {!metrics ? (
+                <Banner tone="warn" className="mb-3 text-sm">
+                  <p className="font-medium">
+                    Sin datos sincronizados de Shopify todavía.
                   </p>
-                  <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                    {formatMoney(metrics.sales.net_sales)}
+                  <p className="text-muted">
+                    Los KPIs se muestran a 0 hasta la primera sincronización.{" "}
+                    <Link href="/integraciones">Revisar integración</Link>
                   </p>
-                  <PeriodDeltaBadge
-                    current={metrics.sales.net_sales}
-                    previous={metrics.previous_period?.sales.net_sales}
-                  />
-                </article>
-                <article className="py-4 md:pr-8">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Pedidos
-                  </p>
-                  <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                    {metrics.sales.orders_count}
-                  </p>
-                  <PeriodDeltaBadge
-                    current={metrics.sales.orders_count}
-                    previous={metrics.previous_period?.sales.orders_count}
-                  />
-                </article>
-                <article className="py-4 xl:pr-8">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Ticket medio (AOV)
-                  </p>
-                  <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                    {formatMoney(metrics.sales.aov)}
-                  </p>
-                  <PeriodDeltaBadge
-                    current={metrics.sales.aov}
-                    previous={metrics.previous_period?.sales.aov}
-                  />
-                </article>
-                <article className="py-4 md:pr-8">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Beneficio neto estimado
-                  </p>
-                  <p
-                    className={[
-                      "mt-1.5 font-mono text-3xl tracking-tight",
-                      Number(metrics.financial.net_profit) >= 0
-                        ? "text-success"
-                        : "text-brand",
-                    ].join(" ")}
-                  >
-                    {formatMoney(metrics.financial.net_profit)}
-                  </p>
-                  <p className="mt-1 font-mono text-xs text-muted">
-                    {Number(metrics.financial.net_margin_pct).toFixed(1)}%
-                    margen
-                  </p>
-                  <PeriodDeltaBadge
-                    current={metrics.financial.net_profit}
-                    previous={metrics.previous_period?.financial.net_profit}
-                  />
-                </article>
-                <article className="py-4 md:pr-8">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Break-even mensual
-                  </p>
-                  <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                    {metrics.financial.break_even_monthly_revenue != null
-                      ? formatMoney(metrics.financial.break_even_monthly_revenue)
-                      : "n/a"}
-                  </p>
-                </article>
-                <article className="py-4">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Gastos fijos/mes
-                  </p>
-                  <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                    {formatMoney(metrics.financial.monthly_fixed_costs)}
-                  </p>
-                </article>
+                </Banner>
+              ) : null}
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <Metric
+                  card
+                  label="Facturación neta"
+                  value={formatMoney(metrics?.sales.net_sales ?? 0)}
+                  trend={metrics?.daily?.map((day) => day.net_sales)}
+                  trendTone={trendToneFor(
+                    metrics?.sales.net_sales ?? 0,
+                    metrics?.previous_period?.sales.net_sales,
+                  )}
+                  delta={
+                    <PeriodDeltaBadge
+                      current={metrics?.sales.net_sales ?? 0}
+                      previous={metrics?.previous_period?.sales.net_sales}
+                      label="periodo anterior"
+                    />
+                  }
+                />
+                <Metric
+                  card
+                  label="Pedidos"
+                  value={metrics?.sales.orders_count ?? 0}
+                  trend={metrics?.daily?.map((day) => day.orders_count)}
+                  trendTone={trendToneFor(
+                    metrics?.sales.orders_count ?? 0,
+                    metrics?.previous_period?.sales.orders_count,
+                  )}
+                  delta={
+                    <PeriodDeltaBadge
+                      current={metrics?.sales.orders_count ?? 0}
+                      previous={metrics?.previous_period?.sales.orders_count}
+                      label="periodo anterior"
+                    />
+                  }
+                />
+                <Metric
+                  card
+                  label="Ticket medio (AOV)"
+                  value={formatMoney(metrics?.sales.aov ?? 0)}
+                  delta={
+                    <PeriodDeltaBadge
+                      current={metrics?.sales.aov ?? 0}
+                      previous={metrics?.previous_period?.sales.aov}
+                      label="periodo anterior"
+                    />
+                  }
+                />
+                <Metric
+                  card
+                  label="Beneficio neto estimado"
+                  value={formatMoney(metrics?.financial.net_profit ?? 0)}
+                  tone={
+                    Number(metrics?.financial.net_profit ?? 0) >= 0
+                      ? "success"
+                      : "danger"
+                  }
+                  hint={`${Number(
+                    metrics?.financial.net_margin_pct ?? 0,
+                  ).toFixed(1)}% margen`}
+                  delta={
+                    <PeriodDeltaBadge
+                      current={metrics?.financial.net_profit ?? 0}
+                      previous={metrics?.previous_period?.financial.net_profit}
+                      label="periodo anterior"
+                    />
+                  }
+                />
+                <Metric
+                  card
+                  label="Break-even mensual"
+                  value={
+                    metrics?.financial.break_even_monthly_revenue != null
+                      ? formatMoney(
+                          metrics.financial.break_even_monthly_revenue,
+                        )
+                      : "n/a"
+                  }
+                />
+                <Metric
+                  card
+                  label="Gastos fijos/mes"
+                  value={formatMoney(
+                    metrics?.financial.monthly_fixed_costs ?? 0,
+                  )}
+                />
               </div>
 
-              {!metrics.financial.has_settings ||
-              metrics.financial.fixed_expenses_count === 0 ||
-              metrics.financial.items_without_cost > 0 ? (
-                <div className="space-y-2 border-b border-line bg-warn-tint px-4 py-3 text-sm">
+              {metrics &&
+              (!metrics.financial.has_settings ||
+                metrics.financial.fixed_expenses_count === 0 ||
+                metrics.financial.items_without_cost > 0) ? (
+                <Banner tone="warn" className="mt-4 text-sm">
                   <p className="font-medium">
                     Datos incompletos: el beneficio neto es una estimacion
                     parcial.
@@ -1071,108 +1607,81 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       </li>
                     ) : null}
                   </ul>
-                </div>
+                </Banner>
               ) : null}
 
-              <div className="grid gap-x-8 border-t border-line pt-3 md:grid-cols-3">
-                <article className="py-2 md:pr-8">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Referencias con stock
-                  </p>
-                  <p className="mt-1 font-mono text-xl tracking-tight">
-                    {metrics.stock.tracked_items}
-                  </p>
-                </article>
-                <article className="py-2 md:pr-8">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Con poco stock
-                  </p>
-                  <p
-                    className={[
-                      "mt-1 font-mono text-xl tracking-tight",
-                      metrics.stock.low_stock_items > 0 ? "text-warn-deep" : "",
-                    ].join(" ")}
-                  >
-                    {metrics.stock.low_stock_items}
-                  </p>
-                </article>
-                <article className="py-2">
-                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                    Agotadas
-                  </p>
-                  <p
-                    className={[
-                      "mt-1 font-mono text-xl tracking-tight",
-                      metrics.stock.out_of_stock_items > 0 ? "text-brand" : "",
-                    ].join(" ")}
-                  >
-                    {metrics.stock.out_of_stock_items}
-                  </p>
-                </article>
+              <div className="grid gap-x-8 border-t border-edge pt-3 md:grid-cols-3">
+                <Metric
+                  size="sm"
+                  label="Referencias con stock"
+                  value={metrics?.stock.tracked_items ?? 0}
+                />
+                <Metric
+                  size="sm"
+                  label="Con poco stock"
+                  value={metrics?.stock.low_stock_items ?? 0}
+                  tone={
+                    (metrics?.stock.low_stock_items ?? 0) > 0
+                      ? "warn"
+                      : "default"
+                  }
+                />
+                <Metric
+                  size="sm"
+                  label="Agotadas"
+                  value={metrics?.stock.out_of_stock_items ?? 0}
+                  tone={
+                    (metrics?.stock.out_of_stock_items ?? 0) > 0
+                      ? "danger"
+                      : "default"
+                  }
+                />
               </div>
             </>
-          ) : (
-            <EmptyState
-              title="Sin datos de Shopify"
-              hint="Conecta una tienda Shopify y completa la sincronización inicial para ver los KPIs del negocio."
-              action={
-                <ButtonLink href="/integraciones">
-                  Ir a Integraciones
-                </ButtonLink>
-              }
-            />
           )}
         </Card>
       ) : null}
 
       {activeTab === "todo" || activeTab === "meta" ? (
-        <Card title={<Heading size="lg">Meta Ads</Heading>}>
-          <div className="grid gap-x-8 md:grid-cols-3 xl:grid-cols-6">
-            <article className="py-4 md:pr-8">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                Inversión Meta
-              </p>
-              <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                {metaMetrics && metaMetrics.acquisition.days_with_data > 0
-                  ? formatMoney(metaMetrics.acquisition.spend)
-                  : "—"}
-              </p>
-            </article>
-            <article className="py-4 md:pr-8">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                ROAS
-              </p>
-              <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                {metaMetrics?.acquisition.roas != null
+        <Card
+          title="Meta Ads"
+          description="Rendimiento atribuido cuando exista una cuenta publicitaria conectada."
+        >
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <Metric
+              card
+              label="Inversión Meta"
+              value={formatMoney(metaMetrics?.acquisition.spend ?? 0)}
+              trend={metaMetrics?.daily?.map((day) => day.spend)}
+            />
+            <Metric
+              card
+              label="ROAS"
+              value={
+                metaMetrics?.acquisition.roas != null
                   ? `${Number(metaMetrics.acquisition.roas).toFixed(2)}x`
-                  : "—"}
-              </p>
-            </article>
-            <article className="py-4 xl:pr-8">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                CAC
-              </p>
-              <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                {metaMetrics?.acquisition.cac != null
+                  : "0.00x"
+              }
+            />
+            <Metric
+              card
+              label="CAC"
+              value={
+                metaMetrics?.acquisition.cac != null
                   ? formatMoney(metaMetrics.acquisition.cac)
-                  : "—"}
-              </p>
-            </article>
-            <article className="py-4 md:pr-8">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                Compras atribuidas
-              </p>
-              <p className="mt-1.5 font-mono text-3xl tracking-tight">
-                {metaMetrics && metaMetrics.acquisition.days_with_data > 0
-                  ? Number(metaMetrics.acquisition.purchases).toFixed(0)
-                  : "—"}
-              </p>
-            </article>
-            <article className="py-4 md:col-span-2">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
-                Adquisición
-              </p>
-              <p className="mt-2 text-sm leading-6 text-muted">
+                  : formatMoney(0)
+              }
+            />
+            <Metric
+              card
+              label="Compras atribuidas"
+              value={Number(
+                metaMetrics?.acquisition.purchases ?? 0,
+              ).toFixed(0)}
+            />
+            <article className="rounded-md border border-edge bg-white p-4 sm:col-span-2">
+              <p className={EYEBROW}>Adquisición</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-muted">
                 {metaMetrics && metaMetrics.acquisition.days_with_data > 0
                   ? `Datos de ${metaMetrics.acquisition.days_with_data} días. Atribucion segun ventana por defecto de Meta; puede diferir del Ads Manager.`
                   : "Sin datos de Meta Ads. Conecta la cuenta publicitaria en Integraciones para comparar inversion y ROAS contra el break-even."}
@@ -1238,8 +1747,11 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       {activeTab === "todo" || activeTab === "shopify" ? (
-        <Card title={<Heading size="lg">Tiendas Shopify</Heading>}>
-          <div className="divide-y divide-line">
+        <Card
+          title="Tiendas Shopify"
+          description="Selecciona una tienda para consultar sus métricas y diagnóstico."
+        >
+          <List>
             {isLoadingStores ? (
               <div className="px-4 py-3">
                 <LoadingBlock label="Cargando tiendas..." />
@@ -1248,7 +1760,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               shopifyConnections.length >
                 0 ? null : shopifyConnections.length ? (
               shopifyConnections.map((connection) => (
-                <div
+                <List.Item
                   key={connection.id}
                   className="grid gap-3 px-4 py-3 md:grid-cols-[1fr_140px_120px]"
                 >
@@ -1262,16 +1774,16 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       {connection.id}
                     </p>
                   </div>
-                  <p className="font-mono text-sm text-brand">
+                  <p className="text-sm text-muted">
                     {displayValue(connection.status)}
                   </p>
-                  <Link
-                    className="inline-flex min-h-9 w-fit items-center border border-brand bg-brand px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-deep"
+                  <ButtonLink
+                    className="w-fit"
                     href={`/shopify?organizationId=${selectedOrganizationId}&connectionId=${connection.id}`}
                   >
                     Ver tienda
-                  </Link>
-                </div>
+                  </ButtonLink>
+                </List.Item>
               ))
             ) : storesLoadError ? (
               <div className="px-4 py-3">
@@ -1283,27 +1795,41 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   title="Sin tiendas Shopify conectadas"
                   hint="Conecta la tienda del cliente para empezar a ver ventas, margen y stock en tiempo real."
                   action={
-                    <Link
-                      className="inline-flex min-h-9 items-center border border-brand bg-brand px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-deep"
+                    <ButtonLink
                       href="/integraciones"
                     >
                       Conectar Shopify
-                    </Link>
+                    </ButtonLink>
                   }
                 />
               </div>
             )}
-          </div>
+          </List>
         </Card>
       ) : null}
     </div>
   );
 }
 
+function DashboardRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organizationId, setOrganizationId } = useActiveOrganization();
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
+
+  // Consultor sin cliente activo -> vista general de la cartera. Al elegir un
+  // cliente aqui, el mismo Dashboard pasa a mostrar ese cliente.
+  if (isConsultant && !organizationId) {
+    return <GeneralOverview onSelectClient={setOrganizationId} />;
+  }
+
+  return <DashboardContent bootstrap={bootstrap} />;
+}
+
 export default function DashboardPage() {
   return (
     <PortalShell title="Dashboard">
-      {(bootstrap) => <DashboardContent bootstrap={bootstrap} />}
+      {(bootstrap) => <DashboardRouter bootstrap={bootstrap} />}
     </PortalShell>
   );
 }

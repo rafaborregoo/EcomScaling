@@ -10,6 +10,7 @@ import {
   klaviyoEmailDraftPatchSchema,
   klaviyoEmailJsonSchema,
   klaviyoEmailOutputSchema,
+  metaAdsDraftPatchSchema,
   metaAdsJsonSchema,
   metaAdsOutputSchema,
   sanitizeGeneratedEmailHtml,
@@ -25,6 +26,7 @@ import {
   runOperationThroughLangGraph,
   getToolContract,
   getToolDefinition,
+  normalizeToolConnectorId,
   type AgentInput,
   type CallSummaryOutput,
   type ChatOutput,
@@ -112,6 +114,7 @@ const AGENT_TASK_CATEGORY: Record<
 > = {
   a04_generador_tareas: "shopify",
   a06_planificador_stock: "shopify",
+  a12_analista_email: "klaviyo",
 };
 
 // AI-00/AI-06 (R-011): presupuesto real por turno, no solo registrado.
@@ -567,7 +570,7 @@ async function runAgentTurnWithFallbackCore<TOutput>(
       model: resolveProviderModel(
         agentCode,
         "anthropic",
-        params.model,
+        env.ANTHROPIC_MODEL ?? params.model,
         routingConfig,
       ),
     });
@@ -670,6 +673,26 @@ function canAccessMarketingWorkspace(
   );
 }
 
+async function loadConnectedConnectorIds(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("integration_connections")
+    .select("provider")
+    .eq("organization_id", organizationId)
+    .in("status", ["connected", "syncing"]);
+
+  return [
+    ...new Set(
+      (data ?? [])
+        .map((connection) => connection.provider)
+        .filter((provider): provider is string => Boolean(provider))
+        .map(normalizeToolConnectorId),
+    ),
+  ];
+}
+
 /**
  * Construye las tools sql_select/search_knowledge segun allowed_tools de la
  * version del agente. Compartido entre A02 y el copiloto de chat (A09): cada
@@ -684,19 +707,31 @@ function buildAgentTools(
   rawAllowedTools: unknown,
   systemPromptBase: string,
   storeId: string | null = null,
+  connectedConnectors: readonly string[] = [],
 ): { tools: AgentToolDefinition[]; systemPrompt: string } {
-  const allowedToolNames = Array.isArray(rawAllowedTools)
+  const requestedToolNames = Array.isArray(rawAllowedTools)
     ? (rawAllowedTools as unknown[]).filter(
         (name): name is string => typeof name === "string",
       )
     : [];
-  const unavailableToolNames = allowedToolNames.filter((name) => {
+  const unavailableToolNames = requestedToolNames.filter((name) => {
     const definition = getToolDefinition(name);
     return Boolean(
       definition &&
         (definition.status === "planned" || definition.status === "disabled"),
     );
   });
+  const missingConnectorToolNames = requestedToolNames.filter((name) => {
+    const connector = getToolDefinition(name)?.connector;
+    return Boolean(
+      connector &&
+        connector !== "core" &&
+        !connectedConnectors.includes(connector),
+    );
+  });
+  const allowedToolNames = requestedToolNames.filter(
+    (name) => !missingConnectorToolNames.includes(name),
+  );
 
   const recordToolCall = async (
     toolName: string,
@@ -719,7 +754,17 @@ function buildAgentTools(
   const tools: AgentToolDefinition[] = [];
   let systemPrompt = systemPromptBase;
   if (unavailableToolNames.length > 0) {
-    systemPrompt = `${systemPrompt}\n\n[CAPACIDADES NO DISPONIBLES TODAVIA]\nLas siguientes tools estan declaradas para una futura conexion, pero no tienen executor operativo en este entorno: ${unavailableToolNames.join(", ")}. No intentes invocarlas ni inventes sus datos. Declara la falta de datos y utiliza request_missing_data o escalate_to_human si necesitas desbloquear la respuesta.`;
+    systemPrompt = `${systemPrompt}\n\n[CAPACIDADES NO IMPLEMENTADAS]\nLas siguientes tools estan declaradas para una futura fase, pero no tienen executor operativo en este entorno: ${unavailableToolNames.join(", ")}. No intentes invocarlas ni inventes sus datos. Declara la falta de capacidad y utiliza request_missing_data o escalate_to_human si necesitas desbloquear la respuesta.`;
+  }
+  if (missingConnectorToolNames.length > 0) {
+    const pendingConnectors = [
+      ...new Set(
+        missingConnectorToolNames
+          .map((name) => getToolDefinition(name)?.connector)
+          .filter(Boolean) as string[],
+      ),
+    ];
+    systemPrompt = `${systemPrompt}\n\n[CAPACIDADES PENDIENTES DE CONEXION]\nLas siguientes tools tienen executor preparado, pero requieren conectar y autorizar estos proveedores: ${pendingConnectors.join(", ")}: ${missingConnectorToolNames.join(", ")}. No intentes invocarlas ni inventes sus datos. Explica que la integracion esta pendiente y utiliza request_missing_data o escalate_to_human si necesitas desbloquear la respuesta.`;
   }
 
   const parseToolInput = (toolName: string, input: Record<string, unknown>) => {
@@ -868,6 +913,193 @@ function buildAgentTools(
     });
   };
 
+  // Lecturas Meta normalizadas: el modelo solo ve datos ya sincronizados y
+  // acotados al tenant; nunca recibe tokens ni realiza llamadas Graph directas.
+  const registerPreparedConnectorReadTool = (
+    toolName:
+      | "meta_read_ad_accounts"
+      | "meta_read_campaign_insights"
+      | "instagram_read_media"
+      | "instagram_read_insights",
+    description: string,
+    query: (
+      client: SupabaseClient,
+      input: Record<string, unknown>,
+    ) => Promise<{ data: unknown[]; error: { message: string } | null }>,
+  ) => {
+    if (
+      !allowedToolNames.includes(toolName) ||
+      getToolDefinition(toolName)?.status !== "implemented_partial"
+    ) {
+      return;
+    }
+
+    tools.push({
+      name: toolName,
+      description,
+      inputSchema: {
+        type: "object",
+        properties: {
+          account_id: { type: "string" },
+          period_start: { type: "string", format: "date" },
+          period_end: { type: "string", format: "date" },
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+          cursor: { anyOf: [{ type: "string", pattern: "^offset:[0-9]+$" }, { type: "null" }] },
+        },
+        additionalProperties: false,
+      },
+      execute: async (toolInput) => {
+        const parsedInput = parseToolInput(toolName, toolInput);
+        if (isErr(parsedInput)) return parsedInput;
+        const started = Date.now();
+        const input = parsedInput.data;
+        const result = await query(supabase, input);
+        const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
+        const cursor = typeof input.cursor === "string" ? input.cursor : null;
+        const offset = cursor ? Number(cursor.slice("offset:".length)) : 0;
+        const rows = result.data.slice(0, limit);
+        const truncated = result.data.length > limit;
+        const output = result.error
+          ? {
+              error: {
+                error: `${toolName}_unavailable`,
+                why: result.error.message,
+                how_to_fix: "Verificar la sincronización del conector y reintentar",
+                retry_after: 30,
+              },
+            }
+          : {
+              rows,
+              truncated,
+              next_cursor: truncated ? `offset:${offset + limit}` : null,
+              total_count: null,
+              provenance: {
+                source: toolName,
+                as_of: new Date().toISOString(),
+                freshness_seconds: 0,
+              },
+            };
+        await recordToolCall(toolName, input, result.error ? { error: result.error.message } : { rows: rows.length }, Boolean(result.error), Date.now() - started);
+        const validatedOutput = validateToolOutput(toolName, output);
+        return validatedOutput.ok ? validatedOutput.data : validatedOutput;
+      },
+    });
+  };
+
+  registerPreparedConnectorReadTool(
+    "meta_read_ad_accounts",
+    "Lee las cuentas publicitarias Meta sincronizadas para la organización activa, sin credenciales ni datos crudos.",
+    async (client, input) => {
+      let request = client
+        .from("meta_ad_accounts")
+        .select("id, external_ad_account_id, account_name, account_status_code, currency_code, timezone_name, is_selected, is_active, amount_spent, last_synced_at")
+        .eq("organization_id", organizationId)
+        .order("account_name", { ascending: true });
+      if (typeof input.account_id === "string" && input.account_id.trim()) {
+        request = request.eq("external_ad_account_id", input.account_id.trim());
+      }
+      const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
+      const offset =
+        typeof input.cursor === "string"
+          ? Number(input.cursor.slice("offset:".length))
+          : 0;
+      request = request.range(offset, offset + limit);
+      const result = await request;
+      return { data: result.data ?? [], error: result.error ? { message: result.error.message } : null };
+    },
+  );
+
+  registerPreparedConnectorReadTool(
+    "meta_read_campaign_insights",
+    "Lee insights diarios Meta ya sincronizados, con filtros de cuenta y fechas y sin exponer payloads crudos.",
+    async (client, input) => {
+      let request = client
+        .from("meta_insight_rows_daily")
+        .select("metric_date, level, external_entity_id, ad_account_id, campaign_id, ad_set_id, ad_id, spend, impressions, reach, clicks, outbound_clicks, cpm, cpc, ctr, synced_at")
+        .eq("organization_id", organizationId)
+        .order("metric_date", { ascending: false });
+      if (typeof input.account_id === "string" && input.account_id.trim()) {
+        const accounts = await client
+          .from("meta_ad_accounts")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .eq("external_ad_account_id", input.account_id.trim());
+        if (accounts.error) return { data: [], error: { message: accounts.error.message } };
+        const ids = (accounts.data ?? []).map((account) => account.id);
+        if (ids.length === 0) return { data: [], error: null };
+        request = request.in("ad_account_id", ids);
+      }
+      if (typeof input.period_start === "string") request = request.gte("metric_date", input.period_start);
+      if (typeof input.period_end === "string") request = request.lte("metric_date", input.period_end);
+      const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
+      const offset =
+        typeof input.cursor === "string"
+          ? Number(input.cursor.slice("offset:".length))
+          : 0;
+      request = request.range(offset, offset + limit);
+      const result = await request;
+      return { data: result.data ?? [], error: result.error ? { message: result.error.message } : null };
+    },
+  );
+
+  registerPreparedConnectorReadTool(
+    "instagram_read_media",
+    "Lee publicaciones de Instagram sincronizadas para la organización activa, sin credenciales ni payloads crudos.",
+    async (client, input) => {
+      let request = client
+        .from("instagram_media")
+        .select("id, account_id, external_media_id, media_type, caption, permalink, published_at, thumbnail_url, media_url_expires_at, is_active, created_at, updated_at")
+        .eq("organization_id", organizationId)
+        .order("published_at", { ascending: false });
+      if (typeof input.account_id === "string" && input.account_id.trim()) {
+        const accounts = await client
+          .from("instagram_accounts")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .eq("external_instagram_id", input.account_id.trim());
+        if (accounts.error) return { data: [], error: { message: accounts.error.message } };
+        const ids = (accounts.data ?? []).map((account) => account.id);
+        if (ids.length === 0) return { data: [], error: null };
+        request = request.in("account_id", ids);
+      }
+      if (typeof input.period_start === "string") request = request.gte("published_at", `${input.period_start}T00:00:00.000Z`);
+      if (typeof input.period_end === "string") request = request.lte("published_at", `${input.period_end}T23:59:59.999Z`);
+      const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
+      const offset = typeof input.cursor === "string" ? Number(input.cursor.slice("offset:".length)) : 0;
+      const result = await request.range(offset, offset + limit);
+      return { data: result.data ?? [], error: result.error ? { message: result.error.message } : null };
+    },
+  );
+
+  registerPreparedConnectorReadTool(
+    "instagram_read_insights",
+    "Lee métricas de publicaciones Instagram ya sincronizadas, filtradas por cuenta y periodo y sin datos crudos.",
+    async (client, input) => {
+      let request = client
+        .from("instagram_media_insight_values")
+        .select("id, account_id, media_id, metric_name, period, period_start, period_end, value, captured_at, source")
+        .eq("organization_id", organizationId)
+        .order("captured_at", { ascending: false });
+      if (typeof input.account_id === "string" && input.account_id.trim()) {
+        const accounts = await client
+          .from("instagram_accounts")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .eq("external_instagram_id", input.account_id.trim());
+        if (accounts.error) return { data: [], error: { message: accounts.error.message } };
+        const ids = (accounts.data ?? []).map((account) => account.id);
+        if (ids.length === 0) return { data: [], error: null };
+        request = request.in("account_id", ids);
+      }
+      if (typeof input.period_start === "string") request = request.gte("period_start", input.period_start);
+      if (typeof input.period_end === "string") request = request.lte("period_end", input.period_end);
+      const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
+      const offset = typeof input.cursor === "string" ? Number(input.cursor.slice("offset:".length)) : 0;
+      const result = await request.range(offset, offset + limit);
+      return { data: result.data ?? [], error: result.error ? { message: result.error.message } : null };
+    },
+  );
+
   registerScopedReadTool(
     "get_organization_profile",
     "Lee el perfil operativo de la organizacion activa, sin credenciales ni secretos.",
@@ -925,7 +1157,7 @@ function buildAgentTools(
       return client
         .from("tasks")
         .select(
-          "id, title, description, status, priority, due_at, category, source, is_visible_to_client, created_at, updated_at",
+          "id, title, description, status, priority, due_at, categories, source, is_visible_to_client, created_at, updated_at",
         )
         .eq("organization_id", organizationId)
         .in("status", ["pending", "in_progress"])
@@ -967,7 +1199,7 @@ function buildAgentTools(
       return client
         .from("tasks")
         .select(
-          "id, title, description, status, priority, due_at, category, source, is_visible_to_client, created_at, updated_at, completed_at",
+          "id, title, description, status, priority, due_at, categories, source, is_visible_to_client, created_at, updated_at, completed_at",
         )
         .eq("organization_id", organizationId)
         .order("updated_at", { ascending: false })
@@ -1755,6 +1987,10 @@ async function runGenericDiagnosticAgent(
   }
 
   const runId = crypto.randomUUID();
+  const connectedConnectors = await loadConnectedConnectorIds(
+    supabase,
+    organizationId,
+  );
 
   const { tools, systemPrompt } = buildAgentTools(
     env,
@@ -1764,6 +2000,7 @@ async function runGenericDiagnosticAgent(
     agentVersion.allowed_tools,
     prompt.content,
     storeId,
+    connectedConnectors,
   );
 
   const input: AgentInput = {
@@ -2696,6 +2933,200 @@ export async function getKnowledgeManagerDiagnostic(
   );
 }
 
+// --- A12: analista de email marketing (Klaviyo) --------------------------------
+
+const EMAIL_ANALYST_LOOKBACK_DAYS = 90;
+
+type EmailReportRow = {
+  bucket_month: string;
+  entity_type: "campaign" | "flow";
+  entity_id: string | null;
+  entity_name: string | null;
+  subject: string | null;
+  trigger_type: string | null;
+  revenue: number | string | null;
+  conversions: number | string | null;
+  recipients: number | string | null;
+  delivered: number | string | null;
+  opens_unique: number | string | null;
+  clicks_unique: number | string | null;
+  unsubscribes: number | string | null;
+  bounced: number | string | null;
+  spam_complaints: number | string | null;
+};
+
+const emailNum = (value: number | string | null | undefined): number => {
+  const parsed = typeof value === "string" ? Number(value) : (value ?? 0);
+  return Number.isFinite(parsed) ? Number(parsed) : 0;
+};
+const emailRate = (a: number, b: number): number | null =>
+  b > 0 ? Number((a / b).toFixed(4)) : null;
+
+/** Digiere las filas (mes, entidad) del RPC en cifras listas para el LLM. */
+function summariseEmailForAgent(rows: EmailReportRow[]) {
+  const acc = { revenue: 0, delivered: 0, recipients: 0, opens: 0, clicks: 0, unsub: 0, bounced: 0, spam: 0 };
+  let flowRevenue = 0;
+  const entities = new Map<
+    string,
+    {
+      type: "campaign" | "flow";
+      name: string;
+      subject: string | null;
+      trigger: string | null;
+      revenue: number;
+      delivered: number;
+      opens: number;
+      clicks: number;
+    }
+  >();
+  for (const row of rows) {
+    const revenue = emailNum(row.revenue);
+    acc.revenue += revenue;
+    acc.delivered += emailNum(row.delivered);
+    acc.recipients += emailNum(row.recipients);
+    acc.opens += emailNum(row.opens_unique);
+    acc.clicks += emailNum(row.clicks_unique);
+    acc.unsub += emailNum(row.unsubscribes);
+    acc.bounced += emailNum(row.bounced);
+    acc.spam += emailNum(row.spam_complaints);
+    if (row.entity_type === "flow") flowRevenue += revenue;
+    if (!row.entity_id) continue;
+    const key = `${row.entity_type}:${row.entity_id}`;
+    const entity = entities.get(key) ?? {
+      type: row.entity_type,
+      name: row.entity_name ?? "(sin nombre)",
+      subject: row.subject,
+      trigger: row.trigger_type,
+      revenue: 0,
+      delivered: 0,
+      opens: 0,
+      clicks: 0,
+    };
+    entity.revenue += revenue;
+    entity.delivered += emailNum(row.delivered);
+    entity.opens += emailNum(row.opens_unique);
+    entity.clicks += emailNum(row.clicks_unique);
+    if (!entity.subject && row.subject) entity.subject = row.subject;
+    entities.set(key, entity);
+  }
+  const list = [...entities.values()];
+  const shape = (e: (typeof list)[number]) => ({
+    nombre: e.name,
+    ...(e.type === "campaign" ? { asunto: e.subject } : { disparador: e.trigger }),
+    ingresos_atribuidos: Math.round(e.revenue),
+    tasa_apertura: emailRate(e.opens, e.delivered),
+    tasa_clic: emailRate(e.clicks, e.delivered),
+  });
+  return {
+    totales: {
+      ingresos_atribuidos: Math.round(acc.revenue),
+      pct_ingresos_de_flujos: emailRate(flowRevenue, acc.revenue),
+      ingresos_por_destinatario:
+        acc.recipients > 0 ? Number((acc.revenue / acc.recipients).toFixed(2)) : null,
+      tasa_apertura: emailRate(acc.opens, acc.delivered),
+      tasa_clic: emailRate(acc.clicks, acc.delivered),
+      clic_sobre_apertura: emailRate(acc.clicks, acc.opens),
+      tasa_baja: emailRate(acc.unsub, acc.delivered),
+      tasa_rebote: emailRate(acc.bounced, acc.recipients),
+      tasa_spam: emailRate(acc.spam, acc.delivered),
+    },
+    campanas: list
+      .filter((e) => e.type === "campaign")
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 15)
+      .map(shape),
+    flujos: list
+      .filter((e) => e.type === "flow")
+      .sort((a, b) => b.revenue - a.revenue)
+      .map(shape),
+  };
+}
+
+/** Ejecuta A12 (analista de email): informe Klaviyo del periodo actual vs anterior. */
+export async function runEmailAnalystAgent(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const now = new Date();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const periodStart = new Date(now.getTime() - EMAIL_ANALYST_LOOKBACK_DAYS * dayMs);
+  const previousStart = new Date(
+    now.getTime() - 2 * EMAIL_ANALYST_LOOKBACK_DAYS * dayMs,
+  );
+  const d = (value: Date) => value.toISOString().slice(0, 10);
+
+  return runGenericDiagnosticAgent(
+    env,
+    context,
+    organizationId,
+    "a12_analista_email",
+    `Revisar el rendimiento de email marketing (Klaviyo) de los ultimos ${EMAIL_ANALYST_LOOKBACK_DAYS} dias frente al periodo anterior: ingresos atribuidos, reparto flujos/campanas, aperturas/clics, entregabilidad y asuntos. Separar avisos de tareas reales.`,
+    { start: periodStart.toISOString(), end: now.toISOString() },
+    null,
+    EMAIL_ANALYST_LOOKBACK_DAYS,
+    async (supabase) => {
+      const [current, previous] = await Promise.all([
+        supabase.rpc("klaviyo_email_report", {
+          target_organization_id: organizationId,
+          period_start: d(periodStart),
+          period_end: d(now),
+        }),
+        supabase.rpc("klaviyo_email_report", {
+          target_organization_id: organizationId,
+          period_start: d(previousStart),
+          period_end: d(periodStart),
+        }),
+      ]);
+
+      if (current.error) {
+        return [
+          {
+            label: "Rendimiento de email (Klaviyo)",
+            data: `sin_datos: ${current.error.message}`,
+          },
+        ];
+      }
+
+      const currentSummary = summariseEmailForAgent(
+        (current.data ?? []) as EmailReportRow[],
+      );
+      const previousSummary =
+        !previous.error && Array.isArray(previous.data)
+          ? summariseEmailForAgent(previous.data as EmailReportRow[]).totales
+          : null;
+
+      return [
+        {
+          label: `Email Klaviyo -- periodo actual (${EMAIL_ANALYST_LOOKBACK_DAYS} dias): totales, campanas con su asunto y flujos`,
+          data: currentSummary,
+        },
+        {
+          label: "Email Klaviyo -- totales del periodo anterior (para comparar)",
+          data: previousSummary ?? "sin_datos_periodo_anterior",
+        },
+      ];
+    },
+  );
+}
+
+/** Diagnostico A12 con cache de 24h (auto-generado, sin friccion para ver). */
+export async function getEmailAnalystDiagnostic(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  return getCachedDiagnostic(
+    env,
+    context,
+    organizationId,
+    "a12_analista_email",
+    null,
+    EMAIL_ANALYST_LOOKBACK_DAYS,
+    () => runEmailAnalystAgent(env, context, organizationId),
+  );
+}
+
 /**
  * Ejecuta A01 (analista de llamadas) sobre la transcripcion ACTUAL de una
  * llamada. A diferencia de A02 no usa tools de datos: su unica fuente es la
@@ -3111,7 +3542,101 @@ export async function runMarketingContentDraft(
   const contentType =
     typeof payload.content_type === "string" ? payload.content_type : "";
   const channel = typeof payload.channel === "string" ? payload.channel : "";
-  const brief = typeof payload.brief === "string" ? payload.brief.trim() : "";
+  const briefBase = typeof payload.brief === "string" ? payload.brief.trim() : "";
+
+  // AI-11 input de plantilla: paleta de marca (roles -> hex) + textos que la IA
+  // debe usar literalmente. Ambos se validan aqui y viajan en el brief/contexto
+  // del agente; no son hechos inventables, son restricciones del consultor.
+  const BRAND_COLOR_ROLES = [
+    "primary",
+    "secondary",
+    "background",
+    "text",
+    "accent",
+  ] as const;
+  const brandColors: Record<string, string> = {};
+  if (payload.brand_colors && typeof payload.brand_colors === "object") {
+    for (const [role, value] of Object.entries(
+      payload.brand_colors as Record<string, unknown>,
+    )) {
+      if (
+        (BRAND_COLOR_ROLES as readonly string[]).includes(role) &&
+        typeof value === "string" &&
+        /^#[0-9a-fA-F]{6}$/.test(value)
+      ) {
+        brandColors[role] = value.toLowerCase();
+      }
+    }
+  }
+  const verbatimTexts = Array.isArray(payload.verbatim_texts)
+    ? (payload.verbatim_texts as unknown[])
+        .filter((text): text is string => typeof text === "string")
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0 && text.length <= 2000)
+        .slice(0, 20)
+    : [];
+
+  // Fase 3 (#4): imágenes adjuntas para "Mejorar con IA". Solo se aceptan URLs
+  // del bucket propio `marketing-assets` de ESTA organización -- evita SSRF,
+  // coste de fetch arbitrario y fuga cross-tenant.
+  const assetPrefix = `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/marketing-assets/${organizationId}/`;
+  const parseImageUrls = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? (value as unknown[])
+          .filter((url): url is string => typeof url === "string")
+          .map((url) => url.trim())
+          .filter((url) => url.startsWith(assetPrefix))
+          .slice(0, 6)
+      : [];
+  const referenceImageUrls = parseImageUrls(payload.reference_image_urls);
+  const contentImageUrls = parseImageUrls(payload.content_image_urls);
+  const attachedImages = [
+    ...referenceImageUrls.map((url) => ({ url, role: "referencia" })),
+    ...contentImageUrls.map((url) => ({ url, role: "contenido" })),
+  ].slice(0, 6);
+
+  const briefParts = [briefBase];
+  if (Object.keys(brandColors).length > 0) {
+    briefParts.push(
+      "PALETA DE MARCA (usar estos hex para fondos, botones y texto del HTML y de los bloques; no inventar otros):\n" +
+        Object.entries(brandColors)
+          .map(([role, hex]) => `- ${role}: ${hex}`)
+          .join("\n"),
+    );
+  }
+  if (verbatimTexts.length > 0) {
+    briefParts.push(
+      "TEXTOS OBLIGATORIOS (deben aparecer LITERALMENTE en el contenido, sin reescribir ni traducir):\n" +
+        verbatimTexts.map((text) => `- «${text}»`).join("\n"),
+    );
+  }
+  // "Mejorar con IA": el consultor ya tiene un diseño de bloques en el editor
+  // visual y quiere que la IA lo pula. Se pasa como referencia; la IA mantiene
+  // la estructura y los textos literales, mejora copy y jerarquia.
+  const baseDesign =
+    payload.base_design &&
+    typeof payload.base_design === "object" &&
+    Array.isArray((payload.base_design as { blocks?: unknown }).blocks) &&
+    (payload.base_design as { blocks: unknown[] }).blocks.length > 0
+      ? (payload.base_design as Record<string, unknown>)
+      : null;
+  if (baseDesign) {
+    const json = JSON.stringify(baseDesign).slice(0, 8000);
+    briefParts.push(
+      "DISEÑO ACTUAL DEL CONSULTOR (bloques del editor visual). Mantén su estructura general y cualquier texto marcado como literal; mejora copy, jerarquia y coherencia con el brief y el contexto de empresa:\n" +
+        json,
+    );
+  }
+  if (attachedImages.length > 0) {
+    briefParts.push(
+      "IMÁGENES ADJUNTAS (se envían también como imagen para que las analices y decidas dónde encajan):\n" +
+        attachedImages
+          .map((img, index) => `${index + 1}. [${img.role}] ${img.url}`)
+          .join("\n") +
+        "\nLas de rol 'referencia' son guía de estilo y estructura, NO las incrustes. Las de rol 'contenido' colócalas como bloques image usando su URL EXACTA, en la posición que mejor encaje.",
+    );
+  }
+  const brief = briefParts.filter((part) => part.trim().length > 0).join("\n\n");
   if (!["campaign", "flow_step", "popup"].includes(contentType)) {
     return {
       ok: false as const,
@@ -3119,13 +3644,20 @@ export async function runMarketingContentDraft(
       error: "content_type_invalido",
     };
   }
-  if (!brief) {
+  if (!briefBase) {
     return { ok: false as const, statusCode: 400, error: "brief_requerido" };
   }
-  if (!["email_klaviyo", "meta_ads", "multichannel"].includes(channel)) {
+  if (!["email_klaviyo", "meta_ads"].includes(channel)) {
     return { ok: false as const, statusCode: 400, error: "canal_invalido" };
   }
-  if (brief.length > 12000) {
+  if (channel === "meta_ads" && contentType !== "campaign") {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "meta_ads_solo_admite_campaign",
+    };
+  }
+  if (brief.length > 28000) {
     return {
       ok: false as const,
       statusCode: 400,
@@ -3188,6 +3720,10 @@ export async function runMarketingContentDraft(
   }
 
   const runId = crypto.randomUUID();
+  const connectedConnectors = await loadConnectedConnectorIds(
+    supabase,
+    organizationId,
+  );
   const { tools, systemPrompt } = buildAgentTools(
     env,
     supabase,
@@ -3195,6 +3731,8 @@ export async function runMarketingContentDraft(
     organizationId,
     agentVersion.allowed_tools,
     prompt.content,
+    null,
+    connectedConnectors,
   );
   const input: AgentInput = {
     run_id: runId,
@@ -3228,7 +3766,20 @@ export async function runMarketingContentDraft(
   }
 
   try {
-    const request = { content_type: contentType, channel, brief };
+    const request = {
+      content_type: contentType,
+      channel,
+      brief,
+      brand_colors: brandColors,
+      verbatim_texts: verbatimTexts,
+      ...(baseDesign ? { base_design: baseDesign } : {}),
+      ...(attachedImages.length > 0
+        ? {
+            reference_image_urls: referenceImageUrls,
+            content_image_urls: contentImageUrls,
+          }
+        : {}),
+    };
     await supabase.from("agent_context_snapshots").insert({
       run_id: runId,
       organization_id: organizationId,
@@ -3254,6 +3805,7 @@ export async function runMarketingContentDraft(
       systemPrompt,
       input,
       contextBlocks: [{ label: "Brief del consultor", data: request }],
+      ...(attachedImages.length > 0 ? { images: attachedImages } : {}),
       tools,
       outputContract: isMetaAds
         ? {
@@ -3394,6 +3946,8 @@ export async function runMarketingContentDraft(
         content_type: contentType,
         status: "pending_approval",
         request,
+        brand_colors: brandColors,
+        verbatim_texts: verbatimTexts,
         summary: sanitizedOutput.summary,
         template_name: draftFields.templateName,
         subject: draftFields.subject,
@@ -3414,7 +3968,7 @@ export async function runMarketingContentDraft(
         warnings: draftFields.warnings,
       })
       .select(
-        "id, status, content_type, subject, preheader, html, plain_text, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_at, version",
+        "id, status, content_type, request, subject, preheader, html, plain_text, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_at, version",
       )
       .single();
 
@@ -3487,6 +4041,209 @@ export async function runMarketingContentDraft(
   }
 }
 
+/**
+ * Guarda una plantilla diseñada en el editor visual como borrador, SIN pasar
+ * por el agente. Estado `draft` (no `pending_approval`). El HTML del builder ya
+ * es email-safe pero se re-sanea por defensa en profundidad.
+ */
+export async function saveManualMarketingDraft(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  payload: Record<string, unknown>,
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+  if (!canAccessMarketingWorkspace(context, access.membership.role)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "marketing_access_required",
+    };
+  }
+
+  const name =
+    (typeof payload.name === "string" && payload.name.trim()) ||
+    "Plantilla sin nombre";
+  const subject =
+    (typeof payload.subject === "string" && payload.subject.trim()) || name;
+  const html =
+    typeof payload.html === "string"
+      ? sanitizeGeneratedEmailHtml(payload.html)
+      : "";
+  const plainText =
+    typeof payload.plain_text === "string" ? payload.plain_text.trim() : "";
+  const design =
+    payload.design && typeof payload.design === "object" ? payload.design : {};
+  const blocks =
+    design && Array.isArray((design as { blocks?: unknown }).blocks)
+      ? (design as { blocks: unknown[] }).blocks
+      : [];
+  const styles = (design as { styles?: Record<string, unknown> }).styles ?? {};
+  const brandColors: Record<string, string> = {};
+  for (const role of ["primary", "background", "text"]) {
+    const value = styles[role];
+    if (typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)) {
+      brandColors[role] = value.toLowerCase();
+    }
+  }
+
+  if (!html || blocks.length === 0) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "diseno_vacio",
+      message: "La plantilla no tiene bloques.",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: draft, error } = await supabase
+    .from("marketing_content_drafts")
+    .insert({
+      organization_id: organizationId,
+      created_by: context.user.id,
+      content_type: "campaign",
+      status: "draft",
+      request: { channel: "email_klaviyo", source: "visual_builder", design },
+      brand_colors: brandColors,
+      verbatim_texts: [],
+      summary: "Plantilla diseñada en el editor visual.",
+      template_name: name.slice(0, 160),
+      subject: subject.slice(0, 255),
+      preheader: "",
+      from_name: "",
+      reply_to: null,
+      purpose: "Plantilla creada manualmente en el editor.",
+      audience: "",
+      locale: "es",
+      tone: "brand",
+      plain_text: plainText || name,
+      html,
+      blocks,
+      personalization_tokens: [],
+      compliance_notes: [],
+      sources: [],
+      confidence: "high",
+      warnings: [],
+    })
+    .select("id, status, content_type, created_at, version")
+    .single();
+
+  if (error || !draft) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "marketing_draft_persist_failed",
+      detail: error?.message,
+    };
+  }
+
+  return { ok: true as const, data: { draft } };
+}
+
+/** Sniff del tipo real por magic bytes: no confiamos en el nombre ni en el
+ *  mime declarado por el cliente. */
+export function sniffImageMime(buffer: Buffer): string | null {
+  if (buffer.length < 12) return null;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47)
+    return "image/png";
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38)
+    return "image/gif";
+  if (
+    buffer[0] === 0x52 &&
+    buffer[1] === 0x49 &&
+    buffer[2] === 0x46 &&
+    buffer[3] === 0x46 &&
+    buffer[8] === 0x57 &&
+    buffer[9] === 0x45 &&
+    buffer[10] === 0x42 &&
+    buffer[11] === 0x50
+  )
+    return "image/webp";
+  return null;
+}
+
+const MARKETING_ASSET_MAX_BYTES = 5 * 1024 * 1024;
+const MARKETING_ASSET_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
+/**
+ * Sube una imagen (base64) al bucket `marketing-assets` y devuelve su URL
+ * pública para usarla en un bloque `image` del editor. Escritura vía
+ * service-role tras chequeo de membership.
+ */
+export async function uploadMarketingAsset(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  payload: Record<string, unknown>,
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+  if (!canAccessMarketingWorkspace(context, access.membership.role)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "marketing_access_required",
+    };
+  }
+
+  const raw =
+    typeof payload.content_base64 === "string" ? payload.content_base64 : "";
+  const base64 = raw.includes(",") ? raw.slice(raw.indexOf(",") + 1) : raw;
+  if (!base64.trim()) {
+    return { ok: false as const, statusCode: 400, error: "imagen_vacia" };
+  }
+
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(base64, "base64");
+  } catch {
+    return { ok: false as const, statusCode: 400, error: "base64_invalido" };
+  }
+  if (buffer.length === 0 || buffer.length > MARKETING_ASSET_MAX_BYTES) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "imagen_demasiado_grande",
+      message: "La imagen debe pesar menos de 5 MB.",
+    };
+  }
+
+  const mime = sniffImageMime(buffer);
+  if (!mime) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "formato_no_soportado",
+      message: "Solo PNG, JPG, GIF o WebP.",
+    };
+  }
+
+  const path = `${organizationId}/${crypto.randomUUID()}.${MARKETING_ASSET_EXT[mime]}`;
+  const supabase = createServiceClient(env);
+  const { error } = await supabase.storage
+    .from("marketing-assets")
+    .upload(path, buffer, { contentType: mime, upsert: false });
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 502,
+      error: "asset_upload_failed",
+      detail: error.message,
+    };
+  }
+
+  const { data } = supabase.storage.from("marketing-assets").getPublicUrl(path);
+  return { ok: true as const, data: { url: data.publicUrl } };
+}
+
 export async function listMarketingContentDrafts(
   env: ApiEnv,
   authorization: string,
@@ -3542,21 +4299,11 @@ export async function updateMarketingContentDraft(
     return { ok: false as const, statusCode: 403, error: "edit_denied" };
   }
 
-  const parsed = klaviyoEmailDraftPatchSchema.safeParse(payload);
-  if (!parsed.success) {
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "invalid_marketing_draft_patch",
-      detail: parsed.error.issues.map((issue) => issue.message).join("; "),
-    };
-  }
-
   const supabase = createServiceClient(env);
   const { data: draft, error: draftLoadError } = await supabase
     .from("marketing_content_drafts")
     .select(
-      "id, organization_id, agent_output_id, status, version, summary, template_name, subject, preheader, from_name, reply_to, purpose, audience, locale, tone, plain_text, html, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_at, updated_at",
+      "id, organization_id, agent_output_id, status, version, summary, template_name, subject, preheader, from_name, reply_to, purpose, audience, locale, tone, plain_text, html, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, request, created_at, updated_at",
     )
     .eq("id", draftId)
     .eq("organization_id", organizationId)
@@ -3578,10 +4325,26 @@ export async function updateMarketingContentDraft(
     };
   }
 
+  const isMetaDraft =
+    typeof draft.request === "object" &&
+    draft.request !== null &&
+    (draft.request as { channel?: unknown }).channel === "meta_ads";
+  const parsed = isMetaDraft
+    ? metaAdsDraftPatchSchema.safeParse(payload)
+    : klaviyoEmailDraftPatchSchema.safeParse(payload);
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_marketing_draft_patch",
+      detail: parsed.error.issues.map((issue) => issue.message).join("; "),
+    };
+  }
+
   const nextHtml =
-    parsed.data.html === undefined
-      ? draft.html
-      : sanitizeGeneratedEmailHtml(parsed.data.html);
+    !isMetaDraft && "html" in parsed.data && parsed.data.html !== undefined
+      ? sanitizeGeneratedEmailHtml(parsed.data.html)
+      : draft.html;
   if (!nextHtml.trim()) {
     return {
       ok: false as const,
@@ -3590,11 +4353,46 @@ export async function updateMarketingContentDraft(
     };
   }
 
+  const editablePatch = isMetaDraft
+    ? (() => {
+        const metaPatch = parsed.data as {
+          headline?: string;
+          description?: string;
+          primary_text?: string;
+          destination_url?: string | null;
+        };
+        const blocksPatch =
+          "destination_url" in metaPatch && Array.isArray(draft.blocks)
+            ? {
+                blocks: draft.blocks.map((block: unknown) =>
+                  typeof block === "object" &&
+                  block !== null &&
+                  (block as { type?: unknown }).type === "button"
+                    ? { ...block, href: metaPatch.destination_url ?? null }
+                    : block,
+                ),
+              }
+            : {};
+        return {
+          ...(metaPatch.headline === undefined
+            ? {}
+            : { subject: metaPatch.headline }),
+          ...(metaPatch.description === undefined
+            ? {}
+            : { preheader: metaPatch.description }),
+          ...(metaPatch.primary_text === undefined
+            ? {}
+            : { plain_text: metaPatch.primary_text }),
+          ...blocksPatch,
+        };
+      })()
+    : parsed.data;
+
   const nextVersion = Number(draft.version ?? 1) + 1;
   const { data: updated, error: updateError } = await supabase
     .from("marketing_content_drafts")
     .update({
-      ...parsed.data,
+      ...editablePatch,
       html: nextHtml,
       version: nextVersion,
       last_edited_by: context.user.id,
@@ -3607,7 +4405,7 @@ export async function updateMarketingContentDraft(
     .eq("id", draftId)
     .eq("organization_id", organizationId)
     .select(
-      "id, status, version, content_type, summary, template_name, subject, preheader, from_name, reply_to, purpose, audience, locale, tone, plain_text, html, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_at, updated_at, decided_by, decided_at, decision_reason, agent_run_id, agent_output_id",
+      "id, status, version, content_type, request, summary, template_name, subject, preheader, from_name, reply_to, purpose, audience, locale, tone, plain_text, html, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_at, updated_at, decided_by, decided_at, decision_reason, agent_run_id, agent_output_id",
     )
     .maybeSingle();
 
@@ -3661,6 +4459,94 @@ export async function updateMarketingContentDraft(
     ok: true as const,
     data: { draft: updated, approval_required: true },
   };
+}
+
+/**
+ * Envía un borrador en estado `draft` (plantilla guardada a mano o importada
+ * de Klaviyo) a la cola de aprobación, sin exigir una edición de contenido.
+ */
+export async function submitMarketingContentDraft(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  draftId: string,
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+  if (!canAccessMarketingWorkspace(context, access.membership.role)) {
+    return { ok: false as const, statusCode: 403, error: "submit_denied" };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: draft, error: loadError } = await supabase
+    .from("marketing_content_drafts")
+    .select("id, status")
+    .eq("id", draftId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (loadError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "marketing_draft_load_failed",
+      detail: loadError.message,
+    };
+  }
+  if (!draft) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "marketing_draft_not_found",
+    };
+  }
+  if (draft.status !== "draft") {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "marketing_draft_not_in_draft_state",
+    };
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("marketing_content_drafts")
+    .update({
+      status: "pending_approval",
+      last_edited_by: context.user.id,
+      last_edited_at: new Date().toISOString(),
+    })
+    .eq("id", draftId)
+    .eq("organization_id", organizationId)
+    .eq("status", "draft")
+    .select(
+      "id, status, version, content_type, request, summary, template_name, subject, preheader, from_name, reply_to, purpose, audience, locale, tone, plain_text, html, blocks, personalization_tokens, compliance_notes, sources, confidence, warnings, created_by, created_at, updated_at, last_edited_by, last_edited_at, decided_by, decided_at, decision_reason, agent_run_id, agent_output_id",
+    )
+    .maybeSingle();
+  if (updateError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "marketing_draft_submit_failed",
+      detail: updateError.message,
+    };
+  }
+  if (!updated) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "marketing_draft_update_conflict",
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "ai.submit_marketing_draft",
+    entityType: "marketing_content_draft",
+    entityId: draftId,
+    newData: { status: "pending_approval" },
+  });
+
+  return { ok: true as const, data: { draft: updated } };
 }
 
 export async function listMarketingContentDraftVersions(
@@ -3980,6 +4866,10 @@ export async function runConsultantChatTurn(
   }
 
   const runId = crypto.randomUUID();
+  const connectedConnectors = await loadConnectedConnectorIds(
+    supabase,
+    organizationId,
+  );
 
   const { tools, systemPrompt } = buildAgentTools(
     env,
@@ -3988,6 +4878,8 @@ export async function runConsultantChatTurn(
     organizationId,
     agentVersion.allowed_tools,
     prompt.content,
+    null,
+    connectedConnectors,
   );
 
   const input: AgentInput = {
@@ -4340,9 +5232,24 @@ export async function decideAgentOutput(
         .proposed_writes ?? [];
 
     const agentCode = await resolveAgentCodeForRun(supabase, output.run_id);
-    const category = agentCode
+    // Categoria base: la fija el modulo del agente, no el LLM. El agente puede
+    // AÑADIR categorias extra en write.categories (p. ej. una tarea de email que
+    // tambien toca Shopify); se validan contra el conjunto permitido y se
+    // deduplican -- nunca es texto libre.
+    const baseCategory = agentCode
       ? (AGENT_TASK_CATEGORY[agentCode] ?? "general")
       : "general";
+    const ALLOWED_TASK_CATEGORIES = ["shopify", "meta", "klaviyo", "general"];
+    const categoriesFor = (write: Record<string, unknown>): string[] => {
+      const extra = Array.isArray(write.categories)
+        ? write.categories.filter(
+            (value): value is string =>
+              typeof value === "string" &&
+              ALLOWED_TASK_CATEGORIES.includes(value),
+          )
+        : [];
+      return [...new Set([baseCategory, ...extra])];
+    };
 
     // AI-12 (Orchestration patterns, gap real cerrado 2026-07-27): A02 y A04
     // corren de forma independiente y pueden proponer la misma tarea (mismo
@@ -4389,7 +5296,7 @@ export async function decideAgentOutput(
             typeof write.description === "string" ? write.description : null,
           created_by: context.user.id,
           metadata: { agent_output_id: outputId },
-          category,
+          categories: categoriesFor(write),
         })
         .select("id")
         .single();

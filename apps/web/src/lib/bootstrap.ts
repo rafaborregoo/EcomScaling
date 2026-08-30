@@ -1,5 +1,8 @@
 import { getSupabaseClient } from "@/lib/supabase";
 import type { AccountAction } from "@ecomscaling/contracts";
+import { fetchApiWithTimeout } from "@/lib/request-timeout";
+
+export { fetchApiWithTimeout } from "@/lib/request-timeout";
 
 export type { AccountAction };
 
@@ -17,6 +20,9 @@ export type BootstrapResponse = {
   memberships: Array<{
     organization_id: string;
     role: string;
+    // "membership" = tienda propia del usuario (fila real en organization_members).
+    // "consultant_assignment" / "platform_admin" = acceso de cartera, no es suya.
+    accessSource: "membership" | "consultant_assignment" | "platform_admin";
     organization: {
       id: string;
       display_name: string;
@@ -79,7 +85,11 @@ async function refreshAccessToken() {
   return session?.access_token ?? null;
 }
 
-export async function apiFetch(path: string, init: RequestInit = {}) {
+export async function apiFetch(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs?: number,
+) {
   const token = await getAccessToken();
 
   if (!token) {
@@ -89,10 +99,14 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...init,
-    headers,
-  });
+  const response = await fetchApiWithTimeout(
+    `${apiUrl}${path}`,
+    {
+      ...init,
+      headers,
+    },
+    timeoutMs,
+  );
 
   if (response.status !== 401) {
     return response;
@@ -107,10 +121,14 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
   const retryHeaders = new Headers(init.headers);
   retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
 
-  return fetch(`${apiUrl}${path}`, {
-    ...init,
-    headers: retryHeaders,
-  });
+  return fetchApiWithTimeout(
+    `${apiUrl}${path}`,
+    {
+      ...init,
+      headers: retryHeaders,
+    },
+    timeoutMs,
+  );
 }
 
 export async function fetchBootstrap(token: string) {

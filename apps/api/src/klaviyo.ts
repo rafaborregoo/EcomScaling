@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+import { sanitizeGeneratedEmailHtml } from "@ecomscaling/ai";
 import {
   requireOperationalOrganization,
   isOperationalOrganizationError,
@@ -18,7 +19,11 @@ import {
   parseKlaviyoScopes,
   resolveKlaviyoOAuthEnv,
 } from "./klaviyo-oauth.js";
-import { saveKlaviyoTokens } from "./klaviyo-token-store.js";
+import {
+  getValidKlaviyoAccessToken,
+  saveKlaviyoApiKey,
+  saveKlaviyoTokens,
+} from "./klaviyo-token-store.js";
 import { runKlaviyoSync } from "./klaviyo-sync.js";
 
 type Result<T> =
@@ -144,6 +149,142 @@ export async function createKlaviyoConnectionAuthUrl(
   };
 }
 
+/**
+ * Conecta Klaviyo con una private API key (`pk_...`) en lugar de OAuth. No
+ * requiere KLAVIYO_CLIENT_ID/SECRET: valida la key contra /accounts, persiste
+ * la conexión + credencial cifrada y lanza el sync inicial.
+ */
+export async function connectKlaviyoWithApiKey(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  apiKey: string,
+): Promise<Result<{ connectionId: string; accountName: string }>> {
+  if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS)) {
+    return { ok: false, statusCode: 404, error: "integration_feature_disabled" };
+  }
+  const accessError = canManage(context, organizationId);
+  if (accessError) return { ok: false, statusCode: 403, error: accessError };
+
+  const key = apiKey.trim();
+  // Las private keys de Klaviyo son `pk_` + alfanumericos, guiones y guiones
+  // bajos (el formato actual embebe el id de compañia: `pk_WCssZb_<hex>`). La
+  // validacion real la hace la llamada a /accounts de abajo; esto solo descarta
+  // pegar algo que claramente no es una key.
+  if (!/^pk_[A-Za-z0-9_-]{6,}$/.test(key)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "invalid_klaviyo_api_key",
+      message:
+        "La API key privada de Klaviyo debe empezar por 'pk_' (formato pk_XXXXXX_...).",
+    };
+  }
+
+  const supabase = serviceClient(env);
+  let account;
+  try {
+    account = await createKlaviyoClient(key).getAccount();
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 502,
+      error: "klaviyo_api_key_rejected",
+      message: "Klaviyo rechazó la API key. Revisa que sea correcta y con permisos de lectura.",
+      detail: error instanceof Error ? error.message : "unknown_error",
+    };
+  }
+
+  const attributes = account.attributes ?? {};
+  const accountName =
+    typeof attributes.name === "string" ? attributes.name : "Klaviyo";
+  const now = new Date().toISOString();
+
+  const { data: connection, error: connectionError } = await supabase
+    .from("integration_connections")
+    .upsert(
+      {
+        organization_id: organizationId,
+        provider: "klaviyo",
+        provider_account_id: account.id,
+        provider_account_name: accountName,
+        status: "connected",
+        scopes: [],
+        api_version: "2026-07-15",
+        connected_at: now,
+        last_error_at: null,
+        last_error_message: null,
+        metadata: { source: "api_key" },
+      },
+      { onConflict: "organization_id,provider,provider_account_id" },
+    )
+    .select("id")
+    .single();
+  if (connectionError || !connection)
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "klaviyo_connection_seed_failed",
+      detail: connectionError?.message,
+    };
+
+  try {
+    await saveKlaviyoApiKey(env, connection.id, key);
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "klaviyo_credential_store_failed",
+      detail: error instanceof Error ? error.message : "unknown_error",
+    };
+  }
+
+  const { error: accountError } = await supabase
+    .from("klaviyo_accounts")
+    .upsert(
+      {
+        organization_id: organizationId,
+        connection_id: connection.id,
+        external_account_id: account.id,
+        name: accountName,
+        timezone:
+          typeof attributes.timezone === "string" ? attributes.timezone : null,
+        currency_code:
+          typeof attributes.currency_code === "string"
+            ? attributes.currency_code.toUpperCase()
+            : null,
+        raw_data: attributes,
+        last_synced_at: now,
+      },
+      { onConflict: "connection_id,external_account_id" },
+    );
+  if (accountError)
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "klaviyo_account_store_failed",
+      detail: accountError.message,
+    };
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "klaviyo.api_key_connected",
+    entityType: "integration_connection",
+    entityId: connection.id,
+    newData: { provider: "klaviyo", provider_account_id: account.id },
+  });
+
+  void runKlaviyoSync(env, connection.id, "initial").catch((error: unknown) =>
+    markKlaviyoSyncFailure(env, connection.id, error, "api_key_initial_sync"),
+  );
+
+  return {
+    ok: true,
+    data: { connectionId: connection.id, accountName },
+  };
+}
+
 export async function triggerKlaviyoSync(
   env: LoadedApiEnv,
   context: AuthContext,
@@ -231,8 +372,10 @@ export async function triggerKlaviyoSync(
     };
   }
 
-  void runKlaviyoSync(env, connection.id, "initial").catch((error: unknown) =>
-    markKlaviyoSyncFailure(env, connection.id, error, "manual_sync"),
+  // force: es un disparo manual explícito -> ignora la idempotencia diaria.
+  void runKlaviyoSync(env, connection.id, "initial", true).catch(
+    (error: unknown) =>
+      markKlaviyoSyncFailure(env, connection.id, error, "manual_sync"),
   );
   return {
     ok: true,
@@ -503,6 +646,309 @@ export async function listKlaviyoConversionMetrics(
   };
 }
 
+// --- Informe de email marketing para el panel del dashboard (cliente + consultor)
+// Fuente: RPC klaviyo_email_report (ver migracion 20260829120000). Devuelve una
+// fila por (mes, entidad); aqui se agrega la ventana, se parte flujos/campanas,
+// se derivan rates y ranking de asuntos, y se calcula el periodo anterior para
+// los deltas. Es de solo lectura: no propone escrituras.
+
+type KlaviyoEmailReportRow = {
+  bucket_month: string;
+  entity_type: "campaign" | "flow";
+  entity_id: string | null;
+  entity_name: string | null;
+  subject: string | null;
+  send_time: string | null;
+  trigger_type: string | null;
+  revenue: number | string | null;
+  conversions: number | string | null;
+  recipients: number | string | null;
+  delivered: number | string | null;
+  opens_unique: number | string | null;
+  clicks_unique: number | string | null;
+  unsubscribes: number | string | null;
+  bounced: number | string | null;
+  spam_complaints: number | string | null;
+};
+
+const KLAVIYO_EMAIL_STAT_KEYS = [
+  "revenue",
+  "conversions",
+  "recipients",
+  "delivered",
+  "opens_unique",
+  "clicks_unique",
+  "unsubscribes",
+  "bounced",
+  "spam_complaints",
+] as const;
+type KlaviyoEmailStatKey = (typeof KLAVIYO_EMAIL_STAT_KEYS)[number];
+type KlaviyoEmailStatSums = Record<KlaviyoEmailStatKey, number>;
+
+const num = (value: number | string | null | undefined): number => {
+  const parsed = typeof value === "string" ? Number(value) : (value ?? 0);
+  return Number.isFinite(parsed) ? Number(parsed) : 0;
+};
+const ratio = (numerator: number, denominator: number): number | null =>
+  denominator > 0 ? numerator / denominator : null;
+
+function zeroSums(): KlaviyoEmailStatSums {
+  return Object.fromEntries(
+    KLAVIYO_EMAIL_STAT_KEYS.map((key) => [key, 0]),
+  ) as KlaviyoEmailStatSums;
+}
+
+function addRow(target: KlaviyoEmailStatSums, row: KlaviyoEmailReportRow): void {
+  for (const key of KLAVIYO_EMAIL_STAT_KEYS) target[key] += num(row[key]);
+}
+
+function deriveTotals(
+  all: KlaviyoEmailStatSums,
+  campaign: KlaviyoEmailStatSums,
+  flow: KlaviyoEmailStatSums,
+) {
+  return {
+    ...all,
+    campaign_revenue: campaign.revenue,
+    flow_revenue: flow.revenue,
+    flow_share_pct: ratio(flow.revenue, all.revenue),
+    open_rate: ratio(all.opens_unique, all.delivered),
+    click_rate: ratio(all.clicks_unique, all.delivered),
+    ctor: ratio(all.clicks_unique, all.opens_unique),
+    conversion_rate: ratio(all.conversions, all.delivered),
+    revenue_per_recipient: ratio(all.revenue, all.recipients),
+    unsub_rate: ratio(all.unsubscribes, all.delivered),
+    bounce_rate: ratio(all.bounced, all.recipients),
+    spam_rate: ratio(all.spam_complaints, all.delivered),
+  };
+}
+
+function summariseKlaviyoEmailRows(rows: KlaviyoEmailReportRow[]) {
+  const all = zeroSums();
+  const campaign = zeroSums();
+  const flow = zeroSums();
+  const trendByMonth = new Map<string, { campaign: number; flow: number }>();
+  const entities = new Map<
+    string,
+    {
+      id: string;
+      entity_type: "campaign" | "flow";
+      name: string;
+      subject: string | null;
+      trigger_type: string | null;
+      send_time: string | null;
+      sums: KlaviyoEmailStatSums;
+    }
+  >();
+
+  for (const row of rows) {
+    addRow(all, row);
+    const bucket = row.entity_type === "flow" ? flow : campaign;
+    addRow(bucket, row);
+
+    const month = row.bucket_month;
+    const trend = trendByMonth.get(month) ?? { campaign: 0, flow: 0 };
+    trend[row.entity_type === "flow" ? "flow" : "campaign"] += num(row.revenue);
+    trendByMonth.set(month, trend);
+
+    if (!row.entity_id) continue;
+    const key = `${row.entity_type}:${row.entity_id}`;
+    const entity = entities.get(key) ?? {
+      id: row.entity_id,
+      entity_type: row.entity_type,
+      name: row.entity_name ?? "(sin nombre)",
+      subject: row.subject,
+      trigger_type: row.trigger_type,
+      send_time: row.send_time,
+      sums: zeroSums(),
+    };
+    addRow(entity.sums, row);
+    // Conserva el asunto/nombre mas informativo si aparece en un mes posterior.
+    if (!entity.subject && row.subject) entity.subject = row.subject;
+    entities.set(key, entity);
+  }
+
+  const shapeEntity = (entity: {
+    id: string;
+    entity_type: "campaign" | "flow";
+    name: string;
+    subject: string | null;
+    trigger_type: string | null;
+    send_time: string | null;
+    sums: KlaviyoEmailStatSums;
+  }) => ({
+    id: entity.id,
+    name: entity.name,
+    subject: entity.subject,
+    trigger_type: entity.trigger_type,
+    send_time: entity.send_time,
+    revenue: entity.sums.revenue,
+    conversions: entity.sums.conversions,
+    recipients: entity.sums.recipients,
+    delivered: entity.sums.delivered,
+    opens_unique: entity.sums.opens_unique,
+    clicks_unique: entity.sums.clicks_unique,
+    open_rate: ratio(entity.sums.opens_unique, entity.sums.delivered),
+    click_rate: ratio(entity.sums.clicks_unique, entity.sums.delivered),
+    ctor: ratio(entity.sums.clicks_unique, entity.sums.opens_unique),
+    revenue_per_recipient: ratio(entity.sums.revenue, entity.sums.recipients),
+  });
+
+  const list = [...entities.values()];
+  const byRevenue = <T extends { revenue: number }>(a: T, b: T) =>
+    b.revenue - a.revenue;
+
+  return {
+    totals: deriveTotals(all, campaign, flow),
+    trend: [...trendByMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, value]) => ({
+        month,
+        campaign_revenue: value.campaign,
+        flow_revenue: value.flow,
+      })),
+    campaigns: list
+      .filter((entity) => entity.entity_type === "campaign")
+      .map(shapeEntity)
+      .sort(byRevenue),
+    flows: list
+      .filter((entity) => entity.entity_type === "flow")
+      .map(shapeEntity)
+      .sort(byRevenue),
+  };
+}
+
+type KlaviyoEmailReport = {
+  organization_id: string;
+  connected: boolean;
+  period: { days: number; start: string; end: string };
+  totals: ReturnType<typeof deriveTotals>;
+  previous: ReturnType<typeof deriveTotals> | null;
+  trend: ReturnType<typeof summariseKlaviyoEmailRows>["trend"];
+  campaigns: ReturnType<typeof summariseKlaviyoEmailRows>["campaigns"];
+  flows: ReturnType<typeof summariseKlaviyoEmailRows>["flows"];
+};
+
+const KLAVIYO_EMAIL_DEFAULT_DAYS = 90;
+const KLAVIYO_EMAIL_MAX_DAYS = 365;
+
+export async function getKlaviyoEmailReport(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  daysInput: string | undefined,
+): Promise<Result<KlaviyoEmailReport>> {
+  if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS)) {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "integration_disabled",
+      message: "La integracion Klaviyo esta desactivada por feature flag.",
+    };
+  }
+  if (
+    !context.memberships.some((item) => item.organization_id === organizationId)
+  ) {
+    return { ok: false, statusCode: 403, error: "organization_access_denied" };
+  }
+
+  let periodDays = KLAVIYO_EMAIL_DEFAULT_DAYS;
+  if (daysInput && daysInput !== "all") {
+    const parsed = Number(daysInput);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      periodDays = Math.min(KLAVIYO_EMAIL_MAX_DAYS, Math.floor(parsed));
+    }
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const periodEnd = new Date();
+  const periodStart = new Date(periodEnd.getTime() - periodDays * dayMs);
+  const previousStart = new Date(periodStart.getTime() - periodDays * dayMs);
+  const toDate = (value: Date) => value.toISOString().slice(0, 10);
+  const period = {
+    days: periodDays,
+    start: periodStart.toISOString(),
+    end: periodEnd.toISOString(),
+  };
+
+  const supabase = serviceClient(env);
+  const { data: account, error: accountError } = await supabase
+    .from("klaviyo_accounts")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (accountError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "klaviyo_account_load_failed",
+      detail: accountError.message,
+    };
+  }
+  if (!account) {
+    const empty = summariseKlaviyoEmailRows([]);
+    return {
+      ok: true,
+      data: {
+        organization_id: organizationId,
+        connected: false,
+        period,
+        totals: empty.totals,
+        previous: null,
+        trend: [],
+        campaigns: [],
+        flows: [],
+      },
+    };
+  }
+
+  const [currentResult, previousResult] = await Promise.all([
+    supabase.rpc("klaviyo_email_report", {
+      target_organization_id: organizationId,
+      period_start: toDate(periodStart),
+      period_end: toDate(periodEnd),
+    }),
+    supabase.rpc("klaviyo_email_report", {
+      target_organization_id: organizationId,
+      period_start: toDate(previousStart),
+      period_end: toDate(periodStart),
+    }),
+  ]);
+
+  if (currentResult.error) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "klaviyo_email_report_failed",
+      detail: currentResult.error.message,
+    };
+  }
+
+  const current = summariseKlaviyoEmailRows(
+    (currentResult.data ?? []) as KlaviyoEmailReportRow[],
+  );
+  const previous =
+    !previousResult.error && Array.isArray(previousResult.data)
+      ? summariseKlaviyoEmailRows(
+          previousResult.data as KlaviyoEmailReportRow[],
+        ).totals
+      : null;
+
+  return {
+    ok: true,
+    data: {
+      organization_id: organizationId,
+      connected: true,
+      period,
+      totals: current.totals,
+      previous,
+      trend: current.trend,
+      campaigns: current.campaigns,
+      flows: current.flows,
+    },
+  };
+}
+
 export async function selectKlaviyoConversionMetric(
   env: LoadedApiEnv,
   context: AuthContext,
@@ -596,4 +1042,241 @@ export async function selectKlaviyoConversionMetric(
       conversion_metric_name: metric.name,
     },
   };
+}
+
+async function activeKlaviyoConnectionId(
+  supabase: ReturnType<typeof serviceClient>,
+  organizationId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("integration_connections")
+    .select("id, status")
+    .eq("organization_id", organizationId)
+    .eq("provider", "klaviyo")
+    .in("status", ["connected", "syncing", "error"])
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
+type KlaviyoTemplateSummary = {
+  id: string;
+  name: string;
+  editor_type: string | null;
+  updated: string | null;
+};
+
+/** Lista las plantillas de la cuenta Klaviyo conectada (solo lectura). */
+export async function listKlaviyoTemplates(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+): Promise<Result<{ templates: KlaviyoTemplateSummary[] }>> {
+  if (
+    !context.memberships.some((item) => item.organization_id === organizationId)
+  ) {
+    return { ok: false, statusCode: 403, error: "organization_access_denied" };
+  }
+  const supabase = serviceClient(env);
+  const connectionId = await activeKlaviyoConnectionId(supabase, organizationId);
+  if (!connectionId) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "klaviyo_not_connected",
+      message: "Conecta Klaviyo antes de importar plantillas.",
+    };
+  }
+
+  try {
+    const token = await getValidKlaviyoAccessToken(env, connectionId);
+    const rows = await createKlaviyoClient(token).listResources("templates");
+    const templates = rows
+      .map((row) => {
+        const attributes = (row.attributes ?? {}) as Record<string, unknown>;
+        return {
+          id: row.id,
+          name:
+            typeof attributes.name === "string" && attributes.name.trim()
+              ? attributes.name
+              : "(sin nombre)",
+          editor_type:
+            typeof attributes.editor_type === "string"
+              ? attributes.editor_type
+              : null,
+          updated:
+            typeof attributes.updated === "string" ? attributes.updated : null,
+        };
+      })
+      .sort((a, b) => (b.updated ?? "").localeCompare(a.updated ?? ""));
+    return { ok: true, data: { templates } };
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 502,
+      error: "klaviyo_templates_load_failed",
+      detail: error instanceof Error ? error.message : "unknown_error",
+    };
+  }
+}
+
+/** HTML saneado de una plantilla de Klaviyo, sin crear borrador (solo lectura). */
+export async function previewKlaviyoTemplate(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  templateId: string,
+): Promise<Result<{ html: string }>> {
+  if (
+    !context.memberships.some((item) => item.organization_id === organizationId)
+  ) {
+    return { ok: false, statusCode: 403, error: "organization_access_denied" };
+  }
+  if (!templateId.trim()) {
+    return { ok: false, statusCode: 400, error: "missing_template_id" };
+  }
+  const supabase = serviceClient(env);
+  const connectionId = await activeKlaviyoConnectionId(supabase, organizationId);
+  if (!connectionId) {
+    return { ok: false, statusCode: 409, error: "klaviyo_not_connected" };
+  }
+  try {
+    const token = await getValidKlaviyoAccessToken(env, connectionId);
+    const response = await createKlaviyoClient(token).request<{
+      data?: { attributes?: Record<string, unknown> };
+    }>(`/templates/${encodeURIComponent(templateId)}`);
+    const rawHtml =
+      typeof response.data?.attributes?.html === "string"
+        ? (response.data.attributes.html as string)
+        : "";
+    const html = sanitizeGeneratedEmailHtml(rawHtml);
+    if (!html) {
+      return {
+        ok: false,
+        statusCode: 422,
+        error: "klaviyo_template_sin_html",
+        message: "Esa plantilla de Klaviyo no tiene HTML importable.",
+      };
+    }
+    return { ok: true, data: { html } };
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 502,
+      error: "klaviyo_template_fetch_failed",
+      detail: error instanceof Error ? error.message : "unknown_error",
+    };
+  }
+}
+
+/** Importa una plantilla de Klaviyo como borrador editable (solo HTML). */
+export async function importKlaviyoTemplate(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  templateId: string,
+): Promise<Result<{ draft_id: string }>> {
+  const accessError = canManage(context, organizationId);
+  if (accessError) return { ok: false, statusCode: 403, error: accessError };
+  if (!templateId.trim()) {
+    return { ok: false, statusCode: 400, error: "missing_template_id" };
+  }
+
+  const supabase = serviceClient(env);
+  const connectionId = await activeKlaviyoConnectionId(supabase, organizationId);
+  if (!connectionId) {
+    return { ok: false, statusCode: 409, error: "klaviyo_not_connected" };
+  }
+
+  let attributes: Record<string, unknown>;
+  try {
+    const token = await getValidKlaviyoAccessToken(env, connectionId);
+    const response = await createKlaviyoClient(token).request<{
+      data?: { attributes?: Record<string, unknown> };
+    }>(`/templates/${encodeURIComponent(templateId)}`);
+    attributes = response.data?.attributes ?? {};
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 502,
+      error: "klaviyo_template_fetch_failed",
+      detail: error instanceof Error ? error.message : "unknown_error",
+    };
+  }
+
+  const rawHtml = typeof attributes.html === "string" ? attributes.html : "";
+  const html = sanitizeGeneratedEmailHtml(rawHtml);
+  if (!html) {
+    return {
+      ok: false,
+      statusCode: 422,
+      error: "klaviyo_template_sin_html",
+      message: "Esa plantilla de Klaviyo no tiene HTML importable.",
+    };
+  }
+  const name =
+    typeof attributes.name === "string" && attributes.name.trim()
+      ? attributes.name.slice(0, 160)
+      : "Plantilla importada de Klaviyo";
+  const plainText =
+    typeof attributes.text === "string" && attributes.text.trim()
+      ? attributes.text
+      : html
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim() || name;
+
+  const { data: draft, error } = await supabase
+    .from("marketing_content_drafts")
+    .insert({
+      organization_id: organizationId,
+      created_by: context.user.id,
+      content_type: "campaign",
+      status: "draft",
+      request: {
+        channel: "email_klaviyo",
+        source: "klaviyo_import",
+        klaviyo_template_id: templateId,
+      },
+      summary: "Plantilla importada de Klaviyo.",
+      template_name: name,
+      subject: name.slice(0, 255),
+      preheader: "",
+      from_name: "",
+      reply_to: null,
+      purpose: "Plantilla reutilizada desde Klaviyo.",
+      audience: "",
+      locale: "es",
+      tone: "brand",
+      plain_text: plainText.slice(0, 100000),
+      html,
+      blocks: [],
+      personalization_tokens: [],
+      compliance_notes: [],
+      sources: [],
+      confidence: "high",
+      warnings: [],
+    })
+    .select("id")
+    .single();
+  if (error || !draft) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "klaviyo_template_import_failed",
+      detail: error?.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "klaviyo.template_imported",
+    entityType: "marketing_content_draft",
+    entityId: draft.id,
+    newData: { klaviyo_template_id: templateId },
+  });
+
+  return { ok: true, data: { draft_id: draft.id } };
 }

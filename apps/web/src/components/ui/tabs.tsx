@@ -10,11 +10,13 @@ export function Tabs({
   value,
   onChange,
   className,
+  panels,
 }: {
   items: TabItem[];
   value: string;
   onChange: (value: string) => void;
   className?: string;
+  panels?: Record<string, ReactNode>;
 }) {
   return (
     <HeroTabs
@@ -23,7 +25,10 @@ export function Tabs({
       className={className}
     >
       <HeroTabs.ListContainer>
-        <HeroTabs.List aria-label="Navegacion por pestañas">
+        <HeroTabs.List
+          aria-label="Navegacion por pestañas"
+          className="max-w-full overflow-x-auto"
+        >
           {items.map((item) => (
             <HeroTabs.Tab key={item.value} id={item.value}>
               {item.icon}
@@ -35,7 +40,7 @@ export function Tabs({
       </HeroTabs.ListContainer>
       {items.map((item) => (
         <HeroTabs.Panel key={item.value} id={item.value}>
-          {null}
+          {panels?.[item.value] ?? null}
         </HeroTabs.Panel>
       ))}
     </HeroTabs>

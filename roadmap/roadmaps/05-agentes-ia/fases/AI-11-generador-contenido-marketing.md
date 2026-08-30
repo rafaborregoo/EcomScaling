@@ -1,4 +1,4 @@
-# AI-11 - Generador de contenido de marketing (email/flows/pop-ups) para Klaviyo
+# AI-11 - Generador de contenido de marketing (email/Meta Ads/flows/pop-ups)
 
 > **Corrección vigente 2026-08-20:** las referencias inferiores que describen INT-03 como `planned`
 > son históricas. Klaviyo está en `implemented_partial`; A11 crea drafts sanitizados y revisables,
@@ -12,8 +12,9 @@
 
 ## Estado
 
-> **Estado vigente 2026-08-02:** `implemented_partial`. La Fase A está implementada con agente A11,
+> **Estado vigente 2026-08-26:** `implemented_partial`. La Fase A está implementada con agente A11,
 > persistencia de drafts, edición/versionado, aprobación humana, preview seguro y UI `/marketing`.
+> El canal Meta Ads también tiene contrato de salida propio, preview específico y dry-run de jerarquía.
 > La Fase B continúa pendiente porque requiere credenciales, Reporting API y datos reales de Klaviyo.
 
 > **Correccion documental 2026-08-02:** el contrato de salida de la Fase A ya existe en
@@ -49,6 +50,39 @@ Un agente que redacta el contenido de campañas/broadcasts, flows y pop-ups de K
 listo para pegar manualmente en el editor de Klaviyo — no para enviarlo via API. Con el tiempo, que el
 agente aprenda de que campañas funcionaron mejor (aperturas, clics, revenue real via Reporting API de
 Klaviyo) para mejorar las sugerencias siguientes, en vez de generar contenido a ciegas cada vez.
+
+### Acceso de producto (actualizado 2026-08-26)
+
+El request identifica explícitamente el canal de destino (`email_klaviyo` o
+`meta_ads`) además del brief. El canal se conserva en el snapshot de contexto
+y en el request del borrador para que el futuro adapter Meta/Klaviyo no tenga
+que inferirlo desde texto libre. `multichannel` queda reservado como contrato
+futuro y no aparece como opción operativa hasta disponer de una salida doble,
+su preview coordinado y su persistencia/versionado explícitos. Mientras no
+existan credenciales y validación de proveedor, AI-11 solo genera un borrador
+revisable; no publica ni envía.
+
+La creación, edición y aprobación de borradores forma parte del workspace de marketing de cada
+organización. Pueden usarlo sus roles `owner` y `manager`, además de `consultant` y `platform_admin`.
+La salida siempre permanece como borrador revisable: Claude/Anthropic se prioriza cuando hay clave
+configurada, con fallback controlado al proveedor alternativo, y nunca se envía ni publica contenido
+automáticamente en esta fase.
+
+El runtime selecciona el contrato de salida por canal. `email_klaviyo` mantiene
+`klaviyoEmailOutputSchema`; `meta_ads` usa `metaAdsOutputSchema` con
+`campaign_name`, `ad_set_name`, `headline`, `primary_text`, `description`,
+`call_to_action` y `destination_url`. El output original se conserva en
+`agent_outputs` con `schema_version` `meta-ads-v1`, mientras que la tabla de
+borradores recibe una normalización de lectura para compartir el workspace.
+Esto evita presentar un anuncio como si fuera un email y deja el executor Meta
+separado, pausado y sujeto a aprobación humana.
+
+La validación de producto restringe `meta_ads` a `content_type=campaign`; los
+tipos `flow_step` y `popup` son específicos del flujo de email/formulario.
+
+La migración `20260826200000_ai_11_marketing_meta_prompt_v2.sql` alinea el prompt
+persistido de A11 con ambos canales y fija explícitamente la defensa frente a
+instrucciones incrustadas en brief/RAG/Playbook/tool outputs.
 
 ## Por que se divide en dos fases, no una
 

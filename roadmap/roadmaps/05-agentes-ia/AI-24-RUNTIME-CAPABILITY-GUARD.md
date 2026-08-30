@@ -10,13 +10,17 @@ opacos, llamadas sin autorización o datos inventados.
 
 ## Implementación
 
-- `TOOL_REGISTRY` mantiene las capacidades futuras como `planned`.
+- `TOOL_REGISTRY` mantiene las capacidades sin executor externo como `planned`
+  y las lecturas sobre tablas normalizadas como `implemented_partial`.
 - `TOOL_CONTRACTS` define entrada, paginación, salida y provenance antes de que
   exista el adapter externo.
 - `authorizeTool` rechaza cualquier tool sin executor operativo con
   `tool_not_implemented`.
 - `buildAgentTools` no expone las tools `planned` al proveedor de IA y añade al
   system prompt una declaración explícita de capacidad no disponible.
+- `buildAgentTools` tampoco expone una tool de conector si la organización no
+  tiene una conexión en estado `connected` o `syncing`; la comprobación usa el
+  `organization_id` del turno antes de construir el contexto del modelo.
 - `getUnavailableToolNames` permite evaluar esta frontera sin I/O.
 
 ## Criterio de activación posterior
@@ -27,8 +31,9 @@ provenance real, tests de contrato y evals de grounding/abstención/seguridad.
 
 ## Verificación local
 
-- `packages/ai/src/index.test.ts`: 54/54.
+- `packages/ai/src/index.test.ts`: pasa.
 - `npx tsc -p packages/ai/tsconfig.json --noEmit`: pasa.
 - `npx tsc -p apps/api/tsconfig.json --noEmit`: pasa.
 
-No se afirma validación externa de Meta, Instagram ni Supabase.
+La conexión externa de Meta/Instagram sigue pendiente de credenciales y scopes;
+la migración de infraestructura local pendiente queda alineada con Supabase.

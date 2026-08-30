@@ -1,5 +1,356 @@
 # Cola canónica de ejecución de roadmaps
 
+AI-24-META-CONNECTOR-ID-NORMALIZATION 2026-08-26: Corregido el desacople entre `integration_connections`
+(`meta_ads`) y el Tool Layer (`meta`). El runtime normaliza el proveedor antes de filtrar capacidades,
+por lo que las lecturas Meta preparadas ya se exponen cuando la conexión real está `connected` o
+`syncing`, sin relajar la guardia de autorización.
+
+FE-00-HEROUI-V3-DOC-CHECK 2026-08-26: Contrastada la implementación con la documentación oficial de
+HeroUI v3: `Input` se mantiene como primitiva, `Field` reutiliza `Label`, y `Select` conserva la
+anatomía compuesta `Trigger/Value/Indicator/Popover/ListBox`. Se registran como referencias de
+mantenimiento [Input](https://heroui.com/docs/components/input) y
+[Select](https://heroui.com/docs/react/components/select); no se reintroduce la API monolítica de v2.
+
+FE-UI-TOUCH-TARGET-AUDIT 2026-08-26: Revisados menú móvil y notificaciones HeroUI: botones compactos
+mantienen mínimo táctil de 40px, los icon-only tienen `aria-label`, el Popover limita su ancho a la
+ventana disponible y el panel limita su altura con scroll interno. No requiere una variante paralela.
+
+FE-00-COMPONENT-WRAPPER-AUDIT 2026-08-26: Revisados los wrappers compartidos `Button`, `Card`,
+`Input`, `Textarea`, `Select` y `Tabs`: todos delegan en componentes HeroUI y concentran la
+personalización de escala, foco, bordes y responsive en un único punto. Las páginas de producto no
+necesitan importar ni estilizar primitivas duplicadas.
+
+INT-02-META-EXECUTOR-AUDIT 2026-08-26: Verificado el boundary de escritura Meta: el executor exige
+aprobación humana y actor, ejecuta `campaign → adset → creative → ad`, propaga idempotencia y reanuda
+con IDs existentes. La ruta de negocio permanece dry-run hasta credenciales, scopes y App Review; no
+se presenta una aprobación como publicación real. Suite contractual Meta: 8/8.
+
+FE-11-MARKETING-PUBLISHED-STATE 2026-08-26: La UI incorpora el estado `published` que ya admite el
+schema de Supabase, con etiqueta y tono HeroUI propios. Cuando se conecte el executor futuro, una
+campaña publicada no quedará como estado indefinido ni se mostrará como pendiente de copiar.
+
+FE-UI-ICON-SURFACE-GATE 2026-08-26: Auditoría de imports del frontend confirma que Font Awesome solo se
+usa dentro de `components/ui/icons.tsx`; no quedan imports de Lucide/react-icons/Heroicons ni SVG
+manuales en páginas o componentes de producto.
+
+FE-UI-ICON-SYSTEM 2026-08-26: Unificada la familia de iconos propios en Font Awesome: menú, cerrar,
+chevrons, campana, archivo, acciones masivas y reintento. Se eliminó la mezcla anterior con iconos
+HeroUI para mantener peso, trazo y alineación consistentes; los iconos internos de componentes HeroUI
+siguen encapsulados por la librería.
+
+BE-11-META-DESTINATION-EDIT 2026-08-26: Añadido `destination_url` al patch Meta y al formulario de
+edición. El runtime valida la URL y actualiza el `href` del bloque CTA sin tocar campos de email;
+Klaviyo no recibe ese campo. El creativo Meta queda portable y listo para el futuro executor.
+
+BE-11-MARKETING-VERSION-CHANNEL 2026-08-26: Las snapshots de versiones de marketing incluyen ahora
+`request` al generarse y al editarse, conservando el canal real. El historial de la UI identifica
+cada versión como Meta Ads o Email/Klaviyo para evitar revisiones cruzadas.
+
+FE-11-META-DESTINATION-COVERAGE 2026-08-26: El preview y la exportación de Meta muestran ahora el
+`destination_url` persistido en el bloque CTA. Se valida que solo sea HTTP/HTTPS, se abre con
+`noopener` mediante `noreferrer` y se conserva el fallback visual cuando el anuncio no tiene destino.
+
+FE-11-META-CREATIVE-EXPORT 2026-08-26: El borrador Meta ya no ofrece "Copiar HTML", que pertenece al
+canal email. Tras aprobación, ofrece "Copiar creativo" con titular, texto principal y CTA; Klaviyo
+mantiene la exportación HTML sanitizada.
+
+BE-11-MARKETING-DRAFT-PATCH-CONTRACT 2026-08-26: El endpoint de edición selecciona el contrato por
+canal: Meta acepta únicamente `headline`, `description` y `primary_text`, y los mapea explícitamente
+a la persistencia común; Klaviyo conserva su patch de email. Se evita así que una edición Meta pueda
+introducir campos de remitente, reply-to o HTML de email.
+
+FE-11-META-DRAFT-EDIT-SURFACE 2026-08-26: La edición del borrador diferencia el canal Meta del email
+Klaviyo: Meta expone titular, descripción y texto principal, mientras que remitente, reply-to y HTML
+solo aparecen para email. El payload enviado al backend también proyecta únicamente los campos propios
+del canal seleccionado.
+
+FE-11-MARKETING-READINESS-COPY 2026-08-26: Refinado el aviso de disponibilidad del canal para
+explicar la causa accionable: proveedor desactivado, credenciales ausentes, integración aún no
+habilitada, conexión con error o cuenta todavía no autorizada. La UI mantiene la creación local de
+briefs y evita prometer publicación.
+
+FE-11-MARKETING-CONNECTOR-READINESS 2026-08-26: El módulo principal consulta el estado de
+integraciones y muestra, según el canal elegido, si Meta Ads o Klaviyo está pendiente de credenciales
+u OAuth. La creación de briefs y la revisión siguen disponibles sin conexión; la publicación queda
+explícitamente condicionada al proveedor autorizado.
+
+FE-UI-SURFACE-AUDIT 2026-08-26: Revisadas las superficies visibles del frontend: los controles de
+formularios reutilizan wrappers HeroUI compartidos y no quedan inputs/selects/textareas nativos
+visibles; el único input nativo restante es el selector de archivos oculto necesario para la ingesta
+de conocimiento. Gates de catálogo HeroUI, accesibilidad y TypeScript web pasan.
+
+AI-TOOL-CAPABILITY-MESSAGING 2026-08-26: Ajustada la orquestación para distinguir en el contexto del
+agente entre tools sin executor y tools implementadas que solo esperan la conexión/autorización de un
+proveedor. Meta, Instagram, Shopify y Klaviyo quedan preparados sin que el agente prometa datos ni
+acciones antes de disponer de su conexión real.
+
+INT-02-META-WRITE-DOC-ALIGNMENT 2026-08-26: Alineada la documentación de Meta Ads con el estado
+real del código. La creación preparada conserva `campaign -> adset -> creative -> ad`, IDs para
+reanudación, idempotencia, `PAUSED` y aprobación humana; la UI de marketing redacta, previsualiza,
+revisa y aprueba. El transporte real sigue en dry-run hasta `ads_management`, App Review y una cuenta
+real validada.
+
+AI-11-META-OBJECTIVE-MAPPING 2026-08-26: Separados en la UI el objetivo comercial que usa Claude y el
+objetivo nativo de Meta Ads (`OUTCOME_*`). El plan dry-run ya no envía `conversion`, `launch` u otros
+enums internos al futuro endpoint; conserva ambos contextos y deja Ventas como valor inicial revisable.
+
+INT-02-META-OBJECTIVE-GUARD 2026-08-26: El contrato backend de creación Meta exige el patrón `OUTCOME_*`
+antes de generar un plan. Rechaza llamadas directas con objetivos comerciales internos sin bloquear
+enums oficiales futuros. Prueba contractual 4/4 y TypeScript de Integrations pasan.
+
+BE-INT-02-WORKSPACE-CONTRACT 2026-08-26: Regenerada la salida `dist` del paquete Integrations tras
+el guard de objetivos Meta; la ruta API y el contrato fuente ya ejecutan la misma validación. Prueba
+de preparación API 5/5 y TypeScript API pasan.
+
+FE-UI-META-PLAN-REVIEW 2026-08-26: La tarjeta de revisión del dry-run Meta muestra también el objetivo
+traducido, junto a cuenta, estado y jerarquía de pasos. La interfaz ya expone la información necesaria
+para que la aprobación humana sea comprensible sin leer payloads técnicos.
+
+FE-06-DOC-ALIGNMENT 2026-08-26: Actualizado el roadmap del copiloto para reflejar su decisión real como
+Drawer lateral global y la evidencia por respuesta mediante `AiEvidence`. Se elimina el pendiente falso
+de crear una página de chat independiente; queda únicamente validación visual autenticada y live externa.
+
+FE-UI-HERO-FIELD 2026-08-26: El wrapper compartido `Field` usa ahora el `Label` oficial de HeroUI,
+manteniendo la relación semántica con Input/Select/Textarea y el estilo editorial centralizado. Todas
+las páginas de formularios reciben el cambio sin duplicar markup. TypeScript y gates UI/accesibilidad pasan.
+
+FE-01-LOGIN-VISUAL 2026-08-26: Verificada la pantalla de login en escritorio y a 390x844. El autofill
+azul del navegador se neutraliza con una regla global compatible con HeroUI; los campos conservan fondo,
+borde y foco fino del sistema. Se restauró el viewport normal tras la comprobación.
+
+FE-UI-AUTOFILL-FOCUS 2026-08-26: La regla global distingue autofill de focus-visible: neutraliza el
+resaltado azul del navegador sin eliminar la señal de teclado. El estado computado y la renderización
+visual de Login quedan comprobados en escritorio y móvil.
+
+FE-UI-META-OBJECTIVE-CATALOG 2026-08-26: Extraído `META_OBJECTIVE_OPTIONS` a una utilidad compartida
+del frontend. Marketing IA reutiliza el catálogo tipado y traducido, preparado para futuras superficies
+de revisión/publicación sin duplicar enums ni etiquetas.
+
+FE-UI-PRIVACY-VISUAL 2026-08-26: Verificada la página pública de privacidad en escritorio y móvil
+390x844. Los Cards HeroUI mantienen legibilidad, márgenes consistentes y scroll vertical sin overflow
+horizontal; no requiere cambios de estilos.
+
+FE-00-DESIGN-SYSTEM-DOC 2026-08-26: Corregida la referencia histórica que llamaba nativo al Select y
+documentados los ajustes vigentes de `Field`/`Label` HeroUI, foco fino y autofill. El contrato visual
+ya coincide con la implementación actual y con la comprobación de Login.
+
+FE-UI-META-OBJECTIVE-TEST 2026-08-26: Añadida prueba del catálogo compartido de objetivos Meta para
+mantener el orden, los seis valores `OUTCOME_*` y el rechazo de enums comerciales internos. Prueba 1/1.
+
+FE-UI-HERO-FIELD-DOM 2026-08-26: Verificado en el DOM de Login que `Field` genera un `<label>` HeroUI
+real con el control Input anidado, sin wrappers de label duplicados. Los nombres accesibles continúan
+resueltos y la estructura es válida.
+
+FE-I18N-META-OUTCOMES 2026-08-26: Añadidas al diccionario central las etiquetas de `OUTCOME_*` de Meta
+Ads y sus claves de objetivo de campaña. Los resúmenes, tablas y estados futuros muestran nombres de
+negocio en español; prueba de presentación 3/3 y TypeScript web pasan.
+
+FE-I18N-INTEGRATION-FIELDS 2026-08-26: Ampliado el diccionario central de presentación para Meta
+y la fundación Instagram: cuentas, IDs externos, campañas, conjuntos, anuncios, publicaciones,
+métricas, fechas, estados y copy ya tienen etiquetas de negocio en español. Se mantiene el fallback
+humanizado para enums futuros sin duplicar traducciones por pantalla.
+
+FE-UI-MOBILE-SAFE-AREAS 2026-08-26: Ajustados los targets móviles del botón de notificaciones a
+40px y la posición/footer del copiloto para respetar `safe-area-inset-bottom` en dispositivos con
+gestos o notch. Se mantiene el Drawer/Popover oficial de HeroUI y el scroll nativo del body.
+
+FE-UI-NOTIFICATION-LINK 2026-08-26: El enlace de cada notificación reutiliza ahora el wrapper
+`Link` HeroUI compartido, manteniendo la validación de URL y el marcado como leído al navegar.
+El panel conserva su Popover responsive, acciones de archivar y estados de carga/error.
+
+FE-UI-FIELD-FOCUS-GUARD 2026-08-26: El foco visual de inputs y textareas queda blindado también
+cuando HeroUI aún no ha aplicado `data-focused`; los campos usan outline fino integrado y los
+botones mantienen el foco global accesible de 2px. Cambio centralizado en `globals.css`.
+
+AI-24-CONNECTOR-RUNTIME-GUARD 2026-08-26: El runtime ahora filtra centralmente las tools de
+conectores contra `integration_connections` tenant-scoped antes de enviarlas al modelo. Meta e
+Instagram no se exponen sin conexión `connected`/`syncing`; el prompt recibe la capacidad como no
+disponible y puede abstenerse de forma honesta. TypeScript API y AI pasan.
+
+AI-11-CHANNEL-CONTENT-GUARD 2026-08-26: Meta Ads queda restringido a `content_type=campaign`
+en API y UI; `flow_step` y `popup` permanecen disponibles para email/Klaviyo. Se elimina el
+desajuste que permitía solicitar formatos de email bajo un canal publicitario.
+
+AI-11-PROMPT-CHANNEL-ALIGNMENT 2026-08-26: Corregido el prompt persistido de A11 mediante la
+migración `20260826200000_ai_11_marketing_meta_prompt_v2.sql`. Ahora distingue explícitamente
+`email_klaviyo` y `meta_ads`, exige el contrato correcto por canal, mantiene approval_required y
+refuerza la defensa contra instrucciones incrustadas en brief/RAG/Playbook/tool outputs. Migración
+aplicada en Supabase de producción; verificación local/remota: 76/76 alineadas.
+
+FE-UI-ENTRY-PRIVACY 2026-08-26: La ruta raíz muestra el estado de carga compartido mientras
+resuelve la sesión y `/politica-privacidad` reutiliza `Heading`, `Card` y `Link` HeroUI para
+jerarquía y enlaces de contacto. No cambia la redirección ni el contenido legal. TypeScript web
+y gates UI/accesibilidad pasan.
+
+FE-UI-LOGIN-HERO 2026-08-26: La pantalla `/login` reutiliza `Heading`, `Card` y `Banner` HeroUI
+compartidos para la jerarquía de marca, el título/descripción del formulario y los avisos de
+sesión expirada. Se mantiene el flujo Supabase, redirección por rol y estados de error/carga.
+TypeScript web pasa.
+
+FE-UI-AGENTS-CONTEXT 2026-08-26: Refinadas las cabeceras semánticas de `/agentes` con `Card`
+HeroUI compartido: presupuesto, ejecuciones, revisión humana, evidencia, escrituras propuestas
+y trazas muestran ahora contexto y acción de forma consistente. Se conserva la revisión humana,
+el control de coste y el tracing. TypeScript web y gates UI/accesibilidad pasan.
+
+AI-23-INSTAGRAM-READ-EXECUTORS 2026-08-26: Activadas las tools `instagram_read_media` e
+`instagram_read_insights` sobre `instagram_media` e `instagram_media_insight_values`, con
+filtros tenant-scoped, cuenta/periodo, paginación acotada, provenance y sin payloads crudos.
+La autorización sigue exigiendo la conexión Instagram y las tablas permanecen vacías hasta
+la sincronización real. TypeScript de AI/API pasa; pendiente validación con datos de conector.
+
+FE-UI-SHOPIFY-FORMS 2026-08-26: Refinada la página `/shopify`: la cabecera de tienda y el
+selector de periodos reutilizan la API de `Card` compartida, y el formulario de costes por SKU
+usa `Field` con etiquetas visibles y ejemplos de formato. Se mantiene intacta la carga de datos,
+sincronización y cálculo de margen. Pendiente la validación visual en navegador real.
+
+FE-UI-SHOPIFY-DIAGNOSTICO 2026-08-26: El diagnóstico de Shopify agrupa resumen, permisos y
+datasets en `Card` compartidos con títulos y descripciones semánticos. Las tablas, pestañas y
+estados de la conexión mantienen su comportamiento. TypeScript y gates de UI/accesibilidad pasan;
+queda pendiente la validación visual en navegador real.
+
+FE-UI-TAREAS-FILTROS 2026-08-26: La cabecera operativa de `/tareas` usa un `Card` compartido con
+acciones en el header y filtros con etiquetas visibles mediante `Field`. Se conserva el filtrado,
+la evaluación de reglas y los modos lista/tarjetas. TypeScript y gates de UI/accesibilidad pasan;
+queda pendiente la validación visual en navegador real.
+
+FE-UI-CONSULTOR-CONTEXTO 2026-08-26: La cartera de `/consultor` presenta la prioridad semanal,
+la búsqueda y la tabla de clientes mediante `Card` compartidos con títulos y descripciones
+semánticos. Se conserva la selección de organización, la gestión de acceso y la lógica operativa.
+TypeScript y gates de UI/accesibilidad pasan; queda pendiente la validación visual en navegador real.
+
+FE-UI-DASHBOARD-ACTIONS 2026-08-26: El dashboard adapta el selector de periodos con wrapping y
+grupo accesible, añade contexto a los paneles Meta Ads y Shopify, y sustituye enlaces con estilos
+manuales por `ButtonLink` compartido. Se conserva la navegación y la selección de tiendas.
+TypeScript y gates de UI/accesibilidad pasan; queda pendiente la validación visual en navegador real.
+
+FE-UI-KNOWLEDGE-CARDS 2026-08-26: `/conocimiento` usa `Card` compartido con títulos,
+descripciones y acciones para ingesta, búsqueda semántica y documentos. Los campos visibles usan
+`Field`, incluido el destino global/organización, y el control de archivos sigue siendo oculto por
+diseño. Se conserva la indexación y búsqueda RAG. TypeScript y gates UI/accesibilidad pasan;
+queda pendiente la validación visual en navegador real.
+
+FE-UI-CALLS-HEADER 2026-08-26: Cada llamada de `/llamadas` reutiliza ahora la cabecera de `Card`
+HeroUI con título, descripción y acciones. Se mantienen el estado, la visibilidad, el enlace
+Loom/Fathom y la acción de marcar como realizada. TypeScript y gates UI/accesibilidad pasan;
+queda pendiente la validación visual en navegador real.
+
+FE-UI-MARKETING-DRAFTS 2026-08-26: La zona de borradores recientes de `/marketing` usa la API
+semántica de `Card` compartida con título y descripción, alineando revisión, edición y aprobación
+con las demás superficies del portal. El preview aislado y los contratos de email/Meta permanecen
+sin cambios. TypeScript y gates UI/accesibilidad pasan; queda pendiente la validación visual real.
+
+FE-UI-INTEGRATIONS-HEADERS 2026-08-26: `/integraciones` usa `Card` HeroUI con cabeceras
+semánticas para Shopify y para cada proveedor, situando el estado de conexión en `actions` y
+manteniendo avisos, OAuth, selección de cuentas y estados sin datos dentro del contenido. La
+experiencia sigue sin mostrar métricas simuladas. TypeScript y gates UI/accesibilidad pasan;
+queda pendiente la validación visual en navegador real.
+
+AI-11-MULTICHANNEL-GUARD 2026-08-26: Se retira `multichannel` de las opciones operativas de
+Marketing y de la validación pública del runtime hasta implementar una salida doble email+Meta,
+preview coordinado y persistencia explícita. Así se evita que una petición multicanal se degrade
+silenciosamente a email. El contrato queda reservado y documentado como trabajo futuro.
+
+FE-UI-SETTINGS-CONTEXT 2026-08-26: Las tarjetas de Perfil y Organización activa de
+`/configuracion` incorporan descripciones semánticas mediante `Card`, aclarando permisos, plan y
+contexto operativo sin modificar datos ni formularios financieros. TypeScript y gates UI/accesibilidad
+pasan; queda pendiente la validación visual en navegador real.
+
+FE-UI-CARD-TITLES 2026-08-26: Eliminado el patrón redundante `Card` + `Heading` anidado en
+Tareas, Dashboard y muestras del diagnóstico Shopify. Los títulos pasan por la API nativa de
+`Card`, manteniendo la jerarquía semántica y un espaciado consistente. TypeScript y gates
+UI/accesibilidad pasan; queda pendiente la validación visual en navegador real.
+
+FE-UI-PATH-TOUCH-TARGETS 2026-08-26: El menú de acciones de fases e hitos de `/camino` conserva
+Dropdown de HeroUI y aumenta su área táctil a 40px para móvil, sin cambiar acciones ni densidad
+del contenido. TypeScript y gates UI/accesibilidad pasan; queda pendiente la validación visual
+en navegador real.
+
+AI-23-TOOL-AUTHORIZATION-EVAL 2026-08-26: La prueba explícita para las cuatro tools preparadas de
+Meta/Instagram verifica conexión y contrato activo para las cuatro lecturas. La suite de contratos
+mantiene la guardia de activación y no simula respuestas ni presenta datos inexistentes como reales.
+
+AI-23-META-READ-EXECUTORS 2026-08-26: Las tools `meta_read_ad_accounts` y
+`meta_read_campaign_insights` ya tienen executor local sobre las tablas normalizadas del sync,
+con filtros de organización, cuenta y fechas, paginación acotada, provenance y sin `raw_data`.
+Instagram permanece planificado. Suite AI 61/61 y typecheck API pasan.
+
+AI-23-META-PAGINATION-FIX 2026-08-26: Corregida la aplicación del cursor en las consultas Meta:
+los executors usan `range(offset, offset + limit)` solicitando una fila adicional para detectar
+truncamiento y evitar repetir la primera página. Typecheck API pasa.
+
+AI-23-PACKAGE-ARTIFACT 2026-08-26: Regenerado directamente el `dist` de `@ecomscaling/ai`, que
+es el artefacto publicado por el paquete y consumido por API. Typecheck API y la suite específica
+de tools preparadas pasan 3/3.
+
+OPS-SEC 2026-08-26: Revisadas las reglas de exclusión de secretos. `.env.*` y `.env.local` quedan
+fuera de los artefactos de repositorio y Docker, mientras `.env.example` solo contiene placeholders.
+Se mantiene pendiente la rotación de cualquier clave real que haya sido usada localmente.
+
+FE-UI-SURFACE 2026-08-26: Revisada la superficie TSX fuera del catálogo compartido: no quedan
+inputs, textareas ni selects nativos visibles; el único `<input>` restante es el control oculto
+intencional del selector de archivos en `/conocimiento`. El foco de campos y notificaciones siguen
+centralizados en HeroUI y Font Awesome.
+
+SQO-04-DOC-ALIGN 2026-08-26: Revisado el threat model contra el código y CI: el cifrado AES-256-GCM
+se reutiliza para Shopify, Klaviyo y Meta; las URLs externas tienen validación SSRF de entrada; y CI
+construye API/worker, genera SBOM CycloneDX y ejecuta Trivy. Quedan como hardening operativo la
+rotación de secretos maestros y la revalidación DNS/redirects de fetchers externos.
+
+AI-12-DOC-ALIGN 2026-08-26: Corregida la evidencia de routing y presupuesto: `AI_MODEL_ROUTING_JSON`
+permite límites por agente/proveedor y `resolvePlanBudget` aplica el presupuesto del plan y su
+multiplicador de complejidad. Las menciones a límite plano o `planned` quedan como históricas.
+
+FE-UI-MARKETING-BANNER 2026-08-26: El resultado del plan Meta Ads en `/marketing` usa ahora el
+`Banner` compartido de HeroUI en lugar de un panel manual, conservando la jerarquía visual y los
+estados de feedback del catálogo. Typecheck web y gates de UI/accesibilidad pasan.
+
+FE-UI-MARKETING-COMPOSITES 2026-08-26: El editor de versiones de `/marketing` usa el `Card`
+compartido y los avisos de calidad usan `Banner` de HeroUI. Se elimina otra superficie visual ad-hoc
+sin alterar el flujo de aprobación ni la edición auditada. Typecheck web y gates de UI/accesibilidad pasan.
+
+FE-UI-MARKETING-DECISION 2026-08-26: El formulario contextual de aprobación/rechazo de cada borrador
+usa también el `Card` compartido, con título y descripción semánticos para desktop y móvil. Se mantiene
+la decisión humana, el motivo opcional y el guardado auditado. Typecheck web y gates UI/accesibilidad pasan.
+
+FE-UI-INTEGRATIONS-CARDS 2026-08-26: Las superficies de métrica primaria y reporting de Klaviyo y
+selección de cuentas Meta en `/integraciones` usan ahora `Card` compartido con títulos/descripciones
+semánticos. Se conservan sus estados loading/error/empty y la lógica de sincronización. Typecheck web
+y gates UI/accesibilidad pasan.
+
+FE-UI-INTEGRATIONS-SHOPIFY-GUIDE 2026-08-26: La guía de conexión de Shopify en `/integraciones` usa
+ahora `Card` compartido con título semántico y mantiene sus pasos responsive. La lógica OAuth y los
+estados de configuración no cambian. Typecheck web y gates UI/accesibilidad pasan.
+
+FE-UI-AGENTS-REVIEW 2026-08-26: La revisión humana de `/agentes` usa `Card` HeroUI para evidencia,
+citas y escrituras propuestas, y `Field` para el motivo de decisión. Se conserva la aprobación/rechazo
+explícita y la materialización protegida. Typecheck web y gates UI/accesibilidad pasan.
+
+FE-UI-CALLS-CARDS 2026-08-26: El resumen publicado y el formulario de registro de `/llamadas` usan
+`Card` compartido de HeroUI con jerarquía semántica y descripción contextual. Se conserva la visibilidad
+por rol, el flujo de aprobación A01 y la validación SSRF de enlaces. Typecheck web y gates UI/accesibilidad pasan.
+
+FE-UI-PATH-FORMS 2026-08-26: Los formularios inline de crear tarea, fase e hito de `/camino` usan
+`Card` y `Field` compartidos de HeroUI, con etiquetas visibles y layout responsive. Se conserva el árbol,
+los permisos de edición y las mutaciones existentes. Typecheck web y gates UI/accesibilidad pasan.
+
+FE-UI-COPILOT-MESSAGES 2026-08-26: El historial del copiloto compartido presenta ahora mensajes de
+usuario y asistente con `Card` HeroUI consistente; se mantienen Drawer, live region, scroll respetuoso
+con reduced-motion, evidencias y errores. Typecheck web y gates UI/accesibilidad pasan.
+
+FE-UI-DASHBOARD-DATA-WARNING 2026-08-26: El aviso financiero de datos incompletos del módulo principal
+usa ahora `Banner` HeroUI en lugar de un contenedor manual. Conserva enlaces a configuración y costes,
+la explicación de limitaciones y el comportamiento responsive. Typecheck web y gates UI/accesibilidad pasan.
+
+FE-UI-SETTINGS-FIELDS 2026-08-26: El formulario de gastos fijos en `/configuracion` usa `Field`
+compartido para nombre, importe y periodicidad, eliminando campos identificados solo por placeholder.
+El grid conserva el alineado desktop y el apilado móvil. Typecheck web y gates UI/accesibilidad pasan.
+
+SQO-04-DOC-ALIGN 2026-08-26: Alineado el threat model con la implementación vigente: el cifrado
+AES-256-GCM se reutiliza para Shopify, Klaviyo y Meta; la validación de URLs externas bloquea
+protocolos, credenciales embebidas, localhost y rangos privados; CI ya cubre SBOM CycloneDX y Trivy.
+Quedan como hardening operativo la rotación de secretos maestros y la revalidación DNS/redirects de
+fetchers externos.
+
 ## Corrección vigente 2026-08-26 - Estado real de la cola
 
 > **Lectura rápida:** el producto está en cierre de piloto, no en fase de fundación. Base de datos,
@@ -7,6 +358,64 @@
 > debe priorizar validación, hardening y bloqueos externos, evitando nuevas capas de arquitectura.
 
 Los bloques AI-16 a AI-31 ya tienen implementación local, contratos, UI,
+DB-SCHEMA-GENERATED 2026-08-26: Se regeneró `schema_generado_desde_migraciones.sql` desde las 75
+migraciones canónicas y el gate `node scripts/regenerate-generated-schema.mjs --check` devuelve
+`GENERATED_SCHEMA_OK: 75 migrations`. La fuente generada queda alineada y reproducible.
+
+FE-02/AI-11 2026-08-26: El aviso de disponibilidad del proveedor IA en `/marketing` usa ahora el
+`Banner` compartido basado en HeroUI, con indicador, espaciado y estados consistentes con el resto
+del catálogo. Typecheck web y gates UI/accesibilidad pasan.
+
+AI-22/AI-17 2026-08-26: La eval de prompts preparados ya valida las nueve secciones de forma
+individual para A03, A05 y A07, en lugar de aceptar una presencia agregada en la migración. La
+prueba canónica y la suite offline de agentes pasan 6/6.
+
+INT-04 2026-08-26: Se actualiza el roadmap de Fathom para reflejar el handler webhook ya implementado:
+firma y replay, deduplicación, cola reclamable, cinco intentos con backoff, materialización idempotente
+por organización/grabación y ejecución de A01 con aprobación humana. La suite local pasa 8/8; queda solo
+validación con una API key real.
+
+AI-11/PROVIDER-UX 2026-08-26: `/marketing` ya comunica correctamente que falta configurar un proveedor
+IA (Anthropic/Claude u OpenAI), en lugar de atribuirlo siempre a Claude aunque el runtime soporte fallback.
+Typecheck web y la suite de contratos IA pasan 60/60.
+
+AI-09/AI-12 2026-08-26: Corregida la evidencia vigente de ingeniería de agentes: el routing por
+agente/proveedor mediante `AI_MODEL_ROUTING_JSON` ya está implementado; solo queda como mejora futura
+el ajuste fino del presupuesto por plan. La documentación anterior queda marcada como histórica.
+
+INT-02 2026-08-26: Alineada la documentación Meta con el estado real: `metaGraphPost` y el executor
+idempotente están preparados y probados, mientras la superficie de producto sigue dry-run hasta disponer
+de `ads_management`, App Review, credenciales y validación externa. No se simulan campañas.
+
+AI-13/AI-17/AI-22 2026-08-26: Añadida una eval transversal para los 10 agentes del catálogo. Comprueba
+que cada prompt canónico de las migraciones tiene ROLE, GOAL, CONTEXT, INPUT, RULES / CONSTRAINTS,
+TOOLS, OUTPUT, FAILURE BEHAVIOUR y EXAMPLES, incluidos los agentes preparados sin conector. La suite
+offline de prompts y agentes pasa 6/6.
+
+AI-12 2026-08-26: El checklist de disciplinas ya marca como cerrados Context Engineering, Memory,
+Guardrails & permissions y Human-in-the-loop, respaldados por implementación y tests existentes. Los
+pendientes reales quedan reducidos a shadow/live, historial comparativo y APM multi-instancia.
+
+DOC-AUDIT 2026-08-26: `ESTADO_GLOBAL.md` incorpora una auditoría vigente que prevalece sobre cifras
+históricas (75 migraciones, prompts/agentes actuales y gates HeroUI). Verificación final de esta pasada:
+esquema generado correcto, contratos IA 59/59 y catálogo HeroUI correcto.
+
+AI-14/LANGCHAIN 2026-08-26: El camino opt-in LangGraph ya utiliza `RunnableLambda` de `@langchain/core`
+como boundary interno para ejecutar el turno protegido. El modo directo continúa siendo el default y
+los contratos externos no exponen tipos de LangChain. Typecheck de `packages/ai` y tests de orquestación pasan.
+
+AI-09/OPS 2026-08-26: Añadido `ANTHROPIC_MODEL` como override global server-side para poder actualizar
+el modelo de Claude sin migrar `agent_versions`; `AI_MODEL_ROUTING_JSON` conserva prioridad por agente.
+Configuración, API y tests pasan.
+
+OPS-ENV 2026-08-26: El modelo global `ANTHROPIC_MODEL` queda documentado en `.env.example` y el
+runbook de coste remite a `AI_PLAN_BUDGETS_JSON`, cuyo enlace técnico ya está implementado. No se
+incluyen claves ni secretos en plantillas.
+
+FE-03/AI-04 2026-08-26: El estado de permisos de `/conocimiento` usa ahora el `Banner` compartido
+basado en HeroUI, manteniendo el mensaje de lectura/indexación y evitando un contenedor visual ad-hoc.
+Typecheck web y gates UI/accesibilidad pasan.
+
 FE-01/BE-07 2026-08-26: El panel de Consultor endurece carga y mutaciones de acceso multi-tenant,
 edicion de clientes, tiendas y restauraciones. Miembros, asignaciones, eliminaciones y
 restauraciones capturan errores de red y liberan siempre sus bloqueos; los cambios locales solo se
@@ -103,8 +512,8 @@ Dejar EcomScaling preparado para piloto: Shopify operativo, Meta/Klaviyo/Instagr
 
 ## Estado actual de la cola
 
-> **CorrecciÃ³n vigente 2026-08-26:** las 71 migraciones locales y remotas estÃ¡n
- alineadas (`localCount=71`, `remoteCount=71`, sin `pendingLocal` ni
+> **CorrecciÃ³n vigente 2026-08-26:** las 75 migraciones locales y remotas estÃ¡n
+ alineadas (`localCount=75`, `remoteCount=75`, sin `pendingLocal` ni
  `remoteOnly`). Las 7 migraciones recientes fueron revisadas, probadas con
  rollback y aplicadas al proyecto remoto; los tipos oficiales de Supabase se
  regeneraron desde ese esquema. Las menciones histÃ³ricas a 64 migraciones o a
@@ -166,7 +575,7 @@ Dejar EcomScaling preparado para piloto: Shopify operativo, Meta/Klaviyo/Instagr
 - DB/AI-04: revisión de tipos confirma `knowledge_documents.authority/audience` y los RPC híbrido/semántico ya están representados en `packages/db/src/database.types.ts`; RAG/API pasa 5/5.
 - Supabase: `SUPABASE_MIGRATION_READINESS.md` documenta el estado real: Auth/Data API públicos 200, service-role REST 200 y TCP accesible; sólo gestión de migraciones (CLI/psql/MCP OAuth) sigue pendiente.
 - Supabase: añadido `scripts/check-supabase-readiness.mjs`, verificador reproducible sin exposición de secretos para repetir esta comprobación cuando se corrija el entorno.
-- Supabase: las 7 migraciones posteriores a `20260824120000` fueron revisadas, probadas con rollback y aplicadas en orden al proyecto remoto; `localCount=71`, `remoteCount=71`, sin drift.
+- Supabase: las migraciones posteriores a `20260824120000` fueron revisadas, probadas con rollback y aplicadas en orden al proyecto remoto; `localCount=75`, `remoteCount=75`, sin drift.
 - Supabase advisors remotos: warnings existentes de políticas RLS duplicadas, índice Klaviyo duplicado y `search_path` mutable; las migraciones nuevas fijan `search_path` explícito en los RPC RAG y AI-26 usa `pg_catalog, public, private` en su función `SECURITY DEFINER`.
 - Supabase: `db push` continúa fallando con `EUNKNOWN: uv_spawn` en Windows, pero Docker con red host permite usar `psql` contra el mismo PostgreSQL remoto. La aplicación quedó registrada y verificada; MCP sigue pendiente solo para advisors/types.
 - Supabase types 2026-08-26: el typegen oficial se regeneró desde el remoto alineado con esquemas
@@ -720,6 +1129,57 @@ liberan siempre sus estados de carga/guardado y conservan los valores editados s
 no responde. Añadir/quitar gastos evita duplicados durante la misma operación y sólo refresca
 la configuración tras éxito confirmado. Typecheck web y gates UI pasan.
 
+BUG REAL 2026-08-26: `fetchApiWithTimeout` (`apps/web/src/lib/request-timeout.ts`)
+abortaba el `AbortController` en su `finally` de forma incondicional, incluso
+tras una respuesta 200 exitosa. `fetch()` resuelve en cuanto llegan las
+cabeceras, no cuando termina de leerse el body — y todo caller de `apiFetch`
+en la app hace `await response.json()` DESPUÉS de que la función retorne. Si
+el body tardaba en llegar (payloads grandes del Dashboard: métricas Shopify/
+Meta, operaciones, config financiera), ese `.abort()` cancelaba la lectura y
+lanzaba exactamente `"The user aborted a request."` reportado por Rafa en
+`/dashboard`. `clearTimeout(timeout)` ya bastaba para que el abort programado
+por timeout nunca disparase; sobraba el abort manual. Test de regresión
+añadido en `bootstrap-timeout.test.ts` que reproduce el body lento tras
+respuesta 200 — confirmado que falla con el bug reintroducido y pasa con el
+fix. 3/3 tests y typecheck web pasan.
+
+FE-03 2026-08-26: perfeccionamiento del módulo de tareas (`/tareas`, usado
+por cliente y consultor). Tres capacidades ya existían en el backend pero
+nunca se exponían en el frontend: (1) alta manual de una tarea — no había
+ninguna forma de crear un pendiente ad-hoc, solo llegaban desde reglas de
+alertas/IA/llamadas/Mi Camino; nuevo endpoint `POST
+/v1/organizations/:id/tasks` (`createTask` en `operations.ts`, mismo permiso
+`requireMembership` que el resto de mutaciones de tareas) y formulario
+`NewTaskForm` en la UI. (2) Comentarios internos — `addTaskComment` ya
+aceptaba `isInternal` y lo restringía a consultor/admin, pero el formulario
+nunca mandaba el flag ni ofrecía la opción; ahora hay un checkbox "Comentario
+interno" visible solo para consultor/admin. (3) `is_visible_to_client` viajaba
+en cada tarea sin mostrarse nunca; ahora un badge "Interna" (solo visible
+para consultor/admin, coherente con la RLS `tasks_select_authorized` que ya
+oculta esas filas al cliente) permite verlo de un vistazo sin abrir cada
+tarea. Además, la lista ahora se ordena por urgencia real (vencidas primero,
+luego prioridad, luego la que vence antes) en vez del orden de inserción de
+la API — antes una tarea urgente podía quedar enterrada en la página 3.
+Typecheck de API/web y los tres gates UI/accesibilidad/catálogo pasan.
+
+FE-07 2026-08-26: `/consultor` gana `PriorityQueue`, que convierte
+`CHECKLIST-SALUD-CLIENTE.md` (rutina manual documentada 2026-07-23) en UI real
+en vez de un documento que hay que seguir a mano cada lunes. El Card "Qué
+cliente necesita atención hoy" no mostraba ningún listado — solo un mensaje
+condicional de "Todos al día"; el trabajo real de priorizar quedaba en
+escanear la tabla completa. Ahora agrupa los clientes con `attention.score >
+0` en Urgente/Revisar/Vigilar (mismos tramos que `attentionBadge`, no una
+escala nueva), con una razón de una línea por cliente (alertas críticas,
+antigüedad, tareas vencidas — mismo orden que el checklist) y enlace directo
+al Dashboard de ese cliente. Un resumen de portafolio (clientes, cuántos
+necesitan atención, alertas críticas y tareas vencidas totales) da la vista
+"sé de todo en 10 minutos" antes de entrar a cualquier tabla. Sin cambios de
+backend: toda la data ya la devolvía `/v1/consultant/organizations`.
+Deliberadamente fuera: métricas de negocio (ventas/ROAS) por cliente en esta
+vista — decisión ya tomada en `CHECKLIST-SALUD-CLIENTE.md` ("Qué NO cubre"),
+eso es lo que el Dashboard le muestra al cliente mismo. Typecheck web y los
+tres gates UI/accesibilidad/catálogo pasan.
+
 FE-02 2026-08-26: decisión de producto — qué ve el cliente del diagnóstico IA
 en el Dashboard. "Resumen ejecutivo IA" (A02, variante `summary`, solo lectura
 sin tabla de hallazgos/recomendaciones ni botón de aprobar) pasa a verse
@@ -800,3 +1260,234 @@ JSON v1 filtrado por tenant mediante lista blanca y excluye credenciales/secreto
 el endpoint queda restringido a platform_admin y auditado. La prueba remota devuelve
 schema v1, organization_id y 56 tablas exportables para un tenant existente; el
 contrato de exportación pasa.
+
+FE-UI-FOCUS-NOTIFICATIONS 2026-08-26: los campos `Input` y `Textarea` comparten
+un foco visible fino de 1px, sin el anillo azul grueso que imponía el estilo global.
+El panel de notificaciones usa los primitives `Popover` y `Dialog` de HeroUI, con
+posicionamiento responsive, cierre accesible y límites de altura para viewport.
+Los iconos propios se centralizan ahora en `ui/icons.tsx` usando Font Awesome Free
+(`@fortawesome/free-solid-svg-icons`); las páginas
+siguen importando solo el barrel de UI. Typecheck web y gates de catálogo,
+accesibilidad y enlaces Markdown pasan.
+
+FE-UI-DISPLAY-ENUMS 2026-08-26: los estados visibles de conocimiento, tareas,
+consultor, sincronizaciones e inventario pasan por `displayValue`, ampliando el
+diccionario compartido para que nuevos datos de conectores no expongan enums
+internos en inglés. Se conserva el valor canónico en API/BD y solo se traduce
+la presentación; typecheck web y gates UI/accesibilidad/enlaces pasan.
+
+AI-EVAL-OFFLINE 2026-08-26: verificada la matriz provider-free de agentes sin
+claves ni escrituras externas: 6/6 casos contractuales de runner, cobertura
+completa de agentes activos con calidad, abstención, seguridad, tenant y
+performance, y protección frente a prompt injection directa, indirecta y en
+resultados de tools. La evidencia live queda preparada para el momento en que
+existan credenciales.
+
+FE-UI-DISPLAY-LABELS-TEST 2026-08-26: añadido contrato unitario para la
+presentación de enums y booleanos de conectores. Cubre traducciones conocidas,
+humanización segura de valores futuros y ausencias; 3/3 tests y typecheck web
+pasan.
+
+INT-RESILIENCE-VERIFY 2026-08-26: verificada la frontera de llamadas externas
+de Meta y worker: timeout con AbortController, reintentos limitados, backoff
+exponencial, respeto de `Retry-After` y no reintento de errores permanentes.
+Los contratos Meta/OAuth y de transporte pasan 7/7; el circuit breaker de
+proveedores de IA ya cuenta con su suite dedicada.
+
+FE-API-TIMEOUT 2026-08-26: `apiFetch`, la ruta común del frontend, incorpora
+timeout de 15 segundos con `AbortController` y conserva la señal de cancelación
+del caller. El refresh tras 401 también queda protegido; no se añaden retries
+automáticos a mutaciones para evitar duplicados. Typecheck web y accesibilidad
+pasan.
+
+FE-API-TIMEOUT-CONTRACT 2026-08-26: extraída la utilidad de timeout a un
+módulo aislado para poder probarla sin cargar Supabase/Next.js. Sus contratos
+verifican abort por timeout y cancelación explícita del caller: 2/2; además se
+completaron las props de visibilidad interna de `TaskDetail` en sus dos usos,
+dejando el typecheck web en verde.
+
+INT-STATUS-PRESENTATION 2026-08-26: los estados de integración y gates de
+activación desconocidos ya pasan por la humanización compartida, evitando
+exponer enums internos cuando llegue un nuevo estado del proveedor. Se usan
+imports relativos en el catálogo UI para que sus contratos también funcionen
+fuera de Next.js. Suite UI de estados y labels: 10/10; typecheck web pasa.
+
+INT-UI-ACTIVATION 2026-08-26: la tarjeta de integraciones presenta la fase de
+cada proveedor con contexto humano y humaniza también estados de salud futuros
+mediante el fallback compartido. Una conexión real puede evolucionar de
+pendiente a saludable, degradada o requerir reautorización sin mostrar códigos
+internos.
+
+INT-KLAVIYO-RESILIENCE-VERIFY 2026-08-26: verificado el cliente Klaviyo con
+timeout de 15 segundos, cancelación compartida, paginación segura limitada al
+host oficial, clasificación de errores, reintentos de 429/5xx, respeto de
+`Retry-After` y backoff acotado. Suite del cliente: 6/6; typecheck API pasa.
+
+INT-FUTURE-ENUM-UX 2026-08-26: el fallback de presentación reconoce también
+camelCase (`futureGate` → `Future Gate`) además de snake_case y kebab-case.
+Los nuevos estados de APIs futuras mantienen una UI legible sin esperar a un
+despliegue de traducción para cada enum.
+
+FE-UI-DIAGNOSTIC-PLAN-ENUMS 2026-08-26: el estado de frescura de los
+diagnósticos IA y el estado del plan en Camino ya usan la presentación común,
+evitando que los outputs operativos expongan enums internos. Typecheck web y
+los gates de catálogo/accesibilidad pasan.
+
+AI-11-MARKETING-WORKSPACE 2026-08-26: el módulo principal de campañas deja
+de ser exclusivo del equipo consultor. Owners y managers de cada organización
+pueden crear, editar y aprobar borradores; consultores y platform admins
+mantienen acceso transversal. La UI se presenta como “Campañas de marketing”,
+usa `Form` de HeroUI y comunica explícitamente que Claude genera propuestas
+revisables sin publicar ni enviar automáticamente. Typechecks API/web y enlaces
+Markdown pasan.
+
+AI-11-RLS-WORKSPACE-ACCESS 2026-08-26: aplicada la migración
+`20260826183000_ai_11_marketing_workspace_access.sql` para que el acceso de
+owners y managers también funcione con el cliente autenticado de Supabase en
+listados, versiones y lectura de borradores. Consultores asignados y
+platform admins conservan el acceso transversal. Drift remoto: 75/75,
+sin migraciones pendientes.
+
+AI-11-STRUCTURED-BRIEF 2026-08-26: el creador de campañas incorpora campos
+reutilizables para objetivo, audiencia, oferta/producto, tono y CTA, además de
+las indicaciones libres. La UI responde con una cuadrícula desktop y columnas
+adaptativas en móvil; el backend conserva el contrato existente y recibe un
+brief estructurado para Claude con supuestos explícitos y prohibición de
+inventar condiciones. Typecheck web pasa.
+
+AI-11-BRIEF-CONTRACT 2026-08-26: extraída `buildMarketingBrief` a una utilidad
+reutilizable y testeable. El contrato conserva el endpoint existente, separa
+contexto estructurado de indicaciones libres y etiqueta ausencias para impedir
+que Claude convierta campos opcionales en hechos. Suite directa: 2/2;
+typecheck web pasa.
+
+FE-BUILD-FIX 2026-08-26: la comprobación navegable detectó imports `.js` que
+Next no resolvía en componentes UI y bootstrap aunque TypeScript los aceptaba.
+Se migraron los imports de producción al alias `@/lib/...`; la ruta `/marketing`
+ya no presenta Build Error tras recarga y queda únicamente el estado esperado
+de sesión/carga cuando no hay sesión autenticada en el navegador de desarrollo.
+
+FE-MARKETING-REVIEW-TABS 2026-08-26: la revisión del borrador se organiza con
+Tabs reutilizables de HeroUI para Preview aislado, texto plano y HTML. Las
+pestañas desbordan horizontalmente de forma segura en móvil y el componente
+`Tabs` admite paneles reales sin romper sus usos existentes. Typecheck web,
+catálogo HeroUI y accesibilidad pasan.
+
+FE-PRODUCTION-BUILD 2026-08-26: compilación directa de producción de la web
+completada correctamente con 18 rutas prerenderizadas, incluida `/marketing`;
+no quedan errores de bundling ni TypeScript en la superficie actual.
+
+AI-11-CHANNEL-ROUTING-CONTEXT 2026-08-26: el brief incorpora canal de destino
+(`email_klaviyo` o `meta_ads`) y lo entrega a Claude junto al
+resto del contexto estructurado. Esto prepara el mismo workspace para el
+contrato Meta de creación jerárquica (campaign/adset/creative/ad), manteniendo
+aprobación humana, estado inicial pausado e idempotencia cuando existan
+credenciales; no ejecuta escrituras externas sin conexión autorizada.
+
+AI-11-CHANNEL-API-CONTRACT 2026-08-26 (parcialmente superseded por
+AI-11-MULTICHANNEL-GUARD): el canal deja de vivir solo dentro del
+texto del brief y pasa a `payload.channel`, `agent_runs.objective`, snapshot,
+request persistido y metadata de pasos. API valida `email_klaviyo` y `meta_ads`;
+`multichannel` queda reservado hasta implementar su salida doble. La salida actual sigue siendo
+un borrador revisable, no una publicación Meta/Klaviyo automática.
+
+INT-02-META-DRY-RUN-API-UI 2026-08-26: expuesto el endpoint autenticado
+`POST /v1/organizations/:organizationId/meta/ad-creation-plan` y conectado al
+workspace de Marketing cuando el canal es Meta Ads o multicanal. La interfaz
+recoge cuenta, jerarquía y presupuesto; muestra el plan como `PAUSED`, exige
+aprobación y declara que no ha creado objetos externos. Servicio y contrato
+offline: 3/3; typechecks API/web y catálogo HeroUI pasan.
+
+INT-02-META-DRY-RUN-ACCESS 2026-08-26: el dry-run Meta queda alineado con el
+workspace de campañas: owner, manager, consultor y platform admin pueden
+preparar el plan, mientras que la ejecución externa continúa sin implementarse
+y exige aprobación, credenciales, scopes e idempotencia. Al cambiar de canal,
+la UI descarta cualquier plan anterior para no mostrar contexto obsoleto.
+Suite de autorización y secretos: 4/4; typechecks API/web pasan.
+
+FE-INPUT-FOCUS 2026-08-26: la inspección navegable confirmó que el preset de
+HeroUI estaba imponiendo un foco azul de 2px en los campos mediante
+`data-focused`. El CSS global lo ajusta a 1px, sin offset, integrado con el
+borde del input/textarea y mantiene el foco accesible de 2px para controles no
+textuales. Verificado en login mediante snapshot con el input activo.
+
+INT-02-META-ASSET-SELECTOR 2026-08-26: el plan Meta reutiliza el catálogo
+`/meta/assets` cuando existe una conexión y ofrece un Select HeroUI con cuentas
+activas/sincronizadas, priorizando la cuenta seleccionada. Sin credenciales o
+activos reales conserva un fallback manual honesto para `act_<id>` y no inventa
+cuentas. La carga se cancela al cambiar de canal y mantiene estado de loading
+sin bloquear el resto del formulario; typecheck web/API y accesibilidad pasan.
+
+AI-INFRA-ORCHESTRATION-VERIFY 2026-08-26: verificada la infraestructura opt-in
+de LangGraph y LangSmith junto al runtime directo: orquestación 4/4, evals de
+agentes y anti-injection 6/6, typecheck de `packages/ai` y enlaces Markdown
+correctos. `direct` sigue siendo el default; LangGraph y tracing requieren
+configuración explícita y no reciben payloads cuando están desactivados.
+
+INT-CONNECTOR-OFFLINE-REGRESSION 2026-08-26: regresión offline conjunta verde:
+Meta 16/16, Klaviyo 16/16 y Shopify 8/8. Se cubren OAuth/scopes, paginación,
+timeouts/retries/backoff, tenant isolation, idempotencia, ventanas de reporting
+y dry-run Meta; no se realizan llamadas a proveedores reales.
+
+INT-02-META-POST-TRANSPORT 2026-08-26: añadido `metaGraphPost` como transporte
+compartido para el executor futuro. Reutiliza timeout, retries, exponential
+backoff y `appsecret_proof`, usa body form y queda explícitamente limitado a
+planes aprobados/idempotentes; no se invoca desde ningún flujo de negocio aún.
+Test Graph/OAuth ampliado a 5/5 y typecheck API pasa.
+
+INT-02-META-EXECUTOR-CONTRACT 2026-08-26: añadido executor reutilizable de la
+jerarquía Meta que exige aprobación humana, ejecuta campaign → adset → creative
+→ ad, propaga idempotencyKey, reanuda con IDs existentes y devuelve pasos
+completados ante fallo parcial. Las operaciones concretas quedan inyectadas
+para conectar después `metaGraphPost`; no hay mutación externa activa. Suite
+del executor: 4/4; typecheck de integrations pasa.
+
+INT-02-META-EXECUTOR-RESUME 2026-08-26: los fallos parciales del executor ahora
+devuelven también los IDs ya creados, además de los pasos completados. El worker
+futuro puede persistir ese checkpoint y reanudar sin duplicar campaign/adset;
+aprobación y `idempotencyKey` siguen siendo obligatorias. Suite del executor
+4/4 y typecheck de integrations pasan.
+
+FE-UI-FINISHING-INPUTS-NOTIFICATIONS 2026-08-26: refinado el foco de Input y
+Textarea para evitar el outline azul grueso de HeroUI y usar un borde de marca
+fino. El panel de notificaciones conserva Popover/Dialog de HeroUI, mejora sus
+estados vacio/error/acciones y usa iconos Font Awesome centralizados y reutilizables.
+Typecheck web pasa.
+
+AI-11-META-REVIEW-SURFACE 2026-08-26: el listado de borradores incluye el
+request con su canal y la revision visual diferencia Meta Ads de email. Los
+borradores Meta muestran una tarjeta de anuncio con titular, texto principal y
+CTA, mientras que Klaviyo conserva el preview HTML aislado. Typechecks de API
+y web pasan.
+
+AI-UX-PROVIDER-READINESS 2026-08-26: añadido `GET /v1/ai/status`, que expone
+solo si existe un proveedor configurado y cuál es el primario, sin secretos.
+Marketing lo consulta de forma informativa y muestra un aviso accionable cuando
+faltan las claves, manteniendo disponibles los briefs y el dry-run Meta. Los
+typechecks de API y web pasan.
+
+FE-UI-CATALOG-GATE 2026-08-26: revisada la superficie Web; los imports de
+HeroUI permanecen centralizados en `components/ui`, el unico `input` nativo es
+el selector de archivos oculto de Conocimiento, y pasan los gates de catalogo,
+accesibilidad y enlaces Markdown.
+
+FE-RELEASE-VERIFY 2026-08-26: `npx next build` ejecutado desde `apps/web`
+compila correctamente y genera las 18 rutas estáticas, incluida `/marketing`.
+Los gates de catálogo HeroUI y accesibilidad continúan en verde después del
+cambio de iconos y del preview específico de Meta Ads.
+
+OPS-DB-CONNECTOR-GATES 2026-08-26: Supabase responde correctamente por REST
+publico y service-role (HTTP 200), MCP esta configurado y la gestion local de
+migraciones esta disponible via npx. Cobertura de conectores 27 tablas/135
+campos y mapeos 3 adapters/13 grupos/69 tokens pasan sin credenciales externas.
+
+FE-UI-ICON-SOURCE 2026-08-26: el adaptador de iconos se consolida en Font
+Awesome Free (`@fortawesome/react-fontawesome` + `@fortawesome/free-solid-svg-icons`),
+
+AI-24-CONNECTOR-ID-CONTRACT 2026-08-27: El identificador de proveedor persistido y el identificador
+expuesto por las herramientas tienen un contrato de normalizaciÃ³n compartido. Los aliases internos
+(`meta_ads` â†’ `meta`) se convierten antes de resolver capacidades, manteniendo el aislamiento por
+organizaciÃ³n y evitando que futuros conectores dependan de nombres de almacenamiento accidentales.
+la librería con mayor popularidad verificada por estrellas entre las opciones
+consideradas. Se elimina Lucide para evitar dos fuentes visuales y se mantiene
+un único barrel reutilizable para las páginas.

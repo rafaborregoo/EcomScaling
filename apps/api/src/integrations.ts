@@ -76,7 +76,17 @@ type ConnectionRow = {
   last_error_at: string | null;
   last_error_message: string | null;
   created_at: string;
+  metadata?: Record<string, unknown> | null;
 };
+
+/** Conexion establecida pegando una API key privada (Klaviyo pk_...), sin OAuth. */
+function isApiKeyConnection(connection: ConnectionRow | null): boolean {
+  return (
+    connection?.metadata != null &&
+    typeof connection.metadata === "object" &&
+    (connection.metadata as { source?: unknown }).source === "api_key"
+  );
+}
 
 type SyncRunRow = {
   id: string;
@@ -99,13 +109,21 @@ export function deriveIntegrationActivation(
   health: IntegrationHealth,
   recoveryVerified = false,
 ): IntegrationActivationReadiness {
+  const apiKeyConnection = isApiKeyConnection(connection);
   const evidence = {
     credentialsValid: provider.configuration.status === "configured",
     // A persisted connection was only created after the configured callback
-    // completed; this does not expose or persist the URI itself.
-    redirectUriExact: Boolean(connection && provider.capabilities.oauth),
+    // completed; this does not expose or persist the URI itself. Una conexion
+    // por API key no pasa por callback.
+    redirectUriExact: Boolean(
+      connection && (apiKeyConnection || provider.capabilities.oauth),
+    ),
+    // Una conexion por API key no tiene scopes OAuth: la validacion de la key
+    // contra /accounts al conectar es la evidencia equivalente de permisos.
     scopesGranted: Boolean(
-      !provider.capabilities.oauth || (connection && connection.scopes.length > 0),
+      !provider.capabilities.oauth ||
+        apiKeyConnection ||
+        (connection && connection.scopes.length > 0),
     ),
     providerResponseValid: Boolean(connection?.status === "connected"),
     assetSelected: Boolean(
@@ -201,11 +219,11 @@ export function deriveIntegrationConfiguration(
             env.META_APP_ID && env.META_APP_SECRET && env.META_REDIRECT_URI,
           )
         : providerId === "klaviyo"
-          ? Boolean(
-              env.KLAVIYO_CLIENT_ID &&
-              env.KLAVIYO_CLIENT_SECRET &&
-              env.KLAVIYO_REDIRECT_URI,
-            )
+          ? // Klaviyo se conecta pegando una private API key (pk_...), que NO
+            // necesita credenciales de app en el servidor. Si la feature esta
+            // disponible, la integracion es conectable; las vars OAuth solo
+            // habilitan ademas la opcion de OAuth (klaviyo_app_available).
+            available
           : providerId === "fathom"
             ? Boolean(env.FATHOM_API_KEY && env.FATHOM_WEBHOOK_SECRET)
             : false;
@@ -248,6 +266,7 @@ async function loadConnections(
         "last_error_at",
         "last_error_message",
         "created_at",
+        "metadata",
       ].join(", "),
     )
     .eq("organization_id", organizationId)

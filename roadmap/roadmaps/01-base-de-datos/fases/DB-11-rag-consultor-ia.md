@@ -4,8 +4,8 @@
 > núcleo RAG siga sin implementar. `chunkText` aplica chunking estructural con solape y encabezados,
 > la ingesta procesa embeddings en batches con concurrencia acotada y orden determinista, y la API
 > usa búsqueda híbrida con fallback compatible. La migración de ranking por autoridad
-> (`20260826153000_ai_04_knowledge_authority_ranking.sql`) queda preparada localmente y pendiente
-> de aplicación remota junto con el resto de migraciones locales pendientes. Lo que sigue abierto es
+> (`20260826153000_ai_04_knowledge_authority_ranking.sql`) ya está aplicada y alineada en remoto junto
+> con las 75 migraciones locales. Lo que sigue abierto es
 > la validación de recall/precisión sobre corpus real y el versionado persistente de la estrategia de
 > chunking/re-embedding; no se deben confundir esos gaps con ausencia de infraestructura.
 
@@ -16,15 +16,15 @@
 
 ## Estado
 
-> Correccion vigente 2026-08-24: la migracion aditiva
+> Corrección vigente 2026-08-26: las migraciones aditivas
 > `20260801100000_ai_04_knowledge_hybrid_search.sql` ya forma parte de las
-> 64 migraciones locales/remotas alineadas. La API mantiene fallback al RPC
+> 75 migraciones locales/remotas alineadas. La API mantiene fallback al RPC
 > anterior por compatibilidad; queda pendiente ampliar el dataset, no aplicar
 > la migracion.
 
 - **Estado real:** `verification_pending`
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-08-24
+- **Ultima validacion:** 2026-08-26
 - **Dependencias:** DB-00, DB-02, DB-08
 - **Bloqueador:** ninguno
 - **Evidencia:**
@@ -98,7 +98,7 @@ Activar conocimiento, conversaciones y recuperacion semantica para el Consultor 
 Se preparó `20260801100000_ai_04_knowledge_hybrid_search.sql`. Añade un índice GIN para texto y el RPC
 `knowledge_search_hybrid`, manteniendo la función `knowledge_search` existente para compatibilidad durante
 el rollout. La API detecta la ausencia temporal del nuevo RPC y usa el anterior; ambos aplican aislamiento
-por organización, audiencia y tienda. Falta aplicar la migración en el próximo despliegue controlado y
-ampliar el eval con documentos largos/estructurados y consultas de terminología exacta.
+por organización, audiencia y tienda. La migración ya está aplicada y alineada; queda ampliar el eval con
+documentos largos/estructurados y consultas de terminología exacta.
 La frontera de API y su fallback tienen 3 pruebas aisladas; queda pendiente la validación contra el RPC
-híbrido una vez aplicada la migración en el entorno de despliegue.
+híbrido en el entorno de despliegue.

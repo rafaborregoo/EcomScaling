@@ -57,11 +57,25 @@ export async function getMetaMetrics(
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
 
-  const { data, error } = await supabase.rpc("meta_spend_summary", {
-    target_organization_id: organizationId,
-    period_start: periodStart?.toISOString().slice(0, 10) ?? null,
-    period_end: periodEnd.toISOString().slice(0, 10),
-  });
+  const periodStartDate = periodStart?.toISOString().slice(0, 10) ?? null;
+  const periodEndDate = periodEnd.toISOString().slice(0, 10);
+
+  const [summaryResult, dailyResult] = await Promise.all([
+    supabase.rpc("meta_spend_summary", {
+      target_organization_id: organizationId,
+      period_start: periodStartDate,
+      period_end: periodEndDate,
+    }),
+    periodStartDate
+      ? supabase.rpc("meta_spend_daily", {
+          target_organization_id: organizationId,
+          period_start: periodStartDate,
+          period_end: periodEndDate,
+        })
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  const { data, error } = summaryResult;
 
   if (error) {
     return {
@@ -71,6 +85,15 @@ export async function getMetaMetrics(
       detail: error.message,
     };
   }
+
+  // No fatal: el sparkline es un adorno de la tarjeta KPI.
+  type MetaDailyRow = { bucket_date: string; spend: number };
+  const daily = !dailyResult.error && Array.isArray(dailyResult.data)
+    ? (dailyResult.data as MetaDailyRow[]).map((row) => ({
+        date: row.bucket_date,
+        spend: Number(row.spend) || 0,
+      }))
+    : [];
 
   const summary = data?.[0] ?? {
     spend: 0,
@@ -96,6 +119,7 @@ export async function getMetaMetrics(
         end: periodEnd.toISOString(),
       },
       acquisition: summary,
+      daily,
     },
   };
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { displayValue } from "@/lib/display-labels";
 import { useActiveConnection } from "@/components/active-connection";
 import {
   Badge,
@@ -11,7 +12,7 @@ import {
   Button,
   Card,
   ErrorBlock,
-  Heading,
+  EYEBROW,
   LoadingBlock,
   Table,
   type Tone,
@@ -215,36 +216,31 @@ export function AiDiagnosticSection({
   }
 
   return (
-    <section className="border-t border-ink/20 pt-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
-        <div>
-          <Heading size="lg">{title}</Heading>
-          {diagnostic ? (
-            <p className="mt-1 font-mono text-xs text-muted">
-              {days ? `últimos ${days} días · ` : ""}
-              {diagnostic.from_cache ? "generado" : "recien generado"} el{" "}
-              {new Date(diagnostic.generated_at).toLocaleString()}
-              {diagnostic.envelope ? (
-                <>
-                  {" "}
-                  · datos {diagnostic.envelope.freshness.status} ·{" "}
-                  {diagnostic.envelope.sources.length} fuente(s)
-                </>
-              ) : null}
-              {diagnostic.runtime ? (
-                <span className="mt-2 block">
-                  <AgentRuntimeStatusBadge
-                    orchestrationMode={diagnostic.runtime.orchestration_mode}
-                    langsmithTracing={diagnostic.runtime.langsmith_tracing}
-                  />
-                </span>
-              ) : null}
-            </p>
-          ) : null}
-        </div>
-        {diagnostic ? (
+    <Card
+      title={
+        <span className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <Badge tone="brand">IA</Badge>
+          {title}
+        </span>
+      }
+      description={
+        diagnostic ? (
+          <span className="text-xs text-muted">
+            {days ? `últimos ${days} días · ` : ""}
+            {diagnostic.from_cache ? "generado" : "recién generado"} el{" "}
+            {new Date(diagnostic.generated_at).toLocaleString()}
+            {diagnostic.envelope
+              ? ` · datos ${displayValue(
+                  diagnostic.envelope.freshness.status,
+                )} · ${diagnostic.envelope.sources.length} fuente(s)`
+              : ""}
+          </span>
+        ) : undefined
+      }
+      actions={
+        diagnostic ? (
           <Button
-            variant="secondary"
+            variant="ghost"
             size="sm"
             type="button"
             disabled={isRegenerating}
@@ -252,20 +248,26 @@ export function AiDiagnosticSection({
           >
             {isRegenerating ? "Actualizando..." : "Actualizar ahora"}
           </Button>
-        ) : null}
-      </div>
-
+        ) : null
+      }
+    >
       {isLoading ? (
-        <div className="mt-3">
-          <LoadingBlock label={loadingLabel} />
-        </div>
+        <LoadingBlock label={loadingLabel} />
       ) : error ? (
-        <div className="mt-3">
-          <ErrorBlock>{error}</ErrorBlock>
-        </div>
+        <ErrorBlock>{error}</ErrorBlock>
       ) : diagnostic ? (
-        <Card className="mt-3">
-          <p className="text-sm leading-6">{diagnostic.output.answer}</p>
+        <>
+          <p className="text-[13px] leading-relaxed text-ink">
+            {diagnostic.output.answer}
+          </p>
+          {diagnostic.runtime ? (
+            <div className="mt-2">
+              <AgentRuntimeStatusBadge
+                orchestrationMode={diagnostic.runtime.orchestration_mode}
+                langsmithTracing={diagnostic.runtime.langsmith_tracing}
+              />
+            </div>
+          ) : null}
 
           {variant === "summary" ? (
             <>
@@ -304,7 +306,7 @@ export function AiDiagnosticSection({
 
           {variant === "full" && diagnostic.output.findings.length ? (
             <div className="mt-4">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+              <p className={EYEBROW}>
                 Hallazgos
               </p>
               <Table
@@ -332,8 +334,10 @@ export function AiDiagnosticSection({
           ) : null}
 
           {variant === "full" && diagnostic.output.recommendations.length ? (
-            <Card className="mt-4" kicker="Recomendación">
+            <div className="mt-4">
+              <p className={EYEBROW}>Recomendación</p>
               <Table
+                className="mt-2"
                 ariaLabel="Recomendaciones del diagnostico"
                 columns={[
                   { key: "action", label: "Acción" },
@@ -351,7 +355,7 @@ export function AiDiagnosticSection({
                   ...rec,
                 }))}
               />
-            </Card>
+            </div>
           ) : null}
 
           {diagnostic.output.warnings.length ? (
@@ -365,8 +369,8 @@ export function AiDiagnosticSection({
           ) : null}
 
           {variant === "full" && diagnostic.output.proposed_writes.length ? (
-            <div className="mt-4 border-t border-line pt-3">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            <div className="mt-4 border-t border-edge pt-3">
+              <p className={EYEBROW}>
                 {diagnostic.output_status === "pending_approval"
                   ? "Propuesta, sin aplicar"
                   : "Propuesta ya revisada"}
@@ -394,8 +398,8 @@ export function AiDiagnosticSection({
           ) : tasksFeedback ? (
             <p className="mt-4 text-sm text-muted">{tasksFeedback}</p>
           ) : null}
-        </Card>
+        </>
       ) : null}
-    </section>
+    </Card>
   );
 }

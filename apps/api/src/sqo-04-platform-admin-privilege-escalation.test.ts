@@ -180,20 +180,6 @@ const PLATFORM_ADMIN_ONLY_ROUTES: Array<{
   },
   {
     method: "DELETE",
-    path: (id) =>
-      `/v1/consultant/organizations/${id}/stores/${FAKE_RESOURCE_ID}`,
-    label:
-      "DELETE consultant/organizations/:organizationId/stores/:connectionId",
-  },
-  {
-    method: "POST",
-    path: (id) =>
-      `/v1/consultant/organizations/${id}/stores/${FAKE_RESOURCE_ID}/restore`,
-    label:
-      "POST consultant/organizations/:organizationId/stores/:connectionId/restore",
-  },
-  {
-    method: "DELETE",
     path: (id) => `/v1/consultant/organizations/${id}`,
     label: "DELETE consultant/organizations/:organizationId",
   },
@@ -227,5 +213,50 @@ for (const route of PLATFORM_ADMIN_ONLY_ROUTES) {
 
     const parsedBody = JSON.parse(response.body);
     assert.equal(parsedBody.error, "platform_admin_required");
+  });
+}
+
+// Borrar/restaurar una tienda dejo de ser exclusivo de platform_admin: el
+// consultor asignado tambien puede. Un owner sin rol consultor/platform_admin
+// sigue sin poder -- ahora con error "consultant_access_required" (falla el
+// chequeo de rol antes que el de asignacion).
+const CONSULTANT_OR_ADMIN_ONLY_ROUTES: Array<{
+  method: "GET" | "PUT" | "PATCH" | "POST" | "DELETE";
+  path: (organizationId: string) => string;
+  label: string;
+}> = [
+  {
+    method: "DELETE",
+    path: (id) =>
+      `/v1/consultant/organizations/${id}/stores/${FAKE_RESOURCE_ID}`,
+    label:
+      "DELETE consultant/organizations/:organizationId/stores/:connectionId",
+  },
+  {
+    method: "POST",
+    path: (id) =>
+      `/v1/consultant/organizations/${id}/stores/${FAKE_RESOURCE_ID}/restore`,
+    label:
+      "POST consultant/organizations/:organizationId/stores/:connectionId/restore",
+  },
+];
+
+for (const route of CONSULTANT_OR_ADMIN_ONLY_ROUTES) {
+  test(`${route.label}: un owner sin rol consultor/platform_admin no puede ejecutar esta accion, ni sobre su propia organizacion`, async () => {
+    const response = await app.inject({
+      method: route.method,
+      url: route.path(orgId),
+      headers: { authorization: `Bearer ${ownerAccessToken}` },
+      payload: {},
+    });
+
+    assert.equal(
+      response.statusCode,
+      403,
+      `se esperaba 403 (consultant_access_required), se obtuvo ${response.statusCode}: ${response.body}`,
+    );
+
+    const parsedBody = JSON.parse(response.body);
+    assert.equal(parsedBody.error, "consultant_access_required");
   });
 }

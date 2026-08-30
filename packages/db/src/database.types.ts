@@ -6767,7 +6767,7 @@ export type Database = {
         Row: {
           alert_id: string | null
           assigned_to: string | null
-          category: string
+          categories: string[]
           completed_at: string | null
           created_at: string
           created_by: string | null
@@ -6789,7 +6789,7 @@ export type Database = {
         Insert: {
           alert_id?: string | null
           assigned_to?: string | null
-          category?: string
+          categories?: string[]
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
@@ -6811,7 +6811,7 @@ export type Database = {
         Update: {
           alert_id?: string | null
           assigned_to?: string | null
-          category?: string
+          categories?: string[]
           completed_at?: string | null
           created_at?: string
           created_by?: string | null

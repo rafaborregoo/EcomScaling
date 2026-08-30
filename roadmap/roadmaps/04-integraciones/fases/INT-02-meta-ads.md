@@ -66,21 +66,50 @@ versiÃ³n nueva porque el endpoint devolviÃ³ 429 durante esta auditorÃ­a.
 > paquete de configuracion. Meta sigue correctamente bloqueado solo por
 > App Review/business verification y ausencia de credenciales reales.
 
-- **Estado real:** `blocked`
+- **Estado real:** `implemented_partial` (lectura/sync, contratos de escritura y dry-run local preparados; ejecución real pendiente)
 - **Responsable:** sin asignar
-- **Ultima validacion:** 2026-07-20
+- **Ultima validacion:** 2026-08-26
 - **Dependencias:** INT-00, DB-06, BE-04
 - **Bloqueador:** Meta App Review / business verification. Sin una app real revisada por Meta no se puede
   validar el flujo completo contra activos reales (ver matriz de endpoints ya verificada en
   `roadmap/roadmaps/02-backend-api/fases/BE-04-meta-adquisicion.md` — no se duplica aqui).
 - **Evidencia:** `apps/api/src/meta-oauth.ts`, `meta.ts`, `meta-sync.ts`, `meta-metrics.ts`,
-  `meta-client.ts`.
+  `meta-client.ts`, `apps/api/src/meta-ad-write-plan.ts` y
+  `packages/integrations/src/meta-ad-write-contract.ts`.
 
 ## Contrato de preparación para activación futura
 
 INT-02 se evalúa contra el [objetivo global del SaaS](../../../../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md).
 Mientras no existan credenciales y permisos aprobados, el estado correcto es preparado/bloqueado para
 validación externa; no se crean cuentas, campañas ni métricas ficticias.
+
+### Dry-run de creación de anuncios (2026-08-26)
+
+La API expone `POST /v1/organizations/:organizationId/meta/ad-creation-plan`.
+La ruta exige una organización operativa y permisos de owner, manager,
+consultor o platform admin; valida cuenta, nombres, presupuesto, idempotencia y
+ausencia de secretos. Devuelve únicamente un plan con la jerarquía
+`campaign → adset → creative → ad`, estado inicial `PAUSED` y
+`executionReady: false`. La UI de Marketing lo presenta para revisión cuando
+el canal es Meta Ads o multicanal. Esta ruta no llama a Meta ni persiste objetos
+externos; el executor futuro deberá añadir scopes, credenciales, aprobación y
+reintentos idempotentes.
+
+El cliente Graph también expone `metaGraphPost` como transporte común para ese
+executor futuro. Reutiliza el mismo timeout, retries, backoff y
+`appsecret_proof` que las lecturas, envía parámetros form-urlencoded y no se
+llama desde un flujo de negocio mientras no exista una implementación validada
+de los campos y permisos de escritura vigentes.
+
+El contrato `executeMetaAdCreationPlan` completa el siguiente boundary local:
+requiere aprobación explícita, ejecuta la jerarquía en orden, transmite la
+idempotency key a cada operación, reanuda con IDs ya existentes y devuelve los
+pasos completados si falla una llamada. Las operaciones Graph concretas se
+inyectarán únicamente después de revalidar la documentación y permisos de
+Meta; el executor no está conectado a una ruta de negocio todavía.
+
+Los fallos parciales incluyen los IDs obtenidos hasta ese momento para que el
+worker pueda persistir un checkpoint y reanudar sin duplicar niveles ya creados.
 
 La implementación futura debe conservar estas decisiones de contrato:
 
@@ -240,11 +269,15 @@ INT-02, no el SDK:
   `fetchGraphJsonWithRetry` (mismo backoff/rate-limit ya implementado en `meta-client.ts`), no una llamada
   fetch nueva sin retry.
 - Esto es una capacidad de **escritura** sobre la cuenta publicitaria del cliente (crear campana,
-  aunque sea en `status: PAUSED`) -- requiere su propia decision de aprobacion humana antes de escribir
-  (mismo criterio que el resto del producto: IA/automatismos no escriben directo, un humano aprueba), y
-  todavia no tiene endpoint ni UI. No iniciar sin decidir antes el flujo de aprobacion y sin que la app
-  tenga ya los permisos de escritura (`ads_management`) aprobados por Meta App Review -- hoy `META_SCOPES`
-  solo pide permisos de lectura (`ads_read,business_management,pages_show_list`).
+  aunque sea en `status: PAUSED`) -- requiere aprobacion humana antes de escribir
+  (mismo criterio que el resto del producto: IA/automatismos no escriben directo, un humano aprueba).
+  La preparacion ya existe en `meta-ad-write-contract.ts` y `meta-ad-executor.ts`: valida la cuenta,
+  nombres, presupuesto, idempotencia y ausencia de secretos; conserva los IDs de cada nivel para
+  reanudar sin duplicar; y ejecuta `campaign -> adset -> creative -> ad` solo con aprobacion explicita.
+  La superficie de marketing ya permite redactar, previsualizar, revisar y aprobar la propuesta, pero
+  el runtime permanece en dry-run hasta que la app tenga permisos de escritura (`ads_management`)
+  aprobados por Meta App Review -- hoy `META_SCOPES` solo pide permisos de lectura
+  (`ads_read,business_management,pages_show_list`).
 
 ## Preparación de producto 2026-08-02
 
@@ -275,8 +308,15 @@ La preparación técnica queda definida así:
 - las propuestas se crearán inicialmente en `PAUSED`, con previsualización y aprobación humana antes de cualquier llamada de escritura;
 - el cliente reutilizará el mismo `meta-client.ts`, retry, app-secret proof, auditoría y aislamiento tenant-scoped que usa la lectura;
 - `ads_management` se tratará como permiso futuro separado de `ads_read`, pendiente de App Review y de validación con una cuenta real.
+- El objetivo comercial interno de Marketing IA se mantiene separado del objetivo nativo de Meta:
+  la UI envía valores `OUTCOME_*` al plan de escritura y conserva el objetivo comercial (`conversion`,
+  `launch`, etc.) para el brief de Claude. Así no se filtran enums internos al futuro endpoint de Meta.
 
-No se implementa todavía ningún `POST` de creación ni se muestran campañas de prueba. La UI debe poder mostrar la capacidad como “preparada, requiere conexión y aprobación” hasta que existan credenciales, permisos efectivos y validación externa.
+El transporte `metaGraphPost` y el executor idempotente (`packages/integrations/src/meta-ad-executor.ts`)
+ya están preparados y probados, pero la ruta de producto permanece en dry-run: no se ejecutan POSTs reales
+ni se muestran campañas de prueba sin credenciales, `ads_management`, App Review y validación externa.
+La UI muestra la capacidad como “preparada, requiere conexión y aprobación” hasta que esas precondiciones
+se cumplan.
 
 ## Pendiente antes de cerrar INT-02
 

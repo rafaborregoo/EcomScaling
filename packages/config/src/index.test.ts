@@ -199,6 +199,14 @@ test("loadApiEnv: conserva el routing IA opcional sin exigir proveedores", () =>
   assert.equal(env.ANTHROPIC_API_KEY, undefined);
 });
 
+test("loadApiEnv: conserva el modelo Anthropic global opcional", () => {
+  const env = loadApiEnv({
+    ...BASE_ENV,
+    ANTHROPIC_MODEL: "claude-sonnet-5",
+  });
+  assert.equal(env.ANTHROPIC_MODEL, "claude-sonnet-5");
+});
+
 test("loadApiEnv: conserva los presupuestos IA por plan sin exigir proveedores", () => {
   const budgets = JSON.stringify({ starter: { dailyBudgetUsd: 8 } });
   const env = loadApiEnv({ ...BASE_ENV, AI_PLAN_BUDGETS_JSON: budgets });

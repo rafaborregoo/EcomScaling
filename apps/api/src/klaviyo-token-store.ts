@@ -10,6 +10,7 @@ import {
 } from "./klaviyo-oauth.js";
 
 const CREDENTIAL_KIND = "klaviyo_oauth_tokens";
+const API_KEY_CREDENTIAL_KIND = "klaviyo_private_api_key";
 const REFRESH_BUFFER_MS = 2 * 60 * 1000;
 
 type KlaviyoCredentialPayload = {
@@ -80,6 +81,36 @@ export async function saveKlaviyoTokens(
     throw new Error(`klaviyo_credential_store_failed:${error.message}`);
 }
 
+/**
+ * Guarda una private API key (`pk_...`) para la conexión. No caduca ni se
+ * refresca: el usuario la rota manualmente en Klaviyo y vuelve a conectar.
+ */
+export async function saveKlaviyoApiKey(
+  env: LoadedApiEnv,
+  connectionId: string,
+  apiKey: string,
+) {
+  const { error } = await serviceClient(env)
+    .schema("private")
+    .from("integration_credentials")
+    .upsert(
+      {
+        connection_id: connectionId,
+        credential_kind: API_KEY_CREDENTIAL_KIND,
+        encrypted_payload: encryptShopifyCredential(
+          JSON.stringify({ api_key: apiKey }),
+          secretFor(env),
+        ),
+        encryption_key_version: "v1",
+        expires_at: null,
+        rotated_at: new Date().toISOString(),
+      },
+      { onConflict: "connection_id,credential_kind" },
+    );
+  if (error)
+    throw new Error(`klaviyo_credential_store_failed:${error.message}`);
+}
+
 export async function getValidKlaviyoAccessToken(
   env: LoadedApiEnv,
   connectionId: string,
@@ -97,6 +128,26 @@ export async function getValidKlaviyoAccessToken(
     );
   if (!connection || ["disconnected", "revoked"].includes(connection.status)) {
     throw new Error("klaviyo_connection_not_active");
+  }
+
+  const { data: apiKeyRow, error: apiKeyError } = await client
+    .schema("private")
+    .from("integration_credentials")
+    .select("encrypted_payload")
+    .eq("connection_id", connectionId)
+    .eq("credential_kind", API_KEY_CREDENTIAL_KIND)
+    .maybeSingle();
+  if (apiKeyError)
+    throw new Error(`klaviyo_credential_load_failed:${apiKeyError.message}`);
+  if (apiKeyRow?.encrypted_payload) {
+    try {
+      const parsed = JSON.parse(
+        decryptShopifyCredential(apiKeyRow.encrypted_payload, secretFor(env)),
+      ) as { api_key?: string };
+      if (parsed.api_key) return parsed.api_key;
+    } catch {
+      throw new Error("klaviyo_access_token_unavailable");
+    }
   }
 
   const { data: row, error } = await client

@@ -105,17 +105,16 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
                       <AiEvidence sources={message.sources ?? []} warnings={message.warnings ?? []} />
                     </Card>
                   ) : (
-                    <div key={index}>
-                      <p className="font-mono text-[0.6rem] uppercase tracking-wide text-muted">Tú</p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                    </div>
+                    <Card key={index} kicker="Tú" className="bg-surface">
+                      <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                    </Card>
                   ))
                 )}
                 {isSending ? <p className="text-sm text-muted">Pensando...</p> : null}
                 {error ? <Alert status={error.status} role="alert"><Alert.Indicator /><Alert.Content><Alert.Description>{error.message}</Alert.Description></Alert.Content></Alert> : null}
               </div>
             </Drawer.Body>
-            <Drawer.Footer>
+            <Drawer.Footer className="pb-[calc(1rem+env(safe-area-inset-bottom))]">
               <form className="flex w-full items-center gap-2" onSubmit={submit}>
                 <Input className="w-full" aria-label="Pregunta para el copiloto" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej: ¿cuánto hemos vendido esta semana?" disabled={isSending} />
                 <Button type="submit" disabled={isSending || !input.trim()}>Enviar</Button>

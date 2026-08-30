@@ -92,19 +92,26 @@ Definir el contrato y las tablas comunes que cualquier conector (Shopify, Meta, 
 Instagram) debe usar para conexiones, sincronizacion y webhooks, evitando que cada proveedor reinvente su
 propio modelo de estados.
 
+## Estado vigente 2026-08-26
+
+El contrato `IntegrationAdapter` ya está implementado en `apps/api/src/integration-adapters.ts` y lo
+usan Shopify y Meta Ads. Klaviyo dispone del adapter de contrato y permanece preparado hasta disponer
+de credenciales reales; Instagram permanece explícitamente no disponible. Las validaciones de proveedor
+real no se simulan.
+
 ## Decisiones aprobadas
 
-- Modelo de conexion, sync run y webhook event comun a nivel de esquema (tres tablas en DB-04), aunque
-  todavia no a nivel de interfaz de codigo.
+- Modelo de conexion, sync run y webhook event comun a nivel de esquema (tres tablas en DB-04) y
+  `IntegrationAdapter` común para OAuth, sincronización, webhooks y salud.
 - Credenciales siempre en `private`, nunca expuestas al frontend via el endpoint de estado.
 - El enum `provider` se fija por adelantado para los seis conectores previstos, aunque no todos tengan
   implementacion.
 
-## Contrato de adaptador (extraido de Shopify/Meta reales, 2026-07-22)
+## Contrato de adaptador (extraido de Shopify/Meta reales, actualizado 2026-08-26)
 
-Esto es un contrato **documentado, todavia no implementado en codigo** — Shopify y Meta siguen
-implementando el mismo patron en paralelo sin compartir una interfaz TypeScript real. La forma de abajo se
-extrajo mapeando cada metodo a la funcion que ya existe hoy, no diseñada en abstracto:
+Este contrato está implementado para Shopify y Meta, con adapters de disponibilidad honesta para
+Klaviyo e Instagram. La interfaz se extrae de las capacidades reales y evita que cada proveedor
+exponga credenciales o estados distintos:
 
 ```ts
 interface IntegrationAdapter {
@@ -153,13 +160,12 @@ type IntegrationCapabilities = {
 | `refreshCredentials`                    | `refreshShopifyOfflineToken` (`shopify-oauth.ts`)                                                                                     | `getValidMetaAccessToken` (`meta.ts`) — resuelve token valido, no hay refresh explicito de token largo aun             |
 | `discoverAssets`                        | No aplica (una tienda = una conexion, sin descubrimiento de activos)                                                                  | `discoverMetaAssets` (`meta.ts`) — hoy sincroniza toda la estructura descubierta, sin seleccion explicita (ver INT-02) |
 | `runInitialSync` / `runIncrementalSync` | `triggerShopifySync` (`shopify.ts`), bloques via `sync_scope`                                                                         | `triggerMetaSync` (`meta.ts`)                                                                                          |
-| `verifyWebhook`/`processWebhook`        | `shopify-webhook-handler.ts`/`shopify-webhooks.ts` (dual secret publico/custom)                                                       | No implementado — Meta no tiene webhooks todavia                                                                       |
-| `getConnectionHealth`                   | Derivado de scopes concedidos vs. requeridos + `STALE_SYNCING_MS` (`shopify.ts:29`)                                                   | No implementado como funcion propia                                                                                    |
+| `verifyWebhook`/`processWebhook`        | `shopify-webhook-handler.ts`/`shopify-webhooks.ts` (dual secret publico/custom)                                                       | No conectado: Meta webhooks requieren configuración y validación de la app real                                      |
+| `getConnectionHealth`                   | `connectionHealth` y estado derivado común                                                                                              | `connectionHealth` y estado derivado común                                                                              |
 
-Esta tabla confirma el diagnostico: **la forma ya existe de facto**, pero como codigo paralelo sin
-interfaz compartida — extraer `IntegrationAdapter` a `packages/integrations` (o equivalente) es refactor de
-lo ya escrito, no diseño desde cero. Klaviyo seria el primer conector nuevo que implementa la interfaz
-directamente en vez de escribir su propio patron ad-hoc por tercera vez.
+Esta tabla confirma el estado actual: **la interfaz común ya existe y está cableada** para los dos
+conectores operativos. Las diferencias restantes son capacidades del proveedor y validación externa,
+no una segunda arquitectura.
 
 ### Estados: separar persistente de derivado
 
@@ -222,30 +228,28 @@ todavía conservan errores locales y deben migrarse cuando se cablee el adaptado
 
 ## Pendiente antes de cerrar INT-00
 
-1. Extender `IntegrationSyncAdapter` a `IntegrationAdapter` completo, empezando por OAuth/health de Shopify
-   sin romper su comportamiento actual, luego Meta y sus webhooks donde proceda.
-2. Extender `IntegrationErrorCode` común desde los clientes HTTP a OAuth, sincronización, webhooks y reconciliación.
-3. Documentar el ciclo de vida de credenciales (rotacion, refresh concurrente, revocacion) que hoy vive
-   implicito en `shopify-token-store.ts` sin equivalente para Meta.
-4. Suite de tests contractual compartida (no permite cross-tenant, no expone credenciales, sync repetido
+1. Conectar y validar webhooks Meta cuando la app real tenga configuración y permisos aprobados.
+2. Completar la suite de tests contractual compartida (no permite cross-tenant, no expone credenciales, sync repetido
    no duplica, error retryable reintenta, error permanente no reintenta indefinidamente, webhook duplicado
    no repite efecto, firma invalida se rechaza, revocacion cambia estado, logs sin tokens) — corre contra
    cualquier proveedor que implemente `IntegrationAdapter`, escrita una vez.
 
 ## Criterios de cierre
 
-- **Pendiente:** existe una interfaz de adaptador completa usada por al menos dos proveedores (no solo documentada).
-- **Cumplido parcialmente:** la capa de sincronización común (`IntegrationSyncAdapter`) es usada por Shopify y Meta;
-  la interfaz completa sigue pendiente hasta que OAuth/health/webhooks compartan también el contrato.
+- **Cumplido:** existe una interfaz de adaptador completa usada por Shopify y Meta, con Klaviyo e Instagram
+  representados mediante adapters honestos de disponibilidad.
+- **Parcial:** Meta webhooks y validación externa de los conectores siguen condicionados por la configuración
+  y aprobación de las apps reales.
 - `IntegrationErrorCode` comun definido y usado por Shopify y Meta.
 - Ningun payload externo llega crudo al frontend (cumplido, ver `integrations.ts`).
 
 ### Validacion adicional 2026-07-22
 
-`deriveIntegrationHealth` en `packages/integrations` ya calcula el estado de salud comun desde la
+`deriveIntegrationHealth` en `packages/integrations` calcula el estado de salud común desde la
 disponibilidad del conector, el estado persistente, el ultimo sync, errores recientes y freshness. El
-endpoint de integraciones y la UI lo consumen sin inventar datos para Klaviyo o Instagram. La interfaz
-completa de OAuth, health operativo y webhooks sigue pendiente de cablearse sobre `IntegrationAdapter`.
+endpoint de integraciones y la UI lo consumen sin inventar datos para Klaviyo o Instagram. Shopify y
+Meta ya cablean OAuth, refresh, sincronización y health sobre `IntegrationAdapter`; solo los webhooks
+Meta y la validación externa permanecen condicionados por las apps reales.
 
 **Correccion de estado (2026-07-22):** `apps/api/src/integration-adapters.ts` ya implementa el
 `IntegrationAdapter` completo para Shopify y Meta sobre las funciones existentes. Las rutas OAuth y sync

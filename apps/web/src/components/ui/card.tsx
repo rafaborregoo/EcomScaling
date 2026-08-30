@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Card as HeroCard } from "@heroui/react";
 import { cn } from "./cn";
+import { EYEBROW } from "./typography";
 
 export function Card({
   title,
@@ -29,9 +30,7 @@ export function Card({
       {title || kicker || actions ? (
         <HeroCard.Header className="flex flex-row flex-wrap items-baseline justify-between gap-x-6 gap-y-3 p-4 sm:p-5">
           <div>
-            {kicker ? (
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">{kicker}</p>
-            ) : null}
+            {kicker ? <p className={EYEBROW}>{kicker}</p> : null}
             {title ? <HeroCard.Title>{title}</HeroCard.Title> : null}
             {description ? <HeroCard.Description>{description}</HeroCard.Description> : null}
           </div>

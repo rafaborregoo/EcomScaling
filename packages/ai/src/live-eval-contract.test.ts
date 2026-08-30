@@ -8,10 +8,10 @@ import {
   type LiveAgentEvalCase,
 } from "./live-eval-contract.js";
 
-test("genera un caso base para los diez agentes", () => {
+test("genera un caso base para cada agente activo", () => {
   const cases = buildDefaultLiveEvalCases();
-  assert.equal(cases.length, 10);
-  assert.equal(new Set(cases.map((item) => item.agentCode)).size, 10);
+  assert.equal(cases.length, 11);
+  assert.equal(new Set(cases.map((item) => item.agentCode)).size, 11);
   assert.ok(cases.every((item) => item.expectedAbstention));
 });
 

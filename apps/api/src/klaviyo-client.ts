@@ -41,7 +41,13 @@ export type KlaviyoClient = {
   getAccount(): Promise<KlaviyoResource>;
   listResources<T = Record<string, unknown>>(
     resource:
-      "lists" | "segments" | "flows" | "campaigns" | "forms" | "metrics",
+      | "lists"
+      | "segments"
+      | "flows"
+      | "campaigns"
+      | "forms"
+      | "metrics"
+      | "templates",
   ): Promise<Array<KlaviyoResource<T>>>;
   queryReport<T = Record<string, unknown>>(
     input: KlaviyoReportRequest,
@@ -138,6 +144,12 @@ export function createKlaviyoClient(
   const fetchImpl = options.fetchImpl ?? fetch;
   const revision = options.revision ?? KLAVIYO_API_REVISION;
   const sleepImpl = options.sleepImpl ?? sleep;
+  // Las private API keys de Klaviyo (`pk_...`) usan un esquema propio; los
+  // access tokens OAuth usan Bearer. Detectamos por prefijo para no cambiar
+  // la firma en cada call site.
+  const authorization = accessToken.startsWith("pk_")
+    ? `Klaviyo-API-Key ${accessToken}`
+    : `Bearer ${accessToken}`;
 
   async function request<T>(
     pathOrUrl: string,
@@ -159,7 +171,7 @@ export function createKlaviyoClient(
           signal,
           headers: {
             Accept: "application/json",
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: authorization,
             revision,
             ...init.headers,
           },

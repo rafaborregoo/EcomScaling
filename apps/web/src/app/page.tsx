@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { fetchBootstrap, getAccessToken } from "@/lib/bootstrap";
+import { LoadingBlock } from "@/components/ui";
 
 export default function Home() {
   const router = useRouter();
@@ -17,11 +18,10 @@ export default function Home() {
           return;
         }
 
-        const bootstrap = await fetchBootstrap(token);
-        const isConsultant = ["platform_admin", "consultant"].includes(
-          bootstrap.profile.platform_role,
-        );
-        router.replace(isConsultant ? "/consultor" : "/dashboard");
+        await fetchBootstrap(token);
+        // Todos aterrizan en Dashboard: para el consultor es la vista general
+        // de su cartera, para el cliente es la de su tienda.
+        router.replace("/dashboard");
       } catch {
         router.replace("/login");
       }
@@ -31,8 +31,8 @@ export default function Home() {
   }, [router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white text-black">
-      <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted">EcomScaling IA</p>
+    <main className="flex min-h-screen items-center justify-center bg-white px-6 text-ink">
+      <LoadingBlock label="Preparando tu espacio de trabajo…" />
     </main>
   );
 }

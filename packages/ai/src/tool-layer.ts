@@ -124,7 +124,7 @@ const readTools = [
   "get_task_history",
   "get_call_history",
   "get_financial_settings",
-  // AI-22: contratos preparados; permanecen planned hasta disponer de proveedor.
+  // AI-22/23: contratos preparados sobre tablas normalizadas y tenant-scoped.
   "meta_read_ad_accounts",
   "meta_read_campaign_insights",
   "instagram_read_media",
@@ -177,6 +177,11 @@ const connectorForTool = (name: string): ToolDefinition["connector"] => {
   return "core";
 };
 
+/** Identificadores persistidos por Integrations que tienen alias en el Tool Layer. */
+export function normalizeToolConnectorId(provider: string): string {
+  return provider === "meta_ads" ? "meta" : provider;
+}
+
 const definition = (
   name: string,
   permission: ToolPermission,
@@ -207,6 +212,10 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "search_knowledge",
         "data_coverage",
         "get_budget_status",
+        "meta_read_ad_accounts",
+        "meta_read_campaign_insights",
+        "instagram_read_media",
+        "instagram_read_insights",
         "describe_schema",
         "get_organization_profile",
         "get_strategic_plan",

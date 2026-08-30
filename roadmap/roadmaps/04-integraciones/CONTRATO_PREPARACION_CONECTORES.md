@@ -161,3 +161,8 @@ idempotente en orden, estado inicial `PAUSED`, previsualización y aprobación h
 ni activará hasta disponer de App Review, credenciales y validación con una cuenta real.
 Mientras tanto se prepara la interfaz y el adaptador sin ejecutar POSTs contra Meta ni
 mostrar campañas ficticias.
+
+La escritura de Meta Ads ya tiene un contrato tipado y un executor reanudable en
+`packages/integrations/src/meta-ad-write-contract.ts` y `meta-ad-executor.ts`. La UI puede construir
+la propuesta y someterla a aprobación, pero el transporte productivo sigue protegido por dry-run hasta
+contar con `ads_management`, App Review y una cuenta real validada.

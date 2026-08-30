@@ -63,14 +63,17 @@ Decisiones a tomar antes de programar:
 1. ~~Decidir modo de auth (API key vs OAuth)~~ — **resuelto 2026-07-29 (Q-011): API key interna.**
 2. Conseguir una API key de una cuenta de prueba real de Fathom (Rafa) — bloquea el registro y validación
    externa; el contrato de webhook ya está preparado y testeado localmente.
-3. Diseñar el flujo webhook -> verificar firma -> deduplicar -> resolver organizacion por conexion ->
-   guardar `call_transcripts` con `source: fathom` -> ejecutar A01 -> aprobacion humana (mismo punto de
-   entrada que ya usa Loom manual, para no duplicar el pipeline de A01).
-4. Definir pruebas: webhook valido, firma incorrecta, timestamp expirado, webhook duplicado, reunion sin
-   transcripcion, retry que no duplica tareas.
+3. ~~Diseñar el flujo webhook -> verificar firma -> deduplicar -> resolver organizacion por conexion ->
+   guardar `call_transcripts` con `source: fathom` -> ejecutar A01 -> aprobacion humana~~ — **implementado
+   localmente** en `fathom-webhook-handler.ts`, con la misma frontera de aprobación que Loom.
+4. ~~Definir pruebas: webhook valido, firma incorrecta, timestamp expirado, webhook duplicado, reunion sin
+   transcripcion, retry que no duplica tareas~~ — **cubierto localmente** por el handler y su cola.
 
 ## Criterios de cierre
 
 - Nada se publica al cliente sin aprobacion humana (cumplido para Loom manual; debe seguir cumplido para
   Fathom).
-- Reintentos de webhook de Fathom no duplican resumenes ni tareas (pendiente, no implementado todavia).
+- Reintentos de webhook de Fathom no duplican resumenes ni tareas (**cumplido localmente**): la cola
+  reclama por estado, limita a cinco intentos, usa backoff y la llamada/transcripción se buscan por
+  `organization_id` + `external_recording_id` antes de materializarse. Solo queda validación con una
+  API key real de Fathom.

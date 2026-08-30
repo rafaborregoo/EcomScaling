@@ -19,7 +19,7 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  Heading,
+  EYEBROW,
   IconChevronLeft,
   Link,
   Pagination,
@@ -57,9 +57,9 @@ function blockStatusClass(status: string | undefined) {
     case "running":
       return "text-brand";
     case "succeeded":
-      return "text-black";
+      return "text-ink";
     case "failed":
-      return "text-brand-deep";
+      return "text-danger";
     default:
       return "text-muted";
   }
@@ -85,9 +85,7 @@ const summaryColumns: TableColumnDef<SummaryRow>[] = [
     key: "field",
     label: "Campo",
     render: (row) => (
-      <span className="font-mono text-xs uppercase tracking-wide text-muted">
-        {row.field}
-      </span>
+      <span className={EYEBROW}>{row.field}</span>
     ),
   },
   {
@@ -140,7 +138,7 @@ const syncBlockColumns: TableColumnDef<SyncBlockRow>[] = [
     key: "error_message",
     label: "Error",
     render: (row) => (
-      <span className="font-mono text-xs break-words text-brand-deep">
+      <span className="font-mono text-xs break-words text-danger">
         {row.block?.error_message ?? "—"}
       </span>
     ),
@@ -166,7 +164,7 @@ function scopeColumns(
         <span
           className={[
             "font-mono text-xs uppercase",
-            authorizedScopes.has(row.scope) ? "text-black" : "text-brand",
+            authorizedScopes.has(row.scope) ? "text-ink" : "text-danger",
           ].join(" ")}
         >
           {authorizedScopes.has(row.scope) ? "autorizado" : "no concedido"}
@@ -242,7 +240,7 @@ const productColumns: TableColumnDef<ProductRow>[] = [
     label: "Estado",
     render: (row) => (
       <span className="font-mono text-xs text-brand">
-        {row.status ?? "n/a"}
+        {displayValue(row.status)}
       </span>
     ),
   },
@@ -456,7 +454,7 @@ function ShopifyDiagnosticoView({
 
   return (
     <div className="portal-page space-y-6">
-      <div className="flex items-center justify-between border-t border-ink/20 pt-5">
+      <div className="flex items-center justify-between">
         <Link className="inline-flex items-center gap-1" href="/shopify">
           <IconChevronLeft aria-hidden /> Volver a Shopify
         </Link>
@@ -465,7 +463,7 @@ function ShopifyDiagnosticoView({
       <Tabs items={tabs} value={tab} onChange={setTab} />
 
       {tab === "resumen" ? (
-        <div className="space-y-5">
+        <div className="space-y-6">
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">
               <span className="font-medium">Ultimo error Shopify:</span>{" "}
@@ -475,47 +473,52 @@ function ShopifyDiagnosticoView({
             </Banner>
           ) : null}
 
-          <Table
-            ariaLabel="Resumen de la conexion Shopify"
-            columns={summaryColumns}
-            rows={[
-              {
-                id: "conexion",
-                field: "Conexion",
-                value: displayValue(overview.connection?.status ?? "sin_conexion"),
-                detail:
-                  overview.connection?.provider_account_id ??
-                  "Tienda pendiente",
-              },
-              {
-                id: "tienda",
-                field: "Tienda",
-                value: overview.store?.shop_name ?? "Sin tienda",
-                detail:
-                  overview.store?.primary_domain ?? "sin dominio primario",
-              },
-              {
-                id: "ultimo-sync",
-                field: "Ultimo sync",
-                value: displayValue(overview.sync_runs[0]?.status ?? "sin_sync"),
-                detail: formatDate(overview.sync_runs[0]?.finished_at),
-              },
-              {
-                id: "registros",
-                field: "Registros escritos",
-                value: String(overview.sync_runs[0]?.records_written ?? 0),
-                detail: "en el último sync",
-              },
-            ]}
-          />
+          <Card
+            title="Resumen de la conexión"
+            description="Estado actual de la tienda y del último proceso de sincronización."
+          >
+            <Table
+              ariaLabel="Resumen de la conexion Shopify"
+              columns={summaryColumns}
+              rows={[
+                {
+                  id: "conexion",
+                  field: "Conexion",
+                  value: displayValue(overview.connection?.status ?? "sin_conexion"),
+                  detail:
+                    overview.connection?.provider_account_id ??
+                    "Tienda pendiente",
+                },
+                {
+                  id: "tienda",
+                  field: "Tienda",
+                  value: overview.store?.shop_name ?? "Sin tienda",
+                  detail:
+                    overview.store?.primary_domain ?? "sin dominio primario",
+                },
+                {
+                  id: "ultimo-sync",
+                  field: "Ultimo sync",
+                  value: displayValue(overview.sync_runs[0]?.status ?? "sin_sync"),
+                  detail: formatDate(overview.sync_runs[0]?.finished_at),
+                },
+                {
+                  id: "registros",
+                  field: "Registros escritos",
+                  value: String(overview.sync_runs[0]?.records_written ?? 0),
+                  detail: "en el último sync",
+                },
+              ]}
+            />
+          </Card>
         </div>
       ) : null}
 
       {tab === "sincronizacion" ? (
-        <div className="space-y-5">
+        <div className="space-y-6">
           <Card className="grid gap-0 md:grid-cols-4">
-            <article className="border-b border-line p-4 md:border-r">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            <article className="border-b border-edge p-4 md:border-r">
+              <p className={EYEBROW}>
                 Se vuelcan ahora
               </p>
               <p className="mt-2 font-mono text-2xl">{activeDatasets.length}</p>
@@ -523,24 +526,24 @@ function ShopifyDiagnosticoView({
                 {activeRecordCount} registros
               </p>
             </article>
-            <article className="border-b border-line p-4 md:border-r">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            <article className="border-b border-edge p-4 md:border-r">
+              <p className={EYEBROW}>
                 Autorizados pendientes
               </p>
               <p className="mt-2 font-mono text-2xl">
                 {authorizedPlannedDatasets.length}
               </p>
             </article>
-            <article className="border-b border-line p-4 md:border-r">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            <article className="border-b border-edge p-4 md:border-r">
+              <p className={EYEBROW}>
                 Sin permiso
               </p>
               <p className="mt-2 font-mono text-2xl">
                 {notAuthorizedPlannedDatasets.length}
               </p>
             </article>
-            <article className="border-b border-line p-4">
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-muted">
+            <article className="border-b border-edge p-4">
+              <p className={EYEBROW}>
                 Permisos concedidos
               </p>
               <p className="mt-2 font-mono text-2xl">
@@ -566,33 +569,40 @@ function ShopifyDiagnosticoView({
       ) : null}
 
       {tab === "permisos" ? (
-        <div className="space-y-5">
-          <Table
-            ariaLabel="Permisos de Shopify concedidos"
-            columns={scopeColumns(authorizedScopes)}
-            rows={overview.scope_catalog.map((item) => ({
-              id: item.scope,
-              ...item,
-            }))}
-          />
+        <div className="space-y-6">
+          <Card
+            title="Permisos concedidos"
+            description="Scopes disponibles para esta conexión y su estado de autorización."
+          >
+            <Table
+              ariaLabel="Permisos de Shopify concedidos"
+              columns={scopeColumns(authorizedScopes)}
+              rows={overview.scope_catalog.map((item) => ({
+                id: item.scope,
+                ...item,
+              }))}
+            />
+          </Card>
 
-          <Table
-            ariaLabel="Datasets de Shopify"
-            columns={datasetColumns}
-            rows={overview.datasets.map((dataset) => ({
-              id: dataset.key,
-              ...dataset,
-            }))}
-          />
+          <Card
+            title="Datasets de Shopify"
+            description="Bloques de datos que la conexión puede importar."
+          >
+            <Table
+              ariaLabel="Datasets de Shopify"
+              columns={datasetColumns}
+              rows={overview.datasets.map((dataset) => ({
+                id: dataset.key,
+                ...dataset,
+              }))}
+            />
+          </Card>
         </div>
       ) : null}
 
       {tab === "muestras" ? (
         <div className="space-y-6">
-          <Card>
-            <Heading level={2} size="md">
-              Productos ({overview.samples.products.length})
-            </Heading>
+          <Card title={`Productos (${overview.samples.products.length})`}>
             <Table
               className="mt-3"
               ariaLabel="Muestra de productos"
@@ -608,10 +618,7 @@ function ShopifyDiagnosticoView({
             />
           </Card>
 
-          <Card>
-            <Heading level={2} size="md">
-              Pedidos ({overview.samples.orders.length})
-            </Heading>
+          <Card title={`Pedidos (${overview.samples.orders.length})`}>
             <Table
               className="mt-3"
               ariaLabel="Muestra de pedidos"
@@ -627,10 +634,7 @@ function ShopifyDiagnosticoView({
             />
           </Card>
 
-          <Card>
-            <Heading level={2} size="md">
-              Elementos de inventario ({overview.samples.inventory.length})
-            </Heading>
+          <Card title={`Elementos de inventario (${overview.samples.inventory.length})`}>
             <Table
               className="mt-3"
               ariaLabel="Muestra de inventario"

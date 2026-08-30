@@ -1,4 +1,5 @@
 export { cn } from "./cn";
+export { EYEBROW } from "./typography";
 export { Avatar } from "./avatar";
 export type { BreadcrumbItem } from "./breadcrumbs";
 export { Breadcrumbs } from "./breadcrumbs";
@@ -7,13 +8,17 @@ export type { AccordionItem } from "./accordion";
 export { Accordion } from "./accordion";
 export { Button } from "./button";
 export { Card, Section } from "./card";
+export { Metric } from "./metric";
+export { AreaChart, BarChart, Sparkline } from "./chart";
 export type { Tone } from "./badge";
 export { Badge } from "./badge";
 export { Banner } from "./banner";
 export { Field } from "./field";
+export { ColorField } from "./color-field";
 export { Input } from "./input";
 export { Select } from "./select";
 export { Textarea } from "./textarea";
+export { UploadButton } from "./upload-button";
 export { LoadingBlock } from "./loading-block";
 export { ErrorBlock } from "./error-block";
 export { EmptyState } from "./empty-state";
@@ -54,18 +59,36 @@ export { ConfirmDialog } from "./confirm-dialog";
 export { Checkbox } from "./checkbox";
 export { Link } from "./link";
 export { ButtonLink } from "./link";
+export { List } from "./list";
 export { Heading } from "./heading";
 export type { TableColumnDef } from "./table";
 export { Table } from "./table";
 export {
+  AlignCenterIcon,
+  AlignLeftIcon,
+  AlignRightIcon,
+  ArchiveIcon,
   BellIcon,
+  CheckAllIcon,
+  CheckIcon,
   CloseIcon,
+  CompassIcon,
+  DotGridIcon,
+  GripVerticalIcon,
+  HomeIcon,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconChevronUp,
   MenuIcon,
   MoreIcon,
+  PencilIcon,
+  PhoneIcon,
+  PlusIcon,
+  RetryIcon,
+  SettingsIcon,
+  TasksIcon,
+  UsersIcon,
 } from "./icons";
 
 // Re-exportados directos de HeroUI (sin API propia que preservar -- sin uso
@@ -117,3 +140,11 @@ export {
   Typography,
   RouterProvider,
 } from "@heroui/react";
+
+// Acceso al resto de la libreria HeroUI v3 sin tener que ampliar la lista de
+// arriba cada vez. Los re-exports explicitos anteriores y los wrappers propios
+// (Button, Input, Select, Card, Badge, Tabs, Table, Link, Field, Heading,
+// Checkbox, Textarea) tienen prioridad sobre este `export *`: si un nombre
+// existe en ambos, gana el de arriba. La hoja de estilos completa de HeroUI ya
+// se carga en globals.css (`@import "@heroui/styles/css"`).
+export * from "@heroui/react";

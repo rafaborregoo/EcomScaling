@@ -84,6 +84,10 @@ La selección operacional se controla con `AI_ORCHESTRATION_MODE`: `direct` es e
 `langgraph` es un opt-in de shadow/piloto. El modo LangGraph envuelve el turno ya protegido, por lo
 que no puede saltarse presupuesto, fallback, validación, tenant ni aprobación humana.
 
+Actualización 2026-08-26: el adaptador usa `RunnableLambda` de `@langchain/core` como boundary de
+ejecución dentro del grafo LangGraph. Los tipos de LangChain siguen encapsulados en `packages/ai`;
+el API y la base de datos solo reciben los contratos propios de EcomScaling.
+
 Verificación 2026-08-26: piloto LangGraph 2/2, adaptador LangSmith 2/2 y
 configuración de entorno 20/20. Las claves de LangSmith siguen siendo
 opcionales; sin ellas el runtime funciona localmente sin enviar trazas.

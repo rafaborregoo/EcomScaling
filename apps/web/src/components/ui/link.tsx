@@ -57,7 +57,7 @@ export function ButtonLink({
     <HeroLink
       href={href}
       className={cn(
-        "inline-flex min-h-9 w-fit items-center border px-3 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2",
+        "inline-flex min-h-9 w-fit items-center rounded-md border px-3 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2",
         variant === "primary"
           ? "border-brand bg-brand text-white hover:bg-brand-deep"
           : "border-edge bg-white text-ink hover:border-brand hover:text-brand",

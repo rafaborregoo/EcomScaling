@@ -6,7 +6,7 @@
 > errores. La falta de staging separado sigue siendo una decision operativa, no un fallo de migraciones.
 
 > **CorrecciÃ³n vigente 2026-08-26:** la evidencia actual del proyecto remoto es
-> 71 migraciones locales y 71 remotas alineadas, sin pendientes ni migraciones
+> 75 migraciones locales y 75 remotas alineadas, sin pendientes ni migraciones
 > remotas adicionales. Las referencias a 64 migraciones describen una auditorÃ­a
 > anterior. La aplicaciÃ³n se hizo mediante Docker/psql por el fallo `uv_spawn` de
 > la CLI de Supabase en Windows.

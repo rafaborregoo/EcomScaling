@@ -414,7 +414,8 @@ Puedes ejecutar UNA sentencia SELECT (o WITH) por llamada sobre estas vistas, ya
 - fixed_expenses(id, name, category, amount, currency_code, billing_period, valid_from, valid_until, is_active)
 - organization_metric_targets(id, metric_key, target_value, period, valid_from, valid_until)
 - alerts(id, status, severity, title, message, metric_code, metric_value, threshold_value, first_detected_at, last_detected_at, resolved_at)
-- tasks(id, alert_id, source, status, priority, title, description, due_at, completed_at, created_at)
+- tasks(id, alert_id, source, status, priority, title, description, due_at, completed_at, created_at, categories)
+  - categories es text[] (1+ de: shopify, meta, klaviyo, general); filtra con categories @> array['klaviyo'].
 - meta_campaigns(id, external_campaign_id, name, objective, effective_status, daily_budget, lifetime_budget, starts_at, ends_at)
 - meta_ads(id, ad_set_id, external_ad_id, name, effective_status, parsed_angle, parsed_format, parsed_hook)
 - meta_insight_rows_daily(id, campaign_id, ad_set_id, ad_id, level, metric_date, breakdown_hash, spend, impressions, reach, frequency, clicks, inline_link_clicks, cpm, cpc, ctr)

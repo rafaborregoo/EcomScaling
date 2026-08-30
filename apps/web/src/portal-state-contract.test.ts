@@ -19,6 +19,7 @@ const authenticatedPortalRoutes = [
   "shopify",
   "shopify/diagnostico",
   "tareas",
+  "tiendas",
 ] as const;
 
 test("las rutas autenticadas mantienen el contrato de estados de producto", () => {

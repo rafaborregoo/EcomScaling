@@ -1,3 +1,5 @@
+import { displayLabel } from "@/lib/display-labels";
+
 const GATE_LABELS: Record<string, string> = {
   credentialsValid: "Credenciales del servidor",
   redirectUriExact: "Callback exacta",
@@ -11,5 +13,5 @@ const GATE_LABELS: Record<string, string> = {
 };
 
 export function getIntegrationActivationGateLabel(gate: string) {
-  return GATE_LABELS[gate] ?? gate;
+  return GATE_LABELS[gate] ?? displayLabel(gate);
 }
