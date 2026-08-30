@@ -219,7 +219,7 @@ function PriorityQueue({
                   {tier.items.map((organization) => (
                     <li
                       key={organization.id}
-                      className="flex items-start justify-between gap-3 border-b border-edge pb-2"
+                      className="flex items-start justify-between gap-3 border-b border-separator pb-2"
                     >
                       <div className="min-w-0">
                         <Link
@@ -387,7 +387,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
 
   return (
     <section
-      className="mt-6 border-t border-edge pt-4"
+      className="mt-6 border-t border-separator pt-4"
       aria-labelledby={`access-title-${organizationId}`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -413,7 +413,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
-          <h4 className="text-sm font-semibold text-ink">Miembros</h4>
+          <h4 className="text-sm font-semibold text-foreground">Miembros</h4>
           {access.members.length === 0 ? (
             <p className="mt-2 text-sm text-muted">Sin miembros asignados.</p>
           ) : (
@@ -480,7 +480,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
         </div>
 
         <div>
-          <h4 className="text-sm font-semibold text-ink">
+          <h4 className="text-sm font-semibold text-foreground">
             Consultores asignados
           </h4>
           {access.assignments.length === 0 ? (
@@ -612,7 +612,7 @@ function EditOrganizationForm({
   return (
     <form
       onSubmit={save}
-      className="grid gap-3 border-b border-edge pb-4 md:grid-cols-4 md:items-end"
+      className="grid gap-3 border-b border-separator pb-4 md:grid-cols-4 md:items-end"
     >
       <Field label="Nombre">
         <Input
@@ -885,7 +885,7 @@ function StoresPanel({
         <AccessPanel organizationId={organization.id} />
       ) : null}
 
-      <div className="mt-4 flex flex-wrap gap-4 border-t border-edge pt-3">
+      <div className="mt-4 flex flex-wrap gap-4 border-t border-separator pt-3">
         <Link href={`/integraciones?organizationId=${organization.id}`}>
           Añadir tienda
         </Link>
@@ -1042,7 +1042,7 @@ function ConsultantPanel({
 
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <PriorityQueue organizations={organizations} onSelect={setOrganizationId} />
 
       <Card
@@ -1081,14 +1081,14 @@ function ConsultantPanel({
                   key={row.id}
                   className="py-3 first:pt-1 last:pb-1"
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex flex-wrap items-start gap-3">
                     <Avatar name={row.display_name} size="sm" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <Link
                           href="/dashboard"
                           onClick={() => setOrganizationId(row.id)}
-                          className="font-medium no-underline hover:text-brand hover:no-underline"
+                          className="font-medium no-underline hover:text-accent hover:no-underline"
                         >
                           {row.display_name}
                         </Link>
@@ -1128,11 +1128,11 @@ function ConsultantPanel({
                           : "Sin plan"}
                       </p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="mt-2 flex shrink-0 basis-full items-center justify-end gap-1 sm:mt-0 sm:basis-auto">
                       <Link
                         href="/tareas"
                         onClick={() => setOrganizationId(row.id)}
-                        className="px-2 py-1 text-xs text-muted no-underline hover:text-brand hover:no-underline"
+                        className="px-2 py-1 text-xs text-muted no-underline hover:text-accent hover:no-underline"
                       >
                         Tareas
                       </Link>
@@ -1154,7 +1154,7 @@ function ConsultantPanel({
                   </div>
 
                   {open ? (
-                    <div className="mt-3 rounded-md border border-edge bg-surface p-4 sm:ml-11">
+                    <div className="mt-3 rounded-md border border-separator bg-surface p-4 sm:ml-11">
                       <StoresPanel
                         organization={row}
                         isPlatformAdmin={isPlatformAdmin}
@@ -1455,7 +1455,7 @@ function ObjectiveTypesCard({
 
                 <form
                   onSubmit={createDefinition}
-                  className="mt-4 space-y-3 border-t border-edge pt-4"
+                  className="mt-4 space-y-3 border-t border-separator pt-4"
                 >
                   <p className={EYEBROW}>Nuevo tipo de objetivo</p>
                   <Field label="Nombre">

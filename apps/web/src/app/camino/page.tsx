@@ -334,43 +334,32 @@ function RowMenu({
   );
 }
 
-// Nodo "+" punteado en la punta de una rama: pulsarlo abre el formulario de
-// alta en el sitio (misma fila), no un modal aparte -- se ve la rama crecer.
+// Nodo "+" en la punta de una rama: pulsarlo abre el formulario de alta en el
+// sitio (misma fila), no un modal aparte -- se ve la rama crecer. Es el CTA
+// principal del arbol, asi que se pinta como un boton solido de verdad (nodo
+// de acento relleno + boton `secondary`), no un circulo punteado transparente.
 function TreeAddNode({
   size,
   label,
-  isOpen,
   onClick,
 }: {
   size: number;
   label: string;
-  isOpen: boolean;
   onClick: () => void;
 }) {
   return (
     <div className="relative flex items-center gap-3 py-1">
-      <button
-        type="button"
-        onClick={onClick}
-        aria-expanded={isOpen}
-        aria-label={label}
-        className={[
-          "z-10 flex shrink-0 items-center justify-center rounded-full border-2 border-dashed font-mono transition-colors",
-          isOpen
-            ? "border-brand text-brand"
-            : "border-edge text-muted hover:border-brand hover:text-brand",
-        ].join(" ")}
+      <span
+        aria-hidden
+        className="z-10 flex shrink-0 items-center justify-center rounded-full border border-accent bg-accent-soft text-accent"
         style={{ width: size, height: size }}
       >
-        {isOpen ? "×" : "+"}
-      </button>
-      <button
-        type="button"
-        onClick={onClick}
-        className="text-left text-xs font-medium text-muted hover:text-brand"
-      >
-        {isOpen ? "Cancelar" : label}
-      </button>
+        <PlusIcon aria-hidden />
+      </span>
+      <Button size="sm" variant="secondary" onClick={onClick}>
+        <PlusIcon aria-hidden />
+        {label}
+      </Button>
     </div>
   );
 }
@@ -389,7 +378,7 @@ function DragHandle({
     <button
       type="button"
       aria-label={label}
-      className="shrink-0 cursor-grab touch-none px-1 text-muted/60 transition-colors hover:text-brand active:cursor-grabbing"
+      className="shrink-0 cursor-grab touch-none px-1 text-muted/60 transition-colors hover:text-accent active:cursor-grabbing"
       {...handleProps}
     >
       <GripVerticalIcon aria-hidden />
@@ -403,12 +392,20 @@ function PhaseNode({
   isEditing,
   onEdit,
   handleProps,
+  isOpen,
+  onToggle,
+  doneCount,
+  totalCount,
 }: {
   phase: Phase;
   canManage: boolean;
   isEditing: boolean;
   onEdit: () => void;
   handleProps?: Record<string, unknown>;
+  isOpen: boolean;
+  onToggle: () => void;
+  doneCount: number;
+  totalCount: number;
 }) {
   const size = TREE_NODE_SIZE.phase;
   const t = nodeTone(
@@ -418,6 +415,7 @@ function PhaseNode({
         ? "active"
         : "idle",
   );
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   return (
     <div className="relative flex items-start gap-3">
       <span
@@ -450,7 +448,21 @@ function PhaseNode({
               />
             ) : null}
             <OriginDot origin={phase.created_by_origin ?? null} />
-            <p className="truncate text-sm font-semibold">{phase.name}</p>
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={isOpen}
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+            >
+              <p className="min-w-0 break-words text-sm font-semibold">
+                {phase.name}
+              </p>
+              {isOpen ? (
+                <IconChevronUp className="shrink-0 text-muted" aria-hidden />
+              ) : (
+                <IconChevronDown className="shrink-0 text-muted" aria-hidden />
+              )}
+            </button>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Badge
@@ -476,6 +488,22 @@ function PhaseNode({
             ) : null}
           </div>
         </div>
+        {totalCount > 0 ? (
+          <div className="mt-1.5 flex items-center gap-2">
+            <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+              {doneCount}/{totalCount} hitos
+            </span>
+            <span
+              className="h-1 w-full max-w-32 overflow-hidden rounded-full bg-separator"
+              aria-hidden
+            >
+              <span
+                className="block h-full rounded-full bg-accent transition-[width]"
+                style={{ width: `${pct}%` }}
+              />
+            </span>
+          </div>
+        ) : null}
         {phase.description ? (
           <p className="mt-1 text-xs text-muted">{phase.description}</p>
         ) : null}
@@ -561,58 +589,62 @@ function MilestoneNode({
         )}
       </button>
       <div
-        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border px-2.5 py-2 transition-colors"
+        className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg border px-2.5 py-2 transition-colors sm:flex-row sm:items-center sm:gap-2.5"
         style={{
           borderColor: t.border,
           background: isFocus ? "var(--color-brand-tint)" : t.bg,
         }}
         aria-current={isFocus ? "step" : undefined}
       >
-        {canManage && handleProps ? (
-          <DragHandle
-            label={`Reordenar el hito ${milestone.name}`}
-            handleProps={handleProps}
-          />
-        ) : null}
-        {/* Todo el ancho restante es clic para expandir el detalle. */}
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          aria-expanded={isExpanded}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md py-1 text-left hover:bg-black/[0.02]"
-        >
-          <span className="shrink-0 font-mono text-[0.65rem] text-muted">
-            {numberLabel}
-          </span>
-          <OriginDot origin={milestone.created_by_origin ?? null} />
-          <p
-            className={[
-              "min-w-0 flex-1 truncate text-xs font-medium",
-              isDone ? "text-muted line-through" : "",
-            ].join(" ")}
-          >
-            {milestone.name}
-          </p>
-          {isExpanded ? (
-            <IconChevronUp className="shrink-0 text-[0.6rem] text-muted" aria-hidden />
-          ) : (
-            <IconChevronDown
-              className="shrink-0 text-[0.6rem] text-muted"
-              aria-hidden
+        <div className="flex min-w-0 items-center gap-2 sm:flex-1 sm:gap-2.5">
+          {canManage && handleProps ? (
+            <DragHandle
+              label={`Reordenar el hito ${milestone.name}`}
+              handleProps={handleProps}
             />
-          )}
-        </button>
-        <span className="shrink-0 text-[0.65rem] text-muted">
-          {MILESTONE_STATUS_LABELS[milestone.status] ?? milestone.status}
-          {taskCount ? ` · ${taskCount} tareas` : ""}
-        </span>
-        {canManage ? (
-          <RowMenu
-            ariaLabel={`Más acciones del hito ${milestone.name}`}
-            onAction={(key) => onAction(key as "start" | "skip" | "edit")}
-            items={menuItems}
-          />
-        ) : null}
+          ) : null}
+          {/* Todo el ancho restante es clic para expandir el detalle. */}
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            aria-expanded={isExpanded}
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left hover:bg-black/[0.02] sm:gap-2.5"
+          >
+            <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+              {numberLabel}
+            </span>
+            <OriginDot origin={milestone.created_by_origin ?? null} />
+            <p
+              className={[
+                "min-w-0 flex-1 truncate text-xs font-medium",
+                isDone ? "text-muted line-through" : "",
+              ].join(" ")}
+            >
+              {milestone.name}
+            </p>
+            {isExpanded ? (
+              <IconChevronUp className="shrink-0 text-[0.6rem] text-muted" aria-hidden />
+            ) : (
+              <IconChevronDown
+                className="shrink-0 text-[0.6rem] text-muted"
+                aria-hidden
+              />
+            )}
+          </button>
+        </div>
+        <div className="flex shrink-0 items-center justify-between gap-2 pl-8 sm:justify-start sm:pl-0">
+          <span className="shrink-0 text-[0.65rem] text-muted">
+            {MILESTONE_STATUS_LABELS[milestone.status] ?? milestone.status}
+            {taskCount ? ` · ${taskCount} tareas` : ""}
+          </span>
+          {canManage ? (
+            <RowMenu
+              ariaLabel={`Más acciones del hito ${milestone.name}`}
+              onAction={(key) => onAction(key as "start" | "skip" | "edit")}
+              items={menuItems}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -837,21 +869,23 @@ function TaskListItem({
   task: MilestoneTask;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm">
-      <span className="shrink-0 font-mono text-[0.65rem] text-muted">
-        {numberLabel}
-      </span>
-      <OriginDot origin={task.created_by_origin ?? null} />
-      <span
-        className={[
-          "min-w-0 flex-1 truncate",
-          ["completed", "ignored", "cancelled"].includes(task.status)
-            ? "text-muted line-through"
-            : "",
-        ].join(" ")}
-      >
-        {task.title}
-      </span>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-md border border-separator bg-surface px-2.5 py-1.5 text-sm">
+      <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
+        <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+          {numberLabel}
+        </span>
+        <OriginDot origin={task.created_by_origin ?? null} />
+        <span
+          className={[
+            "min-w-0 flex-1 truncate",
+            ["completed", "ignored", "cancelled"].includes(task.status)
+              ? "text-muted line-through"
+              : "",
+          ].join(" ")}
+        >
+          {task.title}
+        </span>
+      </div>
       <Badge tone="neutral">
         {TASK_PRIORITY_LABELS[task.priority] ?? task.priority}
       </Badge>
@@ -936,7 +970,7 @@ function MilestoneInternalNotes({
   }
 
   return (
-    <div className="mt-2 border-t border-edge pt-2">
+    <div className="mt-2 border-t border-separator pt-2">
       <p className={EYEBROW}>Notas internas (solo consultores)</p>
       {error ? (
         <p className="mt-1 text-xs text-danger">{error}</p>
@@ -1008,7 +1042,7 @@ function ObjectiveCard({
   );
 
   return (
-    <div className="rounded-md border border-edge p-4">
+    <div className="rounded-md border border-separator p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className={EYEBROW}>
@@ -1361,18 +1395,19 @@ function ObjectivesPanel({
       actions={
         canManage ? (
           <Button
-            variant="ghost"
+            variant="secondary"
             size="sm"
             type="button"
             onClick={() => setIsAdding(true)}
           >
-            + Objetivo
+            <PlusIcon aria-hidden />
+            Objetivo
           </Button>
         ) : null
       }
     >
       {error ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-3 py-2 text-xs text-muted">
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-separator bg-surface px-3 py-2 text-xs text-muted">
           <span>{error}</span>
           <Button size="sm" variant="ghost" onClick={() => void load()}>
             Reintentar
@@ -1465,6 +1500,12 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     string | null
   >(null);
   const [isAddingPhase, setIsAddingPhase] = useState(false);
+  // Colapso por fase (A+B): cada fase es una tarjeta plegable con su progreso
+  // en la cabecera. Por defecto solo la fase activa arranca abierta; el valor
+  // explicito en este mapa gana en cuanto el usuario pliega/despliega una.
+  const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>(
+    {},
+  );
   const organizationId = organization?.id ?? null;
 
   // distance:6 -> un clic normal no dispara arrastre, solo si mueves el puntero.
@@ -1822,7 +1863,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     : null;
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       {organizationId ? (
         <ObjectivesPanel organizationId={organizationId} canManage={canManage} />
       ) : null}
@@ -1923,6 +1964,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   .sort((a, b) => a.position - b.position);
                 const isEditingPhase = editingPhaseId === phase.id;
                 const isAddingMilestone = addingMilestonePhaseId === phase.id;
+                const phaseDone = milestones.filter((m) =>
+                  ["completed", "skipped"].includes(m.status),
+                ).length;
+                const phaseOpen =
+                  expandedPhases[phase.id] ?? phase.status === "active";
                 return (
                   <SortablePhase key={phase.id} phase={phase}>
                     {(phaseHandle) => (
@@ -1935,6 +1981,15 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         setEditingPhaseId(isEditingPhase ? null : phase.id)
                       }
                       handleProps={phaseHandle}
+                      isOpen={phaseOpen}
+                      onToggle={() =>
+                        setExpandedPhases((current) => ({
+                          ...current,
+                          [phase.id]: !phaseOpen,
+                        }))
+                      }
+                      doneCount={phaseDone}
+                      totalCount={milestones.length}
                     />
 
                     {isEditingPhase ? (
@@ -1953,6 +2008,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       </div>
                     ) : null}
 
+                    {phaseOpen ? (
                     <div className="relative ml-5 mt-3">
                       {milestones.length > 0 ? (
                         <TreeTrunk size={TREE_NODE_SIZE.milestone} />
@@ -2094,14 +2150,15 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                     ) : (
                                       <Button
                                         size="sm"
-                                        variant="ghost"
+                                        variant="secondary"
                                         onClick={() =>
                                           setAddingTaskMilestoneId(
                                             milestone.id,
                                           )
                                         }
                                       >
-                                        + Tarea
+                                        <PlusIcon aria-hidden />
+                                        Tarea
                                       </Button>
                                     )
                                   ) : null}
@@ -2148,7 +2205,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               <TreeAddNode
                                 size={TREE_NODE_SIZE.milestone}
                                 label="Añadir hito"
-                                isOpen={false}
                                 onClick={() =>
                                   setAddingMilestonePhaseId(phase.id)
                                 }
@@ -2158,6 +2214,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         ) : null}
                       </ol>
                     </div>
+                    ) : null}
                       </>
                     )}
                   </SortablePhase>
@@ -2183,7 +2240,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <TreeAddNode
                       size={TREE_NODE_SIZE.phase}
                       label="Añadir fase"
-                      isOpen={false}
                       onClick={() => setIsAddingPhase(true)}
                     />
                   )}
@@ -2328,7 +2384,7 @@ function ConsultantPlansView() {
     }));
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Card
         title="Mi Camino · toda la cartera"
         description={`${rows.length} clientes · ${withoutPlan} sin plan estratégico. Elige uno para trabajar su plan.`}
@@ -2374,7 +2430,7 @@ function ConsultantPlansView() {
                 <div className="text-xs text-muted">
                   {row.plan ? (
                     <>
-                      <span className="text-ink">{row.plan.name}</span>
+                      <span className="text-foreground">{row.plan.name}</span>
                       {" · "}
                       {displayValue(row.plan.status)}
                       {row.plan.active_phase ? (
