@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import {
+  Card as HeroCard,
   TableBody as HeroTableBody,
   TableCell as HeroTableCell,
   TableColumn as HeroTableColumn,
@@ -31,8 +32,8 @@ function cellValue<T extends { id: string }>(column: TableColumnDef<T>, row: T) 
  * `row.id` es obligatorio -- react-aria-components lo usa como key de la coleccion.
  *
  * En movil (`<md`) la tabla no scrollea en horizontal: cada fila se apila como
- * una tarjeta (primera columna = titulo, resto = pares etiqueta/valor,
- * columnas sin `label` = accion a pie de tarjeta). En `md+` es la tabla normal.
+ * un Card nativo (primera columna = titulo, resto = pares etiqueta/valor,
+ * columnas sin `label` = accion a pie de tarjeta). En `md+` es la tabla nativa.
  */
 export function Table<T extends { id: string }>({
   columns,
@@ -57,39 +58,46 @@ export function Table<T extends { id: string }>({
 
   return (
     <>
-      {/* Movil: filas apiladas como tarjetas. */}
-      <ul className={cn("grid gap-3 md:hidden", className)} aria-label={ariaLabel}>
+      {/* Movil y tablet (`<lg`, sin sidebar): filas apiladas como Card nativo. */}
+      <ul className={cn("grid gap-3 lg:hidden", className)} aria-label={ariaLabel}>
         {rows.map((row) => (
-          <li
-            key={row.id}
-            className="rounded-md border border-edge bg-white p-3.5 text-sm"
-          >
-            {titleColumn ? (
-              <div className="font-medium">{cellValue(titleColumn, row)}</div>
-            ) : null}
-            {labelledColumns.length ? (
-              <dl className="mt-2 grid grid-cols-[minmax(0,7rem)_1fr] gap-x-3 gap-y-1.5">
-                {labelledColumns.map((column) => (
-                  <div key={column.key} className="contents">
-                    <dt className={cn(EYEBROW, "self-center")}>{column.label}</dt>
-                    <dd className="min-w-0 text-right">{cellValue(column, row)}</dd>
+          <li key={row.id}>
+            <HeroCard className="w-full">
+              <HeroCard.Content className="text-sm">
+                {titleColumn ? (
+                  <div className="font-medium text-foreground">
+                    {cellValue(titleColumn, row)}
                   </div>
-                ))}
-              </dl>
-            ) : null}
-            {actionColumns.length ? (
-              <div className="mt-3 flex flex-wrap gap-2 border-t border-edge pt-3">
-                {actionColumns.map((column) => (
-                  <div key={column.key}>{cellValue(column, row)}</div>
-                ))}
-              </div>
-            ) : null}
+                ) : null}
+                {labelledColumns.length ? (
+                  <dl className="mt-2 grid grid-cols-[minmax(0,7rem)_1fr] gap-x-3 gap-y-1.5">
+                    {labelledColumns.map((column) => (
+                      <div key={column.key} className="contents">
+                        <dt className={cn(EYEBROW, "self-center")}>
+                          {column.label}
+                        </dt>
+                        <dd className="min-w-0 text-right">
+                          {cellValue(column, row)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+                {actionColumns.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-separator pt-3">
+                    {actionColumns.map((column) => (
+                      <div key={column.key}>{cellValue(column, row)}</div>
+                    ))}
+                  </div>
+                ) : null}
+              </HeroCard.Content>
+            </HeroCard>
           </li>
         ))}
       </ul>
 
-      {/* md+: tabla normal con scroll horizontal de reserva. */}
-      <HeroTableRoot className={cn("hidden md:block", className)}>
+      {/* lg+ (con sidebar): tabla nativa con scroll horizontal de reserva. */}
+      <HeroTableRoot className={cn("hidden lg:block", className)}>
         <HeroTableScrollContainer>
           <HeroTableContent aria-label={ariaLabel}>
             <HeroTableHeader>

@@ -28,8 +28,8 @@ export function List<T extends ElementType = "div">({
     <Component
       role={as === "ul" || as === "ol" ? undefined : "list"}
       className={cn(
-        "divide-y divide-edge",
-        bordered && "border-y border-edge",
+        "divide-y divide-separator",
+        bordered && "border-y border-separator",
         className,
       )}
       {...props}

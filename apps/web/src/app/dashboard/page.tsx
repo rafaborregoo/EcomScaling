@@ -401,7 +401,7 @@ function AdaptiveFocus({
             <Link
               key={item.id}
               href={item.href}
-              className="group rounded-md border border-edge p-4 transition-colors hover:border-ink"
+              className="group rounded-md border border-separator p-4 transition-colors hover:border-foreground"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -607,7 +607,7 @@ function GeneralOverview({
   );
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <div>
         <p className={EYEBROW}>
           Vista general
@@ -740,7 +740,7 @@ function GeneralOverview({
             </div>
 
             {Object.keys(data.plan_mix).length > 0 ? (
-              <div className="mt-4 border-t border-edge pt-4">
+              <div className="mt-4 border-t border-separator pt-4">
                 <p className={EYEBROW}>Clientes por plan</p>
                 {Object.keys(data.plan_mix).length >= 2 ? (
                   <div className="mt-2">
@@ -1364,7 +1364,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   });
 
   return (
-    <div className="portal-page space-y-8">
+    <div className="portal-page space-y-6 sm:space-y-8">
       <Tabs
         value={activeTab}
         onChange={(value) => setActiveTab(value as DashboardTab)}
@@ -1610,7 +1610,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 </Banner>
               ) : null}
 
-              <div className="grid gap-x-8 border-t border-edge pt-3 md:grid-cols-3">
+              <div className="grid gap-x-8 border-t border-separator pt-3 md:grid-cols-3">
                 <Metric
                   size="sm"
                   label="Referencias con stock"
@@ -1679,7 +1679,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 metaMetrics?.acquisition.purchases ?? 0,
               ).toFixed(0)}
             />
-            <article className="rounded-md border border-edge bg-white p-4 sm:col-span-2">
+            <article className="rounded-md border border-separator p-4 sm:col-span-2">
               <p className={EYEBROW}>Adquisición</p>
               <p className="mt-1 text-[13px] leading-relaxed text-muted">
                 {metaMetrics && metaMetrics.acquisition.days_with_data > 0

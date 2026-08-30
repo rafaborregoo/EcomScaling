@@ -27,6 +27,7 @@ export function Tabs({
       <HeroTabs.ListContainer>
         <HeroTabs.List
           aria-label="Navegacion por pestañas"
+          data-scrollbar="none"
           className="max-w-full overflow-x-auto"
         >
           {items.map((item) => (

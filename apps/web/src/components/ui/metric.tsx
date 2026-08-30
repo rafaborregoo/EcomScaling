@@ -1,17 +1,19 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { Card as HeroCard } from "@heroui/react";
 import { cn } from "./cn";
 import { EYEBROW } from "./typography";
 import { Sparkline } from "./chart";
 
-// Cifra destacada (KPI) unica para todo el dashboard. Antes cada tile repetia
-// `font-mono text-3xl tracking-tight` a mano -- y `font-mono` cae a Consolas en
-// Windows (no hay Plex Mono cargado), por eso las cifras "no se veian bien".
-// Aqui la cifra va en la fuente del cuerpo con `tabular-nums` para que las
-// columnas sigan alineadas, y un solo tamano por jerarquia (md / sm).
+// Cifra destacada (KPI) unica para todo el dashboard. La cifra va en la fuente
+// del cuerpo con `tabular-nums` para que las columnas sigan alineadas, y un
+// solo tamano por jerarquia (md / sm). Con `card`, se envuelve en el Card
+// nativo de HeroUI (superficie + shadow-surface).
 const VALUE_TONE = {
-  default: "text-ink",
+  default: "text-foreground",
   success: "text-success",
-  warn: "text-warn-deep",
+  warn: "text-warning",
   danger: "text-danger",
 } as const;
 
@@ -46,7 +48,7 @@ export function Metric({
     <div
       className={cn(
         "flex items-start justify-between gap-4",
-        card ? "p-4" : "py-3",
+        card ? "" : "py-3",
         className,
       )}
     >
@@ -74,6 +76,8 @@ export function Metric({
 
   if (!card) return body;
   return (
-    <div className="rounded-md border border-edge bg-white">{body}</div>
+    <HeroCard className="w-full">
+      <HeroCard.Content>{body}</HeroCard.Content>
+    </HeroCard>
   );
 }
