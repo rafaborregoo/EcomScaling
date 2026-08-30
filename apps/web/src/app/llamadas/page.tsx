@@ -21,6 +21,8 @@ import {
   ErrorBlock,
   EYEBROW,
   Field,
+  IconChevronDown,
+  IconChevronUp,
   Input,
   Link,
   List,
@@ -491,7 +493,7 @@ function CallDetail({
                     {summaryStatusLabels[summary.status]}
                     {summary.run_id ? " · generado por IA (A01)" : ""}
                   </Alert.Title>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-black">
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">
                     {summary.summary}
                   </p>
                   <StructuredSummary summary={summary} />
@@ -519,7 +521,7 @@ function CallDetail({
             ))}
 
             <Accordion
-              className="border border-edge"
+              className="border border-separator"
               items={[
                 {
                   id: "transcript",
@@ -527,7 +529,7 @@ function CallDetail({
                   content: (
                     <div className="space-y-3">
                       {currentTranscript ? (
-                        <p className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-ink">
+                        <p className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-foreground">
                           {currentTranscript.content}
                         </p>
                       ) : (
@@ -575,7 +577,7 @@ function CallDetail({
 
             {showSummaryForm ? (
               <form
-                className="space-y-2 border-t border-edge pt-3"
+                className="space-y-2 border-t border-separator pt-3"
                 onSubmit={submitSummary}
               >
                 <p className="text-sm font-medium">
@@ -681,7 +683,7 @@ function CallDetail({
         ) : null}
 
         {isConsultant && call.call_internal_notes.length > 0 ? (
-          <section className="border-l-2 border-edge py-1 pl-3">
+          <section className="border-l-2 border-separator py-1 pl-3">
             <p className={EYEBROW}>Notas internas</p>
             <ul className="mt-2 space-y-2">
               {call.call_internal_notes.map((note) => (
@@ -713,9 +715,12 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newType, setNewType] = useState("monthly_review");
-  const [newRecordingUrl, setNewRecordingUrl] = useState("");
+  const [newScheduledAt, setNewScheduledAt] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // Un cliente activo -> una llamada abierta a la vez (lista plegable). Sin
+  // esto, cada llamada se renderizaba entera y la vista era un muro de texto.
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
 
   const loadCalls = useCallback(async () => {
     if (!organizationId) {
@@ -766,12 +771,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           body: JSON.stringify({
             title: newTitle.trim(),
             call_type: newType,
-            recording_url: newRecordingUrl.trim() || undefined,
-            recording_provider: newRecordingUrl.includes("loom.com")
-              ? "loom"
-              : newRecordingUrl.includes("fathom")
-                ? "fathom"
-                : undefined,
+            scheduled_at: newScheduledAt || undefined,
           }),
         },
       );
@@ -782,7 +782,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       }
 
       setNewTitle("");
-      setNewRecordingUrl("");
+      setNewScheduledAt("");
       setShowCreateForm(false);
       void loadCalls();
     } catch {
@@ -795,7 +795,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <section className="flex flex-wrap items-baseline justify-between gap-3">
         <Heading size="lg">Llamadas de consultoría</Heading>
         {isConsultant ? (
@@ -825,25 +825,27 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             placeholder="Ej: Revisión mensual julio"
                           />
                         </Field>
-                        <Field label="Tipo">
-                          <Select
-                            aria-label="Tipo"
-                            value={newType}
-                            onChange={setNewType}
-                            options={Object.entries(callTypeLabels).map(
-                              ([value, label]) => ({ value, label }),
-                            )}
-                          />
-                        </Field>
-                        <Field label="Enlace grabación (Loom/Fathom, opcional)">
-                          <Input
-                            value={newRecordingUrl}
-                            onChange={(event) =>
-                              setNewRecordingUrl(event.target.value)
-                            }
-                            placeholder="https://www.loom.com/share/..."
-                          />
-                        </Field>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <Field label="Fecha">
+                            <Input
+                              type="date"
+                              value={newScheduledAt}
+                              onChange={(event) =>
+                                setNewScheduledAt(event.target.value)
+                              }
+                            />
+                          </Field>
+                          <Field label="Tipo">
+                            <Select
+                              aria-label="Tipo"
+                              value={newType}
+                              onChange={setNewType}
+                              options={Object.entries(callTypeLabels).map(
+                                ([value, label]) => ({ value, label }),
+                              )}
+                            />
+                          </Field>
+                        </div>
                         {createError ? (
                           <ErrorBlock>{createError}</ErrorBlock>
                         ) : null}
@@ -886,14 +888,64 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           }
         />
       ) : (
-        calls.map((call) => (
-          <CallDetail
-            key={call.id}
-            call={call}
-            isConsultant={isConsultant}
-            onChanged={loadCalls}
-          />
-        ))
+        <List bordered>
+          {calls.map((call) => {
+            const open = expandedCallId === call.id;
+            const when = call.held_at ?? call.scheduled_at;
+            return (
+              <List.Item key={call.id} className="px-1 py-2.5">
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() =>
+                    setExpandedCallId(open ? null : call.id)
+                  }
+                  className="flex w-full items-center gap-2 text-left"
+                >
+                  <Badge
+                    tone={
+                      call.status === "held"
+                        ? "success"
+                        : call.status === "cancelled"
+                          ? "neutral"
+                          : "warn"
+                    }
+                  >
+                    {callStatusLabels[call.status] ?? call.status}
+                  </Badge>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {call.title}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted">
+                    {when
+                      ? new Date(when).toLocaleDateString("es-ES", {
+                          day: "2-digit",
+                          month: "short",
+                        })
+                      : "—"}
+                  </span>
+                  {open ? (
+                    <IconChevronUp aria-hidden className="shrink-0 text-muted" />
+                  ) : (
+                    <IconChevronDown
+                      aria-hidden
+                      className="shrink-0 text-muted"
+                    />
+                  )}
+                </button>
+                {open ? (
+                  <div className="mt-3">
+                    <CallDetail
+                      call={call}
+                      isConsultant={isConsultant}
+                      onChanged={loadCalls}
+                    />
+                  </div>
+                ) : null}
+              </List.Item>
+            );
+          })}
+        </List>
       )}
     </div>
   );
@@ -986,7 +1038,7 @@ function ConsultantCallsView() {
     );
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Card
         title="Llamadas · toda la cartera"
         description={`${data.calls.length} llamadas · ${pendingCount} con resumen pendiente de aprobar`}

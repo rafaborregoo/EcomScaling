@@ -466,7 +466,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   ];
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Heading level={1} size="lg">Ejecuciones de agentes IA</Heading>
       <p className="text-[13px] text-muted">
         Panel técnico (AI-12, Observability &amp; tracing): reconstruye una
@@ -495,19 +495,19 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
               <p className="text-xs text-muted">Gastado hoy</p>
-              <p className="text-xl font-semibold text-ink">
+              <p className="text-xl font-semibold text-foreground">
                 ${budget.spentTodayUsd.toFixed(2)}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted">Límite diario</p>
-              <p className="text-xl font-semibold text-ink">
+              <p className="text-xl font-semibold text-foreground">
                 ${budget.dailyBudgetUsd.toFixed(2)}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted">Disponible</p>
-              <p className="text-xl font-semibold text-ink">
+              <p className="text-xl font-semibold text-foreground">
                 ${budget.remainingUsd.toFixed(2)}
               </p>
             </div>
@@ -570,13 +570,13 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         la evidencia antes de materializar las tareas sugeridas.
                       </p>
                       {reviewOutput.output.output?.answer ? (
-                        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
+                        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">
                           {reviewOutput.output.output.answer}
                         </p>
                       ) : null}
                       <div>
                         <p className={EYEBROW}>Evidencia y citas</p>
-                        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-edge bg-surface p-3 text-xs">
+                        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-separator bg-surface p-3 text-xs">
                           {JSON.stringify(
                             {
                               evidence:
@@ -595,7 +595,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       </div>
                       <div>
                         <p className={EYEBROW}>Escrituras propuestas</p>
-                        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-edge bg-surface p-3 text-xs">
+                        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-separator bg-surface p-3 text-xs">
                           {JSON.stringify(
                             reviewOutput.output.output?.proposed_writes ?? [],
                             null,

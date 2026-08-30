@@ -170,7 +170,7 @@ function TaskDetail({
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-black">{task.title}</p>
+          <p className="text-sm font-semibold text-foreground">{task.title}</p>
           <p className="mt-1 text-xs text-muted">{meta.join(" · ")}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
@@ -201,12 +201,12 @@ function TaskDetail({
       </div>
 
       {task.description ? (
-        <p className="text-[13px] leading-relaxed text-black">
+        <p className="text-[13px] leading-relaxed text-foreground">
           {task.description}
         </p>
       ) : null}
 
-      <div className="border-t border-edge pt-3">
+      <div className="border-t border-separator pt-3">
         <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
           Comentarios
           {task.task_comments.length > 0
@@ -218,7 +218,7 @@ function TaskDetail({
           <ul className="mt-2 space-y-3">
             {task.task_comments.map((comment) => (
               <li key={comment.id}>
-                <p className="text-[13px] leading-relaxed text-black">
+                <p className="text-[13px] leading-relaxed text-foreground">
                   {comment.body}
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
@@ -379,7 +379,7 @@ function NewTaskForm({
 }
 
 // Escala tipografica del modulo (una sola en toda la app):
-//  - Titulo de fila:        text-sm font-medium text-black
+//  - Titulo de fila:        text-sm font-medium text-foreground
 //  - Cuerpo / descripcion:  text-[13px] text-muted leading-relaxed
 //  - Meta (fecha, modulo):  text-xs text-muted   (sin font-mono: era ruido)
 // La jerarquia la da el contraste tamano+peso+color, no poner todo a
@@ -397,7 +397,7 @@ function TabBar({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="flex gap-1 border-b border-edge">
+    <div className="flex gap-1 overflow-x-auto border-b border-separator [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {tabs.map((tab) => {
         const active = tab.value === value;
         return (
@@ -407,10 +407,10 @@ function TabBar({
             aria-current={active ? "page" : undefined}
             onClick={() => onChange(tab.value)}
             className={[
-              "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+              "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors",
               active
-                ? "border-brand font-medium text-black"
-                : "border-transparent text-muted hover:text-black",
+                ? "border-accent font-medium text-foreground"
+                : "border-transparent text-muted hover:text-foreground",
             ].join(" ")}
           >
             {tab.label}
@@ -473,7 +473,7 @@ function TaskRow({
           ) : priorityBadge ? (
             <Badge tone={priorityBadge.tone}>{priorityBadge.label}</Badge>
           ) : null}
-          <p className="truncate text-sm font-medium text-black">
+          <p className="truncate text-sm font-medium text-foreground">
             {task.title}
           </p>
         </div>
@@ -825,7 +825,7 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
                         <Badge tone={SEVERITY_TONE[alert.severity] ?? "neutral"}>
                           {SEVERITY_LABELS[alert.severity] ?? alert.severity}
                         </Badge>
-                        <p className="text-sm font-medium text-black">
+                        <p className="text-sm font-medium text-foreground">
                           {alert.title}
                         </p>
                       </div>
@@ -1420,7 +1420,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           >
                             {SEVERITY_LABELS[alert.severity] ?? alert.severity}
                           </Badge>
-                          <p className="text-sm font-medium text-black">
+                          <p className="text-sm font-medium text-foreground">
                             {alert.title}
                           </p>
                         </div>
@@ -1483,7 +1483,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               <List>
                 {resolvedAlerts.slice(0, 20).map((alert) => (
                   <List.Item key={alert.id} className="py-2.5">
-                    <p className="text-sm text-black">{alert.title}</p>
+                    <p className="text-sm text-foreground">{alert.title}</p>
                     <p className="mt-0.5 text-xs text-muted">
                       {displayValue(alert.status)}
                       {alert.resolved_at
