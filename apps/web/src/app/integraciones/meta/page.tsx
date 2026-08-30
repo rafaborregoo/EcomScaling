@@ -138,7 +138,7 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <BackToHub />
 
       <ProviderStatusCard provider={meta}>
@@ -224,7 +224,7 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     key={asset.id}
                     checked={asset.is_selected}
                     disabled={!asset.is_active || saving}
-                    className="flex items-start gap-3 rounded-md border border-edge p-3"
+                    className="flex items-start gap-3 rounded-md border border-separator p-3"
                     onChange={(checked) => {
                       setAssets((current) =>
                         current
@@ -241,7 +241,7 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     }}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate font-medium text-ink">
+                      <span className="block truncate font-medium text-foreground">
                         {asset.name}
                       </span>
                       <span className="block font-mono text-xs text-muted">

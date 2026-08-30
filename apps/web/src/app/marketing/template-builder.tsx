@@ -156,7 +156,7 @@ function SortableBlock({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={[
         "flex items-center gap-2 border px-2 py-2 text-sm",
-        selected ? "border-brand bg-brand-tint" : "border-edge bg-white",
+        selected ? "border-accent bg-accent-tint" : "border-separator bg-white",
         isDragging ? "opacity-60" : "",
       ].join(" ")}
     >
@@ -182,7 +182,7 @@ function SortableBlock({
       <button
         type="button"
         aria-label="Eliminar bloque"
-        className="px-1 text-muted hover:text-brand"
+        className="px-1 text-muted hover:text-accent"
         onClick={onDelete}
       >
         <CloseIcon />
@@ -249,7 +249,7 @@ export function TemplateBuilder({
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:items-start">
       <div className="space-y-4">
-        <details className="border border-edge">
+        <details className="border border-separator">
           <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium">
             Estilos generales
           </summary>
@@ -301,7 +301,7 @@ export function TemplateBuilder({
         </div>
 
         {design.blocks.length === 0 ? (
-          <p className="border border-dashed border-edge p-6 text-center text-sm text-muted">
+          <p className="border border-dashed border-separator p-6 text-center text-sm text-muted">
             Añade bloques con los botones de arriba. Arrástralos para
             reordenar; haz clic para editar.
           </p>
@@ -365,7 +365,7 @@ export function TemplateBuilder({
             </ToggleButtonGroup>
           </div>
           <div
-            className="mx-auto w-full border border-edge bg-white"
+            className="mx-auto w-full border border-separator bg-white"
             style={{
               maxWidth:
                 device === "mobile"
@@ -383,7 +383,7 @@ export function TemplateBuilder({
           </div>
         </div>
 
-      <div className="border border-edge p-3">
+      <div className="border border-separator p-3">
         {!selected ? (
           <p className="text-sm text-muted">
             Selecciona un bloque para editarlo.
@@ -608,7 +608,7 @@ export function TemplateBuilder({
                   return (
                     <div
                       key={colIndex}
-                      className="space-y-2 border border-edge p-2"
+                      className="space-y-2 border border-separator p-2"
                     >
                       <p className={EYEBROW}>
                         {colIndex === 0

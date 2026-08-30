@@ -287,7 +287,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const currency = overview.store?.currency_code ?? "EUR";
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Card
         title={overview.store?.shop_name ?? "Sin tienda conectada"}
         description={
@@ -365,37 +365,37 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : (
           <>
             <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-6">
-              <article className="border-b border-edge p-4 xl:border-r">
+              <article className="border-b border-separator p-4 xl:border-r">
                 <p className="text-sm text-muted">Ventas brutas</p>
                 <p className="mt-2 font-mono text-xl">
                   {formatMoney(metrics.sales.gross_sales, currency)}
                 </p>
               </article>
-              <article className="border-b border-edge p-4 xl:border-r">
+              <article className="border-b border-separator p-4 xl:border-r">
                 <p className="text-sm text-muted">Ventas netas</p>
                 <p className="mt-2 font-mono text-xl">
                   {formatMoney(metrics.sales.net_sales, currency)}
                 </p>
               </article>
-              <article className="border-b border-edge p-4 xl:border-r">
+              <article className="border-b border-separator p-4 xl:border-r">
                 <p className="text-sm text-muted">Pedidos</p>
                 <p className="mt-2 font-mono text-xl">
                   {metrics.sales.orders_count}
                 </p>
               </article>
-              <article className="border-b border-edge p-4 xl:border-r">
+              <article className="border-b border-separator p-4 xl:border-r">
                 <p className="text-sm text-muted">Ticket medio (AOV)</p>
                 <p className="mt-2 font-mono text-xl">
                   {formatMoney(metrics.sales.aov, currency)}
                 </p>
               </article>
-              <article className="border-b border-edge p-4 xl:border-r">
+              <article className="border-b border-separator p-4 xl:border-r">
                 <p className="text-sm text-muted">Unidades vendidas</p>
                 <p className="mt-2 font-mono text-xl">
                   {metrics.sales.units_sold}
                 </p>
               </article>
-              <article className="border-b border-edge p-4">
+              <article className="border-b border-separator p-4">
                 <p className="text-sm text-muted">Reembolsos</p>
                 <p className="mt-2 font-mono text-xl text-warn">
                   {formatMoney(metrics.sales.refunds, currency)}
@@ -404,7 +404,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div>
 
             <div className="grid gap-0 md:grid-cols-3">
-              <div className="border-b border-edge p-4 md:border-r">
+              <div className="border-b border-separator p-4 md:border-r">
                 <Heading level={3} size="md">
                   Productos top
                 </Heading>
@@ -429,7 +429,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   )}
                 </List>
               </div>
-              <div className="border-b border-edge p-4 md:border-r">
+              <div className="border-b border-separator p-4 md:border-r">
                 <Heading level={3} size="md">
                   Stock
                 </Heading>
@@ -526,18 +526,20 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         )}
       </Card>
 
-      <Card className="flex items-center justify-between text-sm text-muted">
-        <span>
-          Último sync: {formatDate(overview.sync_runs[0]?.finished_at)}
-        </span>
-        {isConsultant ? (
-          <Link
-            className="inline-flex items-center gap-1"
-            href="/shopify/diagnostico"
-          >
-            Diagnóstico técnico <IconChevronRight aria-hidden />
-          </Link>
-        ) : null}
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+          <span>
+            Último sync: {formatDate(overview.sync_runs[0]?.finished_at)}
+          </span>
+          {isConsultant ? (
+            <Link
+              className="inline-flex items-center gap-1"
+              href="/shopify/diagnostico"
+            >
+              Diagnóstico técnico <IconChevronRight aria-hidden />
+            </Link>
+          ) : null}
+        </div>
       </Card>
     </div>
   );
@@ -647,7 +649,7 @@ function ConsultantStoresView() {
   }
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Card
         title="Tiendas Shopify · toda la cartera"
         description={`${data.stores.length} tiendas · ${issueCount} en error o con la sincronización parada.`}

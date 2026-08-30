@@ -262,7 +262,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="portal-page space-y-8">
+    <div className="portal-page space-y-6 sm:space-y-8">
       {organizationId ? (
         <AiDiagnosticSection
           organizationId={organizationId}
@@ -323,7 +323,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </div>
 
               <Accordion
-                className="mt-6 border-t border-edge pt-3"
+                className="mt-6 border-t border-separator pt-3"
                 items={[
                   {
                     id: "paste-form",
@@ -397,7 +397,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 matches.map((match) => (
                   <article
                     key={match.chunk_id}
-                    className="border-t border-edge pt-3"
+                    className="border-t border-separator pt-3"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium">
@@ -564,7 +564,7 @@ function ConsultantKnowledgeView() {
   const sorted = [...rows].sort((a, b) => a.doc_count - b.doc_count);
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Card
         title="Conocimiento · toda la cartera"
         description={`${rows.length} clientes · ${attentionCount} sin documentos o sin actualizar en ${KNOWLEDGE_STALE_DAYS}+ días.`}

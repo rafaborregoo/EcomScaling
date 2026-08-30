@@ -71,7 +71,7 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       {oauthNotice ? (
         <Banner tone={oauthNotice.tone}>{oauthNotice.text}</Banner>
       ) : null}
@@ -235,7 +235,7 @@ function ConsultantIntegrationsView() {
   const rows = onlyIssues ? data.portfolio.filter(rowHasIssue) : data.portfolio;
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Card
         title="Integraciones · toda la cartera"
         description={`${data.portfolio.length} clientes · ${issueCount} con alguna integración en error o por reautorizar.`}
@@ -267,7 +267,7 @@ function ConsultantIntegrationsView() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[36rem] border-collapse text-sm">
               <thead>
-                <tr className="border-b border-edge text-left">
+                <tr className="border-b border-separator text-left">
                   <th className="py-2 pr-4 font-medium">Cliente</th>
                   {data.providers.map((provider) => (
                     <th key={provider} className="px-3 py-2 font-medium">
@@ -280,7 +280,7 @@ function ConsultantIntegrationsView() {
                 {rows.map((row) => (
                   <tr
                     key={row.organization_id}
-                    className="cursor-pointer border-b border-edge hover:bg-surface"
+                    className="cursor-pointer border-b border-separator hover:bg-surface"
                     onClick={() => setOrganizationId(row.organization_id)}
                   >
                     <td className="py-3 pr-4 font-medium">{row.display_name}</td>

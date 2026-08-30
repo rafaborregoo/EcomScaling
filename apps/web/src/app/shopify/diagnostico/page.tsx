@@ -55,9 +55,9 @@ function blockStatusLabel(status: string | undefined) {
 function blockStatusClass(status: string | undefined) {
   switch (status) {
     case "running":
-      return "text-brand";
+      return "text-accent";
     case "succeeded":
-      return "text-ink";
+      return "text-foreground";
     case "failed":
       return "text-danger";
     default:
@@ -164,7 +164,7 @@ function scopeColumns(
         <span
           className={[
             "font-mono text-xs uppercase",
-            authorizedScopes.has(row.scope) ? "text-ink" : "text-danger",
+            authorizedScopes.has(row.scope) ? "text-foreground" : "text-danger",
           ].join(" ")}
         >
           {authorizedScopes.has(row.scope) ? "autorizado" : "no concedido"}
@@ -193,7 +193,7 @@ const datasetColumns: TableColumnDef<DatasetRow>[] = [
     key: "table",
     label: "Tabla",
     render: (row) => (
-      <span className="font-mono text-xs text-brand">
+      <span className="font-mono text-xs text-accent">
         {row.table ?? "pendiente_modelo"}
       </span>
     ),
@@ -239,7 +239,7 @@ const productColumns: TableColumnDef<ProductRow>[] = [
     key: "status",
     label: "Estado",
     render: (row) => (
-      <span className="font-mono text-xs text-brand">
+      <span className="font-mono text-xs text-accent">
         {displayValue(row.status)}
       </span>
     ),
@@ -293,7 +293,7 @@ function orderColumns(currency: string): TableColumnDef<OrderRow>[] {
       key: "net_sales",
       label: "Neto",
       render: (row) => (
-        <span className="font-mono text-brand">
+        <span className="font-mono text-accent">
           {formatMoney(row.net_sales, currency)}
         </span>
       ),
@@ -453,7 +453,7 @@ function ShopifyDiagnosticoView({
   );
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <div className="flex items-center justify-between">
         <Link className="inline-flex items-center gap-1" href="/shopify">
           <IconChevronLeft aria-hidden /> Volver a Shopify
@@ -516,8 +516,8 @@ function ShopifyDiagnosticoView({
 
       {tab === "sincronizacion" ? (
         <div className="space-y-6">
-          <Card className="grid gap-0 md:grid-cols-4">
-            <article className="border-b border-edge p-4 md:border-r">
+          <div className="grid gap-0 overflow-hidden rounded-lg bg-surface shadow-surface md:grid-cols-4">
+            <article className="border-b border-separator p-4 md:border-r">
               <p className={EYEBROW}>
                 Se vuelcan ahora
               </p>
@@ -526,7 +526,7 @@ function ShopifyDiagnosticoView({
                 {activeRecordCount} registros
               </p>
             </article>
-            <article className="border-b border-edge p-4 md:border-r">
+            <article className="border-b border-separator p-4 md:border-r">
               <p className={EYEBROW}>
                 Autorizados pendientes
               </p>
@@ -534,7 +534,7 @@ function ShopifyDiagnosticoView({
                 {authorizedPlannedDatasets.length}
               </p>
             </article>
-            <article className="border-b border-edge p-4 md:border-r">
+            <article className="border-b border-separator p-4 md:border-r">
               <p className={EYEBROW}>
                 Sin permiso
               </p>
@@ -542,7 +542,7 @@ function ShopifyDiagnosticoView({
                 {notAuthorizedPlannedDatasets.length}
               </p>
             </article>
-            <article className="border-b border-edge p-4">
+            <article className="border-b border-separator p-4">
               <p className={EYEBROW}>
                 Permisos concedidos
               </p>
@@ -550,7 +550,7 @@ function ShopifyDiagnosticoView({
                 {overview.authorized_scopes.length}
               </p>
             </article>
-          </Card>
+          </div>
 
           <Table
             ariaLabel="Estado de sincronizacion por bloque"

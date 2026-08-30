@@ -165,7 +165,7 @@ function KlaviyoIntegrationPage({
   }
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <BackToHub />
 
       <ProviderStatusCard provider={klaviyo}>
@@ -305,10 +305,10 @@ function KlaviyoIntegrationPage({
                 return (
                   <div
                     key={run.id}
-                    className="rounded-md border border-edge px-3 py-2"
+                    className="rounded-md border border-separator px-3 py-2"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-ink">
+                      <span className="text-sm font-medium text-foreground">
                         {run.entity_type} ·{" "}
                         {run.period_start ?? "periodo pendiente"}
                         {run.period_end ? ` → ${run.period_end}` : ""}

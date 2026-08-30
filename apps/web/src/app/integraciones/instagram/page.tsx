@@ -44,7 +44,7 @@ function InstagramIntegrationPage({
   }
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <BackToHub />
 
       <ProviderStatusCard provider={instagram} />
@@ -54,7 +54,7 @@ function InstagramIntegrationPage({
           El conector está preparado pero no se activa aún: no se muestran
           métricas simuladas ni un botón de conexión prematuro.
         </Banner>
-        <p className="mt-3 text-sm font-medium text-ink">Qué hace falta</p>
+        <p className="mt-3 text-sm font-medium text-foreground">Qué hace falta</p>
         <Steps
           items={[
             <>

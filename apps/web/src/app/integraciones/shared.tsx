@@ -465,7 +465,7 @@ export function Steps({ items }: { items: ReactNode[] }) {
     <ol className="mt-2 space-y-2 text-sm leading-6">
       {items.map((item, index) => (
         <li key={index} className="flex gap-3">
-          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-tint font-mono text-xs font-semibold text-brand">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-tint font-mono text-xs font-semibold text-accent">
             {index + 1}
           </span>
           <span className="min-w-0">{item}</span>
@@ -477,7 +477,7 @@ export function Steps({ items }: { items: ReactNode[] }) {
 
 export function ConnectionFacts({ provider }: { provider: IntegrationProvider }) {
   return (
-    <dl className="mt-4 grid gap-2 border-t border-edge pt-4 text-sm sm:grid-cols-3">
+    <dl className="mt-4 grid gap-2 border-t border-separator pt-4 text-sm sm:grid-cols-3">
       <div>
         <dt className="text-xs text-muted">Cuenta</dt>
         <dd>{provider.connection?.provider_account_name ?? "Pendiente"}</dd>

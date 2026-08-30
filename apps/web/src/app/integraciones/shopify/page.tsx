@@ -69,7 +69,7 @@ function ShopifyIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse })
   }
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <BackToHub />
 
       <ProviderStatusCard provider={shopify}>

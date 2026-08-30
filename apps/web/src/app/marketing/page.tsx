@@ -281,10 +281,10 @@ function DraftMiniCard({
         }
       }}
       className={`flex cursor-pointer flex-col overflow-hidden border text-left transition-colors ${
-        selected ? "border-brand" : "border-edge hover:border-muted"
+        selected ? "border-accent" : "border-separator hover:border-muted"
       }`}
     >
-      <div className="h-40 overflow-hidden border-b border-edge bg-white">
+      <div className="h-40 overflow-hidden border-b border-separator bg-white">
         {isMeta ? (
           <p className="p-3 text-xs text-muted">Meta Ads · {metaSubject}</p>
         ) : (
@@ -375,7 +375,7 @@ function MarketingDraftNotes({
   }
 
   return (
-    <div className="mt-4 border-t border-edge pt-3">
+    <div className="mt-4 border-t border-separator pt-3">
       <p className={EYEBROW}>
         Objeciones del consultor
       </p>
@@ -384,7 +384,7 @@ function MarketingDraftNotes({
       ) : notes.length === 0 ? (
         <p className="mt-1 text-sm text-muted">Sin objeciones.</p>
       ) : (
-        <div className="mt-2 space-y-2 border-l-2 border-edge pl-3">
+        <div className="mt-2 space-y-2 border-l-2 border-separator pl-3">
           {notes.map((note) => (
             <div key={note.id} className="text-sm">
               <p className="leading-6">{note.body}</p>
@@ -1194,7 +1194,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
 
   return (
-    <div className="portal-page space-y-8">
+    <div className="portal-page space-y-6 sm:space-y-8">
       <div>
         <Heading size="lg">Campañas de marketing</Heading>
         <p className="mt-2 max-w-3xl text-sm text-muted">
@@ -1305,7 +1305,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     </div>
                   </div>
                   {previewTemplateId === template.id ? (
-                    <div className="overflow-hidden border border-edge bg-white">
+                    <div className="overflow-hidden border border-separator bg-white">
                       {previewTemplateHtml === null ? (
                         <div className="p-3">
                           <LoadingBlock label="Cargando vista previa…" />
@@ -1542,7 +1542,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 onUploadImage={uploadTemplateImage}
               />
 
-              <div className="grid gap-6 border-t border-edge pt-4 md:grid-cols-2">
+              <div className="grid gap-6 border-t border-separator pt-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Guardar tal cual</p>
                   <Button
@@ -1601,7 +1601,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   {aiImages.map((image, index) => (
                     <div
                       key={image.url}
-                      className="flex flex-wrap items-center gap-3 border border-edge p-2 text-sm"
+                      className="flex flex-wrap items-center gap-3 border border-separator p-2 text-sm"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -1901,7 +1901,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               >
                 <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <div className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-edge pb-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-separator pb-3">
                       <span className="text-xs text-muted">
                         Versión {draft.version}
                       </span>
@@ -1944,13 +1944,13 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       ) : null}
                     </div>
                     {historyDraftId === draft.id ? (
-                      <div className="rounded-md border border-edge bg-surface p-4 text-sm">
+                      <div className="rounded-md border border-separator bg-surface p-4 text-sm">
                         <p className="font-medium">Versiones auditables</p>
                         <ol className="mt-2 space-y-2">
                           {versionHistory.map((version) => (
                             <li
                               key={version.id}
-                              className="flex flex-wrap justify-between gap-2 border-b border-edge pb-2 last:border-0 last:pb-0"
+                              className="flex flex-wrap justify-between gap-2 border-b border-separator pb-2 last:border-0 last:pb-0"
                             >
                               <span>
                                 v{version.version} ·{" "}
@@ -2247,7 +2247,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       className="w-full"
                       panels={{
                         preview: isMetaDraft(draft) ? (
-                          <div className="mt-3 max-w-md border border-edge bg-white p-4 shadow-sm">
+                          <div className="mt-3 max-w-md border border-separator bg-white p-4 shadow-sm">
                             <p className={EYEBROW}>
                               Patrocinado · Meta Ads
                             </p>
@@ -2255,7 +2255,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted">{draft.plain_text}</p>
                             {getMetaDestinationUrl(draft) ? (
                               <a
-                                className="mt-4 inline-flex min-h-8 items-center bg-brand px-3 text-xs font-semibold text-white transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                                className="mt-4 inline-flex min-h-8 items-center bg-accent px-3 text-xs font-semibold text-white transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                                 href={getMetaDestinationUrl(draft) ?? undefined}
                                 target="_blank"
                                 rel="noreferrer"
@@ -2263,7 +2263,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                 {getMetaCallToAction(draft)}
                               </a>
                             ) : (
-                              <span className="mt-4 inline-flex min-h-8 items-center bg-brand px-3 text-xs font-semibold text-white">
+                              <span className="mt-4 inline-flex min-h-8 items-center bg-accent px-3 text-xs font-semibold text-white">
                                 {getMetaCallToAction(draft)}
                               </span>
                             )}
@@ -2274,7 +2274,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                             ) : null}
                           </div>
                         ) : (
-                          <div className="mt-3 overflow-hidden border border-edge bg-white">
+                          <div className="mt-3 overflow-hidden border border-separator bg-white">
                             <iframe
                               title={`Preview de ${draft.subject}`}
                               srcDoc={draft.html}
@@ -2284,12 +2284,12 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           </div>
                         ),
                         plain_text: (
-                          <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border border-edge bg-surface p-3 text-sm">
+                          <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 text-sm">
                             {draft.plain_text}
                           </pre>
                         ),
                         html: (
-                          <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border border-edge bg-surface p-3 font-mono text-xs">
+                          <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 font-mono text-xs">
                             {draft.html}
                           </pre>
                         ),
@@ -2444,7 +2444,7 @@ function ConsultantMarketingDraftPanel({
   }
 
   return (
-    <div className="mt-3 grid gap-4 border-t border-edge pt-4 lg:grid-cols-2">
+    <div className="mt-3 grid gap-4 border-t border-separator pt-4 lg:grid-cols-2">
       <div className="space-y-2 text-sm">
         <p className={EYEBROW}>
           Asunto
@@ -2454,7 +2454,7 @@ function ConsultantMarketingDraftPanel({
         <p className="text-xs text-muted">
           Propósito: {draft.purpose} · Audiencia: {draft.audience}
         </p>
-        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border border-edge bg-surface p-3 text-xs leading-5">
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 text-xs leading-5">
           {draft.plain_text}
         </pre>
       </div>
@@ -2468,7 +2468,7 @@ function ConsultantMarketingDraftPanel({
         ) : notes.length === 0 ? (
           <p className="text-sm text-muted">Sin objeciones todavía.</p>
         ) : (
-          <div className="space-y-2 border-l-2 border-edge pl-3">
+          <div className="space-y-2 border-l-2 border-separator pl-3">
             {notes.map((note) => (
               <div key={note.id} className="text-sm">
                 <p className="leading-6">{note.body}</p>
@@ -2591,7 +2591,7 @@ function ConsultantMarketingView() {
     );
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Card
         title="Marketing · toda la cartera"
         description={`${data.drafts.length} borradores · ${pending} pendientes de aprobar. Espejo de lo que crean tus clientes.`}
@@ -2662,7 +2662,7 @@ function ConsultantMarketingView() {
             {rows
               .filter((draft) => draft.id === expandedId)
               .map((draft) => (
-                <div key={draft.id} className="mt-4 border-t border-edge pt-4">
+                <div key={draft.id} className="mt-4 border-t border-separator pt-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm font-medium">
                       {draft.template_name} · {draft.organization_name}
