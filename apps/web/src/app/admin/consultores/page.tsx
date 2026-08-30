@@ -335,7 +335,7 @@ function AssignmentEditor({
           emptyLabel="Sin clientes asignados."
         />
 
-        <div className="flex flex-wrap items-end gap-3 border-t border-edge pt-4">
+        <div className="flex flex-wrap items-end gap-3 border-t border-separator pt-4">
           <Select
             className="w-64"
             aria-label="Cliente a asignar"

@@ -453,7 +453,7 @@ function FinancialConfigSection({
   );
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {!canManage ? (
@@ -562,7 +562,7 @@ function FinancialConfigSection({
           </form>
         ) : null}
 
-        <List className="mt-4 border-t border-edge">
+        <List className="mt-4 border-t border-separator">
           {(config?.fixed_expenses ?? []).length === 0 ? (
             <EmptyState
               title="Sin gastos fijos configurados"
@@ -668,7 +668,7 @@ function FinancialConfigSection({
           </form>
         ) : null}
 
-        <List className="mt-4 border-t border-edge">
+        <List className="mt-4 border-t border-separator">
           {(config?.shipping_cost_rules ?? []).length === 0 ? (
             <EmptyState
               title="Sin reglas de envío"
@@ -750,7 +750,7 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [tab, setTab] = useState<"general" | "shopify">("general");
 
   return (
-    <div className="portal-page space-y-6">
+    <div className="portal-page space-y-5 sm:space-y-6">
       <Tabs
         value={tab}
         onChange={(value) => setTab(value as "general" | "shopify")}

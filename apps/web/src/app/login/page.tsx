@@ -65,10 +65,10 @@ function LoginPageContent() {
   }
 
   return (
-    <main className="grid min-h-screen bg-white text-ink lg:grid-cols-2">
+    <main className="grid min-h-screen bg-white text-foreground lg:grid-cols-2">
       {/* Panel de marca (oculto en móvil) */}
-      <aside className="hidden flex-col justify-between border-r border-edge p-10 lg:flex">
-        <p className={cn(EYEBROW, "text-brand")}>EcomScaling IA</p>
+      <aside className="hidden flex-col justify-between border-r border-separator p-10 lg:flex">
+        <p className={cn(EYEBROW, "text-accent")}>EcomScaling IA</p>
         <div>
           <Heading level={2} size="lg" className="max-w-xl">
             El centro operativo para escalar tiendas ecommerce.
@@ -78,13 +78,13 @@ function LoginPageContent() {
       </aside>
 
       {/* Formulario */}
-      <div className="flex items-center justify-center bg-surface px-6 py-12 text-ink lg:px-12">
+      <div className="flex items-center justify-center bg-surface px-6 py-12 text-foreground lg:px-12">
         <Card
           className="w-full max-w-md"
           title="Inicia sesión"
           description="Accede al centro operativo de tu organización."
         >
-          <p className={cn(EYEBROW, "text-brand lg:hidden")}>EcomScaling IA</p>
+          <p className={cn(EYEBROW, "text-accent lg:hidden")}>EcomScaling IA</p>
 
           {sessionReason && REASON_MESSAGES[sessionReason] ? (
             <Banner tone="warn" className="mt-4 text-sm">
