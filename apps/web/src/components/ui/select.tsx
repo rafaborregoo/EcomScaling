@@ -38,7 +38,7 @@ export function Select({
       id={option.value}
       textValue={option.label}
       // Sin tick: el seleccionado se distingue por color de fondo/texto.
-      className="data-[selected=true]:bg-[var(--color-brand-tint)] data-[selected=true]:font-medium data-[selected=true]:text-[var(--color-brand)]"
+      className="data-[selected=true]:bg-accent-soft data-[selected=true]:font-medium data-[selected=true]:text-accent"
     >
       {option.label}
     </ListBox.Item>

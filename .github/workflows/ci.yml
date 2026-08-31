@@ -2,11 +2,9 @@ name: CI
 
 on:
   workflow_dispatch:
-  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
-  # automaticos. Para reactivar, descomentar el bloque de abajo.
-  # push:
-  #   branches: [main]
-  # pull_request:
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
@@ -36,6 +34,15 @@ jobs:
 
       - name: Verify safe test surface
         run: node scripts/assert-safe-test-surface.mjs
+
+      - name: Verify SQL gateway hardening
+        run: node scripts/assert-sql-gateway-hardening.mjs
+
+      - name: Verify RLS coverage
+        run: node scripts/assert-rls-coverage.mjs
+
+      - name: Verify SQL function search paths
+        run: node scripts/assert-sql-function-hardening.mjs
 
       - name: Verify safe demo seed surface
         run: node scripts/assert-safe-seed-surface.mjs

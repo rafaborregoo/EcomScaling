@@ -16,6 +16,7 @@ import {
   ErrorBlock,
   Field,
   Input,
+  Link,
   List,
   LoadingBlock,
   Select,
@@ -762,26 +763,7 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {tab === "general" ? (
         <div className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card
-              title="Perfil"
-              description="Identidad y permisos de la cuenta activa."
-            >
-              <dl className="space-y-3 text-sm">
-                <InfoRow label="Nombre">
-                  {bootstrap.profile.full_name ?? "Sin nombre"}
-                </InfoRow>
-                <InfoRow label="Email">
-                  {bootstrap.user.email ?? "Sin email"}
-                </InfoRow>
-                <InfoRow label="Rol plataforma">
-                  <span className="font-mono">
-                    {displayValue(bootstrap.profile.platform_role)}
-                  </span>
-                </InfoRow>
-              </dl>
-            </Card>
-
+          <div className="grid gap-4">
             <Card
               title="Organización activa"
               description="Contexto operativo y plan aplicado a esta organización."
@@ -808,6 +790,10 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </span>
                 </InfoRow>
               </dl>
+              <p className="mt-4 text-xs text-muted">
+                Tu nombre, avatar y datos de cuenta están en{" "}
+                <Link href="/perfil">Perfil</Link>.
+              </p>
             </Card>
           </div>
 

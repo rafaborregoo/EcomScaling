@@ -11,6 +11,7 @@ import {
   type BootstrapResponse,
 } from "@/lib/bootstrap";
 import { getSupabaseClient } from "@/lib/supabase";
+import { invalidateCachedQueries } from "@/lib/use-cached-query";
 import {
   Alert,
   Avatar,
@@ -84,6 +85,7 @@ const consultantNavGroups: NavGroup[] = [
       { href: "/tareas", label: "Tareas" },
       { href: "/llamadas", label: "Llamadas" },
       { href: "/marketing", label: "Marketing" },
+      { href: "/planificacion", label: "Planificación" },
       { href: "/integraciones", label: "Integraciones" },
       { href: "/shopify", label: "Shopify" },
       { href: "/conocimiento", label: "Conocimiento" },
@@ -103,6 +105,7 @@ const platformAdminNavGroups: NavGroup[] = [
     label: "Plataforma",
     items: [
       { href: "/admin/consultores", label: "Consultores" },
+      { href: "/admin/clientes", label: "Clientes" },
       { href: "/admin/observabilidad", label: "Observabilidad" },
       { href: "/admin/logs", label: "Logs de errores" },
       { href: "/admin/facturacion", label: "Facturación" },
@@ -121,12 +124,19 @@ const clientNavGroups: NavGroup[] = [
       { href: "/tareas", label: "Tareas" },
       { href: "/llamadas", label: "Llamadas" },
       { href: "/marketing", label: "Marketing" },
+      { href: "/planificacion", label: "Planificación" },
       { href: "/integraciones", label: "Integraciones" },
       { href: "/shopify", label: "Shopify" },
       { href: "/conocimiento", label: "Conocimiento" },
     ],
   },
 ];
+
+// Planificacion es una herramienta del consultor; el cliente no debe verla en
+// navegacion ni llegar a ella por un enlace accidental.
+for (const group of clientNavGroups) {
+  group.items = group.items.filter((item) => item.href !== "/planificacion");
+}
 
 // Iconos para la barra de navegacion inferior en movil (las 4 primeras rutas
 // del nav del rol + "Mas"). Sin icono -> icono generico.
@@ -194,11 +204,14 @@ function AccountStateBanner({
   needsShopifyReauthorization: boolean;
   isConsultant: boolean;
 }) {
-  if (organizationStatus === "suspended") {
+  // El consultor/admin es quien pausa a un cliente (status 'suspended'), a
+  // propósito y desde /consultor -- no necesita que se lo recuerden en cada
+  // página. El aviso es solo para el cliente, que sí queda bloqueado.
+  if (organizationStatus === "suspended" && !isConsultant) {
     return (
       <Alert
         status="danger"
-        className="border-b border-edge px-6 py-3 lg:px-10"
+        className="border-b border-separator px-6 py-3 lg:px-10"
       >
         <Alert.Indicator />
         <Alert.Content>
@@ -219,7 +232,7 @@ function AccountStateBanner({
     return (
       <Alert
         status="warning"
-        className="border-b border-edge px-6 py-3 lg:px-10"
+        className="border-b border-separator px-6 py-3 lg:px-10"
       >
         <Alert.Indicator />
         <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
@@ -248,7 +261,7 @@ function AccountStateBanner({
     return (
       <Alert
         status="warning"
-        className="border-b border-edge px-6 py-3 lg:px-10"
+        className="border-b border-separator px-6 py-3 lg:px-10"
       >
         <Alert.Indicator />
         <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
@@ -492,6 +505,17 @@ function PortalShellContent({
         }
 
         const payload = await fetchBootstrap(accessToken);
+        if (cancelled) {
+          return;
+        }
+
+        // Gate de onboarding: hasta terminar contraseña + perfil, el usuario
+        // invitado va a /onboarding y no ve el portal.
+        if (!payload.profile.onboarding_completed_at) {
+          router.replace("/onboarding");
+          return;
+        }
+
         const accountActions = await fetchAccountActions(accessToken);
         if (cancelled) {
           return;
@@ -563,6 +587,9 @@ function PortalShellContent({
 
   function selectOrganization(organizationId: string) {
     setActiveOrganizationId(organizationId);
+    // Los datos cacheados de las páginas son del tenant anterior: se descartan
+    // para que la vista nueva no muestre por un instante datos de otro cliente.
+    invalidateCachedQueries();
     if (organizationId) {
       window.localStorage.setItem(
         ACTIVE_ORGANIZATION_STORAGE_KEY,
@@ -588,7 +615,7 @@ function PortalShellContent({
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-white p-6 text-black">
+      <main className="min-h-screen bg-white p-6 text-foreground">
         <AsyncState status="loading" loadingLabel="Cargando cuenta..." />
       </main>
     );
@@ -596,7 +623,7 @@ function PortalShellContent({
 
   if (error || !bootstrap || !token) {
     return (
-      <main className="min-h-screen bg-white p-6 text-black">
+      <main className="min-h-screen bg-white p-6 text-foreground">
         <ErrorBlock>{error ?? "No se pudo resolver la sesión"}</ErrorBlock>
       </main>
     );
@@ -627,8 +654,8 @@ function PortalShellContent({
     [
       "flex items-center px-2 py-1.5 text-[0.8125rem] no-underline transition-colors hover:no-underline active:no-underline",
       active
-        ? "font-medium text-brand"
-        : "text-muted hover:text-black",
+        ? "font-medium text-accent"
+        : "text-muted hover:text-foreground",
     ].join(" ");
 
   const navGroupLabelClass =
@@ -671,7 +698,7 @@ function PortalShellContent({
         </div>
       ))}
       {!inPlatformAdminView ? (
-        <div className="border-t border-edge pt-4">
+        <div className="border-t border-separator pt-4">
           <Link
             aria-current={
               pathname === settingsNavItem.href ? "page" : undefined
@@ -687,15 +714,20 @@ function PortalShellContent({
   );
 
   const accountBlock = (
-    <div className="border-t border-edge pt-4 text-sm text-muted">
-      <div className="flex items-center gap-2.5 px-2">
+    <div className="border-t border-separator pt-4 text-sm text-muted">
+      <Link
+        href="/perfil"
+        aria-current={pathname === "/perfil" ? "page" : undefined}
+        className="flex items-center gap-2.5 rounded-md px-2 py-1 no-underline transition-colors hover:bg-surface hover:no-underline"
+      >
         <Avatar
           name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"}
+          src={bootstrap.profile.avatar_url ?? undefined}
           size="sm"
           color="accent"
         />
         <div className="min-w-0">
-          <p className="truncate text-[0.8125rem] text-black">
+          <p className="truncate text-[0.8125rem] text-foreground">
             {bootstrap.profile.full_name ?? bootstrap.user.email}
           </p>
           {/* Para consultor/admin el rol es informativo; para un cliente final
@@ -711,12 +743,12 @@ function PortalShellContent({
                 "")}
           </p>
         </div>
-      </div>
+      </Link>
       <ConfirmDialog
         trigger={
           <Button
             variant="secondary"
-            className="mt-1.5 flex w-full items-center border-0 bg-transparent px-2 py-1.5 text-left text-[0.8125rem] text-muted transition-colors hover:text-black"
+            className="mt-1.5 flex w-full items-center border-0 bg-transparent px-2 py-1.5 text-left text-[0.8125rem] text-muted transition-colors hover:text-foreground"
           >
             Cerrar sesión
           </Button>
@@ -817,7 +849,7 @@ function PortalShellContent({
 
   return (
     <>
-      <main className="min-h-screen bg-white text-black lg:pt-2">
+      <main className="min-h-screen bg-white text-foreground lg:pt-2">
         <a className="skip-link" href="#portal-content">
           Saltar al contenido principal
         </a>
@@ -825,7 +857,7 @@ function PortalShellContent({
           circular a la izquierda, título + eyebrow centrados, notificaciones a
           la derecha. La navegación vive en la barra inferior fija. */}
         <div className="sticky top-0 z-30 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
-          <div className="flex items-center gap-2 px-3 py-2.5 text-black">
+          <div className="flex items-center gap-2 px-3 py-2.5 text-foreground">
             <button
               type="button"
               aria-label="Menú y cuenta"
@@ -872,7 +904,7 @@ function PortalShellContent({
             />
             <div
               id="mobile-nav"
-              className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-[1rem] border-t border-edge bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5"
+              className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5"
             >
               <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-edge" />
               {navigation}
@@ -882,7 +914,7 @@ function PortalShellContent({
         ) : null}
 
         <div className="grid min-h-screen lg:grid-cols-[232px_1fr]">
-          <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-edge bg-white px-3 py-5 text-black lg:flex">
+          <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-separator bg-white px-3 py-5 text-foreground lg:flex">
             <div>
               <p className="px-2 text-sm font-semibold tracking-tight">
                 {eyebrow}
@@ -899,7 +931,7 @@ function PortalShellContent({
               cliente) como estado por defecto. Un cliente normal solo lo ve si
               pertenece a mas de una organizacion, y sin la opcion "Vista
               general". Al elegir un cliente/tienda todo se scopea a el. */}
-            <div className="sticky top-0 z-20 hidden items-center gap-3 border-b border-edge bg-white px-6 py-2 lg:flex lg:px-10">
+            <div className="sticky top-0 z-20 hidden items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10">
               <Breadcrumbs items={[{ label: title }]} />
               {clientSelectNode ? (
                 <>
@@ -946,7 +978,7 @@ function PortalShellContent({
             {visibleActions.map((action) => (
               <div
                 key={action.id}
-                className="border-b border-edge px-6 py-3 lg:px-10"
+                className="border-b border-separator px-6 py-3 lg:px-10"
               >
                 <Alert
                   status={actionSeverityStatus[action.severity]}
@@ -978,7 +1010,7 @@ function PortalShellContent({
               </div>
             ))}
             {actions.length > visibleActions.length ? (
-              <div className="border-b border-edge px-6 py-2 font-mono text-xs text-muted lg:px-10">
+              <div className="border-b border-separator px-6 py-2 font-mono text-xs text-muted lg:px-10">
                 {actions.length - visibleActions.length} avisos más en
                 Integraciones.
               </div>
@@ -1028,7 +1060,7 @@ function PortalShellContent({
         {/* Barra de navegación inferior (solo móvil): app nativa en web. */}
         <nav
           aria-label="Navegación principal"
-          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-edge bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
+          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
         >
           {bottomNavItems.map((item) => {
             const Icon = NAV_ICONS[item.href] ?? DotGridIcon;
@@ -1040,7 +1072,7 @@ function PortalShellContent({
                 aria-current={active ? "page" : undefined}
                 className={[
                   "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[0.65rem] no-underline transition-colors hover:no-underline",
-                  active ? "text-brand" : "text-muted",
+                  active ? "text-accent" : "text-muted",
                 ].join(" ")}
               >
                 <Icon className="size-5 shrink-0" aria-hidden />
@@ -1055,7 +1087,7 @@ function PortalShellContent({
             onClick={() => setIsMobileNavOpen((open) => !open)}
             className={[
               "flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[0.65rem] transition-colors",
-              isMobileNavOpen ? "text-brand" : "text-muted",
+              isMobileNavOpen ? "text-accent" : "text-muted",
             ].join(" ")}
           >
             {isMobileNavOpen ? (

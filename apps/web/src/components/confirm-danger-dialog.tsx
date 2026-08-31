@@ -44,9 +44,9 @@ export function ConfirmDangerDialog({
               <Modal.Heading>{title}</Modal.Heading>
             </Modal.Header>
             <Modal.Body>
-              {note ? <p className="font-mono text-xs uppercase tracking-wide text-brand">{note}</p> : null}
+              {note ? <p className="font-mono text-xs uppercase tracking-wide text-accent">{note}</p> : null}
               <p id="confirm-danger-instructions" className="mt-3 text-sm text-muted">
-                Escribe <span className="font-mono font-medium text-black">{confirmPhrase}</span> para confirmar.
+                Escribe <span className="font-mono font-medium text-foreground">{confirmPhrase}</span> para confirmar.
               </p>
               <Input
                 autoFocus

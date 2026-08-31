@@ -45,23 +45,27 @@ export async function fetchWorkerWithResilience(
         ? AbortSignal.any([init.signal, controller.signal])
         : controller.signal;
       const response = await fetchImpl(input, { ...init, signal });
+      clearTimeout(timeout);
 
       if (!isTransient(response.status) || attempt === maxRetries) {
+        // No abortar: el body queda ligado a `signal` y el caller aún tiene
+        // que leerlo con `.json()`. Abortar aquí rompía toda lectura de
+        // respuesta (por eso fallaba fathom-webhook-processing cada minuto).
         return response;
       }
 
+      // Transitoria y vamos a reintentar: esta respuesta se descarta.
+      controller.abort();
       const delay =
         retryAfterMs(response.headers.get("Retry-After")) ??
         Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** attempt);
       await sleepImpl(delay);
       continue;
     } catch (error) {
+      clearTimeout(timeout);
       lastError = error;
       if (attempt === maxRetries) throw error;
       await sleepImpl(Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** attempt));
-    } finally {
-      clearTimeout(timeout);
-      controller.abort();
     }
   }
 

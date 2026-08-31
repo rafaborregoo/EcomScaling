@@ -16,6 +16,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   cn,
   EmptyState,
   ErrorBlock,
@@ -90,7 +91,15 @@ const priorityLabels: Record<string, string> = {
   urgent: "urgente",
 };
 
-function StructuredSummary({ summary }: { summary: CallSummary }) {
+function StructuredSummary({
+  summary,
+  hideProposedTasks = false,
+}: {
+  summary: CallSummary;
+  // En la revisión de un resumen pendiente las tareas propuestas se muestran
+  // como checklist interactiva aparte (PendingSummaryReview), no aquí.
+  hideProposedTasks?: boolean;
+}) {
   const detail = isCallSummaryDetail(summary.key_points)
     ? summary.key_points
     : null;
@@ -164,7 +173,7 @@ function StructuredSummary({ summary }: { summary: CallSummary }) {
         </div>
       ) : null}
 
-      {detail?.proposed_tasks?.length ? (
+      {!hideProposedTasks && detail?.proposed_tasks?.length ? (
         <div>
           <p className={EYEBROW}>
             Tareas propuestas (se crean al aprobar)
@@ -265,14 +274,207 @@ function formatDate(value: string | null) {
     : "-";
 }
 
+const CONFIDENCE_META: Record<string, { label: string; tone: "success" | "warn" | "danger" }> = {
+  high: { label: "Confianza alta", tone: "success" },
+  medium: { label: "Confianza media", tone: "warn" },
+  low: { label: "Confianza baja", tone: "danger" },
+};
+
+// Revisión de un resumen A01 pendiente: banda de confianza/avisos arriba,
+// resumen + detalle estructurado, y las tareas propuestas como checklist para
+// elegir cuáles se materializan al aprobar (el resto no se crea). Rechazar
+// exige un motivo, que se guarda y sirve de feedback para el agente.
+function PendingSummaryReview({
+  summary,
+  isBusy,
+  onApprove,
+  onReject,
+}: {
+  summary: CallSummary;
+  isBusy: boolean;
+  onApprove: (selectedTaskIndexes: number[]) => void;
+  onReject: (reason: string) => void;
+}) {
+  const detail = isCallSummaryDetail(summary.key_points)
+    ? summary.key_points
+    : null;
+  const proposedTasks = detail?.proposed_tasks ?? [];
+  const warnings = detail?.warnings ?? [];
+  const confidence = detail?.confidence;
+
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(proposedTasks.map((_, index) => index)),
+  );
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+
+  function toggle(index: number) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  }
+
+  return (
+    <Alert status="warning" className="items-start p-3">
+      <Alert.Indicator />
+      <Alert.Content className="gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Alert.Title className="text-xs uppercase">
+            {summaryStatusLabels[summary.status]}
+            {summary.run_id ? " · IA (A01)" : ""}
+          </Alert.Title>
+          {confidence && CONFIDENCE_META[confidence] ? (
+            <Badge tone={CONFIDENCE_META[confidence].tone}>
+              {CONFIDENCE_META[confidence].label}
+            </Badge>
+          ) : null}
+        </div>
+
+        {warnings.length ? (
+          <ul className="list-disc space-y-0.5 rounded-md border border-warn/40 bg-warn-tint px-4 py-2 pl-6 text-xs text-warn-deep">
+            {warnings.map((warning, index) => (
+              <li key={index}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+
+        <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+          {summary.summary}
+        </p>
+
+        <StructuredSummary summary={summary} hideProposedTasks />
+
+        {proposedTasks.length ? (
+          <div>
+            <p className={EYEBROW}>
+              Tareas propuestas · marca las que quieras crear al aprobar
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {proposedTasks.map((task, index) => (
+                <li
+                  key={index}
+                  className="rounded-md border border-separator bg-surface p-2.5 text-sm"
+                >
+                  <Checkbox
+                    checked={selected.has(index)}
+                    onChange={() => toggle(index)}
+                  >
+                    <span className="font-medium">{task.title}</span>
+                  </Checkbox>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-6">
+                    <Badge tone={task.owner === "cliente" ? "neutral" : "brand"}>
+                      {task.owner}
+                    </Badge>
+                    <Badge
+                      tone={
+                        ["urgent", "high"].includes(task.priority)
+                          ? "warn"
+                          : "neutral"
+                      }
+                    >
+                      {priorityLabels[task.priority] ?? task.priority}
+                    </Badge>
+                  </div>
+                  {task.description ? (
+                    <p className="mt-1 pl-6 text-xs text-muted">
+                      {task.description}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="mt-1 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            type="button"
+            disabled={isBusy}
+            onClick={() => onApprove([...selected])}
+          >
+            {proposedTasks.length
+              ? `Aprobar · ${selected.size}/${proposedTasks.length} tareas`
+              : "Aprobar y publicar"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            disabled={isBusy}
+            onClick={() => {
+              setRejectReason("");
+              setRejectOpen(true);
+            }}
+          >
+            Rechazar
+          </Button>
+        </div>
+
+        <Modal isOpen={rejectOpen} onOpenChange={setRejectOpen}>
+          <Modal.Backdrop>
+            <Modal.Container size="md">
+              <Modal.Dialog aria-label="Rechazar resumen">
+                <Modal.Header>
+                  <Modal.Heading>Rechazar resumen</Modal.Heading>
+                </Modal.Header>
+                <Modal.Body>
+                  <Field label="Motivo del rechazo">
+                    <Textarea
+                      className="h-24"
+                      autoFocus
+                      value={rejectReason}
+                      onChange={(event) => setRejectReason(event.target.value)}
+                      placeholder="Qué falló o qué debería corregir el análisis. Queda registrado y sirve de feedback."
+                    />
+                  </Field>
+                </Modal.Body>
+                <Modal.Footer>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setRejectOpen(false)}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={isBusy || !rejectReason.trim()}
+                    onClick={() => {
+                      onReject(rejectReason.trim());
+                      setRejectOpen(false);
+                    }}
+                  >
+                    Rechazar resumen
+                  </Button>
+                </Modal.Footer>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
+      </Alert.Content>
+    </Alert>
+  );
+}
+
 function CallDetail({
   call,
   isConsultant,
   onChanged,
+  priorCalls = [],
 }: {
   call: ConsultingCall;
   isConsultant: boolean;
   onChanged: () => void;
+  // Otras llamadas de la misma tienda: se usa para mostrar sus resúmenes
+  // publicados como "Llamadas anteriores" (mismo histórico que ve el agente).
+  priorCalls?: ConsultingCall[];
 }) {
   const { organizationId } = useActiveOrganization();
   const [error, setError] = useState<string | null>(null);
@@ -286,6 +488,8 @@ function CallDetail({
 
   const [noteDraft, setNoteDraft] = useState("");
   const [taskTitleDraft, setTaskTitleDraft] = useState("");
+  // B5: enfoque opcional para (re)generar el resumen centrándose en algo.
+  const [focusDraft, setFocusDraft] = useState("");
 
   const currentTranscript = call.call_transcripts[0] ?? null;
   const publishedSummary = call.call_ai_summaries.find((summary) =>
@@ -296,6 +500,24 @@ function CallDetail({
       summary.status === "pending_approval" &&
       (!currentTranscript || summary.transcript_id === currentTranscript.id),
   );
+
+  const previousSummaries = priorCalls
+    .filter((other) => other.id !== call.id)
+    .map((other) => ({
+      call: other,
+      summary: other.call_ai_summaries.find(
+        (summary) => summary.status === "published",
+      ),
+    }))
+    .filter((entry): entry is { call: ConsultingCall; summary: CallSummary } =>
+      Boolean(entry.summary),
+    )
+    .sort(
+      (a, b) =>
+        Date.parse(b.call.held_at ?? b.call.scheduled_at ?? b.call.created_at) -
+        Date.parse(a.call.held_at ?? a.call.scheduled_at ?? a.call.created_at),
+    )
+    .slice(0, 5);
 
   async function run(action: () => Promise<Response>, successMessage?: string) {
     setIsBusy(true);
@@ -367,18 +589,26 @@ function CallDetail({
   }
 
   // A01: genera el resumen estructurado desde la transcripcion actual. Queda
-  // pendiente de aprobacion, igual que un resumen redactado a mano.
+  // pendiente de aprobacion, igual que un resumen redactado a mano. `focus`
+  // opcional deja re-generar centrándose en algo concreto (B5).
   async function analyzeCall() {
-    await run(() =>
+    const focus = focusDraft.trim();
+    const ok = await run(() =>
       apiFetch(`/v1/organizations/${organizationId}/calls/${call.id}/analyze`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(focus ? { focus } : {}),
       }),
     );
+    if (ok) {
+      setFocusDraft("");
+    }
   }
 
   async function decideSummary(
     summaryId: string,
     decision: "approved" | "rejected",
+    opts?: { reason?: string; selectedTaskIndexes?: number[] },
   ) {
     await run(
       () =>
@@ -387,7 +617,11 @@ function CallDetail({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ decision }),
+            body: JSON.stringify({
+              decision,
+              reason: opts?.reason,
+              selectedTaskIndexes: opts?.selectedTaskIndexes,
+            }),
           },
         ),
       decision === "approved"
@@ -482,42 +716,17 @@ function CallDetail({
         {isConsultant ? (
           <>
             {pendingSummaries.map((summary) => (
-              <Alert
+              <PendingSummaryReview
                 key={summary.id}
-                status="warning"
-                className="items-start p-3"
-              >
-                <Alert.Indicator />
-                <Alert.Content className="gap-1">
-                  <Alert.Title className="text-xs uppercase">
-                    {summaryStatusLabels[summary.status]}
-                    {summary.run_id ? " · generado por IA (A01)" : ""}
-                  </Alert.Title>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">
-                    {summary.summary}
-                  </p>
-                  <StructuredSummary summary={summary} />
-                  <div className="mt-3 flex gap-2">
-                    <Button
-                      size="sm"
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => decideSummary(summary.id, "approved")}
-                    >
-                      Aprobar y publicar
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => decideSummary(summary.id, "rejected")}
-                    >
-                      Rechazar
-                    </Button>
-                  </div>
-                </Alert.Content>
-              </Alert>
+                summary={summary}
+                isBusy={isBusy}
+                onApprove={(selectedTaskIndexes) =>
+                  decideSummary(summary.id, "approved", { selectedTaskIndexes })
+                }
+                onReject={(reason) =>
+                  decideSummary(summary.id, "rejected", { reason })
+                }
+              />
             ))}
 
             <Accordion
@@ -599,26 +808,38 @@ function CallDetail({
                 </Button>
               </form>
             ) : (
-              <div className="flex flex-wrap items-center gap-4">
-                <Button
-                  type="button"
-                  disabled={isBusy || !currentTranscript}
-                  onClick={analyzeCall}
-                  title={
-                    currentTranscript
-                      ? "Genera el resumen desde la transcripcion con el agente A01"
-                      : "Añade la transcripcion para poder generar el resumen con IA"
-                  }
-                >
-                  {isBusy ? "Generando..." : "Generar resumen con IA"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  onClick={() => setShowSummaryForm(true)}
-                >
-                  Redactar a mano
-                </Button>
+              <div className="space-y-2">
+                <Input
+                  aria-label="Enfoque para el análisis (opcional)"
+                  value={focusDraft}
+                  onChange={(event) => setFocusDraft(event.target.value)}
+                  placeholder="Enfoque para la IA (opcional): p. ej. «profundiza en pricing», «ignora la parte de RRHH»"
+                />
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    disabled={isBusy || !currentTranscript}
+                    onClick={analyzeCall}
+                    title={
+                      currentTranscript
+                        ? "Genera el resumen desde la transcripcion con el agente A01 (usa el enfoque si lo hay)"
+                        : "Añade la transcripcion para poder generar el resumen con IA"
+                    }
+                  >
+                    {isBusy
+                      ? "Generando..."
+                      : pendingSummaries.length
+                        ? "Regenerar con IA"
+                        : "Generar resumen con IA"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={() => setShowSummaryForm(true)}
+                  >
+                    Redactar a mano
+                  </Button>
+                </div>
               </div>
             )}
           </>
@@ -696,6 +917,50 @@ function CallDetail({
               ))}
             </ul>
           </section>
+        ) : null}
+
+        {previousSummaries.length > 0 ? (
+          <Accordion
+            className="border border-separator"
+            items={[
+              {
+                id: "history",
+                title: `Llamadas anteriores (${previousSummaries.length})`,
+                content: (
+                  <div className="space-y-4">
+                    {previousSummaries.map(({ call: other, summary }) => {
+                      const decisions = Array.isArray(summary.agreed_actions)
+                        ? summary.agreed_actions
+                        : [];
+                      return (
+                        <div
+                          key={other.id}
+                          className="border-l-2 border-separator pl-3"
+                        >
+                          <p className="text-sm font-medium">{other.title}</p>
+                          <p className="text-xs text-muted">
+                            {formatDate(
+                              other.held_at ?? other.scheduled_at,
+                            )}
+                          </p>
+                          <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-muted">
+                            {summary.summary}
+                          </p>
+                          {decisions.length ? (
+                            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted">
+                              {decisions.slice(0, 4).map((decision, index) => (
+                                <li key={index}>{decision}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ),
+              },
+            ]}
+          />
         ) : null}
       </div>
     </Card>
@@ -939,6 +1204,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       call={call}
                       isConsultant={isConsultant}
                       onChanged={loadCalls}
+                      priorCalls={calls}
                     />
                   </div>
                 ) : null}

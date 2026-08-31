@@ -82,7 +82,7 @@ export function CopilotPanel({ organizationId, onClose }: { organizationId: stri
         <Drawer.Content placement="right" className="w-full max-w-md">
           <Drawer.Dialog id="copilot-panel">
             <Drawer.Header>
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-brand">Copiloto</p>
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-accent">Copiloto</p>
               <Drawer.Heading>Pregunta sobre este negocio</Drawer.Heading>
               <Drawer.CloseTrigger aria-label="Cerrar copiloto" />
             </Drawer.Header>

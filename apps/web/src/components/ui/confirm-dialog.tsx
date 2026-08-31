@@ -44,7 +44,7 @@ export function ConfirmDialog({
             </Modal.Header>
             {description ? (
               <Modal.Body>
-                <p className="text-[13px] leading-relaxed text-ink">
+                <p className="text-[13px] leading-relaxed text-foreground">
                   {description}
                 </p>
               </Modal.Body>

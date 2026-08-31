@@ -97,14 +97,14 @@ export function OnboardingChecklist({
         {steps.map((step, index) => (
           <li
             key={step.title}
-            className="border-t border-edge pt-3"
+            className="border-t border-separator pt-3"
             aria-current={step.state === "current" ? "step" : undefined}
           >
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-xs text-muted">0{index + 1}</span>
               <StepState state={step.state} />
             </div>
-            <h3 className="mt-3 text-sm font-semibold text-ink">{step.title}</h3>
+            <h3 className="mt-3 text-sm font-semibold text-foreground">{step.title}</h3>
             <p className="mt-1 text-sm leading-6 text-muted">{step.detail}</p>
           </li>
         ))}

@@ -2,6 +2,8 @@
 
 import {
   FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   Suspense,
   useCallback,
@@ -334,6 +336,31 @@ function RowMenu({
   );
 }
 
+// Todo el bloque (fase/hito) es un objetivo de clic para plegar/desplegar, no
+// solo el titulo. Un div con onClick necesita rol y teclado de boton; los
+// controles interactivos de dentro (asa de arrastre, editar, menu) paran la
+// propagacion para no disparar tambien el toggle.
+function blockToggle(handler: () => void) {
+  return {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: handler,
+    onKeyDown: (event: ReactKeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        handler();
+      }
+    },
+  };
+}
+
+function stopBlockToggle() {
+  return {
+    onClick: (event: ReactMouseEvent) => event.stopPropagation(),
+    onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
+  };
+}
+
 // Nodo "+" en la punta de una rama: pulsarlo abre el formulario de alta en el
 // sitio (misma fila), no un modal aparte -- se ve la rama crecer. Es el CTA
 // principal del arbol, asi que se pinta como un boton solido de verdad (nodo
@@ -435,25 +462,24 @@ function PhaseNode({
         )}
       </span>
       <div
-        className="min-w-0 flex-1 rounded-lg border px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow"
+        {...blockToggle(onToggle)}
+        aria-expanded={isOpen}
+        className="min-w-0 flex-1 cursor-pointer rounded-lg border px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow"
         style={{ borderColor: t.border, background: t.bg }}
         aria-current={phase.status === "active" ? "step" : undefined}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             {canManage && handleProps ? (
-              <DragHandle
-                label={`Reordenar la fase ${phase.name}`}
-                handleProps={handleProps}
-              />
+              <span {...stopBlockToggle()}>
+                <DragHandle
+                  label={`Reordenar la fase ${phase.name}`}
+                  handleProps={handleProps}
+                />
+              </span>
             ) : null}
             <OriginDot origin={phase.created_by_origin ?? null} />
-            <button
-              type="button"
-              onClick={onToggle}
-              aria-expanded={isOpen}
-              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-            >
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
               <p className="min-w-0 break-words text-sm font-semibold">
                 {phase.name}
               </p>
@@ -462,7 +488,7 @@ function PhaseNode({
               ) : (
                 <IconChevronDown className="shrink-0 text-muted" aria-hidden />
               )}
-            </button>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Badge
@@ -477,14 +503,16 @@ function PhaseNode({
               {PHASE_STATUS_LABELS[phase.status] ?? phase.status}
             </Badge>
             {canManage ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={onEdit}
-                aria-expanded={isEditing}
-              >
-                {isEditing ? "Cerrar" : "Editar"}
-              </Button>
+              <span {...stopBlockToggle()}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={onEdit}
+                  aria-expanded={isEditing}
+                >
+                  {isEditing ? "Cerrar" : "Editar"}
+                </Button>
+              </span>
             ) : null}
           </div>
         </div>
@@ -588,8 +616,12 @@ function MilestoneNode({
           milestone.position
         )}
       </button>
+      {/* Todo el bloque del hito es clic para expandir el detalle, no solo el
+          nombre. */}
       <div
-        className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg border px-2.5 py-2 transition-colors sm:flex-row sm:items-center sm:gap-2.5"
+        {...blockToggle(onToggleExpand)}
+        aria-expanded={isExpanded}
+        className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1.5 rounded-lg border px-2.5 py-2 transition-colors hover:bg-black/[0.02] sm:flex-row sm:items-center sm:gap-2.5"
         style={{
           borderColor: t.border,
           background: isFocus ? "var(--color-brand-tint)" : t.bg,
@@ -598,18 +630,14 @@ function MilestoneNode({
       >
         <div className="flex min-w-0 items-center gap-2 sm:flex-1 sm:gap-2.5">
           {canManage && handleProps ? (
-            <DragHandle
-              label={`Reordenar el hito ${milestone.name}`}
-              handleProps={handleProps}
-            />
+            <span {...stopBlockToggle()}>
+              <DragHandle
+                label={`Reordenar el hito ${milestone.name}`}
+                handleProps={handleProps}
+              />
+            </span>
           ) : null}
-          {/* Todo el ancho restante es clic para expandir el detalle. */}
-          <button
-            type="button"
-            onClick={onToggleExpand}
-            aria-expanded={isExpanded}
-            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left hover:bg-black/[0.02] sm:gap-2.5"
-          >
+          <div className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left sm:gap-2.5">
             <span className="shrink-0 font-mono text-[0.65rem] text-muted">
               {numberLabel}
             </span>
@@ -630,7 +658,7 @@ function MilestoneNode({
                 aria-hidden
               />
             )}
-          </button>
+          </div>
         </div>
         <div className="flex shrink-0 items-center justify-between gap-2 pl-8 sm:justify-start sm:pl-0">
           <span className="shrink-0 text-[0.65rem] text-muted">
@@ -638,11 +666,22 @@ function MilestoneNode({
             {taskCount ? ` · ${taskCount} tareas` : ""}
           </span>
           {canManage ? (
-            <RowMenu
-              ariaLabel={`Más acciones del hito ${milestone.name}`}
-              onAction={(key) => onAction(key as "start" | "skip" | "edit")}
-              items={menuItems}
-            />
+            <span className="flex items-center gap-1.5" {...stopBlockToggle()}>
+              <Button
+                size="sm"
+                variant={
+                  milestone.status === "completed" ? "secondary" : "primary"
+                }
+                onClick={onToggleComplete}
+              >
+                {milestone.status === "completed" ? "Reabrir" : "Hecho"}
+              </Button>
+              <RowMenu
+                ariaLabel={`Más acciones del hito ${milestone.name}`}
+                onAction={(key) => onAction(key as "start" | "skip" | "edit")}
+                items={menuItems}
+              />
+            </span>
           ) : null}
         </div>
       </div>
@@ -864,13 +903,35 @@ function NameDescriptionForm({
 function TaskListItem({
   numberLabel,
   task,
+  canManage,
+  onToggleDone,
 }: {
   numberLabel: string;
   task: MilestoneTask;
+  canManage: boolean;
+  onToggleDone: () => void;
 }) {
+  const done = task.status === "completed";
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-md border border-separator bg-surface px-2.5 py-1.5 text-sm">
       <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
+        {canManage ? (
+          <button
+            type="button"
+            onClick={onToggleDone}
+            aria-pressed={done}
+            aria-label={done ? "Reabrir la tarea" : "Marcar la tarea como hecha"}
+            title={done ? "Reabrir" : "Marcar hecha"}
+            className={[
+              "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
+              done
+                ? "border-accent bg-accent text-white"
+                : "border-muted-foreground/40 hover:border-accent hover:bg-accent/10",
+            ].join(" ")}
+          >
+            {done ? <CheckIcon aria-hidden /> : null}
+          </button>
+        ) : null}
         <span className="shrink-0 font-mono text-[0.65rem] text-muted">
           {numberLabel}
         </span>
@@ -1296,24 +1357,27 @@ function ObjectivesPanel({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [savingActualId, setSavingActualId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/objectives`,
-      );
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setIsLoading(true);
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organizationId}/objectives`,
+        );
+        if (!response.ok) {
+          setError(await readApiError(response));
+          return;
+        }
+        setData((await response.json()) as ObjectivesResponse);
+        setError(null);
+      } catch {
+        setError("No se pudieron cargar los objetivos. Reintenta.");
+      } finally {
+        if (!silent) setIsLoading(false);
       }
-      setData((await response.json()) as ObjectivesResponse);
-      setError(null);
-    } catch {
-      setError("No se pudieron cargar los objetivos. Reintenta.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organizationId]);
+    },
+    [organizationId],
+  );
 
   useEffect(() => {
     void load();
@@ -1338,7 +1402,7 @@ function ObjectivesPanel({
         return false;
       }
       toast.success("Objetivo guardado.");
-      await load();
+      await load(true);
       return true;
     } catch {
       setError("No se pudo guardar el objetivo. Reintenta.");
@@ -1357,7 +1421,7 @@ function ObjectivesPanel({
         setError(await readApiError(response));
         return;
       }
-      await load();
+      await load(true);
     } catch {
       setError("No se pudo quitar el objetivo. Reintenta.");
     } finally {
@@ -1380,7 +1444,7 @@ function ObjectivesPanel({
         setError(await readApiError(response));
         return;
       }
-      await load();
+      await load(true);
     } catch {
       setError("No se pudo guardar el valor actual. Reintenta.");
     } finally {
@@ -1391,7 +1455,7 @@ function ObjectivesPanel({
   return (
     <Card
       title="Objetivos"
-      description="Metas de negocio con progreso real calculado sobre los últimos 30 días."
+      description="Progreso calculado sobre los últimos 30 días."
       actions={
         canManage ? (
           <Button
@@ -1436,16 +1500,11 @@ function ObjectivesPanel({
           ))}
         </div>
       ) : (
-        <div className="mt-3">
-          <EmptyState
-            title="Sin objetivos definidos"
-            hint={
-              canManage
-                ? "Añade el primero desde «+ Objetivo»: ingresos, margen, ROAS, CAC, pedidos, ticket medio o stock."
-                : "Tu consultor todavía no ha definido objetivos para este negocio."
-            }
-          />
-        </div>
+        <p className="mt-3 text-sm text-muted">
+          {canManage
+            ? "Sin objetivos. Añade el primero con «+ Objetivo»."
+            : "Tu consultor todavía no ha definido objetivos para este negocio."}
+        </p>
       )}
 
       {data ? (
@@ -1485,7 +1544,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [planName, setPlanName] = useState("");
-  const [planOutline, setPlanOutline] = useState("");
+  const [isCreatingPlan, setIsCreatingPlan] = useState(false);
   const [expandedMilestoneId, setExpandedMilestoneId] = useState<string | null>(
     null,
   );
@@ -1516,32 +1575,39 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }),
   );
 
-  const loadPlan = useCallback(async () => {
-    if (!organizationId) {
-      setPayload(null);
-      setError(null);
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/strategic-plan`,
-      );
-      if (!response.ok) {
-        setError(await readApiError(response));
+  // `silent`: refresco de fondo tras una mutación -- no toca `isLoading`, así el
+  // árbol no se desmonta ni parpadea cada vez que se añade/completa/reordena
+  // algo. El loader a pantalla completa queda solo para la carga inicial y el
+  // cambio de cliente.
+  const loadPlan = useCallback(
+    async (silent = false) => {
+      if (!organizationId) {
+        setPayload(null);
+        setError(null);
+        setIsLoading(false);
         return;
       }
-      setPayload((await response.json()) as PlanResponse);
-      setError(null);
-    } catch {
-      setError(
-        "No se pudo cargar el plan estratégico por un error de red. Reintenta.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organizationId]);
+      if (!silent) setIsLoading(true);
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${organizationId}/strategic-plan`,
+        );
+        if (!response.ok) {
+          setError(await readApiError(response));
+          return;
+        }
+        setPayload((await response.json()) as PlanResponse);
+        setError(null);
+      } catch {
+        setError(
+          "No se pudo cargar el plan estratégico por un error de red. Reintenta.",
+        );
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [organizationId],
+  );
 
   useEffect(() => {
     void loadPlan();
@@ -1559,7 +1625,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         return false;
       }
       toast.success(successMessage);
-      void loadPlan();
+      void loadPlan(true);
       return true;
     } catch {
       setError(
@@ -1573,23 +1639,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     event.preventDefault();
     if (!organization) return;
 
-    const phases: Array<{ name: string; milestones: Array<{ name: string }> }> =
-      [];
-    for (const rawLine of planOutline.split("\n")) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      if (/^fase\s*:/i.test(line)) {
-        phases.push({
-          name: line.replace(/^fase\s*:/i, "").trim(),
-          milestones: [],
-        });
-      } else if (phases.length > 0) {
-        phases[phases.length - 1].milestones.push({
-          name: line.replace(/^[-*]\s*/, ""),
-        });
-      }
-    }
-
+    // El camino nace vacío (solo nombre); las fases, hitos y tareas se añaden
+    // luego con la misma UI interactiva que un plan ya creado.
     setIsSubmitting(true);
     setError(null);
     try {
@@ -1598,7 +1649,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: planName, phases }),
+          body: JSON.stringify({ name: planName.trim(), phases: [] }),
         },
       );
       if (!response.ok) {
@@ -1606,12 +1657,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         return;
       }
       setPlanName("");
-      setPlanOutline("");
-      toast.success("Plan creado en borrador.");
+      toast.success("Camino creado. Añade la primera fase.");
       void loadPlan();
     } catch {
       setError(
-        "No se pudo crear el plan por un error de red. Revisa la conexión y reintenta.",
+        "No se pudo crear el camino por un error de red. Revisa la conexión y reintenta.",
       );
     } finally {
       setIsSubmitting(false);
@@ -1644,6 +1694,25 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     void changeMilestoneStatus(
       milestone.id,
       milestone.status === "completed" ? "pending" : "completed",
+    );
+  }
+
+  // Marcar una tarea del plan hecha/pendiente sin salir de Mi Camino: es la
+  // misma tabla `tasks` que /tareas, mismo endpoint de estado.
+  function toggleTaskDone(task: MilestoneTask) {
+    if (!organization) return;
+    void submitPlanMutation(
+      `/v1/organizations/${organization.id}/tasks/${task.id}/status`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: task.status === "completed" ? "pending" : "completed",
+        }),
+      },
+      task.status === "completed"
+        ? "Tarea reabierta."
+        : "Tarea marcada como hecha.",
     );
   }
 
@@ -2125,6 +2194,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                           <TaskListItem
                                             numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`}
                                             task={task}
+                                            canManage={canManage}
+                                            onToggleDone={() =>
+                                              toggleTaskDone(task)
+                                            }
                                           />
                                         </li>
                                       ))}
@@ -2248,42 +2321,53 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </ol>
           </div>
         </>
-      ) : (
-        <Card title="Sin plan estrategico">
-          <p className="text-sm leading-6 text-muted">
-            {canManage
-              ? "Crea el primer plan: escribe el nombre y el esquema de fases e hitos."
-              : "Tu consultor todavia no ha publicado un plan para esta organización."}
-          </p>
-          {canManage ? (
-            <form className="mt-4 space-y-3" onSubmit={createPlan}>
+      ) : !canManage ? (
+        <EmptyState
+          title="Aún no hay un camino"
+          hint="Tu consultor todavía no ha publicado un plan para esta organización."
+        />
+      ) : isCreatingPlan ? (
+        <EmptyState
+          title="Nuevo camino"
+          hint="Ponle nombre. Después añades fases, hitos y tareas paso a paso."
+          action={
+            <form
+              className="flex w-full max-w-sm flex-col gap-2 sm:flex-row"
+              onSubmit={createPlan}
+            >
               <Input
-                aria-label="Nombre del plan"
+                aria-label="Nombre del camino"
                 value={planName}
                 onChange={(event) => setPlanName(event.target.value)}
-                placeholder="Nombre del plan (p. ej. Escalar a 50k/mes)"
+                placeholder="p. ej. Escalar a 50k/mes"
+                autoFocus
                 required
               />
-              <Textarea
-                className="h-48 font-mono"
-                aria-label="Esquema de fases e hitos"
-                value={planOutline}
-                onChange={(event) => setPlanOutline(event.target.value)}
-                placeholder={
-                  "Fase: Fundamentos\n- Configurar costes y gastos fijos\n- Cargar costes de producto\nFase: Adquisicion\n- Conectar Meta Ads\n- Definir presupuesto inicial"
-                }
-                required
-              />
-              <p className="text-xs text-muted">
-                Formato: cada linea &quot;Fase: nombre&quot; abre una fase; las
-                lineas siguientes son sus hitos.
-              </p>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creando..." : "Crear plan en borrador"}
-              </Button>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={isSubmitting || !planName.trim()}>
+                  {isSubmitting ? "Creando..." : "Crear"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setIsCreatingPlan(false)}
+                >
+                  Cancelar
+                </Button>
+              </div>
             </form>
-          ) : null}
-        </Card>
+          }
+        />
+      ) : (
+        <EmptyState
+          title="Aún no hay un camino"
+          hint="Crea el camino estratégico de esta empresa: fases, hitos y tareas."
+          action={
+            <Button type="button" onClick={() => setIsCreatingPlan(true)}>
+              Crear camino
+            </Button>
+          }
+        />
       )}
     </div>
   );
@@ -2398,7 +2482,7 @@ function ConsultantPlansView() {
                 xKey="name"
                 series={[{ key: "progress", label: "Progreso" }]}
                 horizontal
-                height={Math.max(120, progressChartData.length * 40)}
+                height={Math.min(280, Math.max(88, progressChartData.length * 30))}
                 valueFormatter={(value) => `${Math.round(value)}%`}
               />
             </div>

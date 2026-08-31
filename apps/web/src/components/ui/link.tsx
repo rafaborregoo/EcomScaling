@@ -59,8 +59,8 @@ export function ButtonLink({
       className={cn(
         "inline-flex min-h-9 w-fit items-center rounded-md border px-3 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2",
         variant === "primary"
-          ? "border-brand bg-brand text-white hover:bg-brand-deep"
-          : "border-edge bg-white text-ink hover:border-brand hover:text-brand",
+          ? "border-accent bg-accent text-accent-foreground hover:bg-accent-hover"
+          : "border-separator bg-surface text-foreground hover:border-accent hover:text-accent",
         className,
       )}
     >

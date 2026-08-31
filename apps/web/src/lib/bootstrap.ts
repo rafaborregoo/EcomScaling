@@ -14,8 +14,10 @@ export type BootstrapResponse = {
   profile: {
     id: string;
     full_name: string | null;
+    avatar_url: string | null;
     platform_role: string;
     is_active: boolean;
+    onboarding_completed_at: string | null;
   };
   memberships: Array<{
     organization_id: string;

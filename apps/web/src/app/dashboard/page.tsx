@@ -491,6 +491,17 @@ type PortfolioTask = {
   organization_name: string;
 };
 
+type OwnStoreOverview = {
+  organization_id: string;
+  display_name: string;
+  status: string;
+  currency_code: string;
+  net_sales: number;
+  orders: number;
+  meta_spend: number;
+  roas: number | null;
+};
+
 type ConsultantOverview = {
   window_days: number;
   clients: number;
@@ -508,6 +519,7 @@ type ConsultantOverview = {
   };
   portfolio: PortfolioClient[];
   tasks: PortfolioTask[];
+  own_stores: OwnStoreOverview[];
 };
 
 type GeneralTab = "hoy" | "negocio" | "salud" | "tareas";
@@ -614,8 +626,69 @@ function GeneralOverview({
         </p>
         <Heading size="lg">
           {data.clients} clientes · {data.stores} tiendas
+          {data.own_stores.length > 0
+            ? ` · ${data.own_stores.length} propias`
+            : ""}
         </Heading>
       </div>
+
+      {data.own_stores.length > 0 ? (
+        <Card
+          title="Mis tiendas"
+          description={`Tiendas de tu propiedad · últimos ${data.window_days} días`}
+        >
+          <Table
+            ariaLabel="Mis tiendas"
+            rows={data.own_stores.map((store) => ({
+              ...store,
+              id: store.organization_id,
+            }))}
+            columns={[
+              {
+                key: "store",
+                label: "Tienda",
+                render: (row) => (
+                  <span className="font-medium">{row.display_name}</span>
+                ),
+              },
+              {
+                key: "net_sales",
+                label: "Facturación",
+                render: (row) => formatMoney(row.net_sales, row.currency_code),
+              },
+              {
+                key: "orders",
+                label: "Pedidos",
+                render: (row) => String(row.orders),
+              },
+              {
+                key: "meta_spend",
+                label: "Inversión Meta",
+                render: (row) => formatMoney(row.meta_spend, row.currency_code),
+              },
+              {
+                key: "roas",
+                label: "ROAS",
+                render: (row) =>
+                  row.roas != null ? `${row.roas.toFixed(2)}x` : "—",
+              },
+              {
+                key: "open",
+                label: "",
+                render: (row) => (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => onSelectClient(row.organization_id)}
+                  >
+                    Abrir
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </Card>
+      ) : null}
 
       <Tabs
         value={tab}

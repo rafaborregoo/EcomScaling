@@ -48,6 +48,8 @@ type Task = {
   created_at: string;
   updated_at: string;
   task_comments: TaskComment[];
+  // Fase/hito de Mi Camino al que cuelga esta tarea (misma tabla `tasks`).
+  milestone: { id: string; name: string; phase_name: string | null } | null;
 };
 
 type Alert = {
@@ -127,6 +129,14 @@ function isTaskOverdue(task: Task) {
   );
 }
 
+// "Fase · Hito" de Mi Camino al que pertenece la tarea, para la meta de la fila.
+function milestoneLabel(task: Task) {
+  if (!task.milestone) return null;
+  return task.milestone.phase_name
+    ? `${task.milestone.phase_name} · ${task.milestone.name}`
+    : task.milestone.name;
+}
+
 function formatDueDate(dueAt: string) {
   return new Date(dueAt).toLocaleDateString("es-ES", {
     day: "2-digit",
@@ -161,6 +171,7 @@ function TaskDetail({
     PRIORITY_LABELS[task.priority] ?? task.priority,
     STATUS_LABELS[task.status] ?? task.status,
     task.source === "alert" ? "desde alerta" : null,
+    milestoneLabel(task),
     task.due_at ? `vence ${formatDueDate(task.due_at)}` : null,
     isTaskOverdue(task) ? "vencida" : null,
     showVisibility && !task.is_visible_to_client ? "interna" : null,
@@ -269,11 +280,13 @@ function TaskDetail({
 function NewTaskForm({
   canMarkInternal,
   isSubmitting,
+  milestones,
   onCancel,
   onSubmit,
 }: {
   canMarkInternal: boolean;
   isSubmitting: boolean;
+  milestones: { value: string; label: string }[];
   onCancel: () => void;
   onSubmit: (payload: {
     title: string;
@@ -282,6 +295,7 @@ function NewTaskForm({
     category: string;
     dueAt: string;
     isVisibleToClient: boolean;
+    milestoneId: string;
   }) => Promise<boolean>;
 }) {
   const [title, setTitle] = useState("");
@@ -290,6 +304,7 @@ function NewTaskForm({
   const [category, setCategory] = useState("general");
   const [dueAt, setDueAt] = useState("");
   const [isInternal, setIsInternal] = useState(false);
+  const [milestoneId, setMilestoneId] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -301,6 +316,7 @@ function NewTaskForm({
       category,
       dueAt,
       isVisibleToClient: !isInternal,
+      milestoneId,
     });
     if (created) {
       setTitle("");
@@ -309,6 +325,7 @@ function NewTaskForm({
       setCategory("general");
       setDueAt("");
       setIsInternal(false);
+      setMilestoneId("");
     }
   }
 
@@ -360,6 +377,17 @@ function NewTaskForm({
             className="w-40"
           />
         </div>
+        {milestones.length > 0 ? (
+          <Select
+            aria-label="Fase o hito de Mi Camino"
+            value={milestoneId}
+            onChange={setMilestoneId}
+            options={[
+              { value: "", label: "Sin fase ni hito" },
+              ...milestones,
+            ]}
+          />
+        ) : null}
         {canMarkInternal ? (
           <Checkbox checked={isInternal} onChange={setIsInternal}>
             Tarea interna (el cliente no la verá)
@@ -453,10 +481,10 @@ function TaskRow({
         : null;
 
   const meta = [
-    clientName ?? null,
     task.categories.map((c) => CATEGORY_LABELS[c] ?? c).join(" · "),
     STATUS_LABELS[task.status] ?? task.status,
     task.source === "alert" ? "desde alerta" : null,
+    milestoneLabel(task),
     task.due_at ? `vence ${formatDueDate(task.due_at)}` : null,
     task.task_comments.length > 0
       ? `${task.task_comments.length} coment.`
@@ -468,6 +496,7 @@ function TaskRow({
     <div className="flex items-start justify-between gap-4 py-3">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
+          {clientName ? <Badge tone="neutral">{clientName}</Badge> : null}
           {overdue ? (
             <Badge tone="danger">Vencida</Badge>
           ) : priorityBadge ? (
@@ -822,6 +851,7 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
                   >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone="neutral">{alert.organization_name}</Badge>
                         <Badge tone={SEVERITY_TONE[alert.severity] ?? "neutral"}>
                           {SEVERITY_LABELS[alert.severity] ?? alert.severity}
                         </Badge>
@@ -833,7 +863,7 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
                         {alert.message}
                       </p>
                       <p className="mt-1 text-xs text-muted">
-                        {alert.organization_name} · detectada{" "}
+                        detectada{" "}
                         {new Date(alert.first_detected_at).toLocaleDateString(
                           "es-ES",
                         )}
@@ -980,6 +1010,11 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
+  // Fases/hitos del plan para asociar la tarea nueva; se carga solo al abrir el
+  // formulario (no todo el mundo tiene plan y no hace falta en cada carga).
+  const [milestoneOptions, setMilestoneOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
   // Fila con una accion en vuelo: desactiva sus botones y muestra "..." para
   // que se vea que la accion se registro (antes no habia ninguna senal hasta
   // que recargaba la lista entera).
@@ -1019,6 +1054,41 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   useEffect(() => {
     void loadOperations();
   }, [loadOperations]);
+
+  useEffect(() => {
+    if (!isCreatingTask || !organization) return;
+    let cancelled = false;
+    apiFetch(`/v1/organizations/${organization.id}/strategic-plan`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.plan) return;
+        type PlanMilestone = { id: string; name: string; position: number };
+        type PlanPhase = {
+          name: string;
+          position: number;
+          strategic_plan_milestones: PlanMilestone[];
+        };
+        const options = ((data.plan.strategic_plan_phases ?? []) as PlanPhase[])
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .flatMap((phase) =>
+            (phase.strategic_plan_milestones ?? [])
+              .slice()
+              .sort((a, b) => a.position - b.position)
+              .map((milestone) => ({
+                value: milestone.id,
+                label: `${phase.name} · ${milestone.name}`,
+              })),
+          );
+        setMilestoneOptions(options);
+      })
+      .catch(() => {
+        /* sin plan o error: el selector simplemente no aparece */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCreatingTask, organization]);
 
   async function evaluateRules() {
     if (!organization) {
@@ -1134,6 +1204,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     category: string;
     dueAt: string;
     isVisibleToClient: boolean;
+    milestoneId: string;
   }) {
     if (!organization) {
       return false;
@@ -1154,6 +1225,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             category: input.category,
             dueAt: input.dueAt || null,
             isVisibleToClient: input.isVisibleToClient,
+            milestoneId: input.milestoneId || null,
           }),
         },
       );
@@ -1337,6 +1409,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <NewTaskForm
               canMarkInternal={isConsultant}
               isSubmitting={isSubmittingTask}
+              milestones={milestoneOptions}
               onCancel={() => setIsCreatingTask(false)}
               onSubmit={async (payload) => {
                 const created = await createTaskManual(payload);

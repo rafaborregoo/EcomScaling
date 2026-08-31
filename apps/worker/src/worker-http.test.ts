@@ -22,6 +22,28 @@ test("reintenta respuestas transitorias y respeta Retry-After", async () => {
   assert.deepEqual(delays, [2_000]);
 });
 
+test("la respuesta devuelta sigue siendo legible (no se aborta su body)", async () => {
+  const response = await fetchWorkerWithResilience(
+    "https://api.test/x",
+    {},
+    {
+      fetchImpl: async (_input, init) => {
+        const signal = (init as RequestInit).signal ?? null;
+        return {
+          status: 200,
+          headers: new Headers(),
+          json: async () => {
+            if (signal?.aborted) throw new Error("body abortado");
+            return { ok: true };
+          },
+        } as unknown as Response;
+      },
+    },
+  );
+
+  assert.deepEqual(await response.json(), { ok: true });
+});
+
 test("no reintenta errores permanentes", async () => {
   let calls = 0;
   const response = await fetchWorkerWithResilience("https://api.test/reconcile", {}, {

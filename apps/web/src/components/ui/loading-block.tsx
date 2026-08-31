@@ -5,7 +5,7 @@ import { Spinner } from "@heroui/react";
 export function LoadingBlock({ label = "Cargando..." }: { label?: string }) {
   return (
     <div
-      className="flex items-center gap-2 border-t border-edge pt-5"
+      className="flex items-center gap-2 border-t border-separator pt-5"
       role="status"
       aria-live="polite"
       aria-atomic="true"

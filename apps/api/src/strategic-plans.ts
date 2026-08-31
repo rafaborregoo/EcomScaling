@@ -237,17 +237,12 @@ export async function createStrategicPlan(
     return { ok: false as const, statusCode: 400, error: "missing_plan_name" };
   }
 
+  // Un plan puede nacer vacío (solo nombre) y llenarse luego fase a fase desde
+  // la UI interactiva (createPhase / createMilestone). No se exige ninguna fase
+  // en la creación.
   const phases = (input.phases ?? []).filter(
     (phase) => phase.name && phase.name.trim().length > 0,
   );
-
-  if (phases.length === 0) {
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "missing_plan_phases",
-    };
-  }
 
   const supabase = createServiceClient(env);
 

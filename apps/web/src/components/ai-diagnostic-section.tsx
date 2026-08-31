@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { displayValue } from "@/lib/display-labels";
 import { useActiveConnection } from "@/components/active-connection";
 import {
   Badge,
@@ -49,6 +48,10 @@ type Diagnostic = {
   output: DiagnosticOutput;
   generated_at: string;
   from_cache: boolean;
+  /** El run supera las 24h pero se sigue sirviendo (ver no_activity_since). */
+  stale?: boolean;
+  /** No se ha vuelto a analizar porque no ha habido actividad en la tienda. */
+  no_activity_since?: boolean;
   runtime?: {
     orchestration_mode: "direct" | "langgraph";
     langsmith_tracing: boolean;
@@ -79,6 +82,47 @@ const priorityLabelsEs: Record<string, string> = {
   medium: "media",
   high: "alta",
   urgent: "urgente",
+};
+
+// El agente devuelve enums en ingles (severity, confidence, groundedness...).
+// El cliente y el consultor no tienen por que conocerlos: se traducen aqui a
+// una etiqueta en castellano y el valor crudo queda como fallback si aparece
+// un enum nuevo antes de mapearlo.
+const severityLabelsEs: Record<Finding["severity"], string> = {
+  info: "informativo",
+  low: "bajo",
+  medium: "medio",
+  high: "alto",
+  critical: "crítico",
+};
+
+const confidenceLabelsEs: Record<DiagnosticOutput["confidence"], string> = {
+  low: "baja",
+  medium: "media",
+  high: "alta",
+};
+
+const groundednessLabelsEs: Record<string, string> = {
+  verified: "verificado con datos",
+  partially_supported: "parcialmente respaldado",
+  insufficient_evidence: "evidencia insuficiente",
+};
+
+const dataCompletenessLabelsEs: Record<string, string> = {
+  complete: "completos",
+  partial: "parciales",
+  insufficient: "insuficientes",
+};
+
+const freshnessLabelsEs: Record<string, string> = {
+  fresh: "actualizados",
+  stale: "algo antiguos",
+  superseded: "reemplazados por datos más nuevos",
+};
+
+const ownerLabelsEs: Record<string, string> = {
+  cliente: "Cliente",
+  consultor: "Consultor",
 };
 
 /**
@@ -114,6 +158,9 @@ export function AiDiagnosticSection({
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isCreatingTasks, setIsCreatingTasks] = useState(false);
   const [tasksFeedback, setTasksFeedback] = useState<string | null>(null);
+  const [answerExpanded, setAnswerExpanded] = useState(false);
+  const [warningsExpanded, setWarningsExpanded] = useState(false);
+  const [proposedExpanded, setProposedExpanded] = useState(false);
 
   const queryParams = [
     connectionId ? `connectionId=${encodeURIComponent(connectionId)}` : null,
@@ -218,7 +265,7 @@ export function AiDiagnosticSection({
   return (
     <Card
       title={
-        <span className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Badge tone="brand">IA</Badge>
           {title}
         </span>
@@ -230,9 +277,10 @@ export function AiDiagnosticSection({
             {diagnostic.from_cache ? "generado" : "recién generado"} el{" "}
             {new Date(diagnostic.generated_at).toLocaleString()}
             {diagnostic.envelope
-              ? ` · datos ${displayValue(
-                  diagnostic.envelope.freshness.status,
-                )} · ${diagnostic.envelope.sources.length} fuente(s)`
+              ? ` · datos ${
+                  freshnessLabelsEs[diagnostic.envelope.freshness.status] ??
+                  diagnostic.envelope.freshness.status
+                } · ${diagnostic.envelope.sources.length} fuente(s)`
               : ""}
           </span>
         ) : undefined
@@ -257,9 +305,31 @@ export function AiDiagnosticSection({
         <ErrorBlock>{error}</ErrorBlock>
       ) : diagnostic ? (
         <>
-          <p className="text-[13px] leading-relaxed text-ink">
+          <p
+            className={`text-[13px] leading-relaxed text-foreground${
+              answerExpanded ? "" : " line-clamp-3"
+            }`}
+          >
             {diagnostic.output.answer}
           </p>
+          {diagnostic.output.answer.length > 220 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="mt-1 px-0"
+              onClick={() => setAnswerExpanded((v) => !v)}
+            >
+              {answerExpanded ? "Ver menos" : "Ver análisis completo"}
+            </Button>
+          ) : null}
+          {diagnostic.no_activity_since ? (
+            <p className="mt-2 text-xs text-muted">
+              Sin cambios desde la última vez: no se ha vuelto a analizar porque
+              no ha habido actividad en la tienda. Usa “Actualizar ahora” para
+              forzarlo.
+            </p>
+          ) : null}
           {diagnostic.runtime ? (
             <div className="mt-2">
               <AgentRuntimeStatusBadge
@@ -273,15 +343,23 @@ export function AiDiagnosticSection({
             <>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Badge tone="neutral">
-                  Confianza: {diagnostic.output.confidence}
+                  Confianza:{" "}
+                  {confidenceLabelsEs[diagnostic.output.confidence] ??
+                    diagnostic.output.confidence}
                 </Badge>
                 {diagnostic.envelope ? (
                   <>
                     <Badge tone="neutral">
-                      Evidencia: {diagnostic.envelope.quality.groundedness}
+                      Respaldo:{" "}
+                      {groundednessLabelsEs[
+                        diagnostic.envelope.quality.groundedness
+                      ] ?? diagnostic.envelope.quality.groundedness}
                     </Badge>
                     <Badge tone="neutral">
-                      Datos: {diagnostic.envelope.quality.dataCompleteness}
+                      Datos:{" "}
+                      {dataCompletenessLabelsEs[
+                        diagnostic.envelope.quality.dataCompleteness
+                      ] ?? diagnostic.envelope.quality.dataCompleteness}
                     </Badge>
                   </>
                 ) : null}
@@ -318,7 +396,7 @@ export function AiDiagnosticSection({
                     label: "Severidad",
                     render: (row) => (
                       <Badge tone={severityTone[row.severity]}>
-                        {row.severity}
+                        {severityLabelsEs[row.severity] ?? row.severity}
                       </Badge>
                     ),
                   },
@@ -348,7 +426,11 @@ export function AiDiagnosticSection({
                       priorityLabelsEs[row.priority] ?? row.priority,
                   },
                   { key: "expected_impact", label: "Impacto esperado" },
-                  { key: "owner", label: "Responsable" },
+                  {
+                    key: "owner",
+                    label: "Responsable",
+                    render: (row) => ownerLabelsEs[row.owner] ?? row.owner,
+                  },
                 ]}
                 rows={diagnostic.output.recommendations.map((rec, index) => ({
                   id: String(index),
@@ -360,22 +442,71 @@ export function AiDiagnosticSection({
 
           {diagnostic.output.warnings.length ? (
             <Banner tone="warn" className="mt-4">
-              <ul className="space-y-1">
-                {diagnostic.output.warnings.map((warning, index) => (
-                  <li key={index}>{warning}</li>
-                ))}
-              </ul>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {diagnostic.output.warnings.length} aviso(s) sobre los límites
+                  del análisis
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  aria-expanded={warningsExpanded}
+                  onClick={() => setWarningsExpanded((v) => !v)}
+                >
+                  {warningsExpanded ? "Ocultar" : "Ver"}
+                </Button>
+              </div>
+              {warningsExpanded ? (
+                <ul className="mt-2 space-y-1">
+                  {diagnostic.output.warnings.map((warning, index) => (
+                    <li key={index}>{warning}</li>
+                  ))}
+                </ul>
+              ) : null}
             </Banner>
           ) : null}
 
           {variant === "full" && diagnostic.output.proposed_writes.length ? (
-            <div className="mt-4 border-t border-edge pt-3">
-              <p className={EYEBROW}>
-                {diagnostic.output_status === "pending_approval"
-                  ? "Propuesta, sin aplicar"
-                  : "Propuesta ya revisada"}
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-4">
+            <div className="mt-4 border-t border-separator pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className={EYEBROW}>
+                  {diagnostic.output_status === "pending_approval"
+                    ? "Propuesta, sin aplicar"
+                    : "Propuesta ya revisada"}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  onClick={() => setProposedExpanded((v) => !v)}
+                >
+                  {proposedExpanded
+                    ? "Ocultar"
+                    : `Ver ${diagnostic.output.proposed_writes.length} ${tasksLabelSingular}(s)`}
+                </Button>
+              </div>
+              {proposedExpanded ? (
+                <Table
+                  className="mt-2"
+                  ariaLabel="Tareas que se crearían al aprobar"
+                  columns={[
+                    { key: "title", label: "Tarea" },
+                    {
+                      key: "priority",
+                      label: "Prioridad",
+                      render: (row) =>
+                        priorityLabelsEs[row.priority] ?? row.priority,
+                    },
+                    { key: "description", label: "Detalle" },
+                  ]}
+                  rows={diagnostic.output.proposed_writes.map((write, index) => ({
+                    id: String(index),
+                    ...write,
+                  }))}
+                />
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-4">
                 <Button
                   type="button"
                   disabled={

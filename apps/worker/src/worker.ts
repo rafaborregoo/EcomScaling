@@ -10,6 +10,8 @@ import {
   WEBHOOK_RETENTION_TZ,
   AI_CONTEXT_RETENTION_CRON,
   AI_CONTEXT_RETENTION_TZ,
+  AI_DIAGNOSTICS_TICK_CRON,
+  AI_DIAGNOSTICS_TICK_TZ,
   isStaleShopifyReconcileRepeatable,
 } from "./repeatable-jobs.js";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
@@ -115,6 +117,24 @@ async function runAiContextRetention(
   return response.json();
 }
 
+async function runAiDiagnosticsTick(
+  context: ReturnType<typeof createWorkerJobContext>,
+) {
+  if (!env.INTERNAL_API_SECRET) return { status: "skipped" };
+  const response = await fetchWorkerWithResilience(
+    `${env.API_URL}/v1/internal/ai/diagnostics/tick`,
+    {
+      method: "POST",
+      headers: {
+        "x-internal-secret": env.INTERNAL_API_SECRET,
+        "x-correlation-id": context.correlation_id,
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`ai_diagnostics_tick_trigger_failed_${response.status}`);
+  return response.json();
+}
+
 const queue = new Queue("ecomscaling-default", { connection });
 
 const staleRepeatables = await queue.getRepeatableJobs();
@@ -166,6 +186,15 @@ if (env.INTERNAL_API_SECRET) {
     },
   );
   logger.info(`Scheduled ai-context-retention daily at 3:45am (${AI_CONTEXT_RETENTION_TZ})`);
+  await queue.add(
+    "ai-diagnostics-tick",
+    {},
+    {
+      repeat: { pattern: AI_DIAGNOSTICS_TICK_CRON, tz: AI_DIAGNOSTICS_TICK_TZ },
+      jobId: "ai-diagnostics-tick-repeat",
+    },
+  );
+  logger.info(`Scheduled ai-diagnostics-tick at 6am and 3pm (${AI_DIAGNOSTICS_TICK_TZ})`);
 } else {
   logger.info(
     "Not scheduling shopify-reconcile - INTERNAL_API_SECRET not configured",
@@ -193,6 +222,9 @@ const worker = new Worker(
     }
     if (job.name === "ai-context-retention") {
       return runAiContextRetention(context);
+    }
+    if (job.name === "ai-diagnostics-tick") {
+      return runAiDiagnosticsTick(context);
     }
 
     return {
@@ -232,7 +264,11 @@ worker.on("failed", (job, error) => {
   recordWorkerJobMetric(job?.name ?? "unknown", "failed");
   logger.error(`Failed job ${job?.id ?? "unknown"}:${job?.name ?? "unknown"}`, {
     ...workerJobMeta(context),
-    error,
+    // Un Error tiene message/stack no enumerables -> se serializaban como `{}`.
+    error:
+      error instanceof Error
+        ? { name: error.name, message: error.message, stack: error.stack }
+        : error,
   });
 });
 

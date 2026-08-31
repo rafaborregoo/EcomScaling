@@ -519,6 +519,10 @@ export async function decideSummary(
   summaryId: string,
   decision: string | undefined,
   reason: string | undefined,
+  // AI-14: al aprobar, el consultor puede elegir QUÉ proposed_tasks se
+  // materializan (índices en el array `proposed_tasks`). Sin este parámetro se
+  // crean todas, como antes.
+  selectedTaskIndexes?: number[] | undefined,
 ) {
   const access = requireOrganizationAccess(context, organizationId);
   if (access.ok === false) {
@@ -608,9 +612,24 @@ export async function decideSummary(
     const keyPoints = (data.key_points ?? null) as {
       proposed_tasks?: Array<Record<string, unknown>>;
     } | null;
-    const proposedTasks = Array.isArray(keyPoints?.proposed_tasks)
+    const allProposedTasks = Array.isArray(keyPoints?.proposed_tasks)
       ? keyPoints.proposed_tasks
       : [];
+    // Selección del consultor: si viene una lista de índices, solo esos; si no,
+    // todas (retrocompatible).
+    const proposedTasks = Array.isArray(selectedTaskIndexes)
+      ? selectedTaskIndexes
+          .filter(
+            (index) =>
+              Number.isInteger(index) &&
+              index >= 0 &&
+              index < allProposedTasks.length,
+          )
+          .map((index) => allProposedTasks[index])
+          .filter(
+            (task): task is Record<string, unknown> => Boolean(task),
+          )
+      : allProposedTasks;
 
     if (proposedTasks.length > 0) {
       const { data: existingLinks } = await supabase
@@ -618,9 +637,25 @@ export async function decideSummary(
         .select("tasks(title)")
         .eq("call_id", data.call_id);
 
+      // AI-14: deduplicar también contra las tareas abiertas de TODA la
+      // organización, no solo las ya enlazadas a esta llamada -- así no se
+      // crea "Revisar margen" si ya hay una idéntica pendiente de otra vía.
+      const { data: openOrgTasks } = await supabase
+        .from("tasks")
+        .select("title")
+        .eq("organization_id", organizationId)
+        .in("status", ["pending", "in_progress"]);
+
       const existingTitles = new Set(
-        ((existingLinks ?? []) as Array<{ tasks: { title?: string } | null }>)
-          .map((link) => link.tasks?.title?.trim().toLowerCase())
+        [
+          ...((existingLinks ?? []) as Array<{
+            tasks: { title?: string } | null;
+          }>).map((link) => link.tasks?.title),
+          ...((openOrgTasks ?? []) as Array<{ title?: string }>).map(
+            (task) => task.title,
+          ),
+        ]
+          .map((title) => title?.trim().toLowerCase())
           .filter((title): title is string => Boolean(title)),
       );
 

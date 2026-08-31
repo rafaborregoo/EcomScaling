@@ -524,7 +524,7 @@ export async function listOperations(
     supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at, task_comments(id, body, is_internal, author_user_id, created_at)",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
       )
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
@@ -548,11 +548,43 @@ export async function listOperations(
     };
   }
 
+  // Aplana el enlace a Mi Camino (una tarea vive en 0..1 hitos): la lista de
+  // tareas y Mi Camino comparten la misma tabla `tasks`; esto solo expone en
+  // qué fase/hito cae cada una, sin duplicar nada.
+  // Supabase devuelve los embeds anidados como arrays; normalizamos a 0..1.
+  const firstOf = (value: unknown): Record<string, unknown> | undefined =>
+    Array.isArray(value)
+      ? (value[0] as Record<string, unknown> | undefined)
+      : (value as Record<string, unknown> | undefined);
+
+  const tasks = (tasksResult.data ?? []).map((task) => {
+    const { milestone_task_links: rawLinks, ...rest } = task as Record<
+      string,
+      unknown
+    > & { milestone_task_links?: unknown };
+    const link = Array.isArray(rawLinks) ? rawLinks[0] : undefined;
+    const ms = firstOf(
+      (link as { strategic_plan_milestones?: unknown } | undefined)
+        ?.strategic_plan_milestones,
+    );
+    const phase = firstOf(ms?.strategic_plan_phases);
+    return {
+      ...rest,
+      milestone: ms
+        ? {
+            id: ms.id as string,
+            name: ms.name as string,
+            phase_name: (phase?.name as string | undefined) ?? null,
+          }
+        : null,
+    };
+  });
+
   return {
     ok: true as const,
     data: {
       organization_id: organizationId,
-      tasks: tasksResult.data ?? [],
+      tasks,
       alerts: alertsResult.data ?? [],
     },
   };
@@ -587,6 +619,7 @@ export async function createTask(
     categories?: string[];
     dueAt?: string | null;
     isVisibleToClient?: boolean;
+    milestoneId?: string | null;
   },
 ) {
   const access = requireMembership(context, organizationId);
@@ -598,6 +631,8 @@ export async function createTask(
   if (!title) {
     return { ok: false as const, statusCode: 400, error: "missing_task_title" };
   }
+
+  const milestoneId = input.milestoneId?.trim() || null;
 
   const priority = TASK_PRIORITIES.includes(
     input.priority as (typeof TASK_PRIORITIES)[number],
@@ -614,6 +649,34 @@ export async function createTask(
   const categories = valid.length > 0 ? valid : ["general"];
 
   const supabase = createServiceClient(env);
+
+  // La tarea puede nacer ya colgada de un hito de Mi Camino (misma tabla
+  // `tasks`, solo se añade el enlace en milestone_task_links).
+  let milestone: { id: string; name: string; phase_name: string | null } | null =
+    null;
+  if (milestoneId) {
+    const { data: milestoneRow } = await supabase
+      .from("strategic_plan_milestones")
+      .select("id, name, strategic_plan_phases(name)")
+      .eq("id", milestoneId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (!milestoneRow) {
+      return { ok: false as const, statusCode: 400, error: "invalid_milestone" };
+    }
+    const phaseRaw = (
+      milestoneRow as { strategic_plan_phases?: unknown }
+    ).strategic_plan_phases;
+    const phase = (
+      Array.isArray(phaseRaw) ? phaseRaw[0] : phaseRaw
+    ) as { name?: string } | undefined;
+    milestone = {
+      id: milestoneRow.id as string,
+      name: milestoneRow.name as string,
+      phase_name: phase?.name ?? null,
+    };
+  }
+
   const { data, error } = await supabase
     .from("tasks")
     .insert({
@@ -643,6 +706,24 @@ export async function createTask(
     };
   }
 
+  if (milestoneId) {
+    const { error: linkError } = await supabase
+      .from("milestone_task_links")
+      .insert({
+        organization_id: organizationId,
+        milestone_id: milestoneId,
+        task_id: data.id,
+      });
+    if (linkError) {
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "milestone_task_link_failed",
+        detail: linkError.message,
+      };
+    }
+  }
+
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
@@ -658,7 +739,7 @@ export async function createTask(
 
   return {
     ok: true as const,
-    data: { ...data, task_comments: [] },
+    data: { ...data, task_comments: [], milestone },
   };
 }
 

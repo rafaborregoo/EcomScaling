@@ -57,6 +57,12 @@ export async function listAccountActions(
 
   const connections = (data ?? []) as IntegrationConnection[];
   const actions = context.memberships.flatMap((membership) => {
+    // Un cliente pausado o marcado para borrado no genera avisos: que su sync
+    // esté parado es la consecuencia esperada, no algo que reconectar.
+    if (["suspended", "pending_deletion"].includes(membership.organization?.status ?? "")) {
+      return [] as AccountAction[];
+    }
+
     const orgConnections = connections.filter(
       (item) => item.organization_id === membership.organization_id,
     );

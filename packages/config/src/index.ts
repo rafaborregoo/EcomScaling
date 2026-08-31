@@ -88,6 +88,12 @@ const apiEnvSchema = z.object({
   // `/health/slo` de esa instancia real. Opcional: sin desplegar, el chequeo
   // simplemente omite esta alerta en vez de fallar.
   API_BASE_URL: z.string().url().optional(),
+  // Control de coste de agentes de diagnostico (fase 3). Todos opcionales: sin
+  // setear se usan los defaults del runtime (50 USD/dia de plataforma, 12
+  // runs/dia por organizacion, 15 agentes por pasada del orquestador).
+  AI_PLATFORM_DAILY_COST_CAP_USD: z.coerce.number().positive().optional(),
+  AI_ORG_DAILY_RUN_CAP: z.coerce.number().int().positive().optional(),
+  AI_DIAGNOSTICS_MAX_RUNS_PER_TICK: z.coerce.number().int().positive().optional(),
 });
 
 const workerEnvSchema = z.object({
@@ -142,6 +148,9 @@ export type LoadedApiEnv = {
   INTERNAL_API_SECRET?: string;
   REDIS_URL?: string;
   API_BASE_URL?: string;
+  AI_PLATFORM_DAILY_COST_CAP_USD?: number;
+  AI_ORG_DAILY_RUN_CAP?: number;
+  AI_DIAGNOSTICS_MAX_RUNS_PER_TICK?: number;
 };
 
 export function loadApiEnv(
@@ -317,6 +326,15 @@ export function loadApiEnv(
       : {}),
     ...(env.REDIS_URL ? { REDIS_URL: env.REDIS_URL } : {}),
     ...(env.API_BASE_URL ? { API_BASE_URL: env.API_BASE_URL } : {}),
+    ...(env.AI_PLATFORM_DAILY_COST_CAP_USD !== undefined
+      ? { AI_PLATFORM_DAILY_COST_CAP_USD: env.AI_PLATFORM_DAILY_COST_CAP_USD }
+      : {}),
+    ...(env.AI_ORG_DAILY_RUN_CAP !== undefined
+      ? { AI_ORG_DAILY_RUN_CAP: env.AI_ORG_DAILY_RUN_CAP }
+      : {}),
+    ...(env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK !== undefined
+      ? { AI_DIAGNOSTICS_MAX_RUNS_PER_TICK: env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK }
+      : {}),
   };
 }
 

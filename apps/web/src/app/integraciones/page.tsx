@@ -43,9 +43,14 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
   } = useIntegrations(bootstrap);
   const [oauthNotice, setOauthNotice] =
     useState<ReturnType<typeof readOAuthNotice>>(null);
+  // Onboarding: se llega aquí justo después de crear una tienda propia en
+  // /tiendas (?welcome=<nombre>) para conectar sus integraciones.
+  const [welcomeStore, setWelcomeStore] = useState<string | null>(null);
 
   useEffect(() => {
     setOauthNotice(readOAuthNotice());
+    const welcome = new URLSearchParams(window.location.search).get("welcome");
+    if (welcome) setWelcomeStore(welcome);
   }, []);
 
   if (isLoading) {
@@ -72,6 +77,12 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
+      {welcomeStore ? (
+        <Banner tone="success">
+          Tienda «{welcomeStore}» creada. Conéctala a Shopify, Meta y Klaviyo
+          aquí para empezar a ver sus datos.
+        </Banner>
+      ) : null}
       {oauthNotice ? (
         <Banner tone={oauthNotice.tone}>{oauthNotice.text}</Banner>
       ) : null}

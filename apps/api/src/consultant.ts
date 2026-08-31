@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
@@ -11,7 +12,15 @@ type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  // Base del frontend (Vercel en prod, localhost en local). El enlace de la
+  // invitación de Supabase apunta aquí -> /onboarding. Ambas URLs deben estar
+  // en Authentication > URL Configuration > Redirect URLs del proyecto.
+  WEB_ORIGIN?: string;
 };
+
+function onboardingRedirectTo(env: ApiEnv): string {
+  return `${(env.WEB_ORIGIN ?? "http://localhost:3001").replace(/\/$/, "")}/onboarding`;
+}
 
 // R-008: periodo de gracia entre marcar una organizacion/tienda para borrado
 // y su purga fisica real. Ver ADR-0009/Q-009 y migracion db-13.
@@ -435,6 +444,11 @@ export async function getConsultantOverview(
       (row.organization_id as string),
   }));
 
+  // Tiendas propias del consultor (membership real): no son "cartera", van en
+  // su propio bloque del Dashboard. Si falla, no tumba la vista general.
+  const ownStoresResult = await listOwnStoresOverview(env, context, windowDays);
+  const ownStores = ownStoresResult.ok ? ownStoresResult.data.stores : [];
+
   return {
     ok: true as const,
     data: {
@@ -454,6 +468,7 @@ export async function getConsultantOverview(
       },
       portfolio,
       tasks,
+      own_stores: ownStores,
     },
   };
 }
@@ -498,7 +513,7 @@ export async function listConsultantOperations(
     supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at, organization_id, task_comments(id, body, is_internal, author_user_id, created_at)",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at, organization_id, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
       )
       .in("organization_id", safeIds)
       .order("created_at", { ascending: false })
@@ -528,6 +543,34 @@ export async function listConsultantOperations(
       nameByOrg.get(row.organization_id) ?? row.organization_id,
   });
 
+  const firstOf = (value: unknown): Record<string, unknown> | undefined =>
+    Array.isArray(value)
+      ? (value[0] as Record<string, unknown> | undefined)
+      : (value as Record<string, unknown> | undefined);
+
+  const withMilestone = (row: Record<string, unknown>) => {
+    const { milestone_task_links: rawLinks, ...rest } = row as Record<
+      string,
+      unknown
+    > & { milestone_task_links?: unknown };
+    const link = Array.isArray(rawLinks) ? rawLinks[0] : undefined;
+    const ms = firstOf(
+      (link as { strategic_plan_milestones?: unknown } | undefined)
+        ?.strategic_plan_milestones,
+    );
+    const phase = firstOf(ms?.strategic_plan_phases);
+    return {
+      ...rest,
+      milestone: ms
+        ? {
+            id: ms.id as string,
+            name: ms.name as string,
+            phase_name: (phase?.name as string | undefined) ?? null,
+          }
+        : null,
+    };
+  };
+
   return {
     ok: true as const,
     data: {
@@ -535,7 +578,12 @@ export async function listConsultantOperations(
         id: organization.id,
         display_name: organization.display_name,
       })),
-      tasks: (tasksResult.data ?? []).map(withName),
+      tasks: (tasksResult.data ?? []).map((row) => {
+        const named = withName(
+          row as { organization_id: string } & Record<string, unknown>,
+        );
+        return withMilestone(named as Record<string, unknown>);
+      }),
       alerts: (alertsResult.data ?? []).map(withName),
     },
   };
@@ -923,6 +971,78 @@ export async function listConsultantStores(
         display_name: organization.display_name,
       })),
       stores,
+    },
+  };
+}
+
+/**
+ * Tiendas propias del consultor (membership real, no cartera) con sus totales
+ * de negocio del periodo, para la seccion "Mis tiendas" de /tiendas. La lista
+ * sale de context.memberships (accessSource "membership"); los numeros del
+ * mismo consultant_business_rollup que el Dashboard general, llamado por tienda
+ * (N pequeño: son las tiendas propias del consultor).
+ */
+export async function listOwnStoresOverview(
+  env: ApiEnv,
+  context: AuthContext,
+  days: number,
+) {
+  const ownMemberships = context.memberships.filter(
+    (membership) => membership.accessSource === "membership",
+  );
+
+  const windowDays = [7, 30, 90].includes(days) ? days : 30;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const periodEnd = new Date().toISOString();
+  const periodStart = new Date(Date.now() - windowDays * dayMs).toISOString();
+
+  const supabase = createServiceClient(env);
+
+  const stores = await Promise.all(
+    ownMemberships.map(async (membership) => {
+      const { data, error } = await supabase.rpc("consultant_business_rollup", {
+        org_ids: [membership.organization_id],
+        period_start: periodStart,
+        period_end: periodEnd,
+      });
+      if (error) {
+        return { ok: false as const, detail: error.message };
+      }
+      const row = (data ?? [])[0] ?? {};
+      const num = (value: unknown) => Number(value ?? 0);
+      return {
+        ok: true as const,
+        store: {
+          organization_id: membership.organization_id,
+          display_name: membership.organization?.display_name ?? membership.organization_id,
+          status: membership.organization?.status ?? "active",
+          currency_code: membership.organization?.currency_code ?? "EUR",
+          net_sales: num(row.net_sales),
+          orders: num(row.orders_count),
+          meta_spend: num(row.meta_spend),
+          roas: row.roas == null ? null : num(row.roas),
+        },
+      };
+    }),
+  );
+
+  const failed = stores.find((result) => result.ok === false);
+  if (failed && failed.ok === false) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "own_stores_overview_failed",
+      detail: failed.detail,
+    };
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      window_days: windowDays,
+      stores: stores
+        .filter((result): result is Extract<typeof result, { ok: true }> => result.ok)
+        .map((result) => result.store),
     },
   };
 }
@@ -1630,6 +1750,34 @@ function requirePlatformAdmin(context: AuthContext) {
   return { ok: true as const };
 }
 
+// Editar/borrar una organización: platform_admin siempre, o el propio dueño si
+// es una tienda suya (membership real de owner, accessSource "membership" -- una
+// asignación de consultor NO cuenta). Para tiendas propias del consultor.
+function requirePlatformAdminOrStoreOwner(
+  context: AuthContext,
+  organizationId: string,
+) {
+  if (context.profile.platform_role === "platform_admin") {
+    return { ok: true as const };
+  }
+  const isOwner = context.memberships.some(
+    (membership) =>
+      membership.organization_id === organizationId &&
+      membership.role === "owner" &&
+      membership.accessSource === "membership",
+  );
+  if (isOwner) {
+    return { ok: true as const };
+  }
+  return {
+    ok: false as const,
+    statusCode: 403,
+    error: "platform_admin_or_owner_required",
+    message:
+      "Solo un platform admin o el propietario de la tienda puede realizar esta accion.",
+  };
+}
+
 // Borrar/restaurar una tienda (web Shopify) de un cliente lo puede hacer el
 // consultor asignado, no solo platform_admin. Mismo criterio que
 // listOrganizationStores: rol consultor/admin + membership (real o virtual)
@@ -1841,7 +1989,7 @@ export async function updateOrganization(
   organizationId: string,
   body: { display_name?: string; status?: string; timezone?: string; currency_code?: string },
 ) {
-  const access = requirePlatformAdmin(context);
+  const access = requirePlatformAdminOrStoreOwner(context, organizationId);
   if (access.ok === false) {
     return access;
   }
@@ -1928,7 +2076,7 @@ export async function updateOrganization(
  * o se puede revertir antes con `restoreOrganization`. Solo platform admin.
  */
 export async function deleteOrganization(env: ApiEnv, context: AuthContext, organizationId: string) {
-  const access = requirePlatformAdmin(context);
+  const access = requirePlatformAdminOrStoreOwner(context, organizationId);
   if (access.ok === false) {
     return access;
   }
@@ -2039,6 +2187,187 @@ export async function restoreOrganization(env: ApiEnv, context: AuthContext, org
   return { ok: true as const, data: { organization_id: organizationId, display_name: organization.display_name, status: "active" } };
 }
 
+// ---------------------------------------------------------------------------
+// Pausar / desvincular un cliente desde el panel del consultor. Ninguna de
+// estas acciones toca la suscripcion ni el login del cliente ni dispara la
+// purga de la org -- solo controlan si NOSOTROS (el consultor) seguimos
+// trayendo sus datos. `status='suspended'` es la senal que hace que el worker
+// deje de ingerir. Cuando exista el sistema de planes, un cliente que pague su
+// cuota por su cuenta podra reactivar la org por otra via.
+// ---------------------------------------------------------------------------
+
+/** Pausa "hasta nuevo aviso": org -> suspended. La asignacion se mantiene, asi
+ *  que el consultor lo sigue viendo en su cartera y puede reanudarlo el mismo. */
+export async function pauseConsultantClient(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requireStoreManager(context, organizationId);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: org, error } = await supabase
+    .from("organizations")
+    .select("id, status")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: error.message };
+  if (!org) return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+  if (org.status === "pending_deletion") return { ok: false as const, statusCode: 409, error: "organization_pending_deletion" };
+  if (org.status === "suspended") return { ok: false as const, statusCode: 409, error: "organization_already_suspended" };
+
+  const { error: upErr } = await supabase
+    .from("organizations")
+    .update({ status: "suspended" })
+    .eq("id", organizationId);
+  if (upErr) return { ok: false as const, statusCode: 500, error: "organization_pause_failed", detail: upErr.message };
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "consultant.pause_client",
+    entityType: "organization",
+    entityId: organizationId,
+    oldData: { status: org.status },
+    newData: { status: "suspended" },
+  });
+  return { ok: true as const, data: { organization_id: organizationId, status: "suspended" } };
+}
+
+/** Reanuda un cliente pausado: suspended -> active. */
+export async function resumeConsultantClient(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requireStoreManager(context, organizationId);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: org, error } = await supabase
+    .from("organizations")
+    .select("id, status")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: error.message };
+  if (!org) return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+  if (org.status !== "suspended") return { ok: false as const, statusCode: 409, error: "organization_not_suspended" };
+
+  const { error: upErr } = await supabase
+    .from("organizations")
+    .update({ status: "active" })
+    .eq("id", organizationId);
+  if (upErr) return { ok: false as const, statusCode: 500, error: "organization_resume_failed", detail: upErr.message };
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "consultant.resume_client",
+    entityType: "organization",
+    entityId: organizationId,
+    oldData: { status: "suspended" },
+    newData: { status: "active" },
+  });
+  return { ok: true as const, data: { organization_id: organizationId, status: "active" } };
+}
+
+/** Desvincula al consultor del cliente: termina SU consultant_assignment y
+ *  suspende la org. El cliente queda "sin consultor" pero conserva todo lo
+ *  suyo; recuperarlo requiere reasignarlo desde el panel admin. */
+export async function unlinkConsultantClient(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requireStoreManager(context, organizationId);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: org, error } = await supabase
+    .from("organizations")
+    .select("id, status")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: error.message };
+  if (!org) return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+
+  const { error: assignErr } = await supabase
+    .from("consultant_assignments")
+    .update({ is_active: false, ended_at: new Date().toISOString() })
+    .eq("organization_id", organizationId)
+    .eq("consultant_user_id", context.user.id)
+    .eq("is_active", true);
+  if (assignErr) return { ok: false as const, statusCode: 500, error: "assignment_end_failed", detail: assignErr.message };
+
+  // Una org ya en borrado pendiente no se toca; en cualquier otro caso, quitar
+  // el cliente de la cartera la suspende (dejamos de traer sus datos).
+  const nextStatus =
+    org.status === "pending_deletion" || org.status === "suspended"
+      ? org.status
+      : "suspended";
+  if (nextStatus !== org.status) {
+    const { error: upErr } = await supabase
+      .from("organizations")
+      .update({ status: nextStatus })
+      .eq("id", organizationId);
+    if (upErr) return { ok: false as const, statusCode: 500, error: "organization_pause_failed", detail: upErr.message };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "consultant.unlink_client",
+    entityType: "consultant_assignment",
+    entityId: organizationId,
+    oldData: { org_status: org.status },
+    newData: { org_status: nextStatus, assignment_ended: true },
+  });
+  return { ok: true as const, data: { organization_id: organizationId, unlinked: true, status: nextStatus } };
+}
+
+/** Borrado inmediato y definitivo de un cliente. Un solo `DELETE FROM
+ *  organizations` dispara la cascada de FK de la base de datos (~85 tablas:
+ *  datos Shopify/Meta/Klaviyo, tareas, planes, agentes, miembros,
+ *  suscripción...). No hay periodo de gracia ni vuelta atrás; solo
+ *  platform_admin. Para el borrado diferido usar `deleteOrganization`. */
+export async function hardDeleteOrganization(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: org, error: loadError } = await supabase
+    .from("organizations")
+    .select("id, display_name, status")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (loadError) return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: loadError.message };
+  if (!org) return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+
+  // El audit log va antes del delete: `audit_logs.organization_id` es SET NULL,
+  // así que la fila sobrevive al borrado con el id ya nulo.
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "admin.hard_delete_organization",
+    entityType: "organization",
+    entityId: organizationId,
+    oldData: org,
+  });
+
+  const { error: delError } = await supabase
+    .from("organizations")
+    .delete()
+    .eq("id", organizationId);
+  if (delError) return { ok: false as const, statusCode: 500, error: "organization_hard_delete_failed", detail: delError.message };
+
+  return { ok: true as const, data: { organization_id: organizationId, deleted: true } };
+}
+
 /**
  * Purga fisica de organizaciones y tiendas cuyo periodo de gracia ya paso.
  * Pensado para correr como job periodico (worker + cron, no HTTP) con
@@ -2126,5 +2455,987 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
   return {
     ok: true as const,
     data: { purgedOrganizations, purgedConnections, failedOrganizationIds, failedConnectionIds },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Alta y gestion desde platform_admin: consultores y clientes independientes
+// (clientes SIN consultor asignado). El pago de la cuota lo resuelve el propio
+// usuario al entrar en el software; aqui solo se controla QUIEN entra. Un
+// consultor ya activo mete a sus propios clientes por el flujo consultor
+// normal (upsertConsultantAssignment), no por aqui.
+// ---------------------------------------------------------------------------
+
+const CONSULTANT_ROLE = "consultant" as const;
+
+function slugify(input: string): string {
+  return (
+    input
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 100) || "cliente"
+  );
+}
+
+function isEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+/** Invita a un consultor por email (Supabase manda el correo) y le sube el
+ *  platform_role a 'consultant'. El profile lo crea handle_new_auth_user. */
+export async function inviteConsultant(
+  env: ApiEnv,
+  context: AuthContext,
+  body: { email?: string; full_name?: string },
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const email = body.email?.trim().toLowerCase() ?? "";
+  const fullName = body.full_name?.trim() || null;
+  if (!isEmail(email)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_email" };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
+    redirectTo: onboardingRedirectTo(env),
+    ...(fullName ? { data: { full_name: fullName } } : {}),
+  });
+  if (error || !data?.user) {
+    const already = /already/i.test(error?.message ?? "");
+    return {
+      ok: false as const,
+      statusCode: already ? 409 : 502,
+      error: already ? "email_already_registered" : "invite_failed",
+      detail: error?.message,
+    };
+  }
+
+  const { error: roleError } = await supabase
+    .from("profiles")
+    .update({ platform_role: CONSULTANT_ROLE, full_name: fullName, is_active: true })
+    .eq("id", data.user.id);
+  if (roleError) {
+    return { ok: false as const, statusCode: 500, error: "profile_role_update_failed", detail: roleError.message };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId: null,
+    actorUserId: context.user.id,
+    action: "admin.invite_consultant",
+    entityType: "profile",
+    entityId: data.user.id,
+    newData: { email, full_name: fullName, platform_role: CONSULTANT_ROLE },
+  });
+  return { ok: true as const, data: { user_id: data.user.id, email, full_name: fullName } };
+}
+
+/** Renombra o activa/desactiva un consultor ya existente. Solo perfiles que ya
+ *  son 'consultant' -- no se editan admins ni usuarios normales por aqui. */
+export async function updateConsultant(
+  env: ApiEnv,
+  context: AuthContext,
+  userId: string,
+  body: { full_name?: string; is_active?: boolean },
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: profile, error: loadError } = await loadExistingProfile(supabase, userId);
+  if (loadError) return { ok: false as const, statusCode: 500, error: "profile_load_failed", detail: loadError.message };
+  if (!profile) return { ok: false as const, statusCode: 404, error: "profile_not_found" };
+  if (profile.platform_role !== CONSULTANT_ROLE) {
+    return { ok: false as const, statusCode: 400, error: "profile_not_consultant" };
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (body.full_name !== undefined) {
+    const trimmed = body.full_name.trim();
+    if (trimmed.length === 0) return { ok: false as const, statusCode: 400, error: "invalid_full_name" };
+    patch.full_name = trimmed;
+  }
+  if (body.is_active !== undefined) patch.is_active = Boolean(body.is_active);
+  if (Object.keys(patch).length === 0) {
+    return { ok: false as const, statusCode: 400, error: "empty_update" };
+  }
+
+  const { data: updated, error } = await supabase
+    .from("profiles")
+    .update(patch)
+    .eq("id", userId)
+    .select("id, full_name, platform_role, is_active")
+    .single();
+  if (error) return { ok: false as const, statusCode: 500, error: "consultant_update_failed", detail: error.message };
+
+  await recordAuditLog(supabase, {
+    organizationId: null,
+    actorUserId: context.user.id,
+    action: "admin.update_consultant",
+    entityType: "profile",
+    entityId: userId,
+    oldData: profile,
+    newData: updated,
+  });
+  return { ok: true as const, data: { consultant: updated } };
+}
+
+/** Reenvía el acceso a un consultor que ya existe en Auth pero nunca activó su
+ *  cuenta (o perdió el enlace). `inviteUserByEmail` falla con usuarios ya
+ *  registrados, así que se manda un email de recuperación con redirect a
+ *  /onboarding: al abrirlo tiene sesión y entra al flujo contraseña + perfil. */
+export async function resendConsultantInvite(
+  env: ApiEnv,
+  context: AuthContext,
+  userId: string,
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: profile, error: loadError } = await loadExistingProfile(supabase, userId);
+  if (loadError) return { ok: false as const, statusCode: 500, error: "profile_load_failed", detail: loadError.message };
+  if (!profile) return { ok: false as const, statusCode: 404, error: "profile_not_found" };
+  if (profile.platform_role !== CONSULTANT_ROLE) {
+    return { ok: false as const, statusCode: 400, error: "profile_not_consultant" };
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
+  const email = userData?.user?.email;
+  if (userError || !email) {
+    return { ok: false as const, statusCode: 502, error: "user_lookup_failed", detail: userError?.message };
+  }
+
+  const { error: sendError } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: onboardingRedirectTo(env),
+  });
+  if (sendError) {
+    return { ok: false as const, statusCode: 502, error: "resend_failed", detail: sendError.message };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId: null,
+    actorUserId: context.user.id,
+    action: "admin.resend_consultant_invite",
+    entityType: "profile",
+    entityId: userId,
+    newData: { email },
+  });
+  return { ok: true as const, data: { email } };
+}
+
+/**
+ * Crea un cliente independiente: organizacion + owner invitado por email, sin
+ * consultant_assignment. Si la invitacion del owner falla tras crear la
+ * organizacion, se revierte la organizacion.
+ */
+export async function createClientOrganization(
+  env: ApiEnv,
+  context: AuthContext,
+  body: {
+    display_name?: string;
+    owner_email?: string;
+    owner_full_name?: string;
+    timezone?: string;
+    currency_code?: string;
+  },
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const displayName = body.display_name?.trim() ?? "";
+  const ownerEmail = body.owner_email?.trim().toLowerCase() ?? "";
+  const ownerFullName = body.owner_full_name?.trim() || null;
+  const timezone = body.timezone?.trim() || "Europe/Madrid";
+  const currencyCode = (body.currency_code?.trim() || "EUR").toUpperCase();
+
+  if (displayName.length === 0) return { ok: false as const, statusCode: 400, error: "invalid_display_name" };
+  if (!isEmail(ownerEmail)) return { ok: false as const, statusCode: 400, error: "invalid_owner_email" };
+  if (!/^[A-Z]{3}$/.test(currencyCode)) return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+
+  const supabase = createServiceClient(env);
+
+  let slug = slugify(displayName);
+  const { data: clash } = await supabase.from("organizations").select("id").eq("slug", slug).maybeSingle();
+  if (clash) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
+
+  const { data: organization, error: orgError } = await supabase
+    .from("organizations")
+    .insert({
+      display_name: displayName,
+      slug,
+      timezone,
+      currency_code: currencyCode,
+      status: "onboarding",
+      created_by: context.user.id,
+    })
+    .select("id, display_name, slug, status, timezone, currency_code")
+    .single();
+  if (orgError || !organization) {
+    return { ok: false as const, statusCode: 500, error: "organization_create_failed", detail: orgError?.message };
+  }
+
+  const { data: invite, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(ownerEmail, {
+    redirectTo: onboardingRedirectTo(env),
+    ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
+  });
+  if (inviteError || !invite?.user) {
+    await supabase.from("organizations").delete().eq("id", organization.id);
+    const already = /already/i.test(inviteError?.message ?? "");
+    return {
+      ok: false as const,
+      statusCode: already ? 409 : 502,
+      error: already ? "owner_email_already_registered" : "owner_invite_failed",
+      detail: inviteError?.message,
+    };
+  }
+
+  const { error: memberError } = await supabase.from("organization_members").insert({
+    organization_id: organization.id,
+    user_id: invite.user.id,
+    role: "owner",
+    is_active: true,
+    invited_by: context.user.id,
+    invited_at: new Date().toISOString(),
+  });
+  if (memberError) {
+    return { ok: false as const, statusCode: 500, error: "owner_member_create_failed", detail: memberError.message };
+  }
+
+  // Sin una suscripción válida, `private.can_access_org` (RLS) deja fuera al
+  // owner y `resolveAuthContext` responde 409 membership_missing -> no podría
+  // ni entrar a completar el onboarding y pagar. Se crea en 'trial' abierto;
+  // el cobro real la pasará a 'active' cuando exista la facturación.
+  const { error: subError } = await supabase.from("service_subscriptions").insert({
+    organization_id: organization.id,
+    plan_code: "trial",
+    status: "trial",
+    starts_at: new Date().toISOString(),
+  });
+  if (subError) {
+    return { ok: false as const, statusCode: 500, error: "owner_subscription_create_failed", detail: subError.message };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId: organization.id,
+    actorUserId: context.user.id,
+    action: "admin.create_client_organization",
+    entityType: "organization",
+    entityId: organization.id,
+    newData: { organization, owner_email: ownerEmail },
+  });
+  return { ok: true as const, data: { organization, owner: { user_id: invite.user.id, email: ownerEmail } } };
+}
+
+// --- Alta de cliente por un consultor (sin platform_admin) -----------------
+// El consultor crea la organización del cliente, queda ligada a él por
+// consultant_assignment, y se genera un código único y temporal que comparte
+// con el cliente. El cliente lo canjea en /acceso -> sesión -> onboarding.
+
+const INVITE_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // sin O/0/I/1/L
+const INVITE_TTL_DAYS = 7;
+
+function generateInviteCode(): string {
+  let code = "";
+  for (let i = 0; i < 8; i += 1) {
+    code += INVITE_CODE_ALPHABET[randomInt(INVITE_CODE_ALPHABET.length)];
+  }
+  return code;
+}
+
+function accessPath(env: ApiEnv, code: string): string {
+  return `${(env.WEB_ORIGIN ?? "http://localhost:3001").replace(/\/$/, "")}/acceso?code=${code}`;
+}
+
+export async function createClientForConsultant(
+  env: ApiEnv,
+  context: AuthContext,
+  body: {
+    display_name?: string;
+    owner_email?: string;
+    owner_full_name?: string;
+    timezone?: string;
+    currency_code?: string;
+  },
+) {
+  if (!["consultant", "platform_admin"].includes(context.profile.platform_role)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "consultant_access_required",
+      message: "Solo un consultor o platform admin puede dar de alta clientes.",
+    };
+  }
+
+  const displayName = body.display_name?.trim() ?? "";
+  const ownerEmail = body.owner_email?.trim().toLowerCase() ?? "";
+  const ownerFullName = body.owner_full_name?.trim() || null;
+  const timezone = body.timezone?.trim() || "Europe/Madrid";
+  const currencyCode = (body.currency_code?.trim() || "EUR").toUpperCase();
+
+  if (displayName.length === 0) return { ok: false as const, statusCode: 400, error: "invalid_display_name" };
+  if (!isEmail(ownerEmail)) return { ok: false as const, statusCode: 400, error: "invalid_owner_email" };
+  if (!/^[A-Z]{3}$/.test(currencyCode)) return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+
+  const supabase = createServiceClient(env);
+
+  let slug = slugify(displayName);
+  const { data: clash } = await supabase.from("organizations").select("id").eq("slug", slug).maybeSingle();
+  if (clash) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
+
+  const { data: organization, error: orgError } = await supabase
+    .from("organizations")
+    .insert({
+      display_name: displayName,
+      slug,
+      timezone,
+      currency_code: currencyCode,
+      status: "onboarding",
+      created_by: context.user.id,
+    })
+    .select("id, display_name, slug, status, timezone, currency_code")
+    .single();
+  if (orgError || !organization) {
+    return { ok: false as const, statusCode: 500, error: "organization_create_failed", detail: orgError?.message };
+  }
+
+  // `generateLink` type 'invite' crea el usuario de Auth SIN enviar email: el
+  // reparto lo hace el consultor con el código. Si ya existe, se aborta.
+  const { data: link, error: linkError } = await supabase.auth.admin.generateLink({
+    type: "invite",
+    email: ownerEmail,
+    options: {
+      redirectTo: onboardingRedirectTo(env),
+      ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
+    },
+  });
+  if (linkError || !link?.user) {
+    await supabase.from("organizations").delete().eq("id", organization.id);
+    const already = /already|exist/i.test(linkError?.message ?? "");
+    return {
+      ok: false as const,
+      statusCode: already ? 409 : 502,
+      error: already ? "owner_email_already_registered" : "owner_invite_failed",
+      detail: linkError?.message,
+    };
+  }
+  const ownerUserId = link.user.id;
+
+  const { error: memberError } = await supabase.from("organization_members").insert({
+    organization_id: organization.id,
+    user_id: ownerUserId,
+    role: "owner",
+    is_active: true,
+    invited_by: context.user.id,
+    invited_at: new Date().toISOString(),
+  });
+  if (memberError) {
+    return { ok: false as const, statusCode: 500, error: "owner_member_create_failed", detail: memberError.message };
+  }
+
+  const { error: subError } = await supabase.from("service_subscriptions").insert({
+    organization_id: organization.id,
+    plan_code: "trial",
+    status: "trial",
+    starts_at: new Date().toISOString(),
+  });
+  if (subError) {
+    return { ok: false as const, statusCode: 500, error: "owner_subscription_create_failed", detail: subError.message };
+  }
+
+  // La organización queda en la cartera del consultor que la crea.
+  const { error: assignError } = await supabase.from("consultant_assignments").insert({
+    organization_id: organization.id,
+    consultant_user_id: context.user.id,
+    is_primary: true,
+    is_active: true,
+    assigned_by: context.user.id,
+  });
+  if (assignError) {
+    return { ok: false as const, statusCode: 500, error: "assignment_create_failed", detail: assignError.message };
+  }
+
+  const code = generateInviteCode();
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86400_000).toISOString();
+  const { error: inviteError } = await supabase.from("client_invites").insert({
+    organization_id: organization.id,
+    invited_user_id: ownerUserId,
+    consultant_user_id: context.user.id,
+    email: ownerEmail,
+    code,
+    expires_at: expiresAt,
+  });
+  if (inviteError) {
+    return { ok: false as const, statusCode: 500, error: "invite_create_failed", detail: inviteError.message };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId: organization.id,
+    actorUserId: context.user.id,
+    action: "consultant.create_client",
+    entityType: "organization",
+    entityId: organization.id,
+    newData: { organization, owner_email: ownerEmail },
+  });
+
+  return {
+    ok: true as const,
+    data: {
+      organization,
+      owner: { user_id: ownerUserId, email: ownerEmail },
+      invite: { code, expires_at: expiresAt, access_url: accessPath(env, code) },
+    },
+  };
+}
+
+/** Genera un código nuevo para un cliente cuyo código caducó o se perdió.
+ *  Solo el consultor asignado (o platform_admin). */
+export async function regenerateClientInvite(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requireStoreManager(context, organizationId);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: pending, error: loadError } = await supabase
+    .from("client_invites")
+    .select("id, email, invited_user_id, status")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (loadError) return { ok: false as const, statusCode: 500, error: "invite_load_failed", detail: loadError.message };
+  if (!pending) return { ok: false as const, statusCode: 404, error: "invite_not_found" };
+  if (pending.status === "redeemed") return { ok: false as const, statusCode: 409, error: "invite_already_redeemed" };
+
+  const code = generateInviteCode();
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86400_000).toISOString();
+  const { error: updateError } = await supabase
+    .from("client_invites")
+    .update({ code, expires_at: expiresAt, status: "pending" })
+    .eq("id", pending.id);
+  if (updateError) return { ok: false as const, statusCode: 500, error: "invite_update_failed", detail: updateError.message };
+
+  return {
+    ok: true as const,
+    data: { code, expires_at: expiresAt, access_url: accessPath(env, code) },
+  };
+}
+
+/** Canje público del código por parte del cliente: valida código + email y
+ *  devuelve un enlace de sesión (magic link) que lleva a /onboarding. */
+export async function redeemClientInvite(
+  env: ApiEnv,
+  body: { code?: string; email?: string },
+) {
+  const code = body.code?.trim().toUpperCase() ?? "";
+  const email = body.email?.trim().toLowerCase() ?? "";
+  if (code.length < 6 || !isEmail(email)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_input" };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: invite, error } = await supabase
+    .from("client_invites")
+    .select("id, email, status, expires_at")
+    .eq("code", code)
+    .maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "invite_load_failed", detail: error.message };
+  if (!invite) return { ok: false as const, statusCode: 404, error: "invite_not_found" };
+  if (invite.status !== "pending") return { ok: false as const, statusCode: 409, error: "invite_already_used" };
+  if (new Date(invite.expires_at).getTime() < Date.now()) {
+    return { ok: false as const, statusCode: 410, error: "invite_expired" };
+  }
+  if ((invite.email as string).toLowerCase() !== email) {
+    return { ok: false as const, statusCode: 403, error: "email_mismatch" };
+  }
+
+  const { data: link, error: linkError } = await supabase.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+    options: { redirectTo: onboardingRedirectTo(env) },
+  });
+  const actionLink = link?.properties?.action_link;
+  if (linkError || !actionLink) {
+    return { ok: false as const, statusCode: 502, error: "link_generation_failed", detail: linkError?.message };
+  }
+
+  const { data: claimedInvite, error: claimError } = await supabase
+    .from("client_invites")
+    .update({ status: "redeemed", redeemed_at: new Date().toISOString() })
+    .eq("id", invite.id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+
+  if (claimError) {
+    return { ok: false as const, statusCode: 500, error: "invite_claim_failed", detail: claimError.message };
+  }
+  if (!claimedInvite) {
+    return { ok: false as const, statusCode: 409, error: "invite_already_used" };
+  }
+
+  return { ok: true as const, data: { url: actionLink } };
+}
+
+/**
+ * Alta manual de una tienda propia del consultor: organizacion + membership
+ * real de owner para el propio consultor (accessSource "membership"), sin
+ * consultant_assignment ni invitacion por email. Aparece en "Mis tiendas" de
+ * /tiendas y en el selector de cliente activo. Para dar de alta un CLIENTE
+ * (owner distinto, invitado por email) se usa createClientOrganization.
+ */
+export async function createOwnStore(
+  env: ApiEnv,
+  context: AuthContext,
+  body: { display_name?: string; timezone?: string; currency_code?: string },
+) {
+  if (
+    !["platform_admin", "consultant"].includes(context.profile.platform_role)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "consultant_access_required",
+      message: "El panel consultor requiere rol platform_admin o consultant.",
+    };
+  }
+
+  const displayName = body.display_name?.trim() ?? "";
+  const timezone = body.timezone?.trim() || "Europe/Madrid";
+  const currencyCode = (body.currency_code?.trim() || "EUR").toUpperCase();
+
+  if (displayName.length === 0) {
+    return { ok: false as const, statusCode: 400, error: "invalid_display_name" };
+  }
+  if (!/^[A-Z]{3}$/.test(currencyCode)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  let slug = slugify(displayName);
+  const { data: clash } = await supabase
+    .from("organizations")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (clash) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
+
+  const { data: organization, error: orgError } = await supabase
+    .from("organizations")
+    .insert({
+      display_name: displayName,
+      slug,
+      timezone,
+      currency_code: currencyCode,
+      status: "onboarding",
+      created_by: context.user.id,
+    })
+    .select("id, display_name, slug, status, timezone, currency_code")
+    .single();
+  if (orgError || !organization) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_create_failed",
+      detail: orgError?.message,
+    };
+  }
+
+  const { error: memberError } = await supabase
+    .from("organization_members")
+    .insert({
+      organization_id: organization.id,
+      user_id: context.user.id,
+      role: "owner",
+      is_active: true,
+      invited_by: context.user.id,
+      invited_at: new Date().toISOString(),
+      joined_at: new Date().toISOString(),
+    });
+  if (memberError) {
+    await supabase.from("organizations").delete().eq("id", organization.id);
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "owner_member_create_failed",
+      detail: memberError.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId: organization.id,
+    actorUserId: context.user.id,
+    action: "consultant.create_own_store",
+    entityType: "organization",
+    entityId: organization.id,
+    newData: { organization },
+  });
+
+  return { ok: true as const, data: { organization } };
+}
+
+/** Vista platform_admin: todos los clientes (organizaciones) con su consultor
+ *  asignado o "sin consultor". Editar/borrar reusa las rutas de organizacion. */
+export async function listAdminClients(env: ApiEnv, context: AuthContext) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const [
+    { data: organizations, error: orgsError },
+    { data: assignments, error: assignmentsError },
+    { data: members, error: membersError },
+  ] = await Promise.all([
+    supabase
+      .from("organizations")
+      .select("id, display_name, slug, status, timezone, currency_code, created_at")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("consultant_assignments")
+      .select("organization_id, consultant_user_id, is_primary")
+      .eq("is_active", true),
+    supabase
+      .from("organization_members")
+      .select("organization_id, user_id, role")
+      .eq("is_active", true),
+  ]);
+
+  if (orgsError || assignmentsError || membersError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "clients_load_failed",
+      detail: orgsError?.message ?? assignmentsError?.message ?? membersError?.message,
+    };
+  }
+
+  const consultantIds = [
+    ...new Set((assignments ?? []).map((a) => a.consultant_user_id as string)),
+  ];
+  let consultantProfiles: Array<{ id: string; full_name: string | null }> = [];
+  if (consultantIds.length > 0) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", consultantIds);
+    if (error) {
+      return { ok: false as const, statusCode: 500, error: "clients_load_failed", detail: error.message };
+    }
+    consultantProfiles = (data ?? []) as Array<{ id: string; full_name: string | null }>;
+  }
+  const nameById = new Map(consultantProfiles.map((p) => [p.id, p.full_name]));
+
+  const consultantsByOrg = new Map<
+    string,
+    Array<{ user_id: string; full_name: string | null; is_primary: boolean }>
+  >();
+  for (const a of assignments ?? []) {
+    const orgId = a.organization_id as string;
+    const list = consultantsByOrg.get(orgId) ?? [];
+    list.push({
+      user_id: a.consultant_user_id as string,
+      full_name: nameById.get(a.consultant_user_id as string) ?? null,
+      is_primary: Boolean(a.is_primary),
+    });
+    consultantsByOrg.set(orgId, list);
+  }
+  const memberCountByOrg = new Map<string, number>();
+  for (const m of members ?? []) {
+    const orgId = m.organization_id as string;
+    memberCountByOrg.set(orgId, (memberCountByOrg.get(orgId) ?? 0) + 1);
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      clients: (organizations ?? []).map((org) => ({
+        ...org,
+        member_count: memberCountByOrg.get(org.id as string) ?? 0,
+        consultants: consultantsByOrg.get(org.id as string) ?? [],
+      })),
+    },
+  };
+}
+
+type ObservabilityRun = {
+  id: string;
+  agent_code: string;
+  agent_name: string;
+  status: string;
+  execution_mode: string | null;
+  trigger_type: string;
+  objective: string;
+  cost_usd: number;
+  latency_ms: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  error_message: string | null;
+  started_at: string;
+  organization_id: string;
+  organization_name: string;
+  store_id: string | null;
+  store_name: string | null;
+  actor_name: string | null;
+  consultant_id: string | null;
+  consultant_name: string | null;
+};
+
+// Desenreda `agent_versions!inner(agent_definitions!inner(code, name))`, que
+// supabase-js puede devolver como objeto o como array de un elemento.
+function unwrapAgentDefinition(value: unknown): { code: string; name: string } {
+  const av = Array.isArray(value) ? value[0] : value;
+  const def = (av as { agent_definitions?: unknown } | null)?.agent_definitions;
+  const one = Array.isArray(def) ? def[0] : def;
+  const code = String((one as { code?: unknown } | null)?.code ?? "");
+  const name = String((one as { name?: unknown } | null)?.name ?? code);
+  return { code, name };
+}
+
+/** Vista platform_admin (/admin/observabilidad): salud del runtime de agentes
+ *  IA en toda la plataforma. Agregados por agente (funcion SQL) + muestra de
+ *  las ejecuciones mas recientes con cliente / tienda / consultor resueltos. */
+export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const since = new Date(
+    Date.now() - AI_STATS_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const [
+    { data: agentStats, error: agentStatsError },
+    { data: orgStats, error: orgStatsError },
+    { data: consultantStats, error: consultantStatsError },
+    { data: runRows, error: runsError },
+    { data: organizations, error: orgsError },
+    { data: stores, error: storesError },
+    { data: assignments, error: assignmentsError },
+  ] = await Promise.all([
+    supabase.rpc("admin_agent_runtime_stats", { since }),
+    supabase.rpc("admin_organization_ai_stats", { since }),
+    supabase.rpc("admin_consultant_ai_stats", { since }),
+    supabase
+      .from("agent_runs")
+      .select(
+        "id, status, execution_mode, trigger_type, objective, estimated_cost_usd, latency_ms, input_tokens, output_tokens, error_message, started_at, organization_id, store_id, actor_user_id, agent_versions!inner(agent_definitions!inner(code, name))",
+      )
+      .gte("started_at", since)
+      .order("started_at", { ascending: false })
+      .limit(120),
+    supabase
+      .from("organizations")
+      .select("id, display_name")
+      .order("display_name", { ascending: true }),
+    supabase.from("shopify_stores").select("id, shop_name"),
+    supabase
+      .from("consultant_assignments")
+      .select("organization_id, consultant_user_id, is_primary")
+      .eq("is_active", true),
+  ]);
+
+  if (runsError || orgsError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "observability_load_failed",
+      detail: runsError?.message ?? orgsError?.message,
+    };
+  }
+
+  // Los agregados (por agente / cliente / consultor) y la resolucion de
+  // tienda/consultor son complementarios: si una funcion rpc aun no esta
+  // desplegada o falta una tabla, la vista sigue sirviendose con lo que haya.
+  if (
+    agentStatsError ||
+    orgStatsError ||
+    consultantStatsError ||
+    storesError ||
+    assignmentsError
+  ) {
+    logger.info("admin_observability_partial", {
+      agentStatsError: agentStatsError?.message,
+      orgStatsError: orgStatsError?.message,
+      consultantStatsError: consultantStatsError?.message,
+      storesError: storesError?.message,
+      assignmentsError: assignmentsError?.message,
+    });
+  }
+
+  const orgNameById = new Map(
+    (organizations ?? []).map((org) => [
+      org.id as string,
+      org.display_name as string,
+    ]),
+  );
+  const storeNameById = new Map(
+    (stores ?? []).map((store) => [
+      store.id as string,
+      store.shop_name as string,
+    ]),
+  );
+
+  // Consultor principal por organizacion (el marcado is_primary, o el primero
+  // asignado si no hay principal).
+  const primaryConsultantByOrg = new Map<string, string>();
+  for (const assignment of assignments ?? []) {
+    const orgId = assignment.organization_id as string;
+    if (assignment.is_primary || !primaryConsultantByOrg.has(orgId)) {
+      primaryConsultantByOrg.set(orgId, assignment.consultant_user_id as string);
+    }
+  }
+
+  const rows = (runRows ?? []) as Array<Record<string, unknown>>;
+  const actorIds = rows
+    .map((row) => row.actor_user_id)
+    .filter((value): value is string => typeof value === "string");
+  const consultantStatIds = ((consultantStats ?? []) as Array<
+    Record<string, unknown>
+  >)
+    .map((row) => row.consultant_user_id)
+    .filter((value): value is string => typeof value === "string");
+  const profileIds = [
+    ...new Set([
+      ...actorIds,
+      ...primaryConsultantByOrg.values(),
+      ...consultantStatIds,
+    ]),
+  ];
+  const nameById = new Map<string, string | null>();
+  if (profileIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", profileIds);
+    for (const profile of profiles ?? []) {
+      nameById.set(
+        profile.id as string,
+        (profile.full_name as string | null) ?? null,
+      );
+    }
+  }
+
+  const runs: ObservabilityRun[] = rows.map((row) => {
+    const agent = unwrapAgentDefinition(row.agent_versions);
+    const orgId = row.organization_id as string;
+    const storeId = row.store_id as string | null;
+    const actorId = row.actor_user_id as string | null;
+    const consultantId = primaryConsultantByOrg.get(orgId) ?? null;
+    const latency = row.latency_ms;
+    return {
+      id: row.id as string,
+      agent_code: agent.code,
+      agent_name: agent.name,
+      status: row.status as string,
+      execution_mode: (row.execution_mode as string | null) ?? null,
+      trigger_type: row.trigger_type as string,
+      objective: String(row.objective ?? ""),
+      cost_usd: Number(row.estimated_cost_usd ?? 0),
+      latency_ms: latency == null ? null : Number(latency),
+      input_tokens: Number(row.input_tokens ?? 0),
+      output_tokens: Number(row.output_tokens ?? 0),
+      error_message: (row.error_message as string | null) ?? null,
+      started_at: row.started_at as string,
+      organization_id: orgId,
+      organization_name: orgNameById.get(orgId) ?? orgId,
+      store_id: storeId,
+      store_name: storeId ? (storeNameById.get(storeId) ?? null) : null,
+      actor_name: actorId ? (nameById.get(actorId) ?? null) : null,
+      consultant_id: consultantId,
+      consultant_name: consultantId ? (nameById.get(consultantId) ?? null) : null,
+    };
+  });
+
+  const byAgent = ((agentStats ?? []) as Array<Record<string, unknown>>).map(
+    (row) => ({
+      agent_code: String(row.agent_code ?? ""),
+      agent_name: String(row.agent_name ?? row.agent_code ?? ""),
+      run_count: Number(row.run_count ?? 0),
+      failed_count: Number(row.failed_count ?? 0),
+      running_count: Number(row.running_count ?? 0),
+      total_cost_usd: Number(row.total_cost_usd ?? 0),
+      avg_latency_ms:
+        row.avg_latency_ms == null ? null : Number(row.avg_latency_ms),
+      p95_latency_ms:
+        row.p95_latency_ms == null ? null : Number(row.p95_latency_ms),
+    }),
+  );
+
+  const byClient = ((orgStats ?? []) as Array<Record<string, unknown>>)
+    .map((row) => {
+      const orgId = String(row.organization_id ?? "");
+      return {
+        organization_id: orgId,
+        name: orgNameById.get(orgId) ?? orgId,
+        run_count: Number(row.run_count ?? 0),
+        total_cost_usd: Number(row.total_cost_usd ?? 0),
+        top_agents: normalizeTopAgents(row.top_agents),
+      };
+    })
+    .sort((a, b) => b.run_count - a.run_count);
+
+  const byConsultant = ((consultantStats ?? []) as Array<Record<string, unknown>>)
+    .map((row) => {
+      const consultantId = String(row.consultant_user_id ?? "");
+      return {
+        consultant_user_id: consultantId,
+        name: nameById.get(consultantId) ?? consultantId,
+        client_count: Number(row.client_count ?? 0),
+        run_count: Number(row.run_count ?? 0),
+        total_cost_usd: Number(row.total_cost_usd ?? 0),
+        top_agents: normalizeTopAgents(row.top_agents),
+      };
+    })
+    .sort((a, b) => b.run_count - a.run_count);
+
+  const totals = byAgent.reduce(
+    (acc, agent) => {
+      acc.run_count += agent.run_count;
+      acc.failed_count += agent.failed_count;
+      acc.running_count += agent.running_count;
+      acc.total_cost_usd += agent.total_cost_usd;
+      acc.latency_weight += (agent.avg_latency_ms ?? 0) * agent.run_count;
+      return acc;
+    },
+    {
+      run_count: 0,
+      failed_count: 0,
+      running_count: 0,
+      total_cost_usd: 0,
+      latency_weight: 0,
+    },
+  );
+
+  return {
+    ok: true as const,
+    data: {
+      window_days: AI_STATS_WINDOW_DAYS,
+      summary: {
+        run_count: totals.run_count,
+        failed_count: totals.failed_count,
+        running_count: totals.running_count,
+        total_cost_usd: Number(totals.total_cost_usd.toFixed(4)),
+        avg_latency_ms:
+          totals.run_count > 0
+            ? Math.round(totals.latency_weight / totals.run_count)
+            : null,
+      },
+      by_agent: byAgent,
+      by_client: byClient,
+      by_consultant: byConsultant,
+      runs,
+      organizations: (organizations ?? []).map((org) => ({
+        id: org.id as string,
+        display_name: org.display_name as string,
+      })),
+    },
   };
 }

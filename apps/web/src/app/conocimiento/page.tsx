@@ -74,7 +74,6 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [visibility, setVisibility] = useState<"organization" | "global">(
@@ -507,6 +506,8 @@ function ConsultantKnowledgeView() {
   const [rows, setRows] = useState<ConsultantKnowledgeRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Capture the reference time once per mounted view; render stays pure.
+  const [currentTime] = useState(() => Date.now());
 
   useEffect(() => {
     let cancelled = false;
@@ -556,7 +557,7 @@ function ConsultantKnowledgeView() {
     if (row.doc_count === 0) return true;
     if (!row.last_updated_at) return true;
     const days = Math.floor(
-      (Date.now() - Date.parse(row.last_updated_at)) / (24 * 60 * 60 * 1000),
+      (currentTime - Date.parse(row.last_updated_at)) / (24 * 60 * 60 * 1000),
     );
     return days > KNOWLEDGE_STALE_DAYS;
   };
@@ -579,7 +580,7 @@ function ConsultantKnowledgeView() {
             {sorted.map((row) => {
               const days = row.last_updated_at
                 ? Math.floor(
-                    (Date.now() - Date.parse(row.last_updated_at)) /
+                    (currentTime - Date.parse(row.last_updated_at)) /
                       (24 * 60 * 60 * 1000),
                   )
                 : null;

@@ -17,6 +17,7 @@ type Profile = {
   avatar_url: string | null;
   platform_role: string;
   is_active: boolean;
+  onboarding_completed_at?: string | null;
 };
 
 // BE-01/Q-008 (cerrado 2026-07-28, ver ADR-0012): antes de esto, una
@@ -165,7 +166,7 @@ export function createUserScopedClient(env: ApiEnv, token: string) {
 async function loadProfile(supabase: SupabaseClient, userId: string) {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, platform_role, is_active")
+    .select("id, full_name, avatar_url, platform_role, is_active, onboarding_completed_at")
     .eq("id", userId)
     .maybeSingle();
 
@@ -340,7 +341,13 @@ export async function resolveAuthContext(
 
   const allMemberships = [...membershipsResult.data, ...virtualMemberships];
 
-  if (allMemberships.length === 0) {
+  // Un consultor/admin recien creado aun no tiene clientes asignados: puede
+  // entrar igualmente (cartera vacia). Solo un usuario cliente sin ninguna
+  // membership activa esta realmente sin sitio al que entrar.
+  const isPortfolioRole = ["consultant", "platform_admin"].includes(
+    profileResult.data.platform_role,
+  );
+  if (allMemberships.length === 0 && !isPortfolioRole) {
     return {
       ok: false,
       error: {

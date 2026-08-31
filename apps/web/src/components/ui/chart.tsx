@@ -24,7 +24,7 @@ type Serie = { key: string; label?: string; color?: string };
 // Acento de marca primero; el resto para series secundarias.
 const SERIES_COLORS = [
   "var(--accent)",
-  "var(--color-warn-deep)",
+  "var(--color-warning)",
   "var(--color-success)",
 ];
 
@@ -32,13 +32,48 @@ const AXIS_TICK = { fill: "var(--color-muted)", fontSize: 11 } as const;
 const AXIS_PROPS = {
   tick: AXIS_TICK,
   tickLine: false,
-  axisLine: { stroke: "var(--color-line)" },
+  axisLine: { stroke: "var(--color-separator)" },
 } as const;
+
+// Ancho reservado para las etiquetas de categoría en barras horizontales y
+// nº máx. de caracteres antes de recortar con "…". Sin esto, los nombres
+// largos de cliente se solapan entre sí y se salen sobre las barras.
+const CATEGORY_AXIS_WIDTH = 116;
+const CATEGORY_LABEL_MAX = 18;
+
+function CategoryTick({
+  x,
+  y,
+  payload,
+}: {
+  x?: number;
+  y?: number;
+  payload?: { value?: string | number };
+}) {
+  const full = String(payload?.value ?? "");
+  const short =
+    full.length > CATEGORY_LABEL_MAX
+      ? `${full.slice(0, CATEGORY_LABEL_MAX - 1).trimEnd()}…`
+      : full;
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={3}
+      textAnchor="end"
+      fill="var(--color-muted)"
+      fontSize={11}
+    >
+      {short}
+      <title>{full}</title>
+    </text>
+  );
+}
 
 const TOOLTIP_PROPS = {
   contentStyle: {
     borderRadius: "var(--radius)",
-    border: "1px solid var(--color-edge)",
+    border: "1px solid var(--color-separator)",
     fontSize: 12,
     padding: "6px 10px",
     boxShadow: "0 8px 24px -12px rgb(15 15 15 / 0.2)",
@@ -133,7 +168,7 @@ export function AreaChart({
   return (
     <ResponsiveContainer width="100%" height={height}>
       <RAreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <CartesianGrid stroke="var(--color-line)" vertical={false} />
+        <CartesianGrid stroke="var(--color-separator)" vertical={false} />
         <XAxis dataKey={xKey} {...AXIS_PROPS} />
         <YAxis
           {...AXIS_PROPS}
@@ -144,7 +179,7 @@ export function AreaChart({
         />
         <Tooltip
           {...TOOLTIP_PROPS}
-          cursor={{ stroke: "var(--color-edge)" }}
+          cursor={{ stroke: "var(--color-separator)" }}
           formatter={makeTooltipFormatter(valueFormatter)}
         />
         {resolved.map((serie) => (
@@ -190,23 +225,34 @@ export function BarChart({
       <RBarChart
         data={data}
         layout={horizontal ? "vertical" : "horizontal"}
-        margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+        margin={{ top: 4, right: 12, bottom: 0, left: 0 }}
+        barCategoryGap={horizontal ? "28%" : "20%"}
       >
-        <CartesianGrid stroke="var(--color-line)" vertical={horizontal} horizontal={!horizontal} />
+        <CartesianGrid stroke="var(--color-separator)" vertical={horizontal} horizontal={!horizontal} />
         {horizontal ? (
           <>
-            <XAxis type="number" {...AXIS_PROPS} tickFormatter={axisFormatter} />
+            <XAxis
+              type="number"
+              {...AXIS_PROPS}
+              tickFormatter={axisFormatter}
+              tickCount={4}
+              height={20}
+            />
             <YAxis
               type="category"
               dataKey={xKey}
-              {...AXIS_PROPS}
-              width={120}
+              tickLine={false}
+              axisLine={{ stroke: "var(--color-separator)" }}
+              tick={<CategoryTick />}
+              interval={0}
+              width={CATEGORY_AXIS_WIDTH}
+              tickMargin={6}
             />
           </>
         ) : (
           <>
             <XAxis dataKey={xKey} {...AXIS_PROPS} />
-            <YAxis {...AXIS_PROPS} width={48} tickFormatter={axisFormatter} />
+            <YAxis {...AXIS_PROPS} width={44} tickFormatter={axisFormatter} />
           </>
         )}
         <Tooltip

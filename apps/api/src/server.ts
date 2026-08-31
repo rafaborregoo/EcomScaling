@@ -19,10 +19,15 @@ import { apiMetrics } from "./metrics.js";
 import { listAccountActions } from "./actions.js";
 import {
   addMarketingDraftNote,
+  createClientForConsultant,
+  createClientOrganization,
   deleteOrganization,
   deleteOrganizationStore,
+  getAdminObservability,
   getConsultantOverview,
   getOrganizationAccess,
+  inviteConsultant,
+  listAdminClients,
   listConsultantCalls,
   listConsultantIntegrations,
   listConsultantKnowledge,
@@ -33,9 +38,19 @@ import {
   listConsultantStores,
   listMarketingDraftNotes,
   listConsultants,
+  createOwnStore,
   listOrganizationStores,
+  hardDeleteOrganization,
+  listOwnStoresOverview,
+  pauseConsultantClient,
+  redeemClientInvite,
+  regenerateClientInvite,
+  resendConsultantInvite,
+  resumeConsultantClient,
   restoreOrganization,
   restoreOrganizationStore,
+  updateConsultant,
+  unlinkConsultantClient,
   upsertConsultantAssignment,
   upsertOrganizationMember,
   updateOrganization,
@@ -110,6 +125,16 @@ import {
   updateTaskStatus,
 } from "./operations.js";
 import {
+  createCampaignCalendar,
+  createCampaignCalendarItem,
+  archiveCampaignCalendarItem,
+  listCampaignPlanning,
+  listCampaignPlanningResources,
+  listKpiSnapshots,
+  updateCampaignCalendarExecution,
+  upsertKpiSnapshot,
+} from "./campaign-planning.js";
+import {
   decideAgentOutput,
   getConsultantChatMessages,
   getEmailAnalystDiagnostic,
@@ -130,7 +155,9 @@ import {
   uploadMarketingAsset,
   listConsultantChatConversations,
   runCallAnalyst,
+  getDiagnosticOrchestratorObservability,
   runConsultantChatTurn,
+  runDiagnosticOrchestratorTick,
   runEmailAnalystAgent,
   runKnowledgeManagerAgent,
   runMonitorAgent,
@@ -436,6 +463,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   };
 
+  const inviteRedeemRateLimit = {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: "1 minute",
+        keyGenerator: (request: { ip: string }) => request.ip,
+      },
+    },
+  };
+
   // SQO-02 (R-014): la mayoria de rutas (62 de las de abajo) llevan
   // `:organizationId` en el path. Sin esto, diagnosticar "los pedidos de esta
   // organizacion no aparecen" exigia leer codigo y consultar la DB a mano --
@@ -677,6 +714,56 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  // Alta de cliente por un consultor (no requiere platform_admin).
+  app.post<{
+    Body: {
+      display_name?: string;
+      owner_email?: string;
+      owner_full_name?: string;
+      timezone?: string;
+      currency_code?: string;
+    };
+  }>("/v1/consultant/clients", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await createClientForConsultant(
+      env,
+      auth.context,
+      request.body ?? {},
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return reply.code(201).send(result.data);
+  });
+
+  app.post<{ Params: { organizationId: string } }>(
+    "/v1/consultant/organizations/:organizationId/invite/regenerate",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await regenerateClientInvite(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Canje público del código de invitación: sin auth (el cliente aún no tiene
+  // sesión). Devuelve un enlace de sesión que lleva al onboarding.
+  app.post<{ Body: { code?: string; email?: string } }>(
+    "/v1/invites/redeem",
+    inviteRedeemRateLimit,
+    async (request, reply) => {
+      const result = await redeemClientInvite(env, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
   app.get<{ Querystring: { days?: string } }>(
     "/v1/consultant/overview",
     async (request, reply) => {
@@ -705,6 +792,47 @@ export async function buildApp(): Promise<FastifyInstance> {
       return result.data;
     },
   );
+
+  app.get<{ Querystring: { days?: string } }>(
+    "/v1/consultant/own-stores",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await listOwnStoresOverview(
+        env,
+        auth.context,
+        Number(request.query.days ?? "30"),
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Body: { display_name?: string; timezone?: string; currency_code?: string };
+  }>("/v1/consultant/own-stores", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const result = await createOwnStore(env, auth.context, request.body ?? {});
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return reply.code(201).send(result.data);
+  });
 
   app.get("/v1/consultant/marketing", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -942,6 +1070,202 @@ export async function buildApp(): Promise<FastifyInstance> {
 
     return result.data;
   });
+
+  app.post<{ Body: { email?: string; full_name?: string } }>(
+    "/v1/admin/consultants",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await inviteConsultant(env, auth.context, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.patch<{
+    Params: { userId: string };
+    Body: { full_name?: string; is_active?: boolean };
+  }>("/v1/admin/consultants/:userId", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await updateConsultant(
+      env,
+      auth.context,
+      request.params.userId,
+      request.body ?? {},
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Params: { userId: string } }>(
+    "/v1/admin/consultants/:userId/resend-invite",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await resendConsultantInvite(
+        env,
+        auth.context,
+        request.params.userId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get("/v1/admin/clients", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await listAdminClients(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get("/v1/admin/observability", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getAdminObservability(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // Fase 4: tarjeta del orquestador de diagnosticos IA (gasto de plataforma,
+  // ejecuciones de hoy, decisiones del gate). Solo platform_admin.
+  app.get("/v1/admin/ai-orchestrator", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getDiagnosticOrchestratorObservability(
+      env,
+      auth.context,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{
+    Body: {
+      display_name?: string;
+      owner_email?: string;
+      owner_full_name?: string;
+      timezone?: string;
+      currency_code?: string;
+    };
+  }>("/v1/admin/clients", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await createClientOrganization(
+      env,
+      auth.context,
+      request.body ?? {},
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return reply.code(201).send(result.data);
+  });
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { year?: string; storeId?: string };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const planningFilters: { year?: number; storeId?: string | null } = {
+        storeId: request.query.storeId || null,
+      };
+      if (request.query.year) planningFilters.year = Number(request.query.year);
+      const result = await listCampaignPlanning(env, auth.context, request.params.organizationId, planningFilters);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/campaign-planning/resources",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listCampaignPlanningResources(env, auth.context, request.params.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { storeId?: string; period?: string; limit?: string };
+  }>(
+    "/v1/organizations/:organizationId/kpi-snapshots",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listKpiSnapshots(env, auth.context, request.params.organizationId, { storeId: request.query.storeId || null, ...(request.query.period ? { period: request.query.period } : {}), ...(request.query.limit ? { limit: Number(request.query.limit) } : {}) });
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { name?: string; year?: number; storeId?: string | null; description?: string | null; isVisibleToClient?: boolean };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/calendars",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await createCampaignCalendar(env, auth.context, request.params.organizationId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { calendarId?: string; title?: string; description?: string | null; channel?: string; itemType?: string; startsAt?: string; endsAt?: string | null; storeId?: string | null; status?: string; isVisibleToClient?: boolean; createTask?: boolean; milestoneId?: string | null; marketingDraftId?: string | null; metaCampaignId?: string | null; klaviyoCampaignId?: string | null };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await createCampaignCalendarItem(env, auth.context, request.params.organizationId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.delete<{
+    Params: { organizationId: string; itemId: string };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await archiveCampaignCalendarItem(env, auth.context, request.params.organizationId, request.params.itemId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { storeId?: string | null; period?: string; periodStart?: string; periodEnd?: string; netSales?: number | null; ordersCount?: number | null; aov?: number | null; adSpend?: number | null; roas?: number | null; cac?: number | null; netProfit?: number | null; notes?: string | null };
+  }>(
+    "/v1/organizations/:organizationId/kpi-snapshots",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await upsertKpiSnapshot(env, auth.context, request.params.organizationId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
 
   app.get<{ Params: { organizationId: string } }>(
     "/v1/consultant/organizations/:organizationId/access",
@@ -1225,6 +1549,29 @@ export async function buildApp(): Promise<FastifyInstance> {
       return result.data;
     },
   );
+
+  for (const [suffix, handler] of [
+    ["pause", pauseConsultantClient],
+    ["resume", resumeConsultantClient],
+    ["unlink", unlinkConsultantClient],
+    ["hard-delete", hardDeleteOrganization],
+  ] as const) {
+    app.post<{ Params: { organizationId: string } }>(
+      `/v1/consultant/organizations/:organizationId/${suffix}`,
+      async (request, reply) => {
+        const auth = await resolveAuthContext(env, request.headers.authorization);
+        if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+        const result = await handler(
+          env,
+          auth.context,
+          request.params.organizationId,
+        );
+        if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+        return result.data;
+      },
+    );
+  }
 
   app.post<{ Params: { organizationId: string } }>(
     "/v1/consultant/organizations/:organizationId/restore",
@@ -2186,6 +2533,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       category?: string;
       dueAt?: string;
       isVisibleToClient?: boolean;
+      milestoneId?: string | null;
     };
   }>(
     "/v1/organizations/:organizationId/tasks",
@@ -3888,7 +4236,10 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // AI-01: genera el resumen estructurado de la llamada con el agente A01 a
   // partir de su transcripcion actual. Queda pending_approval como el manual.
-  app.post<{ Params: { organizationId: string; callId: string } }>(
+  app.post<{
+    Params: { organizationId: string; callId: string };
+    Body: { focus?: string };
+  }>(
     "/v1/organizations/:organizationId/calls/:callId/analyze",
     aiEndpointRateLimit,
     async (request, reply) => {
@@ -3903,6 +4254,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
         request.params.callId,
+        request.body?.focus,
       );
 
       if (isServiceFailure(result)) {
@@ -3915,7 +4267,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{
     Params: { organizationId: string; summaryId: string };
-    Body: { decision?: string; reason?: string };
+    Body: { decision?: string; reason?: string; selectedTaskIndexes?: number[] };
   }>(
     "/v1/organizations/:organizationId/call-summaries/:summaryId/decision",
     async (request, reply) => {
@@ -3932,6 +4284,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.summaryId,
         request.body?.decision,
         request.body?.reason,
+        request.body?.selectedTaskIndexes,
       );
 
       if (isServiceFailure(result)) {
@@ -4134,6 +4487,33 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
   });
 
+  // Fase 3: pasada del orquestador de diagnosticos de fondo. La dispara el
+  // worker por cron (2x/dia). Sincrono: son ~15 runs como mucho y el worker
+  // quiere el resumen en su log.
+  app.post("/v1/internal/ai/diagnostics/tick", async (request, reply) => {
+    if (!env.INTERNAL_API_SECRET) {
+      return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+    }
+    if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+      return reply.code(401).send({ error: "invalid_internal_secret" });
+    }
+    try {
+      const result = await runDiagnosticOrchestratorTick(env);
+      if (result.ok === false) {
+        return reply.code(result.statusCode).send({
+          error: result.error,
+          detail: result.message,
+        });
+      }
+      return reply.code(200).send(result);
+    } catch (error) {
+      return reply.code(503).send({
+        error: "ai_diagnostics_tick_failed",
+        detail: error instanceof Error ? error.message : "unknown_error",
+      });
+    }
+  });
+
   app.get<{ Params: { organizationId: string } }>(
     "/v1/consultant/organizations/:organizationId/export",
     async (request, reply) => {
@@ -4152,6 +4532,20 @@ export async function buildApp(): Promise<FastifyInstance> {
         "content-disposition",
         `attachment; filename="ecomscaling-organization-${request.params.organizationId}-export.json"`,
       );
+      return result.data;
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; itemId: string };
+    Body: { status?: string; ownerUserId?: string | null; executionNotes?: string | null; blockedReason?: string | null; resultData?: Record<string, unknown> };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId/execution",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await updateCampaignCalendarExecution(env, auth.context, request.params.organizationId, request.params.itemId, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
   );

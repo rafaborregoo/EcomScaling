@@ -501,6 +501,103 @@ export async function getOrganizationDailyBudgetStatusForOrganization(
   return { ok: true as const, data: status };
 }
 
+// Tope de coste diario a nivel de PLATAFORMA (fase 3, decision de Rafa
+// 2026-08-31): ademas del tope por organizacion, un freno agregado -- con
+// muchas orgs activas a la vez la suma de sus presupuestos individuales puede
+// dispararse. Al superarse, ningun agente nuevo se ejecuta (manual, cron u
+// orquestador) hasta el dia siguiente (UTC). agent_runs es ya el stream de
+// auditoria durable: no hace falta contador aparte.
+const DEFAULT_PLATFORM_DAILY_BUDGET_USD = 50;
+
+/** Regla pura: ¿el gasto de IA de hoy de toda la plataforma llega al tope? */
+export function platformBudgetExceeded(
+  spentTodayUsd: number,
+  capUsd: number,
+): boolean {
+  return spentTodayUsd >= capUsd;
+}
+
+export async function getPlatformDailySpendUsd(
+  supabase: SupabaseClient,
+): Promise<{ ok: true; spentTodayUsd: number } | { ok: false; error: string }> {
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .select("estimated_cost_usd")
+    .gte("started_at", startOfDayUtc.toISOString());
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  const spentTodayUsd = (data ?? []).reduce(
+    (sum, row) =>
+      sum +
+      Number(
+        (row as { estimated_cost_usd: number | null }).estimated_cost_usd ?? 0,
+      ),
+    0,
+  );
+  return { ok: true, spentTodayUsd };
+}
+
+export async function checkPlatformDailyBudget(
+  supabase: SupabaseClient,
+  capUsd: number = DEFAULT_PLATFORM_DAILY_BUDGET_USD,
+): Promise<
+  | { ok: true }
+  | { ok: false; statusCode: number; error: string; message: string }
+> {
+  const spend = await getPlatformDailySpendUsd(supabase);
+  if (spend.ok === false) {
+    logger.error("platform_daily_budget_check_failed", { error: spend.error });
+    return {
+      ok: false,
+      statusCode: 503,
+      error: "platform_daily_budget_unavailable",
+      message:
+        "No se pudo verificar el presupuesto diario de IA de la plataforma. Los agentes quedan pausados hasta recuperar la comprobacion.",
+    };
+  }
+  if (platformBudgetExceeded(spend.spentTodayUsd, capUsd)) {
+    return {
+      ok: false,
+      statusCode: 429,
+      error: "platform_daily_budget_exceeded",
+      message: `La plataforma ha alcanzado el tope de coste diario de IA ($${capUsd}). Los agentes se reactivan al empezar el siguiente dia (UTC).`,
+    };
+  }
+  return { ok: true };
+}
+
+function resolvePlatformDailyBudgetUsd(env: ApiEnv): number {
+  return (
+    env.AI_PLATFORM_DAILY_COST_CAP_USD ?? DEFAULT_PLATFORM_DAILY_BUDGET_USD
+  );
+}
+
+/** Gasto de IA de hoy de toda la plataforma vs. el tope configurado. Para el panel de observabilidad platform_admin. */
+export async function getPlatformBudgetSnapshot(
+  env: ApiEnv,
+): Promise<
+  | { ok: true; spentTodayUsd: number; capUsd: number; remainingUsd: number }
+  | { ok: false; error: string }
+> {
+  const spend = await getPlatformDailySpendUsd(createServiceClient(env));
+  if (spend.ok === false) {
+    return { ok: false, error: spend.error };
+  }
+  const capUsd = resolvePlatformDailyBudgetUsd(env);
+  return {
+    ok: true,
+    spentTodayUsd: spend.spentTodayUsd,
+    capUsd,
+    remainingUsd: Math.max(0, capUsd - spend.spentTodayUsd),
+  };
+}
+
 // Traduce el error de un turno fallido al mismo par (status, mensaje) en los
 // tres puntos donde se llama a runAgentTurn (generico, A01, A09).
 function describeAgentTurnFailure(error: unknown): {
@@ -718,15 +815,15 @@ function buildAgentTools(
     const definition = getToolDefinition(name);
     return Boolean(
       definition &&
-        (definition.status === "planned" || definition.status === "disabled"),
+      (definition.status === "planned" || definition.status === "disabled"),
     );
   });
   const missingConnectorToolNames = requestedToolNames.filter((name) => {
     const connector = getToolDefinition(name)?.connector;
     return Boolean(
       connector &&
-        connector !== "core" &&
-        !connectedConnectors.includes(connector),
+      connector !== "core" &&
+      !connectedConnectors.includes(connector),
     );
   });
   const allowedToolNames = requestedToolNames.filter(
@@ -944,7 +1041,12 @@ function buildAgentTools(
           period_start: { type: "string", format: "date" },
           period_end: { type: "string", format: "date" },
           limit: { type: "integer", minimum: 1, maximum: 100 },
-          cursor: { anyOf: [{ type: "string", pattern: "^offset:[0-9]+$" }, { type: "null" }] },
+          cursor: {
+            anyOf: [
+              { type: "string", pattern: "^offset:[0-9]+$" },
+              { type: "null" },
+            ],
+          },
         },
         additionalProperties: false,
       },
@@ -964,7 +1066,8 @@ function buildAgentTools(
               error: {
                 error: `${toolName}_unavailable`,
                 why: result.error.message,
-                how_to_fix: "Verificar la sincronización del conector y reintentar",
+                how_to_fix:
+                  "Verificar la sincronización del conector y reintentar",
                 retry_after: 30,
               },
             }
@@ -979,7 +1082,15 @@ function buildAgentTools(
                 freshness_seconds: 0,
               },
             };
-        await recordToolCall(toolName, input, result.error ? { error: result.error.message } : { rows: rows.length }, Boolean(result.error), Date.now() - started);
+        await recordToolCall(
+          toolName,
+          input,
+          result.error
+            ? { error: result.error.message }
+            : { rows: rows.length },
+          Boolean(result.error),
+          Date.now() - started,
+        );
         const validatedOutput = validateToolOutput(toolName, output);
         return validatedOutput.ok ? validatedOutput.data : validatedOutput;
       },
@@ -992,7 +1103,9 @@ function buildAgentTools(
     async (client, input) => {
       let request = client
         .from("meta_ad_accounts")
-        .select("id, external_ad_account_id, account_name, account_status_code, currency_code, timezone_name, is_selected, is_active, amount_spent, last_synced_at")
+        .select(
+          "id, external_ad_account_id, account_name, account_status_code, currency_code, timezone_name, is_selected, is_active, amount_spent, last_synced_at",
+        )
         .eq("organization_id", organizationId)
         .order("account_name", { ascending: true });
       if (typeof input.account_id === "string" && input.account_id.trim()) {
@@ -1005,7 +1118,10 @@ function buildAgentTools(
           : 0;
       request = request.range(offset, offset + limit);
       const result = await request;
-      return { data: result.data ?? [], error: result.error ? { message: result.error.message } : null };
+      return {
+        data: result.data ?? [],
+        error: result.error ? { message: result.error.message } : null,
+      };
     },
   );
 
@@ -1015,7 +1131,9 @@ function buildAgentTools(
     async (client, input) => {
       let request = client
         .from("meta_insight_rows_daily")
-        .select("metric_date, level, external_entity_id, ad_account_id, campaign_id, ad_set_id, ad_id, spend, impressions, reach, clicks, outbound_clicks, cpm, cpc, ctr, synced_at")
+        .select(
+          "metric_date, level, external_entity_id, ad_account_id, campaign_id, ad_set_id, ad_id, spend, impressions, reach, clicks, outbound_clicks, cpm, cpc, ctr, synced_at",
+        )
         .eq("organization_id", organizationId)
         .order("metric_date", { ascending: false });
       if (typeof input.account_id === "string" && input.account_id.trim()) {
@@ -1024,13 +1142,16 @@ function buildAgentTools(
           .select("id")
           .eq("organization_id", organizationId)
           .eq("external_ad_account_id", input.account_id.trim());
-        if (accounts.error) return { data: [], error: { message: accounts.error.message } };
+        if (accounts.error)
+          return { data: [], error: { message: accounts.error.message } };
         const ids = (accounts.data ?? []).map((account) => account.id);
         if (ids.length === 0) return { data: [], error: null };
         request = request.in("ad_account_id", ids);
       }
-      if (typeof input.period_start === "string") request = request.gte("metric_date", input.period_start);
-      if (typeof input.period_end === "string") request = request.lte("metric_date", input.period_end);
+      if (typeof input.period_start === "string")
+        request = request.gte("metric_date", input.period_start);
+      if (typeof input.period_end === "string")
+        request = request.lte("metric_date", input.period_end);
       const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
       const offset =
         typeof input.cursor === "string"
@@ -1038,7 +1159,10 @@ function buildAgentTools(
           : 0;
       request = request.range(offset, offset + limit);
       const result = await request;
-      return { data: result.data ?? [], error: result.error ? { message: result.error.message } : null };
+      return {
+        data: result.data ?? [],
+        error: result.error ? { message: result.error.message } : null,
+      };
     },
   );
 
@@ -1048,7 +1172,9 @@ function buildAgentTools(
     async (client, input) => {
       let request = client
         .from("instagram_media")
-        .select("id, account_id, external_media_id, media_type, caption, permalink, published_at, thumbnail_url, media_url_expires_at, is_active, created_at, updated_at")
+        .select(
+          "id, account_id, external_media_id, media_type, caption, permalink, published_at, thumbnail_url, media_url_expires_at, is_active, created_at, updated_at",
+        )
         .eq("organization_id", organizationId)
         .order("published_at", { ascending: false });
       if (typeof input.account_id === "string" && input.account_id.trim()) {
@@ -1057,17 +1183,32 @@ function buildAgentTools(
           .select("id")
           .eq("organization_id", organizationId)
           .eq("external_instagram_id", input.account_id.trim());
-        if (accounts.error) return { data: [], error: { message: accounts.error.message } };
+        if (accounts.error)
+          return { data: [], error: { message: accounts.error.message } };
         const ids = (accounts.data ?? []).map((account) => account.id);
         if (ids.length === 0) return { data: [], error: null };
         request = request.in("account_id", ids);
       }
-      if (typeof input.period_start === "string") request = request.gte("published_at", `${input.period_start}T00:00:00.000Z`);
-      if (typeof input.period_end === "string") request = request.lte("published_at", `${input.period_end}T23:59:59.999Z`);
+      if (typeof input.period_start === "string")
+        request = request.gte(
+          "published_at",
+          `${input.period_start}T00:00:00.000Z`,
+        );
+      if (typeof input.period_end === "string")
+        request = request.lte(
+          "published_at",
+          `${input.period_end}T23:59:59.999Z`,
+        );
       const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
-      const offset = typeof input.cursor === "string" ? Number(input.cursor.slice("offset:".length)) : 0;
+      const offset =
+        typeof input.cursor === "string"
+          ? Number(input.cursor.slice("offset:".length))
+          : 0;
       const result = await request.range(offset, offset + limit);
-      return { data: result.data ?? [], error: result.error ? { message: result.error.message } : null };
+      return {
+        data: result.data ?? [],
+        error: result.error ? { message: result.error.message } : null,
+      };
     },
   );
 
@@ -1077,7 +1218,9 @@ function buildAgentTools(
     async (client, input) => {
       let request = client
         .from("instagram_media_insight_values")
-        .select("id, account_id, media_id, metric_name, period, period_start, period_end, value, captured_at, source")
+        .select(
+          "id, account_id, media_id, metric_name, period, period_start, period_end, value, captured_at, source",
+        )
         .eq("organization_id", organizationId)
         .order("captured_at", { ascending: false });
       if (typeof input.account_id === "string" && input.account_id.trim()) {
@@ -1086,17 +1229,26 @@ function buildAgentTools(
           .select("id")
           .eq("organization_id", organizationId)
           .eq("external_instagram_id", input.account_id.trim());
-        if (accounts.error) return { data: [], error: { message: accounts.error.message } };
+        if (accounts.error)
+          return { data: [], error: { message: accounts.error.message } };
         const ids = (accounts.data ?? []).map((account) => account.id);
         if (ids.length === 0) return { data: [], error: null };
         request = request.in("account_id", ids);
       }
-      if (typeof input.period_start === "string") request = request.gte("period_start", input.period_start);
-      if (typeof input.period_end === "string") request = request.lte("period_end", input.period_end);
+      if (typeof input.period_start === "string")
+        request = request.gte("period_start", input.period_start);
+      if (typeof input.period_end === "string")
+        request = request.lte("period_end", input.period_end);
       const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
-      const offset = typeof input.cursor === "string" ? Number(input.cursor.slice("offset:".length)) : 0;
+      const offset =
+        typeof input.cursor === "string"
+          ? Number(input.cursor.slice("offset:".length))
+          : 0;
       const result = await request.range(offset, offset + limit);
-      return { data: result.data ?? [], error: result.error ? { message: result.error.message } : null };
+      return {
+        data: result.data ?? [],
+        error: result.error ? { message: result.error.message } : null,
+      };
     },
   );
 
@@ -1872,6 +2024,96 @@ async function loadCriticalClientConstraints(
   ];
 }
 
+/**
+ * Politica transversal de agentes (decision de Rafa, 2026-08-31): cada agente
+ * de diagnostico recibe el historico de sus PROPIAS propuestas anteriores para
+ * esta organizacion y su estado (pendiente, aprobada, ignorada, descartada),
+ * para dar seguimiento sin volver a proponer lo que sigue abierto. Se inyecta
+ * como bloque de contexto en runGenericDiagnosticAgent, junto a las
+ * restricciones criticas, para los cinco agentes de diagnostico. Mismo patron
+ * que el historico de llamadas de A01 (AI-14).
+ */
+async function loadPriorProposalHistory(
+  supabase: SupabaseClient,
+  organizationId: string,
+  agentCode: string,
+  storeId: string | null,
+  limit = 8,
+): Promise<Array<{ label: string; data: unknown }>> {
+  const { data } = await supabase
+    .from("agent_outputs")
+    .select(
+      "status, created_at, output, agent_runs!inner(store_id, agent_versions!inner(agent_definitions!inner(code)))",
+    )
+    .eq("organization_id", organizationId)
+    .eq("agent_runs.agent_versions.agent_definitions.code", agentCode)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  // Mismo criterio de scope que getCachedDiagnostic: un run de "todas las
+  // tiendas" (store_id null) y uno de una tienda concreta no se mezclan.
+  const scoped = (data ?? []).filter((row) => {
+    const runStoreId =
+      (row.agent_runs as unknown as { store_id: string | null } | null)
+        ?.store_id ?? null;
+    return runStoreId === storeId;
+  });
+
+  if (scoped.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      label:
+        "Historico de mis diagnosticos anteriores (para seguimiento, no re-proponer lo que sigue abierto)",
+      data: scoped.map((row) => {
+        const output = (
+          typeof row.output === "object" && row.output !== null
+            ? row.output
+            : {}
+        ) as Record<string, unknown>;
+        const rawProposals = [
+          ...(Array.isArray(output.proposed_writes)
+            ? output.proposed_writes
+            : []),
+          ...(Array.isArray(output.proposed_tasks)
+            ? output.proposed_tasks
+            : []),
+        ];
+        return {
+          generated_at: row.created_at,
+          status: row.status,
+          answer:
+            typeof output.answer === "string"
+              ? output.answer.slice(0, 280)
+              : "",
+          findings: Array.isArray(output.findings)
+            ? output.findings
+                .map((finding) =>
+                  typeof finding === "object" && finding !== null
+                    ? (finding as Record<string, unknown>).title
+                    : null,
+                )
+                .filter((title): title is string => typeof title === "string")
+            : [],
+          proposals: rawProposals.flatMap((proposal) => {
+            if (typeof proposal !== "object" || proposal === null) return [];
+            const item = proposal as Record<string, unknown>;
+            return [
+              {
+                title: typeof item.title === "string" ? item.title : "",
+                priority:
+                  typeof item.priority === "string" ? item.priority : "",
+              },
+            ];
+          }),
+        };
+      }),
+    },
+  ];
+}
+
 async function recordStep(
   supabase: SupabaseClient,
   runId: string,
@@ -1894,6 +2136,135 @@ async function recordStep(
 }
 
 /**
+ * De donde viene una ejecucion de diagnostico:
+ *  - "manual": el consultor pulso "Actualizar ahora". Cuenta para el tope
+ *    diario de refrescos manuales.
+ *  - "cron": regeneracion automatica (el gate de pagina de getCachedDiagnostic
+ *    o, mas adelante, el orquestador de fondo). No cuenta para el tope.
+ */
+export type DiagnosticRunOptions = {
+  trigger?: "manual" | "cron";
+  enforceManualRefreshCap?: boolean;
+};
+
+const DEFAULT_DIAGNOSTIC_RUN_OPTIONS: Required<DiagnosticRunOptions> = {
+  trigger: "manual",
+  enforceManualRefreshCap: true,
+};
+
+// ponytail: Rafa lo fijo en 3 (2026-08-31). Constante, no env, hasta que haga
+// falta afinar por deploy (entonces -> AI_MANUAL_REFRESH_DAILY_CAP).
+const MANUAL_REFRESH_DAILY_CAP = 3;
+
+// Los tres diagnosticos del panel del consultor que comparten el tope. A08
+// (conocimiento) y A12 quedan fuera: son otra pantalla y otro ritmo.
+const CAPPED_DIAGNOSTIC_AGENT_CODES: readonly string[] = [
+  "a02_monitor_negocio",
+  "a04_generador_tareas",
+  "a06_planificador_stock",
+];
+
+/** Regla pura: ¿el nº de refrescos manuales de hoy ya llega al tope? */
+export function manualRefreshCapExceeded(
+  runsToday: number,
+  cap: number = MANUAL_REFRESH_DAILY_CAP,
+): boolean {
+  return runsToday >= cap;
+}
+
+/**
+ * Tope diario de refrescos manuales de diagnosticos IA por organizacion
+ * (decision de Rafa, 2026-08-31): "Actualizar ahora" durante el dia, pero
+ * maximo 3 veces. `agent_runs` es ya el stream de auditoria durable, asi que
+ * no hace falta tabla ni contador en memoria (importante con varias instancias
+ * de API). Si la consulta de control falla se bloquea con 503: un fallo de la
+ * capa de limite no puede convertirse en via para saltarselo.
+ */
+async function assertManualRefreshQuota(
+  supabase: SupabaseClient,
+  organizationId: string,
+  cap: number = MANUAL_REFRESH_DAILY_CAP,
+): Promise<
+  | { ok: true }
+  | { ok: false; statusCode: number; error: string; message: string }
+> {
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .select("id, agent_versions!inner(agent_definitions!inner(code))")
+    .eq("organization_id", organizationId)
+    .eq("trigger_type", "manual")
+    .gte("started_at", startOfDayUtc.toISOString());
+
+  if (error) {
+    logger.error("manual_refresh_quota_check_failed", {
+      organization_id: organizationId,
+      error: error.message,
+    });
+    return {
+      ok: false,
+      statusCode: 503,
+      error: "manual_refresh_quota_unavailable",
+      message:
+        "No se pudo comprobar el limite de actualizaciones manuales. Intentalo de nuevo en un momento.",
+    };
+  }
+
+  // Filtro por codigo de agente en JS: la tabla ya viene acotada por org + dia
+  // + trigger manual, es un puñado de filas.
+  const runsToday = (data ?? []).filter((row) => {
+    const code = (
+      row.agent_versions as unknown as {
+        agent_definitions?: { code?: string } | null;
+      } | null
+    )?.agent_definitions?.code;
+    return (
+      typeof code === "string" && CAPPED_DIAGNOSTIC_AGENT_CODES.includes(code)
+    );
+  }).length;
+
+  if (manualRefreshCapExceeded(runsToday, cap)) {
+    return {
+      ok: false,
+      statusCode: 429,
+      error: "manual_refresh_daily_cap",
+      message: `Has alcanzado el limite de ${cap} actualizaciones manuales de diagnosticos IA por dia para esta organizacion. Se reactiva al empezar el siguiente dia (UTC); mientras tanto se muestra el ultimo analisis generado.`,
+    };
+  }
+
+  return { ok: true };
+}
+
+// Serializa las regeneraciones automaticas por organizacion: cuando el panel
+// del consultor monta sus 3 secciones a la vez y las 3 estan obsoletas, no se
+// lanzan 3 turnos LLM en paralelo para la misma org (decision de Rafa: "por
+// separado, no todos a la vez"). En memoria por instancia de API, igual que
+// diagnosticSingleFlight -- el orquestador de fondo (fase 3) da el control
+// duro entre instancias.
+const orgRegenChains = new Map<string, Promise<void>>();
+
+function queuePerOrg<T>(
+  organizationId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const tail = orgRegenChains.get(organizationId) ?? Promise.resolve();
+  const result = tail.then(task, task);
+  const link = result.then(
+    () => {},
+    () => {},
+  );
+  orgRegenChains.set(organizationId, link);
+  void link.then(() => {
+    if (orgRegenChains.get(organizationId) === link) {
+      orgRegenChains.delete(organizationId);
+    }
+  });
+  return result;
+}
+
+/**
  * Ejecuta una vuelta de agente generica (contrato agentOutputSchema): carga
  * version/prompt activos por agent_code, construye tools, corre el turno y
  * persiste run + output. Compartido por A02, A04 y A06 -- solo cambian el
@@ -1913,7 +2284,13 @@ async function runGenericDiagnosticAgent(
     supabase: SupabaseClient,
     runId: string,
   ) => Promise<Array<{ label: string; data: unknown }>>,
+  runOptions: DiagnosticRunOptions = {},
 ) {
+  const { trigger, enforceManualRefreshCap } = {
+    ...DEFAULT_DIAGNOSTIC_RUN_OPTIONS,
+    ...runOptions,
+  };
+
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
     return access;
@@ -1942,12 +2319,29 @@ async function runGenericDiagnosticAgent(
   if (dailyBudgetCheck.ok === false) {
     return dailyBudgetCheck;
   }
+  const platformBudgetCheck = await checkPlatformDailyBudget(
+    supabase,
+    resolvePlatformDailyBudgetUsd(env),
+  );
+  if (platformBudgetCheck.ok === false) {
+    return platformBudgetCheck;
+  }
   const providerCircuitCheck = await checkOrganizationProviderCircuit(
     supabase,
     organizationId,
   );
   if (providerCircuitCheck.ok === false) {
     return providerCircuitCheck;
+  }
+
+  if (
+    enforceManualRefreshCap &&
+    CAPPED_DIAGNOSTIC_AGENT_CODES.includes(agentCode)
+  ) {
+    const quotaCheck = await assertManualRefreshQuota(supabase, organizationId);
+    if (quotaCheck.ok === false) {
+      return quotaCheck;
+    }
   }
 
   const { data: agentVersion, error: versionError } = await supabase
@@ -2009,7 +2403,7 @@ async function runGenericDiagnosticAgent(
     agent_version: agentVersion.version,
     organization_id: organizationId,
     actor_user_id: context.user.id,
-    trigger_type: "manual",
+    trigger_type: trigger,
     objective,
     time_range: timeRange,
     allowed_tools: tools.map((tool) => tool.name),
@@ -2045,8 +2439,15 @@ async function runGenericDiagnosticAgent(
       organizationId,
       storeId,
     );
+    const priorProposalBlocks = await loadPriorProposalHistory(
+      supabase,
+      organizationId,
+      agentCode,
+      storeId,
+    );
     const contextBlocks = [
       ...(await buildContextBlocks(supabase, runId)),
+      ...priorProposalBlocks,
       ...constraintBlocks,
     ];
     const contextDuration = Date.now() - contextStart;
@@ -2213,9 +2614,47 @@ async function resolveStoreScope(
 }
 
 const DIAGNOSTIC_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
-const diagnosticSingleFlight = createSingleFlight<
-  Awaited<ReturnType<typeof runMonitorAgent>>
->();
+const diagnosticSingleFlight =
+  createSingleFlight<Awaited<ReturnType<typeof runMonitorAgent>>>();
+
+/**
+ * Decide si se puede servir el diagnostico en cache sin regenerar (AI, control
+ * de coste, decision de Rafa 2026-08-31): se sirve cache si el run tiene menos
+ * de 24h O si el digest de actividad de la organizacion no ha cambiado desde
+ * que se genero. Es decir: sin movimiento en la tienda (ni pedidos, ni stock,
+ * ni tareas/alertas) el agente NO se re-ejecuta nunca, por muy viejo que sea
+ * el diagnostico. Solo se regenera cuando el run supera 24h Y ademas el digest
+ * cambio. Si el digest no se pudo calcular (rpc caida), se mantiene la regla
+ * de 24h a secas -- un fallo de la senal de coste no debe forzar tormentas de
+ * regeneracion.
+ */
+export function decideDiagnosticCacheServe({
+  generatedAt,
+  storedDigest,
+  currentDigest,
+  now = Date.now(),
+  staleAfterMs = DIAGNOSTIC_STALE_AFTER_MS,
+}: {
+  generatedAt: number | null;
+  storedDigest: string | null;
+  currentDigest: string | null;
+  now?: number;
+  staleAfterMs?: number;
+}): { serve: boolean; stale: boolean; noActivitySince: boolean } {
+  if (generatedAt === null) {
+    return { serve: false, stale: false, noActivitySince: false };
+  }
+  const under24h = now - generatedAt < staleAfterMs;
+  const activityUnchanged =
+    storedDigest !== null &&
+    currentDigest !== null &&
+    storedDigest === currentDigest;
+  return {
+    serve: under24h || activityUnchanged,
+    stale: !under24h,
+    noActivitySince: activityUnchanged && !under24h,
+  };
+}
 
 /**
  * Diagnostico listo para mostrar sin friccion (consultor-first: no hay boton
@@ -2252,7 +2691,7 @@ async function getCachedDiagnostic(
   let query = supabase
     .from("agent_runs")
     .select(
-      "id, status, started_at, finished_at, input_tokens, output_tokens, estimated_cost_usd, latency_ms, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(id, status, approval_required, output, published_at)",
+      "id, status, started_at, finished_at, activity_digest, input_tokens, output_tokens, estimated_cost_usd, latency_ms, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(id, status, approval_required, output, published_at)",
     )
     .eq("organization_id", organizationId)
     .eq("agent_versions.agent_definitions.code", agentCode)
@@ -2278,18 +2717,31 @@ async function getCachedDiagnostic(
     };
   }
 
+  // Digest de actividad de la org: si coincide con el que se guardo en el
+  // ultimo run, no se ha movido nada y el diagnostico en cache sigue vigente
+  // aunque supere las 24h. Si la rpc falla, currentDigest queda null y
+  // decideDiagnosticCacheServe cae a la regla de 24h a secas.
+  const { data: activityDigest } = await supabase.rpc(
+    "organization_activity_digest",
+    { target_organization_id: organizationId },
+  );
+  const currentDigest =
+    typeof activityDigest === "string" ? activityDigest : null;
+
   // PostgREST embebe agent_outputs como objeto (no array) porque hay una
   // relacion 1:1 con agent_runs via run_id.
   const output =
     (latestRun?.agent_outputs as unknown as Record<string, unknown> | null) ??
     null;
   const generatedAt = latestRun?.finished_at ?? latestRun?.started_at ?? null;
-  const isFresh =
-    generatedAt !== null &&
-    Date.now() - new Date(generatedAt as string).getTime() <
-      DIAGNOSTIC_STALE_AFTER_MS;
+  const cacheDecision = decideDiagnosticCacheServe({
+    generatedAt: generatedAt ? new Date(generatedAt as string).getTime() : null,
+    storedDigest:
+      (latestRun?.activity_digest as string | null | undefined) ?? null,
+    currentDigest,
+  });
 
-  if (latestRun && output && isFresh) {
+  if (latestRun && output && cacheDecision.serve) {
     const cachedGeneratedAt =
       latestRun.finished_at ?? latestRun.started_at ?? new Date().toISOString();
     const content = (
@@ -2306,6 +2758,8 @@ async function getCachedDiagnostic(
         output: output.output,
         generated_at: cachedGeneratedAt,
         from_cache: true,
+        stale: cacheDecision.stale,
+        no_activity_since: cacheDecision.noActivitySince,
         runtime: runtimePresentation,
         envelope: buildAgentOutputEnvelope({
           runId: latestRun.id,
@@ -2331,10 +2785,25 @@ async function getCachedDiagnostic(
   }
 
   const diagnosticKey = `${organizationId}:${agentCode}:${storeId ?? "all"}:${lookbackDays}`;
-  const fresh = await diagnosticSingleFlight(diagnosticKey, runFresh);
+  // Serializado por organizacion: si el panel monta sus 3 secciones obsoletas
+  // a la vez, sus regeneraciones van una detras de otra, no 3 turnos LLM en
+  // paralelo para la misma org.
+  const fresh = await queuePerOrg(organizationId, () =>
+    diagnosticSingleFlight(diagnosticKey, runFresh),
+  );
 
   if (fresh.ok === false) {
     return fresh;
+  }
+
+  // Deja la huella de actividad sobre la que se genero este run, para que el
+  // proximo getCachedDiagnostic pueda saltarse la regeneracion si nada se ha
+  // movido desde ahora.
+  if (currentDigest !== null) {
+    await supabase
+      .from("agent_runs")
+      .update({ activity_digest: currentDigest })
+      .eq("id", fresh.data.run_id);
   }
 
   const freshGeneratedAt = new Date().toISOString();
@@ -2350,6 +2819,8 @@ async function getCachedDiagnostic(
       runtime: runtimePresentation,
       generated_at: freshGeneratedAt,
       from_cache: false,
+      stale: false,
+      no_activity_since: false,
       envelope: buildAgentOutputEnvelope({
         runId: fresh.data.run_id,
         agentCode,
@@ -2531,6 +3002,7 @@ export async function runMonitorAgent(
   organizationId: string,
   connectionId?: string | null,
   days?: number | null,
+  runOptions?: DiagnosticRunOptions,
 ) {
   const lookbackDays = normalizeLookbackDays(days);
   const now = new Date();
@@ -2641,6 +3113,7 @@ export async function runMonitorAgent(
         { label: "Alertas activas", data: alerts.data ?? [] },
       ];
     },
+    runOptions,
   );
 }
 
@@ -2668,7 +3141,17 @@ export async function getMonitorDiagnostic(
     storeId,
     lookbackDays,
     () =>
-      runMonitorAgent(env, context, organizationId, connectionId, lookbackDays),
+      runMonitorAgent(
+        env,
+        context,
+        organizationId,
+        connectionId,
+        lookbackDays,
+        {
+          trigger: "cron",
+          enforceManualRefreshCap: false,
+        },
+      ),
   );
 }
 
@@ -2679,6 +3162,7 @@ export async function runTaskPlannerAgent(
   organizationId: string,
   connectionId?: string | null,
   days?: number | null,
+  runOptions?: DiagnosticRunOptions,
 ) {
   const lookbackDays = normalizeLookbackDays(days);
   const now = new Date();
@@ -2735,6 +3219,7 @@ export async function runTaskPlannerAgent(
         },
       ];
     },
+    runOptions,
   );
 }
 
@@ -2768,6 +3253,7 @@ export async function getTaskPlannerDiagnostic(
         organizationId,
         connectionId,
         lookbackDays,
+        { trigger: "cron", enforceManualRefreshCap: false },
       ),
   );
 }
@@ -2786,6 +3272,7 @@ export async function runStockPlannerAgent(
   organizationId: string,
   connectionId?: string | null,
   days?: number | null,
+  runOptions?: DiagnosticRunOptions,
 ) {
   const lookbackDays = normalizeLookbackDays(days);
   const now = new Date();
@@ -2834,6 +3321,7 @@ export async function runStockPlannerAgent(
         },
       ];
     },
+    runOptions,
   );
 }
 
@@ -2867,6 +3355,7 @@ export async function getStockPlannerDiagnostic(
         organizationId,
         connectionId,
         lookbackDays,
+        { trigger: "cron", enforceManualRefreshCap: false },
       ),
   );
 }
@@ -2964,7 +3453,16 @@ const emailRate = (a: number, b: number): number | null =>
 
 /** Digiere las filas (mes, entidad) del RPC en cifras listas para el LLM. */
 function summariseEmailForAgent(rows: EmailReportRow[]) {
-  const acc = { revenue: 0, delivered: 0, recipients: 0, opens: 0, clicks: 0, unsub: 0, bounced: 0, spam: 0 };
+  const acc = {
+    revenue: 0,
+    delivered: 0,
+    recipients: 0,
+    opens: 0,
+    clicks: 0,
+    unsub: 0,
+    bounced: 0,
+    spam: 0,
+  };
   let flowRevenue = 0;
   const entities = new Map<
     string,
@@ -3012,7 +3510,9 @@ function summariseEmailForAgent(rows: EmailReportRow[]) {
   const list = [...entities.values()];
   const shape = (e: (typeof list)[number]) => ({
     nombre: e.name,
-    ...(e.type === "campaign" ? { asunto: e.subject } : { disparador: e.trigger }),
+    ...(e.type === "campaign"
+      ? { asunto: e.subject }
+      : { disparador: e.trigger }),
     ingresos_atribuidos: Math.round(e.revenue),
     tasa_apertura: emailRate(e.opens, e.delivered),
     tasa_clic: emailRate(e.clicks, e.delivered),
@@ -3022,7 +3522,9 @@ function summariseEmailForAgent(rows: EmailReportRow[]) {
       ingresos_atribuidos: Math.round(acc.revenue),
       pct_ingresos_de_flujos: emailRate(flowRevenue, acc.revenue),
       ingresos_por_destinatario:
-        acc.recipients > 0 ? Number((acc.revenue / acc.recipients).toFixed(2)) : null,
+        acc.recipients > 0
+          ? Number((acc.revenue / acc.recipients).toFixed(2))
+          : null,
       tasa_apertura: emailRate(acc.opens, acc.delivered),
       tasa_clic: emailRate(acc.clicks, acc.delivered),
       clic_sobre_apertura: emailRate(acc.clicks, acc.opens),
@@ -3050,7 +3552,9 @@ export async function runEmailAnalystAgent(
 ) {
   const now = new Date();
   const dayMs = 24 * 60 * 60 * 1000;
-  const periodStart = new Date(now.getTime() - EMAIL_ANALYST_LOOKBACK_DAYS * dayMs);
+  const periodStart = new Date(
+    now.getTime() - EMAIL_ANALYST_LOOKBACK_DAYS * dayMs,
+  );
   const previousStart = new Date(
     now.getTime() - 2 * EMAIL_ANALYST_LOOKBACK_DAYS * dayMs,
   );
@@ -3066,7 +3570,7 @@ export async function runEmailAnalystAgent(
     null,
     EMAIL_ANALYST_LOOKBACK_DAYS,
     async (supabase) => {
-      const [current, previous] = await Promise.all([
+      const [current, previous, tracking] = await Promise.all([
         supabase.rpc("klaviyo_email_report", {
           target_organization_id: organizationId,
           period_start: d(periodStart),
@@ -3076,6 +3580,11 @@ export async function runEmailAnalystAgent(
           target_organization_id: organizationId,
           period_start: d(previousStart),
           period_end: d(periodStart),
+        }),
+        supabase.rpc("klaviyo_tracking_summary", {
+          target_organization_id: organizationId,
+          period_start: periodStart.toISOString(),
+          period_end: now.toISOString(),
         }),
       ]);
 
@@ -3096,16 +3605,25 @@ export async function runEmailAnalystAgent(
           ? summariseEmailForAgent(previous.data as EmailReportRow[]).totales
           : null;
 
-      return [
+      const blocks: Array<{ label: string; data: unknown }> = [
         {
           label: `Email Klaviyo -- periodo actual (${EMAIL_ANALYST_LOOKBACK_DAYS} dias): totales, campanas con su asunto y flujos`,
           data: currentSummary,
         },
         {
-          label: "Email Klaviyo -- totales del periodo anterior (para comparar)",
+          label:
+            "Email Klaviyo -- totales del periodo anterior (para comparar)",
           data: previousSummary ?? "sin_datos_periodo_anterior",
         },
       ];
+      if (!tracking.error && Array.isArray(tracking.data)) {
+        blocks.push({
+          label:
+            "Tracking Klaviyo/Shopify -- eventos de comportamiento del periodo",
+          data: tracking.data,
+        });
+      }
+      return blocks;
     },
   );
 }
@@ -3127,6 +3645,833 @@ export async function getEmailAnalystDiagnostic(
   );
 }
 
+// ===========================================================================
+// Orquestador de diagnosticos de fondo (fase 3, decision de Rafa 2026-08-31)
+// ---------------------------------------------------------------------------
+// Codigo determinista (NO un LLM): corre 2 veces al dia via worker, decide por
+// (organizacion, agente) si merece la pena regenerar usando la misma senal de
+// actividad que getCachedDiagnostic, y ejecuta como mucho N agentes por pasada,
+// priorizados y dentro del presupuesto de plataforma. El objetivo es que la
+// carga de pagina del consultor sirva casi siempre cache y el gasto no escale
+// con el numero de clientes.
+// ===========================================================================
+
+const DEFAULT_ORG_DAILY_RUN_CAP = 12;
+const DEFAULT_DIAGNOSTICS_MAX_RUNS_PER_TICK = 15;
+// Antiguedad minima antes de que el orquestador reconsidere un diagnostico,
+// aunque haya habido actividad: evita regenerar cada pocas horas una tienda
+// muy activa. La regeneracion por carga de pagina sigue en 24h (fase 1).
+const ORCHESTRATOR_MIN_RUN_AGE_MS = 20 * 60 * 60 * 1000;
+
+const ORCHESTRATED_DIAGNOSTIC_AGENT_CODES = [
+  "a02_monitor_negocio",
+  "a04_generador_tareas",
+  "a06_planificador_stock",
+] as const;
+
+/** Regla pura: ¿la org ya llego a su tope de ejecuciones de agente del dia? */
+export function orgDailyRunCapReached(
+  runsToday: number,
+  cap: number = DEFAULT_ORG_DAILY_RUN_CAP,
+): boolean {
+  return runsToday >= cap;
+}
+
+/**
+ * Regla pura: dado el estado del ultimo run de un diagnostico y el digest de
+ * actividad actual de la org, decide si el orquestador debe regenerarlo.
+ * Reutiliza la senal de la fase 1 ("solo si ha habido movimiento") y ademas:
+ * no re-lanza si el ultimo run es demasiado reciente (cooldown) ni si hay una
+ * propuesta anterior sin revisar -- el caso viernes -> lunes: no apilar una
+ * propuesta encima de otra que nadie ha mirado todavia.
+ */
+export function decideOrchestratorAction({
+  lastRunAt,
+  storedDigest,
+  currentDigest,
+  hasUnreviewedPending,
+  now = Date.now(),
+  minRunAgeMs = ORCHESTRATOR_MIN_RUN_AGE_MS,
+}: {
+  lastRunAt: number | null;
+  storedDigest: string | null;
+  currentDigest: string | null;
+  hasUnreviewedPending: boolean;
+  now?: number;
+  minRunAgeMs?: number;
+}): {
+  run: boolean;
+  reason: "ran" | "no_activity" | "cooldown" | "pending_unreviewed";
+} {
+  if (lastRunAt === null) {
+    return { run: true, reason: "ran" };
+  }
+  const activityChanged =
+    storedDigest === null ||
+    currentDigest === null ||
+    storedDigest !== currentDigest;
+  if (!activityChanged) {
+    return { run: false, reason: "no_activity" };
+  }
+  if (now - lastRunAt < minRunAgeMs) {
+    return { run: false, reason: "cooldown" };
+  }
+  if (hasUnreviewedPending) {
+    return { run: false, reason: "pending_unreviewed" };
+  }
+  return { run: true, reason: "ran" };
+}
+
+/**
+ * Prioridad de una org cuando hay mas candidatos que cupo por pasada: primero
+ * las que tienen alertas abiertas, luego mas facturacion reciente, luego el
+ * resto. Numero mayor = antes.
+ */
+export function scoreDiagnosticPriority({
+  openAlerts,
+  revenue30dUsd,
+  planActive,
+}: {
+  openAlerts: number;
+  revenue30dUsd: number;
+  planActive: boolean;
+}): number {
+  return (
+    openAlerts * 1_000_000 +
+    Math.min(Math.max(revenue30dUsd, 0), 900_000) +
+    (planActive ? 500 : 0)
+  );
+}
+
+/**
+ * Contexto de sistema para que el orquestador pueda ejecutar agentes en
+ * cualquier organizacion sin un usuario real detras. Se reutiliza el
+ * platform_admin: `resolveAuthContext` ya le da membership virtual en todas
+ * las orgs, aqui se construye la misma forma directamente con service_role.
+ */
+async function buildPlatformAdminContext(
+  env: ApiEnv,
+): Promise<{ ok: true; context: AuthContext } | { ok: false; error: string }> {
+  const supabase = createServiceClient(env);
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, full_name, avatar_url, platform_role, is_active")
+    .eq("platform_role", "platform_admin")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (profileError || !profile) {
+    return {
+      ok: false,
+      error: profileError?.message ?? "no_active_platform_admin_profile",
+    };
+  }
+
+  const { data: organizations, error: orgsError } = await supabase
+    .from("organizations")
+    .select("id, display_name, slug, status, timezone, currency_code");
+
+  if (orgsError || !organizations) {
+    return {
+      ok: false,
+      error: orgsError?.message ?? "organizations_load_failed",
+    };
+  }
+
+  const orgIds = organizations.map((org) => org.id as string);
+  const { data: subscriptions } = await supabase
+    .from("service_subscriptions")
+    .select("id, organization_id, plan_code, status, starts_at, ends_at")
+    .in("organization_id", orgIds);
+
+  const context = {
+    user: { id: profile.id as string },
+    profile,
+    memberships: organizations.map((org) => ({
+      organization_id: org.id as string,
+      role: "consultant",
+      accessSource: "platform_admin" as const,
+      organization: org,
+    })),
+    subscriptions: subscriptions ?? [],
+  } as unknown as AuthContext;
+
+  return { ok: true, context };
+}
+
+type GateLogRow = {
+  organization_id: string;
+  store_id: string | null;
+  agent_code: string;
+  decision: "ran" | "skipped";
+  reason:
+    | "ran"
+    | "no_activity"
+    | "cooldown"
+    | "pending_unreviewed"
+    | "org_run_cap"
+    | "org_budget"
+    | "platform_budget"
+    | "tick_cap"
+    | "error";
+  activity_digest: string | null;
+  tick_id: string;
+};
+
+/**
+ * Una pasada del orquestador. La dispara el worker (cron 2x/dia). Devuelve un
+ * resumen para el log del worker; el detalle por (org, agente) queda en
+ * ai_diagnostic_gate_log para el panel de observabilidad.
+ */
+export async function runDiagnosticOrchestratorTick(env: ApiEnv): Promise<
+  | {
+      ok: true;
+      tick_id: string;
+      ran: number;
+      skipped: number;
+      by_reason: Record<string, number>;
+    }
+  | { ok: false; statusCode: number; error: string; message: string }
+> {
+  const tickId = crypto.randomUUID();
+  const supabase = createServiceClient(env);
+
+  if (!hasConfiguredAiProvider(env)) {
+    return {
+      ok: false,
+      statusCode: 503,
+      error: "ai_runtime_not_configured",
+      message: "No hay ningun proveedor de IA configurado en el servidor.",
+    };
+  }
+
+  const platformCap = resolvePlatformDailyBudgetUsd(env);
+  const orgRunCap = env.AI_ORG_DAILY_RUN_CAP ?? DEFAULT_ORG_DAILY_RUN_CAP;
+  const maxRunsPerTick =
+    env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK ??
+    DEFAULT_DIAGNOSTICS_MAX_RUNS_PER_TICK;
+
+  const gateRows: GateLogRow[] = [];
+  const byReason: Record<string, number> = {};
+  const note = (
+    organizationId: string,
+    agentCode: string,
+    decision: GateLogRow["decision"],
+    reason: GateLogRow["reason"],
+    digest: string | null,
+  ) => {
+    gateRows.push({
+      organization_id: organizationId,
+      store_id: null,
+      agent_code: agentCode,
+      decision,
+      reason,
+      activity_digest: digest,
+      tick_id: tickId,
+    });
+    byReason[reason] = (byReason[reason] ?? 0) + 1;
+  };
+
+  // 1. Tope global: si ya se supero, no se ejecuta nada esta pasada.
+  const platformBudget = await checkPlatformDailyBudget(supabase, platformCap);
+  if (platformBudget.ok === false) {
+    return {
+      ok: true,
+      tick_id: tickId,
+      ran: 0,
+      skipped: 0,
+      by_reason: { platform_budget: 1 },
+    };
+  }
+
+  // 2. Contexto de sistema para poder ejecutar en cualquier org.
+  const ctxResult = await buildPlatformAdminContext(env);
+  if (ctxResult.ok === false) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "orchestrator_context_failed",
+      message: ctxResult.error,
+    };
+  }
+  const context = ctxResult.context;
+
+  // 3. Orgs candidatas: las que tienen una conexion Shopify activa.
+  const { data: connections } = await supabase
+    .from("integration_connections")
+    .select("organization_id")
+    .eq("provider", "shopify")
+    .in("status", ["connected", "syncing"]);
+  const orgIds = [
+    ...new Set((connections ?? []).map((row) => row.organization_id as string)),
+  ];
+
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+
+  // 4. Por org: digest actual, runs de hoy (tope por org) y prioridad.
+  const candidates: Array<{
+    organizationId: string;
+    agentCode: (typeof ORCHESTRATED_DIAGNOSTIC_AGENT_CODES)[number];
+    digest: string | null;
+    priority: number;
+  }> = [];
+
+  for (const organizationId of orgIds) {
+    const { data: digestValue } = await supabase.rpc(
+      "organization_activity_digest",
+      { target_organization_id: organizationId },
+    );
+    const currentDigest = typeof digestValue === "string" ? digestValue : null;
+
+    const { data: runsToday } = await supabase
+      .from("agent_runs")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .gte("started_at", startOfDayUtc.toISOString());
+    const runsTodayCount = runsToday?.length ?? 0;
+
+    const { data: openAlerts } = await supabase
+      .from("alerts")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .in("status", ["open", "acknowledged"]);
+    const priority = scoreDiagnosticPriority({
+      openAlerts: openAlerts?.length ?? 0,
+      revenue30dUsd: 0,
+      planActive: true,
+    });
+
+    for (const agentCode of ORCHESTRATED_DIAGNOSTIC_AGENT_CODES) {
+      if (orgDailyRunCapReached(runsTodayCount, orgRunCap)) {
+        note(
+          organizationId,
+          agentCode,
+          "skipped",
+          "org_run_cap",
+          currentDigest,
+        );
+        continue;
+      }
+
+      const { data: lastRun } = await supabase
+        .from("agent_runs")
+        .select(
+          "id, started_at, finished_at, activity_digest, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(status)",
+        )
+        .eq("organization_id", organizationId)
+        .eq("agent_versions.agent_definitions.code", agentCode)
+        .eq("status", "succeeded")
+        .is("store_id", null)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const lastRunAt =
+        (lastRun?.finished_at as string | null | undefined) ??
+        (lastRun?.started_at as string | null | undefined) ??
+        null;
+      const lastOutput = lastRun?.agent_outputs as unknown as {
+        status?: string;
+      } | null;
+
+      const decision = decideOrchestratorAction({
+        lastRunAt: lastRunAt ? new Date(lastRunAt).getTime() : null,
+        storedDigest:
+          (lastRun?.activity_digest as string | null | undefined) ?? null,
+        currentDigest,
+        hasUnreviewedPending: lastOutput?.status === "pending_approval",
+      });
+
+      if (!decision.run) {
+        note(
+          organizationId,
+          agentCode,
+          "skipped",
+          decision.reason,
+          currentDigest,
+        );
+        continue;
+      }
+      candidates.push({
+        organizationId,
+        agentCode,
+        digest: currentDigest,
+        priority,
+      });
+    }
+  }
+
+  // 5. Prioriza y aplica el cupo de la pasada; el resto espera al proximo tick
+  //    (o a que una carga de pagina lo regenere, ya que cumple la condicion).
+  candidates.sort((a, b) => b.priority - a.priority);
+  const selected = candidates.slice(0, maxRunsPerTick);
+  for (const overflow of candidates.slice(maxRunsPerTick)) {
+    note(
+      overflow.organizationId,
+      overflow.agentCode,
+      "skipped",
+      "tick_cap",
+      overflow.digest,
+    );
+  }
+
+  // 6. Ejecuta en serie. El control es el cupo de arriba + los budgets que
+  //    runGenericDiagnosticAgent revalida en cada run (si el gasto cruza el
+  //    tope a mitad de pasada, el resto se marca platform_budget/org_budget).
+  let ran = 0;
+  for (const item of selected) {
+    let result: Awaited<ReturnType<typeof runMonitorAgent>>;
+    if (item.agentCode === "a02_monitor_negocio") {
+      result = await runMonitorAgent(
+        env,
+        context,
+        item.organizationId,
+        null,
+        undefined,
+        { trigger: "cron", enforceManualRefreshCap: false },
+      );
+    } else if (item.agentCode === "a04_generador_tareas") {
+      result = await runTaskPlannerAgent(
+        env,
+        context,
+        item.organizationId,
+        null,
+        undefined,
+        { trigger: "cron", enforceManualRefreshCap: false },
+      );
+    } else {
+      result = await runStockPlannerAgent(
+        env,
+        context,
+        item.organizationId,
+        null,
+        undefined,
+        { trigger: "cron", enforceManualRefreshCap: false },
+      );
+    }
+
+    if (result.ok === false) {
+      const reason: GateLogRow["reason"] =
+        result.error === "organization_daily_budget_exceeded"
+          ? "org_budget"
+          : result.error === "platform_daily_budget_exceeded"
+            ? "platform_budget"
+            : "error";
+      note(item.organizationId, item.agentCode, "skipped", reason, item.digest);
+    } else {
+      note(item.organizationId, item.agentCode, "ran", "ran", item.digest);
+      ran += 1;
+    }
+  }
+
+  if (gateRows.length > 0) {
+    const { error: logError } = await supabase
+      .from("ai_diagnostic_gate_log")
+      .insert(gateRows);
+    if (logError) {
+      logger.error("ai_diagnostic_gate_log_insert_failed", {
+        tick_id: tickId,
+        error: logError.message,
+      });
+    }
+  }
+
+  const skipped = gateRows.filter((row) => row.decision === "skipped").length;
+  logger.info("ai_diagnostic_orchestrator_tick", {
+    tick_id: tickId,
+    ran,
+    skipped,
+    by_reason: byReason,
+  });
+  return { ok: true, tick_id: tickId, ran, skipped, by_reason: byReason };
+}
+
+/**
+ * Fase 4: datos para la tarjeta del orquestador en /admin/observabilidad
+ * (solo platform_admin): gasto de plataforma hoy vs. tope, ejecuciones de hoy
+ * por origen, resumen de la ultima pasada y las ultimas decisiones del gate.
+ * Degrada solo: si ai_diagnostic_gate_log aun no esta desplegada, devuelve el
+ * resto y `gate_log_available: false`.
+ */
+export async function getDiagnosticOrchestratorObservability(
+  env: ApiEnv,
+  context: AuthContext,
+): Promise<
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; statusCode: number; error: string; message: string }
+> {
+  if (context.profile.platform_role !== "platform_admin") {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: "platform_admin_required",
+      message:
+        "Solo un platform admin puede ver la observabilidad del orquestador.",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+
+  const [budget, runsTodayResult, gateResult, organizationsResult] =
+    await Promise.all([
+      getPlatformBudgetSnapshot(env),
+      supabase
+        .from("agent_runs")
+        .select("organization_id, trigger_type, estimated_cost_usd")
+        .gte("started_at", startOfDayUtc.toISOString()),
+      supabase
+        .from("ai_diagnostic_gate_log")
+        .select(
+          "id, organization_id, agent_code, decision, reason, tick_id, created_at",
+        )
+        .order("created_at", { ascending: false })
+        .limit(80),
+      supabase.from("organizations").select("id, display_name"),
+    ]);
+
+  if (runsTodayResult.error) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "ai_orchestrator_observability_failed",
+      message: runsTodayResult.error.message,
+    };
+  }
+
+  const orgName = new Map(
+    (organizationsResult.data ?? []).map((org) => [
+      org.id as string,
+      org.display_name as string,
+    ]),
+  );
+
+  const today = { manual: 0, cron: 0, other: 0, total: 0 };
+  const perOrg = new Map<string, { runs: number; cost: number }>();
+  for (const row of runsTodayResult.data ?? []) {
+    today.total += 1;
+    if (row.trigger_type === "manual") today.manual += 1;
+    else if (row.trigger_type === "cron") today.cron += 1;
+    else today.other += 1;
+    const current = perOrg.get(row.organization_id as string) ?? {
+      runs: 0,
+      cost: 0,
+    };
+    current.runs += 1;
+    current.cost += Number(row.estimated_cost_usd ?? 0);
+    perOrg.set(row.organization_id as string, current);
+  }
+
+  const byOrgToday = [...perOrg.entries()]
+    .map(([id, value]) => ({
+      organization_id: id,
+      organization_name: orgName.get(id) ?? id,
+      runs_today: value.runs,
+      cost_today_usd: Number(value.cost.toFixed(4)),
+    }))
+    .sort((a, b) => b.runs_today - a.runs_today);
+
+  const gateLogAvailable = !gateResult.error;
+  if (gateResult.error) {
+    logger.info("ai_orchestrator_gate_log_unavailable", {
+      error: gateResult.error.message,
+    });
+  }
+
+  const decisions = (gateLogAvailable ? (gateResult.data ?? []) : []).map(
+    (row) => ({
+      id: row.id as string,
+      organization_id: row.organization_id as string,
+      organization_name: orgName.get(row.organization_id as string) ?? "—",
+      agent_code: row.agent_code as string,
+      decision: row.decision as string,
+      reason: row.reason as string,
+      tick_id: row.tick_id as string,
+      created_at: row.created_at as string,
+    }),
+  );
+
+  const lastTickId = decisions[0]?.tick_id ?? null;
+  const lastTick = lastTickId
+    ? {
+        tick_id: lastTickId,
+        at: decisions.find((d) => d.tick_id === lastTickId)?.created_at ?? null,
+        by_reason: decisions
+          .filter((d) => d.tick_id === lastTickId)
+          .reduce<Record<string, number>>((acc, d) => {
+            acc[d.reason] = (acc[d.reason] ?? 0) + 1;
+            return acc;
+          }, {}),
+      }
+    : null;
+
+  return {
+    ok: true,
+    data: {
+      platform_budget: budget.ok
+        ? {
+            spent_today_usd: Number(budget.spentTodayUsd.toFixed(4)),
+            cap_usd: budget.capUsd,
+            remaining_usd: Number(budget.remainingUsd.toFixed(4)),
+          }
+        : null,
+      today,
+      last_tick: lastTick,
+      recent_decisions: decisions.slice(0, 50),
+      by_org_today: byOrgToday,
+      gate_log_available: gateLogAvailable,
+    },
+  };
+}
+
+/**
+ * Contexto de negocio + histórico para A01 (AI-14): hasta ahora el analista de
+ * llamadas trabajaba SOLO con la transcripción, así que sus tareas propuestas y
+ * su priorización salían a ciegas y no daban seguimiento a lo acordado en
+ * llamadas previas. Este helper añade, como bloques de contexto separados de la
+ * transcripción:
+ *   - snapshot de 30 días de la tienda (ventas, finanzas, stock),
+ *   - plan estratégico activo y objetivos definidos,
+ *   - tareas abiertas de la organización (para no volver a proponerlas),
+ *   - notas internas y tareas ya enlazadas de esta llamada,
+ *   - los últimos 3 resúmenes publicados (continuidad entre llamadas).
+ * Todo defensivo con `allSettled`: una tienda sin Shopify o sin plan devuelve
+ * "sin_datos" y nunca rompe el run. La transcripción sigue siendo la única
+ * fuente de verdad para hechos; estos bloques solo sirven para priorizar y dar
+ * seguimiento (lo deja claro el prompt v3).
+ */
+async function buildCallAnalystContextBlocks(
+  supabase: SupabaseClient,
+  organizationId: string,
+  callId: string,
+): Promise<Array<{ label: string; data: unknown }>> {
+  const end = new Date();
+  const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const period = {
+    period_start: start.toISOString(),
+    period_end: end.toISOString(),
+  };
+
+  const [
+    sales,
+    financial,
+    stock,
+    plan,
+    targets,
+    openTasks,
+    notes,
+    linked,
+    history,
+    integrations,
+  ] = await Promise.allSettled([
+    supabase.rpc("shopify_sales_summary", {
+      target_organization_id: organizationId,
+      target_store_id: null,
+      ...period,
+    }),
+    supabase.rpc("shopify_financial_summary", {
+      target_organization_id: organizationId,
+      target_store_id: null,
+      ...period,
+    }),
+    supabase.rpc("shopify_stock_summary", {
+      target_organization_id: organizationId,
+      low_stock_threshold: 5,
+      target_store_id: null,
+    }),
+    supabase
+      .from("strategic_plans")
+      .select("name, status, strategic_plan_phases(name, status, position)")
+      .eq("organization_id", organizationId)
+      .neq("status", "archived")
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("organization_metric_targets")
+      .select("metric_key, target_value, period")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: true })
+      .limit(20),
+    supabase
+      .from("tasks")
+      .select("title, status, priority, due_at")
+      .eq("organization_id", organizationId)
+      .in("status", ["pending", "in_progress"])
+      .order("created_at", { ascending: false })
+      .limit(40),
+    supabase
+      .from("call_internal_notes")
+      .select("body, created_at")
+      .eq("call_id", callId)
+      .order("created_at", { ascending: true })
+      .limit(15),
+    supabase
+      .from("call_task_links")
+      .select("tasks(title, status, priority)")
+      .eq("call_id", callId),
+    supabase
+      .from("call_ai_summaries")
+      .select(
+        "summary, agreed_actions, key_points, published_at, consulting_calls!inner(title, held_at, scheduled_at, call_task_links(tasks(title, status)))",
+      )
+      .eq("organization_id", organizationId)
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+      .limit(3),
+    supabase
+      .from("integration_connections")
+      .select("provider, status, last_error_at")
+      .eq("organization_id", organizationId),
+  ]);
+
+  const rows = (result: PromiseSettledResult<{ data: unknown }>): unknown[] =>
+    result.status === "fulfilled" && Array.isArray(result.value.data)
+      ? (result.value.data as unknown[])
+      : [];
+  const firstRow = (
+    result: PromiseSettledResult<{ data: unknown }>,
+    fallback: unknown,
+  ): unknown => rows(result)[0] ?? fallback;
+  const singleRow = (
+    result: PromiseSettledResult<{ data: unknown }>,
+  ): Record<string, unknown> | null =>
+    result.status === "fulfilled" &&
+    result.value.data &&
+    !Array.isArray(result.value.data)
+      ? (result.value.data as Record<string, unknown>)
+      : null;
+
+  const planRow = singleRow(plan);
+  const phases = Array.isArray(planRow?.strategic_plan_phases)
+    ? (planRow.strategic_plan_phases as Array<{
+        name: string;
+        status: string;
+      }>)
+    : [];
+  const activePhase =
+    phases.find((phase) => phase.status === "active")?.name ?? null;
+
+  const historyRows = rows(history).map((raw) => {
+    const row = raw as {
+      summary?: unknown;
+      agreed_actions?: unknown;
+      key_points?: { proposed_tasks?: Array<{ title?: string }> } | null;
+      consulting_calls?: {
+        title?: string;
+        held_at?: string;
+        scheduled_at?: string;
+        call_task_links?: Array<{
+          tasks?: { title?: string; status?: string } | null;
+        }>;
+      } | null;
+    };
+    // Estado real de las tareas que salieron de esa llamada: se cruzan las
+    // proposed_tasks del resumen con las tareas efectivamente enlazadas.
+    const linkedByTitle = new Map(
+      (row.consulting_calls?.call_task_links ?? [])
+        .map((link) => link.tasks)
+        .filter((task): task is { title?: string; status?: string } =>
+          Boolean(task),
+        )
+        .map((task) => [
+          String(task.title ?? "")
+            .trim()
+            .toLowerCase(),
+          task.status ?? "?",
+        ]),
+    );
+    const proposed = Array.isArray(row.key_points?.proposed_tasks)
+      ? row.key_points.proposed_tasks
+      : [];
+    return {
+      llamada: row.consulting_calls?.title ?? "",
+      fecha:
+        row.consulting_calls?.held_at ??
+        row.consulting_calls?.scheduled_at ??
+        null,
+      decisiones: Array.isArray(row.agreed_actions) ? row.agreed_actions : [],
+      resumen: typeof row.summary === "string" ? row.summary.slice(0, 600) : "",
+      tareas_propuestas: proposed.map((task) => ({
+        titulo: task.title ?? "",
+        estado_actual:
+          linkedByTitle.get(
+            String(task.title ?? "")
+              .trim()
+              .toLowerCase(),
+          ) ?? "no_creada",
+      })),
+    };
+  });
+
+  const now = Date.now();
+  const overdueOpenTasks = rows(openTasks).filter((raw) => {
+    const due = (raw as { due_at?: string | null }).due_at;
+    return due ? Date.parse(due) < now : false;
+  }).length;
+
+  return [
+    {
+      label: "Negocio · Ventas Shopify (30 días)",
+      data: firstRow(sales, "sin_datos_shopify"),
+    },
+    {
+      label: "Negocio · Resumen financiero (30 días)",
+      data: firstRow(financial, "sin_datos_shopify"),
+    },
+    {
+      label: "Negocio · Stock actual (agregado)",
+      data: firstRow(stock, "sin_datos_shopify"),
+    },
+    {
+      label: "Plan estratégico activo",
+      data: planRow
+        ? {
+            nombre: planRow.name,
+            estado: planRow.status,
+            fase_activa: activePhase,
+          }
+        : "sin_plan_activo",
+    },
+    {
+      label: "Objetivos de negocio definidos",
+      data: rows(targets),
+    },
+    {
+      label: "Integraciones de la organización (conectadas / con error)",
+      data: rows(integrations),
+    },
+    {
+      label:
+        "Tareas abiertas de la organización (NO vuelvas a proponer una tarea equivalente a estas)",
+      data: {
+        total_abiertas: rows(openTasks).length,
+        vencidas: overdueOpenTasks,
+        tareas: rows(openTasks),
+      },
+    },
+    {
+      label: "Notas internas del consultor sobre esta llamada",
+      data: rows(notes).map((note) => (note as { body?: string }).body ?? ""),
+    },
+    {
+      label: "Tareas ya enlazadas a esta llamada",
+      data: rows(linked)
+        .map((link) => (link as { tasks?: unknown }).tasks)
+        .filter(Boolean),
+    },
+    {
+      label:
+        "Histórico · últimas 3 llamadas con resumen publicado (para dar seguimiento a lo acordado)",
+      data: historyRows,
+    },
+  ];
+}
+
 /**
  * Ejecuta A01 (analista de llamadas) sobre la transcripcion ACTUAL de una
  * llamada. A diferencia de A02 no usa tools de datos: su unica fuente es la
@@ -3140,7 +4485,14 @@ export async function runCallAnalyst(
   context: AuthContext,
   organizationId: string,
   callId: string,
+  // AI-14 (B5): enfoque opcional del consultor para re-generar centrándose en
+  // algo concreto ("profundiza en el pricing", "ignora la parte de RRHH").
+  focus?: string | undefined,
 ) {
+  const cleanFocus =
+    typeof focus === "string" && focus.trim()
+      ? focus.trim().slice(0, 1000)
+      : null;
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
     return access;
@@ -3276,7 +4628,9 @@ export async function runCallAnalyst(
     organization_id: organizationId,
     actor_user_id: context.user.id,
     trigger_type: "call",
-    objective: `Resumen estructurado de la llamada "${call.title}" a partir de su transcripcion.`,
+    objective: cleanFocus
+      ? `Resumen estructurado de la llamada "${call.title}" con enfoque: ${cleanFocus}`
+      : `Resumen estructurado de la llamada "${call.title}" a partir de su transcripcion.`,
     entity_ids: [callId],
     allowed_tools: [],
     approval_mode: agentVersion.approval_mode as AgentInput["approval_mode"],
@@ -3302,6 +4656,15 @@ export async function runCallAnalyst(
   }
 
   try {
+    // Bloques de negocio + histórico ANTES de la transcripción para que esta
+    // quede lo más "fresca" posible en el contexto: sigue siendo la única
+    // fuente de verdad para hechos (lo refuerza el prompt v3).
+    const businessBlocks = await buildCallAnalystContextBlocks(
+      supabase,
+      organizationId,
+      callId,
+    );
+
     const contextBlocks = [
       {
         label: "Metadatos de la llamada",
@@ -3312,6 +4675,16 @@ export async function runCallAnalyst(
           duration_minutes: call.duration_minutes,
         },
       },
+      ...businessBlocks,
+      ...(cleanFocus
+        ? [
+            {
+              label:
+                "Enfoque pedido por el consultor para este análisis (prioriza esto sin dejar de cubrir el contrato completo)",
+              data: cleanFocus,
+            },
+          ]
+        : []),
       {
         label: `Transcripcion (version ${transcript.version})`,
         data: transcript.content,
@@ -3326,6 +4699,7 @@ export async function runCallAnalyst(
         call_id: callId,
         transcript_id: transcript.id,
         transcript_version: transcript.version,
+        context_blocks: contextBlocks.map((block) => block.label),
       },
     });
 
@@ -3464,14 +4838,16 @@ export async function runCallAnalyst(
 const CHAT_HISTORY_MESSAGES = 10;
 
 function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) =>
-    ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    })[character] ?? character,
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character] ?? character,
   );
 }
 
@@ -3542,7 +4918,8 @@ export async function runMarketingContentDraft(
   const contentType =
     typeof payload.content_type === "string" ? payload.content_type : "";
   const channel = typeof payload.channel === "string" ? payload.channel : "";
-  const briefBase = typeof payload.brief === "string" ? payload.brief.trim() : "";
+  const briefBase =
+    typeof payload.brief === "string" ? payload.brief.trim() : "";
 
   // AI-11 input de plantilla: paleta de marca (roles -> hex) + textos que la IA
   // debe usar literalmente. Ambos se validan aqui y viajan en el brief/contexto
@@ -3636,7 +5013,9 @@ export async function runMarketingContentDraft(
         "\nLas de rol 'referencia' son guía de estilo y estructura, NO las incrustes. Las de rol 'contenido' colócalas como bloques image usando su URL EXACTA, en la posición que mejor encaje.",
     );
   }
-  const brief = briefParts.filter((part) => part.trim().length > 0).join("\n\n");
+  const brief = briefParts
+    .filter((part) => part.trim().length > 0)
+    .join("\n\n");
   if (!["campaign", "flow_step", "popup"].includes(contentType)) {
     return {
       ok: false as const,
@@ -4146,10 +5525,21 @@ export async function saveManualMarketingDraft(
  *  mime declarado por el cliente. */
 export function sniffImageMime(buffer: Buffer): string | null {
   if (buffer.length < 12) return null;
-  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47)
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  )
     return "image/png";
-  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
-  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38)
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)
+    return "image/jpeg";
+  if (
+    buffer[0] === 0x47 &&
+    buffer[1] === 0x49 &&
+    buffer[2] === 0x46 &&
+    buffer[3] === 0x38
+  )
     return "image/gif";
   if (
     buffer[0] === 0x52 &&

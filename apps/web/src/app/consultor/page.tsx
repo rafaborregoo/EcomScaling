@@ -1,6 +1,13 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useAdminViewMode } from "@/components/admin-view-mode";
@@ -20,6 +27,7 @@ import {
   EYEBROW,
   Field,
   Heading,
+  ArchiveIcon,
   IconChevronDown,
   IconChevronUp,
   Input,
@@ -28,13 +36,37 @@ import {
   List,
   LoadingBlock,
   Modal,
+  MoreIcon,
   PencilIcon,
+  RetryIcon,
   Select,
   SettingsIcon,
   toast,
   type Tone,
 } from "@/components/ui";
 import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
+
+// Toda la fila del cliente es un objetivo de clic para plegar/desplegar sus
+// tiendas; los controles de dentro (links, menu) paran la propagacion para no
+// disparar tambien el toggle. Mismo patron que camino/page.tsx.
+function cardToggle(handler: () => void) {
+  return {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: handler,
+    onKeyDown: (event: ReactKeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        handler();
+      }
+    },
+  };
+}
+
+const stopToggle = {
+  onClick: (event: ReactMouseEvent) => event.stopPropagation(),
+  onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
+};
 
 const ORGANIZATION_STATUSES = [
   "onboarding",
@@ -670,13 +702,15 @@ function StoresPanel({
   organization,
   isPlatformAdmin,
   canManageStores,
-  onOrganizationDeleted,
+  isEditing,
+  onEditingChange,
   onOrganizationUpdated,
 }: {
   organization: ConsultantOrganization;
   isPlatformAdmin: boolean;
   canManageStores: boolean;
-  onOrganizationDeleted: () => void;
+  isEditing: boolean;
+  onEditingChange: (editing: boolean) => void;
   onOrganizationUpdated: () => void;
 }) {
   const [stores, setStores] = useState<OrganizationStore[] | null>(null);
@@ -685,10 +719,6 @@ function StoresPanel({
   const [restoringStoreId, setRestoringStoreId] = useState<string | null>(null);
   const [confirmDeleteStore, setConfirmDeleteStore] =
     useState<OrganizationStore | null>(null);
-  const [confirmDeleteOrg, setConfirmDeleteOrg] = useState(false);
-  const [isDeletingOrg, setIsDeletingOrg] = useState(false);
-  const [isRestoringOrg, setIsRestoringOrg] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -737,27 +767,6 @@ function StoresPanel({
     }
   }
 
-  async function confirmOrgDeletion() {
-    setIsDeletingOrg(true);
-    try {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organization.id}`,
-        { method: "DELETE" },
-      );
-      if (response.ok) {
-        onOrganizationDeleted();
-      } else {
-        setError(await readApiError(response));
-        setConfirmDeleteOrg(false);
-      }
-    } catch {
-      setError("No se pudo eliminar el cliente. Revisa la conexión e inténtalo de nuevo.");
-      setConfirmDeleteOrg(false);
-    } finally {
-      setIsDeletingOrg(false);
-    }
-  }
-
   async function restoreStore(storeId: string) {
     setRestoringStoreId(storeId);
     try {
@@ -781,27 +790,6 @@ function StoresPanel({
     }
   }
 
-  async function restoreOrganization() {
-    setIsRestoringOrg(true);
-    try {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organization.id}/restore`,
-        {
-          method: "POST",
-        },
-      );
-      if (response.ok) {
-        onOrganizationUpdated();
-      } else {
-        setError(await readApiError(response));
-      }
-    } catch {
-      setError("No se pudo restaurar el cliente. Revisa la conexión e inténtalo de nuevo.");
-    } finally {
-      setIsRestoringOrg(false);
-    }
-  }
-
   return (
     <div>
       {error ? (
@@ -813,9 +801,9 @@ function StoresPanel({
       {isEditing ? (
         <EditOrganizationForm
           organization={organization}
-          onCancel={() => setIsEditing(false)}
+          onCancel={() => onEditingChange(false)}
           onSaved={() => {
-            setIsEditing(false);
+            onEditingChange(false);
             onOrganizationUpdated();
           }}
         />
@@ -885,55 +873,10 @@ function StoresPanel({
         <AccessPanel organizationId={organization.id} />
       ) : null}
 
-      <div className="mt-4 flex flex-wrap gap-4 border-t border-separator pt-3">
+      <div className="mt-4 border-t border-separator pt-3">
         <Link href={`/integraciones?organizationId=${organization.id}`}>
           Añadir tienda
         </Link>
-        {isPlatformAdmin ? (
-          organization.status === "pending_deletion" ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={isRestoringOrg}
-              onClick={() => void restoreOrganization()}
-            >
-              {isRestoringOrg ? "Restaurando..." : "Restaurar cliente"}
-            </Button>
-          ) : (
-            <Dropdown>
-              <Button variant="ghost" size="sm">
-                Acciones rápidas
-              </Button>
-              <Dropdown.Popover>
-                <Dropdown.Menu
-                  onAction={(key) => {
-                    if (key === "edit") {
-                      setIsEditing((current) => !current);
-                    } else if (key === "delete") {
-                      setConfirmDeleteOrg(true);
-                    }
-                  }}
-                >
-                  <Dropdown.Item
-                    id="edit"
-                    textValue={isEditing ? "Cerrar edición" : "Editar cliente"}
-                  >
-                    <Label>
-                      {isEditing ? "Cerrar edición" : "Editar cliente"}
-                    </Label>
-                  </Dropdown.Item>
-                  <Dropdown.Item
-                    id="delete"
-                    textValue="Borrar cliente entero"
-                    variant="danger"
-                  >
-                    <Label>Borrar cliente entero</Label>
-                  </Dropdown.Item>
-                </Dropdown.Menu>
-              </Dropdown.Popover>
-            </Dropdown>
-          )
-        ) : null}
       </div>
 
       {confirmDeleteStore ? (
@@ -952,18 +895,344 @@ function StoresPanel({
         />
       ) : null}
 
-      {confirmDeleteOrg ? (
+    </div>
+  );
+}
+
+// Menu de acciones del cliente (kebab de la fila). Autonomo: hace sus propias
+// llamadas y avisa al padre para recargar (`onChanged`) o quitar la fila
+// (`onRemoved`). "Editar" delega en el padre, que muestra el form dentro del
+// panel desplegado. "Borrar" = desvincular: sale de la cartera pero el cliente
+// conserva su servicio; nunca purga la organizacion.
+function ClientActionsMenu({
+  organization,
+  isPlatformAdmin,
+  onEdit,
+  onChanged,
+  onRemoved,
+}: {
+  organization: ConsultantOrganization;
+  isPlatformAdmin: boolean;
+  onEdit: () => void;
+  onChanged: () => void;
+  onRemoved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<"unlink" | "delete" | null>(null);
+
+  const pendingDeletion = organization.status === "pending_deletion";
+  const suspended = organization.status === "suspended";
+
+  async function post(suffix: string, onOk: () => void, failMsg: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/${suffix}`,
+        { method: "POST" },
+      );
+      if (response.ok) {
+        onOk();
+      } else {
+        setError(await readApiError(response));
+      }
+    } catch {
+      setError(failMsg);
+    } finally {
+      setBusy(false);
+      setConfirm(null);
+    }
+  }
+
+  async function regenerateCode() {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/consultant/organizations/${organization.id}/invite/regenerate`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      const data = (await response.json()) as { code: string; access_url: string };
+      await navigator.clipboard.writeText(data.access_url).catch(() => {});
+      toast.success(`Código ${data.code} · enlace copiado`);
+    } catch {
+      setError("No se pudo generar el código.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onAction(key: string) {
+    if (key === "edit") onEdit();
+    else if (key === "pause")
+      void post("pause", onChanged, "No se pudo pausar el cliente.");
+    else if (key === "resume")
+      void post("resume", onChanged, "No se pudo reanudar el cliente.");
+    else if (key === "invite-code") void regenerateCode();
+    else if (key === "unlink") setConfirm("unlink");
+    else if (key === "delete") setConfirm("delete");
+  }
+
+  return (
+    <>
+      <Dropdown>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Acciones de ${organization.display_name}`}
+          disabled={busy}
+          className="min-h-8 min-w-8 shrink-0 px-2"
+        >
+          <MoreIcon aria-hidden />
+        </Button>
+        <Dropdown.Popover>
+          <Dropdown.Menu onAction={(key) => onAction(String(key))}>
+            <Dropdown.Item id="edit" textValue="Editar">
+              <PencilIcon aria-hidden />
+              <Label>Editar</Label>
+            </Dropdown.Item>
+            {organization.status === "onboarding" ? (
+              <Dropdown.Item id="invite-code" textValue="Código de acceso">
+                <RetryIcon aria-hidden />
+                <Label>Nuevo código de acceso</Label>
+              </Dropdown.Item>
+            ) : null}
+            {!pendingDeletion ? (
+              suspended ? (
+                <Dropdown.Item id="resume" textValue="Reanudar">
+                  <RetryIcon aria-hidden />
+                  <Label>Reanudar</Label>
+                </Dropdown.Item>
+              ) : (
+                <Dropdown.Item id="pause" textValue="Pausar">
+                  <RetryIcon aria-hidden />
+                  <Label>Pausar</Label>
+                </Dropdown.Item>
+              )
+            ) : null}
+            <Dropdown.Item
+              id="unlink"
+              textValue="Quitar de mi cartera"
+              variant="danger"
+            >
+              <ArchiveIcon aria-hidden />
+              <Label>Quitar de mi cartera</Label>
+            </Dropdown.Item>
+            {isPlatformAdmin ? (
+              <Dropdown.Item
+                id="delete"
+                textValue="Eliminar definitivamente"
+                variant="danger"
+              >
+                <ArchiveIcon aria-hidden />
+                <Label>Eliminar definitivamente</Label>
+              </Dropdown.Item>
+            ) : null}
+          </Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown>
+
+      {error ? (
+        <p className="mt-1 text-xs text-danger" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      {confirm === "unlink" ? (
         <ConfirmDangerDialog
-          title={`Borrar cliente "${organization.display_name}"`}
-          note="30 dias para restaurarlo antes del borrado definitivo"
+          title={`Quitar a "${organization.display_name}" de tu cartera`}
+          note="Sale de tu cartera y dejamos de traer sus datos. Conserva su acceso, integraciones y suscripción. Para recuperarlo hay que reasignarlo desde el panel admin."
           confirmPhrase={organization.display_name}
-          actionLabel="Borrar cliente"
-          isBusy={isDeletingOrg}
-          onConfirm={confirmOrgDeletion}
-          onCancel={() => setConfirmDeleteOrg(false)}
+          actionLabel="Quitar de mi cartera"
+          isBusy={busy}
+          onConfirm={() =>
+            void post("unlink", onRemoved, "No se pudo quitar el cliente.")
+          }
+          onCancel={() => setConfirm(null)}
         />
       ) : null}
-    </div>
+
+      {confirm === "delete" ? (
+        <ConfirmDangerDialog
+          title={`Eliminar "${organization.display_name}" para siempre`}
+          note="Borra TODO al instante: datos de Shopify/Meta/Klaviyo, tareas, planes, agentes, miembros y suscripción. No hay periodo de gracia ni vuelta atrás."
+          confirmPhrase={organization.display_name}
+          actionLabel="Eliminar definitivamente"
+          isBusy={busy}
+          onConfirm={() =>
+            void post(
+              "hard-delete",
+              onRemoved,
+              "No se pudo eliminar el cliente.",
+            )
+          }
+          onCancel={() => setConfirm(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+type CreatedInvite = {
+  organization: { display_name: string };
+  invite: { code: string; access_url: string; expires_at: string };
+};
+
+// Alta de cliente por el consultor: crea la organización (queda en su cartera)
+// y genera un código único y temporal. El consultor comparte el código o el
+// enlace; el cliente lo canjea en /acceso y hace su onboarding.
+function NewClientForm({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerFullName, setOwnerFullName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<CreatedInvite | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const canSubmit =
+    displayName.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await apiFetch("/v1/consultant/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          display_name: displayName.trim(),
+          owner_email: ownerEmail.trim(),
+          owner_full_name: ownerFullName.trim() || undefined,
+        }),
+      });
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setCreated((await response.json()) as CreatedInvite);
+      setDisplayName("");
+      setOwnerEmail("");
+      setOwnerFullName("");
+      onCreated();
+    } catch {
+      setError("No se pudo crear el cliente. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (created) {
+    return (
+      <Card
+        kicker="Cliente creado"
+        title={created.organization.display_name}
+        description="Comparte este código o enlace con tu cliente. Lo introduce en la página de acceso y hace su onboarding."
+      >
+        <div className="grid gap-4">
+          <div>
+            <p className={EYEBROW}>Código</p>
+            <p className="mt-1 font-mono text-2xl font-semibold tracking-[0.2em]">
+              {created.invite.code}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(created.invite.access_url)
+                  .then(() => {
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 2000);
+                  });
+              }}
+            >
+              {copied ? "Enlace copiado" : "Copiar enlace"}
+            </Button>
+            <span className="text-xs text-muted">
+              Caduca el{" "}
+              {new Date(created.invite.expires_at).toLocaleDateString("es-ES")}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setCreated(null);
+              setOpen(false);
+            }}
+          >
+            Crear otro
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  if (!open) {
+    return (
+      <Card
+        kicker="Alta"
+        title="Nuevo cliente"
+        description="Da de alta un cliente y genera su código de acceso."
+      >
+        <Button size="sm" onClick={() => setOpen(true)}>
+          Añadir cliente
+        </Button>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      kicker="Alta"
+      title="Nuevo cliente"
+      description="Se crea la organización en tu cartera y un código único para que el cliente entre."
+    >
+      <div className="grid gap-4">
+        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Nombre del cliente">
+            <Input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Acme Store"
+            />
+          </Field>
+          <Field label="Email del cliente">
+            <Input
+              type="email"
+              value={ownerEmail}
+              onChange={(e) => setOwnerEmail(e.target.value)}
+              placeholder="owner@acme.com"
+            />
+          </Field>
+          <Field label="Nombre de contacto (opcional)">
+            <Input
+              value={ownerFullName}
+              onChange={(e) => setOwnerFullName(e.target.value)}
+              placeholder="Nombre Apellido"
+            />
+          </Field>
+        </div>
+        <div className="flex gap-3">
+          <Button disabled={!canSubmit || busy} onClick={() => void submit()}>
+            {busy ? "Creando..." : "Crear y generar código"}
+          </Button>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Cancelar
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -983,6 +1252,7 @@ function ConsultantPanel({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   // FE-07: sin buscador, encontrar un cliente concreto entre muchos exigia
   // escanear la tabla entera a ojo -- filtro por nombre o slug, en el propio
   // navegador sobre la lista ya cargada (no una request nueva).
@@ -1043,6 +1313,8 @@ function ConsultantPanel({
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
+      <NewClientForm onCreated={() => void load()} />
+
       <PriorityQueue organizations={organizations} onSelect={setOrganizationId} />
 
       <Card
@@ -1081,17 +1353,25 @@ function ConsultantPanel({
                   key={row.id}
                   className="py-3 first:pt-1 last:pb-1"
                 >
-                  <div className="flex flex-wrap items-start gap-3">
+                  <div
+                    {...cardToggle(() =>
+                      setExpandedId(open ? null : row.id),
+                    )}
+                    aria-expanded={open}
+                    className="-mx-2 flex cursor-pointer flex-wrap items-start gap-3 rounded-md px-2 py-1 hover:bg-surface"
+                  >
                     <Avatar name={row.display_name} size="sm" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <Link
-                          href="/dashboard"
-                          onClick={() => setOrganizationId(row.id)}
-                          className="font-medium no-underline hover:text-accent hover:no-underline"
-                        >
-                          {row.display_name}
-                        </Link>
+                        <span {...stopToggle}>
+                          <Link
+                            href="/dashboard"
+                            onClick={() => setOrganizationId(row.id)}
+                            className="font-medium no-underline hover:text-accent hover:no-underline"
+                          >
+                            {row.display_name}
+                          </Link>
+                        </span>
                         <Badge
                           tone={badge.tone}
                           title={`Puntuación: ${row.attention.score}`}
@@ -1128,28 +1408,47 @@ function ConsultantPanel({
                           : "Sin plan"}
                       </p>
                     </div>
-                    <div className="mt-2 flex shrink-0 basis-full items-center justify-end gap-1 sm:mt-0 sm:basis-auto">
-                      <Link
-                        href="/tareas"
-                        onClick={() => setOrganizationId(row.id)}
-                        className="px-2 py-1 text-xs text-muted no-underline hover:text-accent hover:no-underline"
-                      >
-                        Tareas
-                      </Link>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        aria-expanded={open}
-                        onClick={() => setExpandedId(open ? null : row.id)}
-                      >
+                    <div className="mt-2 flex shrink-0 basis-full items-center justify-end gap-2 sm:mt-0 sm:basis-auto">
+                      <span {...stopToggle}>
+                        <Link
+                          href="/tareas"
+                          onClick={() => setOrganizationId(row.id)}
+                          className="px-2 py-1 text-xs text-muted no-underline hover:text-accent hover:no-underline"
+                        >
+                          Tareas
+                        </Link>
+                      </span>
+                      <span className="text-xs text-muted">
                         {row.store_count}{" "}
                         {row.store_count === 1 ? "tienda" : "tiendas"}
-                        {open ? (
-                          <IconChevronUp aria-hidden />
-                        ) : (
-                          <IconChevronDown aria-hidden />
-                        )}
-                      </Button>
+                      </span>
+                      {canManageStores ? (
+                        <span {...stopToggle}>
+                          <ClientActionsMenu
+                            organization={row}
+                            isPlatformAdmin={isPlatformAdmin}
+                            onEdit={() => {
+                              setExpandedId(row.id);
+                              setEditingId((current) =>
+                                current === row.id ? null : row.id,
+                              );
+                            }}
+                            onChanged={() => void load()}
+                            onRemoved={() => {
+                              setExpandedId((id) => (id === row.id ? null : id));
+                              setEditingId((id) => (id === row.id ? null : id));
+                              setOrganizations((prev) =>
+                                prev.filter((org) => org.id !== row.id),
+                              );
+                            }}
+                          />
+                        </span>
+                      ) : null}
+                      {open ? (
+                        <IconChevronUp aria-hidden />
+                      ) : (
+                        <IconChevronDown aria-hidden />
+                      )}
                     </div>
                   </div>
 
@@ -1159,10 +1458,10 @@ function ConsultantPanel({
                         organization={row}
                         isPlatformAdmin={isPlatformAdmin}
                         canManageStores={canManageStores}
-                        onOrganizationDeleted={() => {
-                          setExpandedId(null);
-                          void load();
-                        }}
+                        isEditing={editingId === row.id}
+                        onEditingChange={(editing) =>
+                          setEditingId(editing ? row.id : null)
+                        }
                         onOrganizationUpdated={() => void load()}
                       />
                     </div>

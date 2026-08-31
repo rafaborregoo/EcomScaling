@@ -181,7 +181,7 @@ export function NotificationsBell({ token }: { token: string }) {
       }`}
       className={cn(
         "relative inline-flex size-9 items-center justify-center bg-transparent transition-colors",
-        unreadCount > 0 ? "text-black" : "text-muted hover:text-black",
+        unreadCount > 0 ? "text-foreground" : "text-muted hover:text-foreground",
       )}
     >
       <BellIcon aria-hidden="true" className="size-[1.2rem]" />
@@ -197,11 +197,11 @@ export function NotificationsBell({ token }: { token: string }) {
   );
 
   const header = (
-    <div className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
+    <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
       <div className="flex items-center gap-2">
         <p className="text-sm font-semibold tracking-[-0.01em]">Notificaciones</p>
         {unreadCount > 0 ? (
-          <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[0.7rem] font-semibold leading-5 text-white">
+          <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[0.7rem] font-semibold leading-5 text-white">
             {unreadCount}
           </span>
         ) : null}
@@ -211,7 +211,7 @@ export function NotificationsBell({ token }: { token: string }) {
           variant="ghost"
           size="sm"
           type="button"
-          className="min-w-0 gap-1.5 px-2 text-xs text-muted hover:text-black"
+          className="min-w-0 gap-1.5 px-2 text-xs text-muted hover:text-foreground"
           onClick={() => void markAllRead()}
         >
           <CheckAllIcon aria-hidden="true" className="size-3.5" />
@@ -252,14 +252,14 @@ export function NotificationsBell({ token }: { token: string }) {
             className={cn(
               "group flex gap-3 px-4 py-3 transition-colors",
               isUnread
-                ? "border-l-2 border-brand bg-brand-tint/30"
+                ? "border-l-2 border-accent bg-accent-soft/30"
                 : "border-l-2 border-transparent hover:bg-black/[0.02]",
             )}
           >
             <div className="min-w-0 flex-1">
               <Link
                 href={safeActionUrl(notification.action_url)}
-                className="block max-w-full text-sm font-medium text-black no-underline hover:underline"
+                className="block max-w-full text-sm font-medium text-foreground no-underline hover:underline"
                 onClick={() => {
                   if (isUnread) void markStatus(notification.id, "read");
                   setIsOpen(false);
@@ -277,7 +277,7 @@ export function NotificationsBell({ token }: { token: string }) {
               <div className="mt-1.5 flex items-center gap-2 text-[0.7rem] text-muted">
                 {isUnread ? (
                   <span
-                    className="size-1.5 shrink-0 rounded-full bg-brand"
+                    className="size-1.5 shrink-0 rounded-full bg-accent"
                     aria-hidden="true"
                   />
                 ) : null}
@@ -290,7 +290,7 @@ export function NotificationsBell({ token }: { token: string }) {
               type="button"
               aria-label="Archivar notificación"
               title="Archivar"
-              className="size-8 min-w-0 shrink-0 justify-center p-0 text-muted opacity-60 transition hover:bg-black/5 hover:text-black hover:opacity-100"
+              className="size-8 min-w-0 shrink-0 justify-center p-0 text-muted opacity-60 transition hover:bg-black/5 hover:text-foreground hover:opacity-100"
               onClick={() => void markStatus(notification.id, "archived")}
             >
               <ArchiveIcon aria-hidden="true" className="size-4" />
