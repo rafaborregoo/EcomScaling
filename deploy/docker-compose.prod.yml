@@ -1,0 +1,61 @@
+name: ecomscaling
+
+# Produccion en el VPS: api + worker + redis + caddy (TLS automatico).
+# La web (Next.js) va en Vercel, no aqui.
+# El tag de imagen lo fija el deploy escribiendo IMAGE_TAG en ./.env
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    image: ghcr.io/rafaborregoo/ecomscaling-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: [.env.production]
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: "4000"
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4000:4000"   # solo para debug local en el VPS
+
+  worker:
+    image: ghcr.io/rafaborregoo/ecomscaling-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: [.env.production]
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: [.env.production]   # lee API_DOMAIN
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+volumes:
+  redis-data:
+  caddy-data:
+  caddy-config:

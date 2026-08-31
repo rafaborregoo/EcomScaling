@@ -1,0 +1,7 @@
+# El dominio se define en deploy/.env.production (API_DOMAIN=...).
+# Caddy lo lee de su entorno y saca el certificado Let's Encrypt automatico
+# en cuanto el DNS de ese dominio apunte a este VPS.
+{$API_DOMAIN} {
+	encode gzip
+	reverse_proxy api:4000
+}
