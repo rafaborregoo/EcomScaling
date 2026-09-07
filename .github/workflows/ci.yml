@@ -89,7 +89,7 @@ jobs:
         run: docker build -f apps/worker/Dockerfile -t ecomscaling-worker:ci .
 
       - name: Scan API image
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ecomscaling-api:ci
           format: table
@@ -98,7 +98,7 @@ jobs:
           severity: HIGH,CRITICAL
 
       - name: Scan worker image
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ecomscaling-worker:ci
           format: table
