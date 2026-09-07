@@ -3,7 +3,7 @@
 # package.json y lockfile a la vez para resolver dependencias internas
 # (@ecomscaling/ai, config, contracts, observability). Build:
 #   docker build -f apps/api/Dockerfile -t ecomscaling-api .
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -27,7 +27,7 @@ COPY apps/api ./apps/api
 RUN npm run build -w @ecomscaling/api
 RUN npm prune --omit=dev
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup -S ecomscaling && adduser -S ecomscaling -G ecomscaling

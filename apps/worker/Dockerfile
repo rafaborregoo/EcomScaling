@@ -5,7 +5,7 @@
 #
 # Este worker no expone puerto HTTP (procesa cola BullMQ); el healthcheck
 # comprueba que el proceso puede alcanzar Redis en vez de un endpoint HTTP.
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -31,7 +31,7 @@ RUN npm run build -w @ecomscaling/api
 RUN npm run build -w @ecomscaling/worker
 RUN npm prune --omit=dev
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup -S ecomscaling && adduser -S ecomscaling -G ecomscaling
