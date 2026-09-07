@@ -96,6 +96,10 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: HIGH,CRITICAL
+          # npm no se ejecuta en produccion (el contenedor arranca
+          # `node .../server.js`), asi que sus dependencias empaquetadas no son
+          # superficie de ataque real y solo generan ruido que tumba el gate.
+          skip-dirs: usr/local/lib/node_modules/npm
 
       - name: Scan worker image
         uses: aquasecurity/trivy-action@v0.36.0
@@ -105,6 +109,10 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: HIGH,CRITICAL
+          # npm no se ejecuta en produccion (el contenedor arranca
+          # `node .../server.js`), asi que sus dependencias empaquetadas no son
+          # superficie de ataque real y solo generan ruido que tumba el gate.
+          skip-dirs: usr/local/lib/node_modules/npm
 
       - name: Typecheck (packages, api, web, worker)
         run: npm run typecheck

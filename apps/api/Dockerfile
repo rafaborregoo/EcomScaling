@@ -30,6 +30,11 @@ RUN npm prune --omit=dev
 FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Parches de seguridad del sistema base (Trivy marcaba libcrypto3/libssl3
+# HIGH en la imagen node:24-alpine sin actualizar).
+RUN apk upgrade --no-cache
+
 RUN addgroup -S ecomscaling && adduser -S ecomscaling -G ecomscaling
 
 COPY --from=builder --chown=ecomscaling:ecomscaling /app/node_modules ./node_modules
