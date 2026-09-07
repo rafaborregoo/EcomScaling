@@ -25,18 +25,28 @@ import {
   deleteOrganizationStore,
   getAdminObservability,
   getConsultantOverview,
+  listConsultantAgenda,
   getOrganizationAccess,
+  getClientAccess,
+  inviteClientMember,
+  setClientMemberRole,
   inviteConsultant,
   listAdminClients,
   listConsultantCalls,
   listConsultantIntegrations,
   listConsultantKnowledge,
   listConsultantMarketing,
+  listConsultantMetaPortfolio,
+  listConsultantKlaviyoPortfolio,
   listConsultantOperations,
+  listConsultantWork,
+  listConsultantOrders,
+  listConsultantProposedTasks,
   listConsultantOrganizations,
   listConsultantPlans,
   listConsultantStores,
   listMarketingDraftNotes,
+  setMarketingDraftSchedule,
   listConsultants,
   createOwnStore,
   listOrganizationStores,
@@ -56,6 +66,12 @@ import {
   updateOrganization,
 } from "./consultant.js";
 import {
+  listClientMessageThreads,
+  listThreadMessages,
+  postThreadMessage,
+  uploadThreadAttachment,
+} from "./consultant-messages.js";
+import {
   isAuthContextError,
   resolveAuthContext,
   type AuthContextError,
@@ -71,6 +87,7 @@ import {
   getShopifyOverview,
 } from "./shopify-overview.js";
 import { getShopifyMetrics } from "./shopify-metrics.js";
+import { getShopifyInsights } from "./shopify-insights.js";
 import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
 import { handleFathomWebhookRequest } from "./fathom-webhook-handler.js";
 import { processQueuedFathomWebhookEvents } from "./fathom-webhook-handler.js";
@@ -124,24 +141,48 @@ import {
   updateAlertStatus,
   updateTaskStatus,
 } from "./operations.js";
+import { listAlertRules, upsertAlertRule } from "./alert-rules.js";
+import { getAuditLog, getPlatformErrors } from "./platform-logs.js";
+import { getClientConsultant } from "./client-autonomy.js";
+import {
+  listConsultantPartners,
+  addConsultantPartner,
+  removeConsultantPartner,
+} from "./consultant-partners.js";
+import { listWorkSplit, updateWorkSplit } from "./work-split.js";
 import {
   createCampaignCalendar,
   createCampaignCalendarItem,
+  createCampaignItemsFromProposal,
   archiveCampaignCalendarItem,
   listCampaignPlanning,
   listCampaignPlanningResources,
   listKpiSnapshots,
+  listCampaignPlanningAttention,
   updateCampaignCalendarExecution,
+  updateCampaignCalendarItem,
   upsertKpiSnapshot,
 } from "./campaign-planning.js";
 import {
   decideAgentOutput,
+  type ProposedWriteEdit,
   getConsultantChatMessages,
   getEmailAnalystDiagnostic,
   getMonitorDiagnostic,
   getKnowledgeManagerDiagnostic,
+  getOperativaShopifyDiagnostic,
+  getRetencionClientesDiagnostic,
+  getAdquisicionShopifyDiagnostic,
+  getPostventaShopifyDiagnostic,
+  runRetencionClientesAgent,
+  runAdquisicionShopifyAgent,
+  runPostventaShopifyAgent,
+  getOperativaMetaDiagnostic,
   getStockPlannerDiagnostic,
   getTaskPlannerDiagnostic,
+  getPlanDiagnostic,
+  runPlanAgent,
+  isPlanHorizon,
   listAgentRuns,
   getAgentRunTrace,
   getOrganizationDailyBudgetStatusForOrganization,
@@ -160,16 +201,44 @@ import {
   runDiagnosticOrchestratorTick,
   runEmailAnalystAgent,
   runKnowledgeManagerAgent,
+  runOperativaShopifyAgent,
+  runOperativaMetaAgent,
   runMonitorAgent,
   runStockPlannerAgent,
   runTaskPlannerAgent,
+  runCaminoArchitectAgent,
+  runCampaignStrategist,
+  getCampaignPlanProposal,
+  isCampaignPlanHorizon,
+  getCaminoProposal,
+  isCaminoHorizon,
+  type ConsultantChatViewContext,
 } from "./ai-runtime.js";
+import {
+  enqueueInstagramImage,
+  listInstagramImageBank,
+  updateInstagramImageMarkdown,
+  retryInstagramImage,
+  deleteInstagramImage,
+  processInstagramImageQueue,
+  listInstagramOverlays,
+  createInstagramOverlay,
+  updateInstagramOverlay,
+  deleteInstagramOverlay,
+  draftInstagramOverlayText,
+  generatePublicationCaption,
+} from "./instagram-image-bank.js";
 import { getAgentEvalReadiness } from "./agent-eval-readiness.js";
 import {
   createKnowledgeDocument,
   listKnowledgeDocuments,
   searchKnowledge,
 } from "./knowledge.js";
+import {
+  listClientConstraints,
+  createClientConstraint,
+  setClientConstraintStatus,
+} from "./client-constraints.js";
 import {
   addInternalNote,
   createCall,
@@ -201,6 +270,7 @@ import {
   createMilestoneTask,
   createPhase,
   createStrategicPlan,
+  createStrategicPlanFromProposal,
   getStrategicPlan,
   linkTaskToMilestone,
   reorderMilestones,
@@ -736,6 +806,135 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(201).send(result.data);
   });
 
+  // Con quien comparte cartera un consultor. Emparejarse reparte las tiendas
+  // que ya tienen los dos y hace que las nuevas nazcan compartidas.
+  app.get("/v1/consultant/partners", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await listConsultantPartners(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Body: { email?: string } }>(
+    "/v1/consultant/partners",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await addConsultantPartner(
+        env,
+        auth.context,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.delete<{ Params: { partnerUserId: string } }>(
+    "/v1/consultant/partners/:partnerUserId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await removeConsultantPartner(
+        env,
+        auth.context,
+        request.params.partnerUserId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Reparto de trabajo entre los consultores de cada tienda: quien es el
+  // principal y que parte de las tareas automaticas le toca a cada uno.
+  app.get("/v1/consultant/work-split", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await listWorkSplit(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.put<{
+    Body: {
+      organization_ids?: string[];
+      shares?: Array<{ user_id: string; work_share: number }>;
+      primary_user_id?: string;
+    };
+  }>("/v1/consultant/work-split", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await updateWorkSplit(env, auth.context, request.body ?? {});
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // Accesos de un cliente para su consultor: ver quien entra, invitar a otra
+  // persona y cambiar roles. Antes solo existia la version platform_admin, que
+  // ademas devuelve el directorio de perfiles de toda la plataforma.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/consultant/organizations/:organizationId/client-access",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await getClientAccess(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { email?: string; full_name?: string; role?: string };
+  }>(
+    "/v1/consultant/organizations/:organizationId/client-access/invite",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await inviteClientMember(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; userId: string };
+    Body: { role?: string; isActive?: boolean };
+  }>(
+    "/v1/consultant/organizations/:organizationId/client-access/:userId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await setClientMemberRole(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.userId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
   app.post<{ Params: { organizationId: string } }>(
     "/v1/consultant/organizations/:organizationId/invite/regenerate",
     async (request, reply) => {
@@ -792,6 +991,156 @@ export async function buildApp(): Promise<FastifyInstance> {
       return result.data;
     },
   );
+
+  app.get<{ Querystring: { from?: string; to?: string; scope?: string } }>(
+    "/v1/consultant/agenda",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listConsultantAgenda(env, authorization, auth.context, {
+        from: request.query.from,
+        to: request.query.to,
+        scope: request.query.scope || "all",
+      });
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    "/v1/consultant/orders",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const toMs = Date.parse(request.query.to ?? "") || now;
+      const fromMs = Date.parse(request.query.from ?? "") || toMs - dayMs;
+      // Rango sano: from < to y como mucho ~13 meses.
+      if (fromMs >= toMs || toMs - fromMs > 400 * dayMs) {
+        return reply.code(400).send({ error: "invalid_date_range" });
+      }
+
+      const result = await listConsultantOrders(
+        env,
+        authorization,
+        auth.context,
+        new Date(fromMs).toISOString(),
+        new Date(toMs).toISOString(),
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get<{ Querystring: { compare?: string } }>(
+    "/v1/consultant/meta-portfolio",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listConsultantMetaPortfolio(
+        env,
+        authorization,
+        auth.context,
+        request.query.compare ?? "month",
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get<{ Querystring: { window?: string } }>(
+    "/v1/consultant/klaviyo-portfolio",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listConsultantKlaviyoPortfolio(
+        env,
+        authorization,
+        auth.context,
+        request.query.window ?? "30d",
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get("/v1/consultant/proposed-tasks", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantProposedTasks(
+      env,
+      authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
 
   app.get<{ Querystring: { days?: string } }>(
     "/v1/consultant/own-stores",
@@ -917,6 +1266,122 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // --- Canal de mensajería consultor <-> cliente -------------------------
+
+  app.get("/v1/consultant/message-threads", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+    const result = await listClientMessageThreads(
+      env,
+      authorization,
+      auth.context,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { limit?: string };
+  }>(
+    "/v1/organizations/:organizationId/consultant-messages",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+      const result = await listThreadMessages(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        {
+          limit: request.query.limit
+            ? Number(request.query.limit)
+            : undefined,
+        },
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: {
+      filename?: string;
+      content_type?: string;
+      content_base64?: string;
+    };
+  }>(
+    "/v1/organizations/:organizationId/consultant-messages/attachments",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await uploadThreadAttachment(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { body?: string; attachments?: unknown[] };
+  }>(
+    "/v1/organizations/:organizationId/consultant-messages",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await postThreadMessage(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; draftId: string };
+    Body: { scheduled_for?: string | null };
+  }>(
+    "/v1/organizations/:organizationId/marketing/drafts/:draftId/schedule",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await setMarketingDraftSchedule(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.draftId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
   app.get("/v1/consultant/knowledge", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -1030,6 +1495,30 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  // "Mi trabajo": proximas llamadas con lo que hay que preparar, tareas
+  // internas del consultor y clientes sin nada agendado. Compone datos que ya
+  // existen; no hay tabla nueva detras.
+  app.get("/v1/consultant/work", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantWork(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
   app.get("/v1/consultant/operations", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -1077,7 +1566,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
 
-      const result = await inviteConsultant(env, auth.context, request.body ?? {});
+      const result = await inviteConsultant(
+        env,
+        auth.context,
+        request.body ?? {},
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
     },
@@ -1124,6 +1617,41 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (isServiceFailure(result)) return sendServiceFailure(reply, result);
     return result.data;
   });
+
+  // /admin/logs: el rastro de auditoria (61 puntos del codigo lo escriben y
+  // no habia una sola lectura) y lo que se ha roto en la plataforma.
+  app.get<{
+    Querystring: {
+      organizationId?: string;
+      action?: string;
+      actorUserId?: string;
+      before?: string;
+      limit?: string;
+    };
+  }>("/v1/admin/audit-log", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getAuditLog(env, auth.context, request.query ?? {});
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get<{ Querystring: { days?: string; limit?: string } }>(
+    "/v1/admin/platform-errors",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await getPlatformErrors(
+        env,
+        auth.context,
+        request.query ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
 
   app.get("/v1/admin/observability", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -1181,18 +1709,30 @@ export async function buildApp(): Promise<FastifyInstance> {
         storeId: request.query.storeId || null,
       };
       if (request.query.year) planningFilters.year = Number(request.query.year);
-      const result = await listCampaignPlanning(env, auth.context, request.params.organizationId, planningFilters);
+      const result = await listCampaignPlanning(
+        env,
+        auth.context,
+        request.params.organizationId,
+        planningFilters,
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
   );
 
-  app.get<{ Params: { organizationId: string } }>(
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { storeId?: string };
+  }>(
     "/v1/organizations/:organizationId/campaign-planning/resources",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      const result = await listCampaignPlanningResources(env, auth.context, request.params.organizationId);
+      const result = await listCampaignPlanningResources(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
@@ -1206,7 +1746,18 @@ export async function buildApp(): Promise<FastifyInstance> {
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      const result = await listKpiSnapshots(env, auth.context, request.params.organizationId, { storeId: request.query.storeId || null, ...(request.query.period ? { period: request.query.period } : {}), ...(request.query.limit ? { limit: Number(request.query.limit) } : {}) });
+      const result = await listKpiSnapshots(
+        env,
+        auth.context,
+        request.params.organizationId,
+        {
+          storeId: request.query.storeId || null,
+          ...(request.query.period ? { period: request.query.period } : {}),
+          ...(request.query.limit
+            ? { limit: Number(request.query.limit) }
+            : {}),
+        },
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
@@ -1214,13 +1765,24 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{
     Params: { organizationId: string };
-    Body: { name?: string; year?: number; storeId?: string | null; description?: string | null; isVisibleToClient?: boolean };
+    Body: {
+      name?: string;
+      year?: number;
+      storeId?: string | null;
+      description?: string | null;
+      isVisibleToClient?: boolean;
+    };
   }>(
     "/v1/organizations/:organizationId/campaign-planning/calendars",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      const result = await createCampaignCalendar(env, auth.context, request.params.organizationId, request.body ?? {});
+      const result = await createCampaignCalendar(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
     },
@@ -1228,13 +1790,34 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{
     Params: { organizationId: string };
-    Body: { calendarId?: string; title?: string; description?: string | null; channel?: string; itemType?: string; startsAt?: string; endsAt?: string | null; storeId?: string | null; status?: string; isVisibleToClient?: boolean; createTask?: boolean; milestoneId?: string | null; marketingDraftId?: string | null; metaCampaignId?: string | null; klaviyoCampaignId?: string | null };
+    Body: {
+      calendarId?: string;
+      title?: string;
+      description?: string | null;
+      channel?: string;
+      itemType?: string;
+      startsAt?: string;
+      endsAt?: string | null;
+      storeId?: string | null;
+      status?: string;
+      isVisibleToClient?: boolean;
+      createTask?: boolean;
+      milestoneId?: string | null;
+      marketingDraftId?: string | null;
+      metaCampaignId?: string | null;
+      klaviyoCampaignId?: string | null;
+    };
   }>(
     "/v1/organizations/:organizationId/campaign-planning/items",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      const result = await createCampaignCalendarItem(env, auth.context, request.params.organizationId, request.body ?? {});
+      const result = await createCampaignCalendarItem(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
     },
@@ -1247,7 +1830,41 @@ export async function buildApp(): Promise<FastifyInstance> {
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      const result = await archiveCampaignCalendarItem(env, auth.context, request.params.organizationId, request.params.itemId);
+      const result = await archiveCampaignCalendarItem(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.send(result.data);
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; itemId: string };
+    Body: {
+      title?: string;
+      channel?: string;
+      startsAt?: string;
+      endsAt?: string | null;
+      status?: string;
+      marketingDraftId?: string | null;
+      metaCampaignId?: string | null;
+      klaviyoCampaignId?: string | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/items/:itemId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await updateCampaignCalendarItem(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+        request.body ?? {},
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.send(result.data);
     },
@@ -1255,13 +1872,31 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{
     Params: { organizationId: string };
-    Body: { storeId?: string | null; period?: string; periodStart?: string; periodEnd?: string; netSales?: number | null; ordersCount?: number | null; aov?: number | null; adSpend?: number | null; roas?: number | null; cac?: number | null; netProfit?: number | null; notes?: string | null };
+    Body: {
+      storeId?: string | null;
+      period?: string;
+      periodStart?: string;
+      periodEnd?: string;
+      netSales?: number | null;
+      ordersCount?: number | null;
+      aov?: number | null;
+      adSpend?: number | null;
+      roas?: number | null;
+      cac?: number | null;
+      netProfit?: number | null;
+      notes?: string | null;
+    };
   }>(
     "/v1/organizations/:organizationId/kpi-snapshots",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      const result = await upsertKpiSnapshot(env, auth.context, request.params.organizationId, request.body ?? {});
+      const result = await upsertKpiSnapshot(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
     },
@@ -1559,7 +2194,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.post<{ Params: { organizationId: string } }>(
       `/v1/consultant/organizations/:organizationId/${suffix}`,
       async (request, reply) => {
-        const auth = await resolveAuthContext(env, request.headers.authorization);
+        const auth = await resolveAuthContext(
+          env,
+          request.headers.authorization,
+        );
         if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
 
         const result = await handler(
@@ -1757,6 +2395,43 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Recurrencia, cohortes, atribucion, devoluciones, entregas, carritos y
+  // promociones. Van juntas en una llamada porque la pagina las pinta a la
+  // vez y cada RPC ya falla por su cuenta dentro.
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { days?: string; connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/shopify/insights",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getShopifyInsights(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.query.days,
+        request.query.connectionId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
   app.get<{ Params: { organizationId: string } }>(
     "/v1/organizations/:organizationId/shopify/product-costs",
     async (request, reply) => {
@@ -2535,29 +3210,26 @@ export async function buildApp(): Promise<FastifyInstance> {
       isVisibleToClient?: boolean;
       milestoneId?: string | null;
     };
-  }>(
-    "/v1/organizations/:organizationId/tasks",
-    async (request, reply) => {
-      const auth = await resolveAuthContext(env, request.headers.authorization);
+  }>("/v1/organizations/:organizationId/tasks", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
 
-      if (isAuthContextError(auth)) {
-        return sendAuthFailure(reply, auth.error);
-      }
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
 
-      const result = await createTask(
-        env,
-        auth.context,
-        request.params.organizationId,
-        request.body ?? {},
-      );
+    const result = await createTask(
+      env,
+      auth.context,
+      request.params.organizationId,
+      request.body ?? {},
+    );
 
-      if (isServiceFailure(result)) {
-        return sendServiceFailure(reply, result);
-      }
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
 
-      return reply.code(201).send(result.data);
-    },
-  );
+    return reply.code(201).send(result.data);
+  });
 
   app.patch<{
     Params: { organizationId: string; taskId: string };
@@ -2635,6 +3307,67 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.organizationId,
         request.params.alertId,
         request.body?.status,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  // Configuracion de avisos por cliente. El motor (`runAlertRules`) ya lee
+  // `organization_alert_rules`; estas son las rutas que faltaban para poder
+  // escribir en ella.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/alert-rules",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listAlertRules(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.put<{
+    Params: { organizationId: string; templateId: string };
+    Body: { isEnabled?: boolean; severity?: string | null; threshold?: number | null };
+  }>(
+    "/v1/organizations/:organizationId/alert-rules/:templateId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await upsertAlertRule(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.templateId,
+        request.body ?? {},
       );
 
       if (isServiceFailure(result)) {
@@ -3028,61 +3761,64 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  app.get<{ Params: { organizationId: string } }>(
-    "/v1/organizations/:organizationId/objectives",
-    async (request, reply) => {
-      const auth = await resolveAuthContext(env, request.headers.authorization);
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { storeId?: string };
+  }>("/v1/organizations/:organizationId/objectives", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
 
-      if (isAuthContextError(auth)) {
-        return sendAuthFailure(reply, auth.error);
-      }
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
 
-      const authorization = request.headers.authorization;
-      if (!authorization) {
-        return reply.code(401).send({ error: "missing_bearer_token" });
-      }
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
 
-      const result = await getObjectives(
-        env,
-        authorization,
-        auth.context,
-        request.params.organizationId,
-      );
+    const result = await getObjectives(
+      env,
+      authorization,
+      auth.context,
+      request.params.organizationId,
+      request.query.storeId || null,
+    );
 
-      if (isServiceFailure(result)) {
-        return sendServiceFailure(reply, result);
-      }
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
 
-      return result.data;
-    },
-  );
+    return result.data;
+  });
 
   app.post<{
     Params: { organizationId: string };
-    Body: { metricKey?: string; targetValue?: number; period?: string };
-  }>(
-    "/v1/organizations/:organizationId/objectives",
-    async (request, reply) => {
-      const auth = await resolveAuthContext(env, request.headers.authorization);
+    Body: {
+      metricKey?: string;
+      targetValue?: number;
+      period?: string;
+      storeId?: string | null;
+    };
+  }>("/v1/organizations/:organizationId/objectives", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
 
-      if (isAuthContextError(auth)) {
-        return sendAuthFailure(reply, auth.error);
-      }
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
 
-      const result = await createObjective(
-        env,
-        auth.context,
-        request.params.organizationId,
-        request.body ?? {},
-      );
+    const result = await createObjective(
+      env,
+      auth.context,
+      request.params.organizationId,
+      request.body ?? {},
+    );
 
-      if (isServiceFailure(result)) {
-        return sendServiceFailure(reply, result);
-      }
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
 
-      return reply.code(201).send(result.data);
-    },
-  );
+    return reply.code(201).send(result.data);
+  });
 
   app.delete<{ Params: { organizationId: string; targetId: string } }>(
     "/v1/organizations/:organizationId/objectives/:targetId",
@@ -3361,8 +4097,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (isAuthContextError(auth)) {
       return sendAuthFailure(reply, auth.error);
     }
-    if (!["platform_admin", "consultant"].includes(auth.context.profile.platform_role)) {
-      return reply.code(403).send({ error: "agent_eval_readiness_access_denied" });
+    if (
+      !["platform_admin", "consultant"].includes(
+        auth.context.profile.platform_role,
+      )
+    ) {
+      return reply
+        .code(403)
+        .send({ error: "agent_eval_readiness_access_denied" });
     }
     return reply.send(await getAgentEvalReadiness(env));
   });
@@ -3473,6 +4215,269 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.organizationId,
         request.query.connectionId,
         request.query.days ? Number(request.query.days) : null,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // Planes semanal (A17) y mensual (A18): mismo par de rutas que A04, con el
+  // horizonte en la ruta. El reparto dia/semana/mes lo enseña el prompt de cada
+  // agente; aqui solo se elige cual corre.
+  app.get<{
+    Params: { organizationId: string; horizon: string };
+    Querystring: { connectionId?: string; days?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/plan/:horizon",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      if (!isPlanHorizon(request.params.horizon)) {
+        return reply.code(400).send({ error: "invalid_plan_horizon" });
+      }
+
+      const result = await getPlanDiagnostic(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.horizon,
+        request.query.connectionId,
+        request.query.days ? Number(request.query.days) : null,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; horizon: string };
+    Querystring: { connectionId?: string; days?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/plan/:horizon/run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      if (!isPlanHorizon(request.params.horizon)) {
+        return reply.code(400).send({ error: "invalid_plan_horizon" });
+      }
+
+      const result = await runPlanAgent(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.horizon,
+        request.query.connectionId,
+        request.query.days ? Number(request.query.days) : null,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // A19: propuesta de CAMINO (plan estrategico completo) para un horizonte.
+  // No se autogenera al abrir la pantalla como los diagnosticos: el GET solo
+  // recupera la propuesta que ya exista, el POST es el que gasta modelo.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/ai/camino-proposal",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await getCaminoProposal(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+    Body: { horizon?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/camino-proposal/run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const horizon = request.body?.horizon ?? "";
+      if (!isCaminoHorizon(horizon)) {
+        return reply.code(400).send({ error: "invalid_camino_horizon" });
+      }
+
+      const result = await runCaminoArchitectAgent(
+        env,
+        auth.context,
+        request.params.organizationId,
+        horizon,
+        request.query.connectionId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // Aceptar la propuesta: crea el plan real en estado borrador. Activarlo
+  // sigue siendo un segundo gesto humano (activateStrategicPlan).
+  app.post<{
+    Params: { organizationId: string };
+    Body: { output_id?: string };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/from-proposal",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const outputId = request.body?.output_id;
+      if (!outputId) {
+        return reply.code(400).send({ error: "output_id_requerido" });
+      }
+
+      const result = await createStrategicPlanFromProposal(
+        env,
+        auth.context,
+        request.params.organizationId,
+        outputId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // A05: propuesta de PLAN DE CAMPANAS para un horizonte. Mismo patron que el
+  // camino: el GET solo recupera lo que ya exista, el POST gasta modelo, y una
+  // tercera ruta materializa lo aprobado -- aqui, como items del calendario.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/ai/campaign-plan",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await getCampaignPlanProposal(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Querystring: { connectionId?: string };
+    Body: { horizon?: string };
+  }>(
+    "/v1/organizations/:organizationId/ai/campaign-plan/run",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const horizon = request.body?.horizon ?? "";
+      if (!isCampaignPlanHorizon(horizon)) {
+        return reply.code(400).send({ error: "invalid_campaign_plan_horizon" });
+      }
+
+      const result = await runCampaignStrategist(
+        env,
+        auth.context,
+        request.params.organizationId,
+        horizon,
+        request.query.connectionId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // Aceptar (total o parcialmente): crea las campanas elegidas en el
+  // calendario, en estado `planned` y no visibles al cliente todavia.
+  app.post<{
+    Params: { organizationId: string };
+    Body: {
+      output_id?: string;
+      calendar_id?: string;
+      selected_indexes?: number[];
+    };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/from-proposal",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await createCampaignItemsFromProposal(
+        env,
+        auth.context,
+        request.params.organizationId,
+        {
+          outputId: request.body?.output_id,
+          calendarId: request.body?.calendar_id,
+          selectedIndexes: request.body?.selected_indexes,
+        },
       );
 
       if (isServiceFailure(result)) {
@@ -3637,6 +4642,78 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // AI (A13/A14): operativa por canal para el consultor. Mismo patron: GET
+  // sirve cache (lo regenera el orquestador), POST -run fuerza una ejecucion.
+  for (const agent of [
+    {
+      slug: "operativa-shopify",
+      get: getOperativaShopifyDiagnostic,
+      run: runOperativaShopifyAgent,
+    },
+    {
+      slug: "operativa-meta",
+      get: getOperativaMetaDiagnostic,
+      run: runOperativaMetaAgent,
+    },
+    // A20/A21/A22: especialistas del modulo de Shopify. Mismo contrato que la
+    // operativa por canal, asi que entran en el mismo bucle en vez de repetir
+    // seis endpoints identicos.
+    {
+      slug: "retencion-clientes",
+      get: getRetencionClientesDiagnostic,
+      run: runRetencionClientesAgent,
+    },
+    {
+      slug: "adquisicion-shopify",
+      get: getAdquisicionShopifyDiagnostic,
+      run: runAdquisicionShopifyAgent,
+    },
+    {
+      slug: "postventa-shopify",
+      get: getPostventaShopifyDiagnostic,
+      run: runPostventaShopifyAgent,
+    },
+  ] as const) {
+    app.get<{ Params: { organizationId: string } }>(
+      `/v1/organizations/:organizationId/ai/${agent.slug}`,
+      async (request, reply) => {
+        const auth = await resolveAuthContext(env, request.headers.authorization);
+        if (isAuthContextError(auth)) {
+          return sendAuthFailure(reply, auth.error);
+        }
+        const result = await agent.get(
+          env,
+          auth.context,
+          request.params.organizationId,
+        );
+        if (isServiceFailure(result)) {
+          return sendServiceFailure(reply, result);
+        }
+        return result.data;
+      },
+    );
+
+    app.post<{ Params: { organizationId: string } }>(
+      `/v1/organizations/:organizationId/ai/${agent.slug}-run`,
+      aiEndpointRateLimit,
+      async (request, reply) => {
+        const auth = await resolveAuthContext(env, request.headers.authorization);
+        if (isAuthContextError(auth)) {
+          return sendAuthFailure(reply, auth.error);
+        }
+        const result = await agent.run(
+          env,
+          auth.context,
+          request.params.organizationId,
+        );
+        if (isServiceFailure(result)) {
+          return sendServiceFailure(reply, result);
+        }
+        return reply.code(201).send(result.data);
+      },
+    );
+  }
+
   app.get<{ Params: { organizationId: string } }>(
     "/v1/organizations/:organizationId/ai/budget",
     async (request, reply) => {
@@ -3730,7 +4807,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{
     Params: { organizationId: string; outputId: string };
-    Body: { decision?: string; reason?: string };
+    // `edits`: el consultor reescribe o descarta propuestas sueltas antes de
+    // que se creen como tareas reales (ver ProposedWriteEdit en ai-runtime).
+    Body: { decision?: string; reason?: string; edits?: ProposedWriteEdit[] };
   }>(
     "/v1/organizations/:organizationId/ai/outputs/:outputId/decision",
     async (request, reply) => {
@@ -3747,6 +4826,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.outputId,
         request.body?.decision,
         request.body?.reason,
+        Array.isArray(request.body?.edits) ? request.body.edits : undefined,
       );
 
       if (isServiceFailure(result)) {
@@ -3782,7 +4862,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
 
   // Guardar una plantilla del editor visual como borrador (sin IA).
-  app.post<{ Params: { organizationId: string }; Body: Record<string, unknown> }>(
+  app.post<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>(
     "/v1/organizations/:organizationId/marketing/drafts/manual",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -3800,7 +4883,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
 
   // Subir una imagen (base64) desde el ordenador para un bloque del editor.
-  app.post<{ Params: { organizationId: string }; Body: Record<string, unknown> }>(
+  app.post<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>(
     "/v1/organizations/:organizationId/marketing/assets",
     { bodyLimit: 8 * 1024 * 1024 },
     async (request, reply) => {
@@ -3815,6 +4901,232 @@ export async function buildApp(): Promise<FastifyInstance> {
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
+    },
+  );
+
+  // --- Banco de imágenes de Instagram (módulo Marketing, vista cliente) ---
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/instagram/image-bank",
+    { bodyLimit: 8 * 1024 * 1024 },
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await enqueueInstagramImage(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/instagram/image-bank",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization)
+        return reply.code(401).send({ error: "missing_bearer_token" });
+
+      const result = await listInstagramImageBank(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; imageId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/instagram/image-bank/:imageId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await updateInstagramImageMarkdown(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.imageId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { organizationId: string; imageId: string } }>(
+    "/v1/organizations/:organizationId/instagram/image-bank/:imageId/retry",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await retryInstagramImage(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.imageId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; imageId: string } }>(
+    "/v1/organizations/:organizationId/instagram/image-bank/:imageId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await deleteInstagramImage(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.imageId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // --- Piezas estáticas: texto sobre una imagen del banco ---
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { imageId?: string };
+  }>(
+    "/v1/organizations/:organizationId/instagram/overlays",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization)
+        return reply.code(401).send({ error: "missing_bearer_token" });
+
+      const result = await listInstagramOverlays(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.query.imageId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/instagram/overlays",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await createInstagramOverlay(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; overlayId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/instagram/overlays/:overlayId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await updateInstagramOverlay(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.overlayId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; overlayId: string } }>(
+    "/v1/organizations/:organizationId/instagram/overlays/:overlayId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await deleteInstagramOverlay(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.overlayId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; overlayId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/instagram/overlays/:overlayId/ai-draft",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await draftInstagramOverlayText(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.overlayId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string; overlayId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/instagram/overlays/:overlayId/caption",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await generatePublicationCaption(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.overlayId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
     },
   );
 
@@ -3924,11 +5236,18 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  // AI-05: copiloto del consultor (A09). Chat de solo lectura sobre sql_select
-  // y search_knowledge; sin aprobacion (nunca escribe en el dominio).
+  // AI-05: Consultor IA (A09). Chat de solo lectura sobre las tools de lectura
+  // del tenant; sin aprobacion (nunca escribe en el dominio). `view_context`
+  // es la pantalla desde la que se pregunta (modulo, tienda, periodo, cifras
+  // visibles): se sanea en runConsultantChatTurn y nunca amplia el alcance de
+  // datos, que lo sigue fijando `organizationId` + membership.
   app.post<{
     Params: { organizationId: string };
-    Body: { message?: string; conversation_id?: string };
+    Body: {
+      message?: string;
+      conversation_id?: string;
+      view_context?: ConsultantChatViewContext;
+    };
   }>(
     "/v1/organizations/:organizationId/consultant-chat",
     aiEndpointRateLimit,
@@ -3945,6 +5264,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.params.organizationId,
         request.body?.message ?? "",
         request.body?.conversation_id,
+        request.body?.view_context,
       );
 
       if (isServiceFailure(result)) {
@@ -4011,6 +5331,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       description?: string;
       content?: string;
       source_type?: string;
+      audience?: string;
     };
   }>(
     "/v1/organizations/:organizationId/knowledge/documents",
@@ -4085,6 +5406,126 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
         request.body?.query,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  // Quien acompaña a este cliente. Sin esto el portal no puede distinguir un
+  // cliente con consultor de uno que se apoya solo en los agentes: la relacion
+  // solo se consultaba consultor -> organizaciones, nunca al reves.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/my-consultant",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await getClientConsultant(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  // Reglas del cliente: lo que el copiloto tiene SIEMPRE delante, frente a los
+  // documentos, que solo usa si salen en la busqueda. La tabla y su inyeccion
+  // existian desde AI-07; estas son las tres rutas que faltaban para poder
+  // crear una.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/knowledge/constraints",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listClientConstraints(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: {
+      category?: string;
+      statement?: string;
+      storeId?: string | null;
+      validUntil?: string | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/knowledge/constraints",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await createClientConstraint(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.patch<{
+    Params: { organizationId: string; constraintId: string };
+    Body: { status?: string };
+  }>(
+    "/v1/organizations/:organizationId/knowledge/constraints/:constraintId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await setClientConstraintStatus(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.constraintId,
+        request.body?.status,
       );
 
       if (isServiceFailure(result)) {
@@ -4267,7 +5708,12 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{
     Params: { organizationId: string; summaryId: string };
-    Body: { decision?: string; reason?: string; selectedTaskIndexes?: number[] };
+    Body: {
+      decision?: string;
+      reason?: string;
+      selectedTaskIndexes?: number[];
+      taskMilestones?: Record<string, string>;
+    };
   }>(
     "/v1/organizations/:organizationId/call-summaries/:summaryId/decision",
     async (request, reply) => {
@@ -4285,6 +5731,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.body?.decision,
         request.body?.reason,
         request.body?.selectedTaskIndexes,
+        request.body?.taskMilestones,
       );
 
       if (isServiceFailure(result)) {
@@ -4435,7 +5882,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post("/v1/internal/fathom/process-queued", async (request, reply) => {
     if (!env.INTERNAL_API_SECRET) {
-      return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+      return reply
+        .code(503)
+        .send({ error: "internal_api_secret_not_configured" });
     }
     if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
@@ -4451,9 +5900,34 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
   });
 
+  app.post(
+    "/v1/internal/instagram/process-image-queue",
+    async (request, reply) => {
+      if (!env.INTERNAL_API_SECRET) {
+        return reply
+          .code(503)
+          .send({ error: "internal_api_secret_not_configured" });
+      }
+      if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
+        return reply.code(401).send({ error: "invalid_internal_secret" });
+      }
+      try {
+        const result = await processInstagramImageQueue(env);
+        return reply.code(200).send(result);
+      } catch (error) {
+        return reply.code(503).send({
+          error: "instagram_image_queue_processing_failed",
+          detail: error instanceof Error ? error.message : "unknown_error",
+        });
+      }
+    },
+  );
+
   app.post("/v1/internal/webhooks/purge-retained", async (request, reply) => {
     if (!env.INTERNAL_API_SECRET) {
-      return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+      return reply
+        .code(503)
+        .send({ error: "internal_api_secret_not_configured" });
     }
     if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
@@ -4471,7 +5945,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post("/v1/internal/ai/purge-retained-context", async (request, reply) => {
     if (!env.INTERNAL_API_SECRET) {
-      return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+      return reply
+        .code(503)
+        .send({ error: "internal_api_secret_not_configured" });
     }
     if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
@@ -4492,7 +5968,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   // quiere el resumen en su log.
   app.post("/v1/internal/ai/diagnostics/tick", async (request, reply) => {
     if (!env.INTERNAL_API_SECRET) {
-      return reply.code(503).send({ error: "internal_api_secret_not_configured" });
+      return reply
+        .code(503)
+        .send({ error: "internal_api_secret_not_configured" });
     }
     if (request.headers["x-internal-secret"] !== env.INTERNAL_API_SECRET) {
       return reply.code(401).send({ error: "invalid_internal_secret" });
@@ -4538,13 +6016,44 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.patch<{
     Params: { organizationId: string; itemId: string };
-    Body: { status?: string; ownerUserId?: string | null; executionNotes?: string | null; blockedReason?: string | null; resultData?: Record<string, unknown> };
+    Body: {
+      status?: string;
+      ownerUserId?: string | null;
+      executionNotes?: string | null;
+      blockedReason?: string | null;
+      resultData?: Record<string, unknown>;
+    };
   }>(
     "/v1/organizations/:organizationId/campaign-planning/items/:itemId/execution",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      const result = await updateCampaignCalendarExecution(env, auth.context, request.params.organizationId, request.params.itemId, request.body ?? {});
+      const result = await updateCampaignCalendarExecution(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.itemId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { storeId?: string };
+  }>(
+    "/v1/organizations/:organizationId/campaign-planning/attention",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await listCampaignPlanningAttention(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.query.storeId || null,
+      );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },

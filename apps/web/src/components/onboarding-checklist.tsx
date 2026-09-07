@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, ButtonLink, Card, Link } from "@/components/ui";
+import { Badge, ButtonLink, CollapsibleSection } from "@/components/ui";
 import {
   getOnboardingChecklistSteps,
   type ChecklistStepState,
@@ -75,22 +75,16 @@ export function OnboardingChecklist({
       : "Ver integraciones";
 
   return (
-    <Card
-      kicker="Ruta de activación"
-      title="Pon tu tienda en marcha"
-      description="Sigue el orden que protege la calidad de tus decisiones: primero datos propios, después adquisición y retención."
-      actions={
-        <ButtonLink variant="secondary" href={actionHref}>
-          {actionLabel}
-        </ButtonLink>
-      }
-      className="border-l-4 border-l-accent"
-    >
+    <CollapsibleSection title="Ruta de activación: pon tu tienda en marcha">
+      <p className="text-sm leading-6 text-muted">
+        Sigue el orden que protege la calidad de tus decisiones: primero datos
+        propios, después adquisición y retención.
+      </p>
       <p id="onboarding-checklist-description" className="sr-only">
         El estado de cada paso se actualiza con los datos disponibles de tu organización.
       </p>
       <ol
-        className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"
+        className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"
         aria-label="Pasos de activación"
         aria-describedby="onboarding-checklist-description"
       >
@@ -109,6 +103,11 @@ export function OnboardingChecklist({
           </li>
         ))}
       </ol>
-    </Card>
+      <div className="mt-4">
+        <ButtonLink variant="secondary" href={actionHref}>
+          {actionLabel}
+        </ButtonLink>
+      </div>
+    </CollapsibleSection>
   );
 }

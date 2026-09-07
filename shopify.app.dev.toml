@@ -1,0 +1,42 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+#
+# App de DESARROLLO (dev stores). La app de produccion es shopify.app.toml
+# ("EcomScaling - Custom", ADR-0011). Comandos del CLI siempre con --config dev.
+
+client_id = "8968c90101f158299545fa3d13e4dafa"
+name = "EcomScaling Dev"
+application_url = "https://dashboard.ecomscaling.es"
+embedded = true
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# Cada scope esta aqui porque una query del sync lo necesita:
+#   read_orders -> bulk de pedidos + webhooks orders|refunds
+#   read_products / read_inventory / read_locations -> productos, inventoryLevels, locations
+#   read_customers -> bulk de clientes (requiere Protected customer data access)
+#   read_discounts -> discountNodes
+#   read_marketing_events -> marketingEvents
+#   read_reports -> ShopifyQL, bloque `sessions`
+# read_all_orders (historico >60 dias) NO esta: necesita Access request aprobada en
+# el Partner Dashboard; sin ella el deploy falla con "scopes: read_all_orders".
+scopes = "read_products,read_inventory,read_locations,read_orders,read_customers,read_discounts,read_marketing_events,read_reports"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "http://localhost:4000/v1/shopify/oauth/callback",
+  "https://api.ecomscaling.es/v1/shopify/oauth/callback"
+]
+
+[webhooks]
+api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "https://api.ecomscaling.es/v1/shopify/webhooks"
+
+[build]
+# false a proposito: `shopify app dev` reescribiria application_url y
+# redirect_urls con un tunel efimero y romperia el callback real.
+automatically_update_urls_on_dev = false

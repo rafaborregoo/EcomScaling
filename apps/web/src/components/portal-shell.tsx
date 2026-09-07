@@ -48,6 +48,10 @@ import {
   ActiveConnectionContext,
 } from "@/components/active-connection";
 import { CopilotPanel } from "@/components/copilot-panel";
+import {
+  ModuleSummaryProvider,
+  type ModuleSummaryData,
+} from "@/components/module-summary";
 import { NotificationsBell } from "@/components/notifications-bell";
 
 type PortalShellProps = {
@@ -70,24 +74,38 @@ const ALL_STORES_KEY = "__all_stores__";
 // no esta aqui. Segun cada modulo gane su parte general, sale de esta lista.
 const ORG_SCOPED_PREFIXES = ["/agentes", "/configuracion"];
 
-// Nav del consultor: lista plana, sin etiquetas de grupo. Dashboard y Clientes
-// primero (es por donde se empieza); el resto es lo que opera sobre el cliente
-// activo. "Ejecuciones IA" (/agentes) sigue fuera del nav. Configuración vive
-// al fondo (settingsNavItem).
+// Nav del consultor: lista plana, sin etiquetas de grupo. Solo lo que se opera
+// a diario sobre el cliente activo. "Ejecuciones IA" (/agentes) sigue fuera del
+// nav. Configuración vive al fondo (settingsNavItem).
+//
+// Fuera del nav a proposito (las rutas siguen vivas, se llega desde
+// Configuración): /consultor y /tiendas son el inventario de tus clientes y tus
+// tiendas -- se consultan de vez en cuando, no se operan.
+//
+// /shopify SI entra desde 2026-09-07. Estaba fuera por ser "el detalle de una
+// integracion", y esa premisa ya no se sostiene: deja de contar el estado de
+// una conexion -- eso se queda en Integraciones -- y pasa a ser los numeros de
+// la tienda (recurrencia, LTV, atribucion, devoluciones, entregas). Un modulo
+// de datos al que solo se llegaba por un boton suelto del panel.
 const consultantNavGroups: NavGroup[] = [
   {
     label: "",
     items: [
       { href: "/dashboard", label: "Dashboard" },
-      { href: "/tiendas", label: "Tiendas" },
-      { href: "/consultor", label: "Clientes" },
+      // Lo unico del nav que NO es de un cliente: es la pantalla del consultor
+      // sobre si mismo, asi que va la primera y no cambia al cambiar de tienda.
+      { href: "/mi-trabajo", label: "Mi trabajo" },
       { href: "/camino", label: "Mi Camino" },
       { href: "/tareas", label: "Tareas" },
+      { href: "/agenda", label: "Agenda" },
+      { href: "/mensajes", label: "Chats" },
       { href: "/llamadas", label: "Llamadas" },
+      // Los dos modulos de cifras, juntos y en este orden: primero la tienda,
+      // luego lo que la alimenta.
+      { href: "/shopify", label: "Shopify" },
       { href: "/marketing", label: "Marketing" },
       { href: "/planificacion", label: "Planificación" },
       { href: "/integraciones", label: "Integraciones" },
-      { href: "/shopify", label: "Shopify" },
       { href: "/conocimiento", label: "Conocimiento" },
     ],
   },
@@ -106,8 +124,12 @@ const platformAdminNavGroups: NavGroup[] = [
     items: [
       { href: "/admin/consultores", label: "Consultores" },
       { href: "/admin/clientes", label: "Clientes" },
+      // La metodologia de EcomScaling: alimenta al copiloto de todos los
+      // clientes y es lo unico del conocimiento que es nuestro. Vive aqui
+      // porque el consultor no la gestiona -- el gestiona la de su cliente.
+      { href: "/admin/conocimiento", label: "Metodología" },
       { href: "/admin/observabilidad", label: "Observabilidad" },
-      { href: "/admin/logs", label: "Logs de errores" },
+      { href: "/admin/logs", label: "Auditoría y errores" },
       { href: "/admin/facturacion", label: "Facturación" },
     ],
   },
@@ -122,11 +144,12 @@ const clientNavGroups: NavGroup[] = [
       { href: "/dashboard", label: "Dashboard" },
       { href: "/camino", label: "Mi Camino" },
       { href: "/tareas", label: "Tareas" },
+      { href: "/mensajes", label: "Chats" },
       { href: "/llamadas", label: "Llamadas" },
+      { href: "/shopify", label: "Shopify" },
       { href: "/marketing", label: "Marketing" },
       { href: "/planificacion", label: "Planificación" },
       { href: "/integraciones", label: "Integraciones" },
-      { href: "/shopify", label: "Shopify" },
       { href: "/conocimiento", label: "Conocimiento" },
     ],
   },
@@ -349,6 +372,15 @@ function PortalShellContent({
   const [token, setToken] = useState<string | null>(
     bootstrapCache?.token ?? null,
   );
+  // Mensajes sin leer -> numerito en la entrada "Chats" del nav.
+  const [messagesUnread, setMessagesUnread] = useState(0);
+  // null = todavía no se sabe. Importa tanto como el valor: apagar Chats y
+  // volver a encenderlo un segundo después es peor que esperar un ciclo.
+  const [hasConsultantThread, setHasConsultantThread] = useState<boolean | null>(
+    null,
+  );
+  // Tareas nuevas que le ha aprobado el consultor -> numerito en "Tareas".
+  const [tasksUnread, setTasksUnread] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(!bootstrapCache);
   const [activeOrganizationId, setActiveOrganizationId] = useState(() => {
@@ -376,6 +408,12 @@ function PortalShellContent({
   const [adminViewMode, setAdminViewMode] = useState<AdminViewMode>("admin");
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  // Resumen que publica el modulo activo (ver module-summary.tsx). Viaja al
+  // Consultor IA como "vista actual" para que responda sobre lo que el
+  // consultor tiene delante, no sobre el cliente en abstracto.
+  const [moduleSummary, setModuleSummary] = useState<ModuleSummaryData | null>(
+    null,
+  );
   const [shopifyConnections, setShopifyConnections] = useState<
     ShopifyConnectionSummary[]
   >([]);
@@ -409,6 +447,74 @@ function PortalShellContent({
   useEffect(() => {
     document.title = `${title} · EcomScaling IA`;
   }, [title]);
+
+  // Numerito de mensajes sin leer en el nav. Se refresca al navegar (abrir
+  // /mensajes marca como leído en el servidor) y cada 60 s.
+  useEffect(() => {
+    if (!bootstrap) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const response = await apiFetch("/v1/consultant/message-threads");
+        if (cancelled || !response.ok) return;
+        const payload = (await response.json()) as {
+          threads?: Array<{
+            unread_count?: number;
+            counterpart_user_id?: string | null;
+          }>;
+        };
+        const threads = payload.threads ?? [];
+        setMessagesUnread(
+          threads.reduce((sum, thread) => sum + (thread.unread_count ?? 0), 0),
+        );
+        // Chats es la conversación con el consultor humano. Sale de la misma
+        // respuesta que ya se pedía para el numerito: preguntar aparte "¿tengo
+        // consultor?" sería una petición mas por pantalla para un dato que ya
+        // viene aquí.
+        setHasConsultantThread(
+          threads.some((thread) => Boolean(thread.counterpart_user_id)),
+        );
+      } catch {
+        /* transitorio: se reintenta en el siguiente ciclo */
+      }
+    };
+    void refresh();
+    const timer = setInterval(refresh, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [bootstrap, pathname]);
+
+  // Numerito de tareas nuevas en el nav. Son las notificaciones sin leer que
+  // apuntan a /tareas: hoy solo las genera el consultor al aprobar propuestas
+  // de la IA, que es justo lo que el cliente tiene que ver que le ha llegado.
+  useEffect(() => {
+    if (!bootstrap) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const response = await apiFetch("/v1/notifications?status=unread");
+        if (cancelled || !response.ok) return;
+        const payload = (await response.json()) as {
+          notifications?: Array<{ action_url?: string | null }>;
+        };
+        setTasksUnread(
+          (payload.notifications ?? []).filter(
+            (notification) => notification.action_url === "/tareas",
+          ).length,
+        );
+      } catch {
+        /* transitorio: se reintenta en el siguiente ciclo */
+      }
+    };
+    void refresh();
+    const timer = setInterval(refresh, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [bootstrap, pathname]);
 
   // Tiendas Shopify de la organización activa, para el selector global de
   // tienda del header. Se recarga cada vez que cambia la organización, via
@@ -661,6 +767,20 @@ function PortalShellContent({
   const navGroupLabelClass =
     "px-2 text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted";
 
+  // Numeritos por ruta del nav ("igual que las notificaciones"). Ampliable a
+  // otros módulos.
+  const navBadges: Record<string, number> = {
+    "/mensajes": messagesUnread,
+    "/tareas": tasksUnread,
+  };
+
+  // Chats sirve para hablar con el consultor. Sin consultor asignado no hay
+  // nadie al otro lado, así que el módulo se apaga -- y se enciende solo en
+  // cuanto le asignen uno. No hay interruptor que se pueda quedar apagado con
+  // consultor puesto. Al consultor no se le apaga nunca: su lista vacía ya le
+  // dice lo que pasa.
+  const chatsDisabled = !isConsultant && hasConsultantThread === false;
+
   const navigation = (
     <nav className="grid gap-6" aria-label="Navegacion principal">
       {isPlatformAdmin ? (
@@ -684,16 +804,41 @@ function PortalShellContent({
             <p className={navGroupLabelClass}>{group.label}</p>
           ) : null}
           <div className="mt-1.5 grid gap-px">
-            {group.items.map((item) => (
-              <Link
-                key={item.href}
-                aria-current={pathname === item.href ? "page" : undefined}
-                className={navRowClass(pathname === item.href)}
-                href={item.href}
-              >
-                {item.label}
-              </Link>
-            ))}
+            {group.items.map((item) => {
+              const badge = navBadges[item.href] ?? 0;
+
+              if (item.href === "/mensajes" && chatsDisabled) {
+                return (
+                  <span
+                    key={item.href}
+                    aria-disabled="true"
+                    title="Se activa en cuanto tengas un consultor asignado"
+                    className={`${navRowClass(false)} cursor-not-allowed opacity-50 hover:text-muted`}
+                  >
+                    <span className="flex-1">{item.label}</span>
+                  </span>
+                );
+              }
+
+              return (
+                <Link
+                  key={item.href}
+                  aria-current={pathname === item.href ? "page" : undefined}
+                  className={navRowClass(pathname === item.href)}
+                  href={item.href}
+                >
+                  <span className="flex-1">{item.label}</span>
+                  {badge > 0 ? (
+                    <span
+                      className="ml-2 inline-flex min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.65rem] font-medium leading-4 text-white"
+                      aria-label={`${badge} sin leer`}
+                    >
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  ) : null}
+                </Link>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -1048,7 +1193,9 @@ function PortalShellContent({
                         }
                       />
                     ) : (
-                      children(bootstrap, token)
+                      <ModuleSummaryProvider publish={setModuleSummary}>
+                        {children(bootstrap, token)}
+                      </ModuleSummaryProvider>
                     )}
                   </ActiveConnectionContext.Provider>
                 </ActiveOrganizationContext.Provider>
@@ -1099,7 +1246,13 @@ function PortalShellContent({
           </button>
         </nav>
 
-        {activeOrganizationId ? (
+        {/* El Consultor IA existe en cualquier pantalla, tambien en vista
+          general: A09 es mono-tenant (el gateway SQL fija la organizacion por
+          transaccion y toda la aislacion cuelga de ahi), asi que en vista
+          general no se consulta "la cartera" -- el panel pide el cliente
+          sobre el que preguntar. Antes el boton simplemente no existia y el
+          consultor tenia que salir a elegir cliente para poder preguntar. */}
+        {bootstrap.memberships.length > 0 ? (
           <>
             <Button
               className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 sm:right-6 lg:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]"
@@ -1107,11 +1260,27 @@ function PortalShellContent({
               aria-controls="copilot-panel"
               onClick={() => setIsCopilotOpen((open) => !open)}
             >
-              {isCopilotOpen ? "Cerrar copiloto" : "Copiloto"}
+              {isCopilotOpen ? "Cerrar Consultor IA" : "Consultor IA"}
             </Button>
             {isCopilotOpen ? (
               <CopilotPanel
                 organizationId={activeOrganizationId}
+                organizations={bootstrap.memberships.map((membership) => ({
+                  id: membership.organization_id,
+                  name:
+                    membership.organization?.display_name ??
+                    membership.organization_id,
+                }))}
+                view={{
+                  route: pathname,
+                  title,
+                  storeId: activeConnectionId || undefined,
+                  storeLabel:
+                    shopifyConnections.find(
+                      (connection) => connection.id === activeConnectionId,
+                    )?.provider_account_id ?? undefined,
+                  summary: moduleSummary,
+                }}
                 onClose={() => setIsCopilotOpen(false)}
               />
             ) : null}

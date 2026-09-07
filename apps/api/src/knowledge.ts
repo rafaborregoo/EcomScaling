@@ -90,7 +90,7 @@ export async function executeKnowledgeSearch(
   });
 }
 
-function requireKnowledgeManager(
+export function requireKnowledgeManager(
   context: AuthContext,
   organizationId: string | null,
 ) {
@@ -145,11 +145,43 @@ export async function createKnowledgeDocument(
     description?: unknown;
     content?: unknown;
     source_type?: unknown;
+    audience?: unknown;
   },
 ) {
   const access = requireKnowledgeManager(context, organizationId);
   if (access.ok === false) {
     return access;
+  }
+
+  // AI-07: subir metodologia que el cliente no debe leer (criterios de
+  // pricing, notas de como tratar a esta cuenta) exige marcarla
+  // `consultant_only`. Antes no habia forma de crearla desde la UI: todo
+  // documento nacia `client_visible` por el default de la tabla. Marcarla es
+  // privilegio de consultor/platform_admin -- un owner del cliente puede
+  // gestionar conocimiento (requireKnowledgeManager) pero no crear material
+  // oculto para su propia organizacion.
+  const requestedAudience =
+    typeof payload.audience === "string" ? payload.audience : "client_visible";
+
+  if (!["client_visible", "consultant_only"].includes(requestedAudience)) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "audience_invalida",
+    };
+  }
+
+  if (
+    requestedAudience === "consultant_only" &&
+    !["platform_admin", "consultant"].includes(context.profile.platform_role)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "consultant_only_denied",
+      message:
+        "Solo un consultor o platform admin puede marcar un documento como interno.",
+    };
   }
 
   const embeddings = requireEmbeddings(env);
@@ -203,11 +235,12 @@ export async function createKnowledgeDocument(
         typeof payload.description === "string" ? payload.description : null,
       source_type: sourceType,
       visibility: organizationId === null ? "global" : "organization",
+      audience: requestedAudience,
       checksum,
       embedding_model: embeddings.provider.model,
       created_by: context.user.id,
     })
-    .select("id, title, visibility, version")
+    .select("id, title, visibility, audience, version")
     .single();
 
   if (documentError || !document) {
@@ -253,6 +286,7 @@ export async function createKnowledgeDocument(
     entityId: document.id,
     newData: {
       visibility: document.visibility,
+      audience: document.audience,
       source_type: sourceType,
       chunk_count: chunks.length,
     },
@@ -264,6 +298,7 @@ export async function createKnowledgeDocument(
       document_id: document.id,
       title: document.title,
       visibility: document.visibility,
+      audience: document.audience,
       chunk_count: chunks.length,
       embedding_model: embeddings.provider.model,
     },
@@ -276,6 +311,46 @@ export async function listKnowledgeDocuments(
   context: AuthContext,
   organizationId: string,
 ) {
+  // Centinela "global" (mismo que ya usa la ruta de creacion): el catalogo de
+  // metodologia de plataforma, que vive en /admin/conocimiento y no cuelga de
+  // ningun cliente. Es el unico caso en que este endpoint devuelve globales.
+  if (organizationId === "global") {
+    if (context.profile.platform_role !== "platform_admin") {
+      return {
+        ok: false as const,
+        statusCode: 403,
+        error: "global_knowledge_denied",
+      };
+    }
+
+    const globalClient = createUserScopedClient(
+      env,
+      authorization.slice("Bearer ".length),
+    );
+    const { data, error } = await globalClient
+      .from("knowledge_documents")
+      .select(
+        "id, organization_id, title, description, source_type, visibility, version, status, audience, origin, authority, created_at, updated_at",
+      )
+      .eq("visibility", "global")
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (error) {
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "knowledge_list_failed",
+        detail: error.message,
+      };
+    }
+
+    return {
+      ok: true as const,
+      data: { organization_id: null, documents: data ?? [] },
+    };
+  }
+
   // BE-01 (bug de seguridad corregido 2026-07-28): la version anterior dejaba
   // pasar a CUALQUIER consultant/platform_admin sin comprobar membership para
   // ESTA organizacion (`!membership && !isPrivileged` nunca bloqueaba a un
@@ -310,14 +385,27 @@ export async function listKnowledgeDocuments(
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
 
-  const { data, error } = await supabase
+  // La metodologia de plataforma (`visibility = 'global'`, nuestra) deja de
+  // listarse aqui: este catalogo es el contexto DE ESTE CLIENTE. Antes se
+  // mezclaba con un `.or(visibility.eq.global, ...)`, asi que el consultor --
+  // y el cliente final, que abre la misma pantalla -- veian el playbook de
+  // EcomScaling entre sus propios documentos, sin poder tocarlo (el 403 de
+  // `requireKnowledgeManager` ya existia). Se gestiona en /admin/conocimiento.
+  //
+  // Sigue alimentando al copiloto de todos los clientes: el corte es de
+  // visibilidad en el catalogo, no de retrieval.
+  const query = supabase
     .from("knowledge_documents")
     .select(
       "id, organization_id, title, description, source_type, visibility, version, status, audience, origin, authority, created_at, updated_at",
     )
-    .or(`visibility.eq.global,organization_id.eq.${organizationId}`)
     .order("created_at", { ascending: false })
     .limit(100);
+
+  const { data, error } =
+    context.profile.platform_role === "platform_admin"
+      ? await query.or(`visibility.eq.global,organization_id.eq.${organizationId}`)
+      : await query.eq("organization_id", organizationId);
 
   if (error) {
     return {
@@ -393,13 +481,23 @@ export async function searchKnowledge(
     ? ["client_visible", "consultant_only"]
     : ["client_visible"];
 
+  // La metodologia de plataforma no se lista ni se busca fuera de
+  // /admin/conocimiento. La funcion SQL no sabe excluirla (su filtro es
+  // `global OR de este tenant`), asi que se descarta aqui y se pide el doble
+  // de candidatos para no devolver 2 resultados porque 6 eran globales.
+  //
+  // ponytail: filtrado en Node sobre un top-k ampliado. Si algun dia el
+  // conocimiento global crece tanto que copa los 16, toca un parametro
+  // `include_global` en knowledge_search_hybrid.
+  const hidesGlobal = context.profile.platform_role !== "platform_admin";
+
   const { data, error } = await executeKnowledgeSearch(supabase, {
     targetOrganizationId: organizationId,
     queryEmbedding: JSON.stringify(embedding),
     queryText,
     audienceAllowed,
     targetStoreId: storeId,
-    matchCount: 8,
+    matchCount: hidesGlobal ? 16 : 8,
   });
 
   if (error) {
@@ -411,12 +509,18 @@ export async function searchKnowledge(
     };
   }
 
+  const matches = hidesGlobal
+    ? ((data ?? []) as Array<{ visibility: string }>)
+        .filter((match) => match.visibility !== "global")
+        .slice(0, 8)
+    : (data ?? []);
+
   return {
     ok: true as const,
     data: {
       organization_id: organizationId,
       query: queryText,
-      matches: data ?? [],
+      matches,
     },
   };
 }

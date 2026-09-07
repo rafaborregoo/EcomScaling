@@ -3,7 +3,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { assignPartnersToOrganization } from "./consultant-partners.js";
 import { isErr } from "./result-guard.js";
+import { rankStores, type AgentSignal } from "./store-triage.js";
 import { createLogger } from "@ecomscaling/observability";
 
 const logger = createLogger("consultant");
@@ -290,6 +292,750 @@ export async function listConsultantOrganizations(
   };
 }
 
+type OrdersByOrgRow = {
+  organization_id: string;
+  orders_count: number | string;
+  net_sales: number | string;
+};
+
+// Filas del widget "Pedidos": pedidos + facturacion por cliente en un rango,
+// ordenadas por facturacion desc. Clientes sin pedidos fuera. Sin numerar: el
+// orden es la unica senal de ranking.
+function rankOrdersByOrg(
+  organizations: Array<{
+    id: string;
+    display_name: string;
+    currency_code?: string | null;
+  }>,
+  rpcRows: OrdersByOrgRow[] | null,
+) {
+  const byOrg = new Map(
+    (rpcRows ?? []).map((row) => [row.organization_id, row]),
+  );
+  const num = (value: unknown) => Number(value ?? 0);
+  return organizations
+    .map((organization) => {
+      const row = byOrg.get(organization.id);
+      return {
+        organization_id: organization.id,
+        display_name: organization.display_name,
+        currency_code: organization.currency_code ?? "EUR",
+        orders_count: num(row?.orders_count),
+        net_sales: num(row?.net_sales),
+      };
+    })
+    .filter((entry) => entry.orders_count > 0)
+    .sort((a, b) => b.net_sales - a.net_sales);
+}
+
+type OrdersByStoreRow = {
+  store_id: string;
+  organization_id: string;
+  shop_name: string | null;
+  myshopify_domain: string | null;
+  currency_code: string | null;
+  orders_count: number | string;
+  net_sales: number | string;
+  units_sold: number | string;
+};
+
+// Ranking de TIENDAS por volumen de pedidos (no por facturacion, como el de
+// clientes): un cliente puede tener varias tiendas y el agregado por cliente
+// esconde que dentro de el una tira y otra esta parada. Se ordena por pedidos
+// y se desempata por facturacion. Tiendas sin pedidos en el rango fuera.
+export function rankOrdersByStore(
+  organizations: Array<{ id: string; display_name: string }>,
+  rpcRows: OrdersByStoreRow[] | null,
+) {
+  const nameByOrg = new Map(
+    organizations.map((organization) => [
+      organization.id,
+      organization.display_name,
+    ]),
+  );
+  const num = (value: unknown) => Number(value ?? 0);
+  return (rpcRows ?? [])
+    .map((row) => ({
+      store_id: row.store_id,
+      organization_id: row.organization_id,
+      organization_name: nameByOrg.get(row.organization_id) ?? "—",
+      shop_name: row.shop_name ?? row.myshopify_domain ?? "Tienda",
+      myshopify_domain: row.myshopify_domain,
+      currency_code: row.currency_code ?? "EUR",
+      orders_count: num(row.orders_count),
+      net_sales: num(row.net_sales),
+      units_sold: num(row.units_sold),
+      // AOV por tienda: el dato que hace comparable a dos tiendas con volumen
+      // muy distinto, y que el consultor mira justo despues del ranking.
+      aov: num(row.orders_count) > 0 ? num(row.net_sales) / num(row.orders_count) : 0,
+    }))
+    .filter((entry) => entry.orders_count > 0)
+    .sort(
+      (a, b) =>
+        b.orders_count - a.orders_count || b.net_sales - a.net_sales,
+    );
+}
+
+/**
+ * Widget "Pedidos" del Dashboard del consultor con rango de fechas propio
+ * (los botones 1d/3d/1sem/1mes/personalizado). Mismo desglose por cliente que
+ * el `orders_last_24h` de getConsultantOverview, pero para el rango pedido.
+ */
+export async function listConsultantOrders(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  fromIso: string,
+  toIso: string,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const safeIds = organizations.length
+    ? organizations.map((organization) => organization.id)
+    : ["00000000-0000-0000-0000-000000000000"];
+
+  const supabase = createServiceClient(env);
+  const [totalsResult, dailyResult, storesResult] = await Promise.all([
+    supabase.rpc("consultant_orders_by_org", {
+      org_ids: safeIds,
+      period_start: fromIso,
+      period_end: toIso,
+    }),
+    supabase.rpc("consultant_orders_daily_by_org", {
+      org_ids: safeIds,
+      period_start: fromIso,
+      period_end: toIso,
+    }),
+    supabase.rpc("consultant_orders_by_store", {
+      org_ids: safeIds,
+      period_start: fromIso,
+      period_end: toIso,
+    }),
+  ]);
+
+  if (totalsResult.error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_orders_load_failed",
+      detail: totalsResult.error.message,
+    };
+  }
+
+  // El grafico de evolucion es secundario: si su funcion falla (p. ej.
+  // migracion aun sin aplicar) el ranking sigue devolviendose y `daily` va
+  // vacio -> el front muestra la lista sin la linea temporal.
+  if (dailyResult.error) {
+    logger.error(
+      "consultant_orders_daily_by_org failed; returning ranking without chart series",
+      dailyResult.error.message,
+    );
+  }
+
+  // El ranking por tienda es igual de secundario que el grafico: si su funcion
+  // aun no esta aplicada, el widget sigue mostrando el ranking por cliente.
+  if (storesResult.error) {
+    logger.error(
+      "consultant_orders_by_store failed; returning ranking without store breakdown",
+      storesResult.error.message,
+    );
+  }
+
+  const daily = (
+    (dailyResult.data ?? []) as Array<{
+      bucket_date: string;
+      organization_id: string;
+      orders_count: number | string;
+    }>
+  ).map((row) => ({
+    bucket_date: row.bucket_date,
+    organization_id: row.organization_id,
+    orders_count: Number(row.orders_count ?? 0),
+  }));
+
+  return {
+    ok: true as const,
+    data: {
+      from: fromIso,
+      to: toIso,
+      rows: rankOrdersByOrg(
+        organizations,
+        totalsResult.data as OrdersByOrgRow[] | null,
+      ),
+      // Ranking por tienda, ordenado por numero de pedidos.
+      stores: rankOrdersByStore(
+        organizations,
+        storesResult.data as OrdersByStoreRow[] | null,
+      ),
+      // Serie diaria por cliente para el grafico de evolucion. El frontend
+      // rellena los dias sin pedidos con 0.
+      daily,
+    },
+  };
+}
+
+// Widget "Tareas que propone la IA" (vista general del consultor): por cada
+// cliente, las tareas que los agentes de operativa (Shopify a13, Meta a14,
+// email a12) proponen implementar. Solo lectura de la ultima salida CACHEADA
+// de cada agente (las regenera el orquestador); aqui no se aprueba nada.
+type ProposedArea = "shopify" | "meta" | "klaviyo";
+
+const OPERATIVA_AGENT_AREA: Record<string, ProposedArea> = {
+  a13_operativa_shopify: "shopify",
+  // Los tres especialistas proponen tarea de tienda igual que A13: sus
+  // propuestas tienen que llegar al mismo sitio o el consultor no las ve.
+  a20_retencion_clientes: "shopify",
+  a21_adquisicion_shopify: "shopify",
+  a22_postventa_shopify: "shopify",
+  a14_operativa_meta: "meta",
+  a12_analista_email: "klaviyo",
+  // Los planes por horizonte (dia/semana/mes) proponen en los tres canales:
+  // el area sale de `categories` de cada propuesta y esto es solo el fallback.
+  a04_generador_tareas: "shopify",
+  a17_plan_semanal: "shopify",
+  a18_plan_mensual: "shopify",
+};
+
+/** Canal real de una propuesta: lo dice `categories`; si no, el del agente. */
+function areaForWrite(
+  write: Record<string, unknown>,
+  fallback: ProposedArea,
+): ProposedArea {
+  const categories = Array.isArray(write.categories) ? write.categories : [];
+  for (const category of categories) {
+    if (category === "shopify" || category === "meta" || category === "klaviyo") {
+      return category;
+    }
+  }
+  return fallback;
+}
+
+const PRIORITY_RANK: Record<string, number> = {
+  urgent: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+type ProposedTask = {
+  area: "shopify" | "meta" | "klaviyo";
+  title: string;
+  rationale: string;
+  description: string;
+  priority: string;
+  phase: string | null;
+  pending_approval: boolean;
+  // Salida de la que viene la propuesta y su posicion dentro de
+  // `proposed_writes`. Sin estas dos coordenadas la lista es solo de lectura:
+  // son lo que necesita /tareas para aprobar o editar esta tarea concreta via
+  // POST /ai/outputs/:outputId/decision.
+  output_id: string;
+  write_index: number;
+  // Cifras en las que se apoya la propuesta (ver agentEvidenceItemSchema).
+  evidence: Array<{
+    label: string;
+    value: string;
+    period: string | null;
+    source: string;
+  }>;
+};
+
+export async function listConsultantProposedTasks(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const safeIds = organizations.length
+    ? organizations.map((organization) => organization.id)
+    : ["00000000-0000-0000-0000-000000000000"];
+
+  const supabase = createServiceClient(env);
+  const { data: runs, error } = await supabase
+    .from("agent_runs")
+    .select(
+      "organization_id, started_at, finished_at, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(id, status, output)",
+    )
+    .in("organization_id", safeIds)
+    .in("agent_versions.agent_definitions.code", Object.keys(OPERATIVA_AGENT_AREA))
+    .eq("status", "succeeded")
+    .is("store_id", null)
+    .order("started_at", { ascending: false })
+    .limit(300);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_proposed_tasks_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const codeOf = (run: Record<string, unknown>): string | null => {
+    const versions = run.agent_versions as
+      | { agent_definitions?: { code?: string } }
+      | { agent_definitions?: { code?: string } }[]
+      | null;
+    const version = Array.isArray(versions) ? versions[0] : versions;
+    return version?.agent_definitions?.code ?? null;
+  };
+  const outputOf = (run: Record<string, unknown>) => {
+    const raw = run.agent_outputs as
+      | { id?: string; status?: string; output?: unknown }
+      | { id?: string; status?: string; output?: unknown }[]
+      | null;
+    return Array.isArray(raw) ? raw[0] : raw;
+  };
+
+  // Solo la salida mas reciente por (cliente, agente).
+  const seen = new Set<string>();
+  const tasksByOrg = new Map<string, ProposedTask[]>();
+
+  for (const run of (runs ?? []) as Array<Record<string, unknown>>) {
+    const code = codeOf(run);
+    const orgId = run.organization_id as string;
+    if (!code) continue;
+    const key = `${orgId}:${code}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const area = OPERATIVA_AGENT_AREA[code];
+    if (!area) continue;
+    const output = outputOf(run);
+    const outputId = typeof output?.id === "string" ? output.id : null;
+    if (!outputId) continue;
+    const content = (output?.output ?? {}) as Record<string, unknown>;
+    const pending = output?.status === "pending_approval";
+    const rawWrites = Array.isArray(content.proposed_writes)
+      ? content.proposed_writes
+      : [];
+
+    const list = tasksByOrg.get(orgId) ?? [];
+    // `writeIndex` es la posicion en el `proposed_writes` original, no en la
+    // lista filtrada: es la coordenada con la que /tareas edita esta entrada.
+    let writeIndex = -1;
+    for (const write of rawWrites as Array<Record<string, unknown>>) {
+      writeIndex += 1;
+      const title = typeof write.title === "string" ? write.title.trim() : "";
+      if (!title) continue;
+      const phaseRaw = write.phase;
+      // La evidencia la escribe un LLM: se filtra a las entradas con forma
+      // valida en vez de confiar en el array tal cual.
+      const evidence = (
+        Array.isArray(write.evidence) ? write.evidence : []
+      ).flatMap((item: unknown) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Record<string, unknown>;
+        const label = typeof row.label === "string" ? row.label.trim() : "";
+        const value = typeof row.value === "string" ? row.value.trim() : "";
+        if (!label || !value) return [];
+        return [
+          {
+            label,
+            value,
+            period: typeof row.period === "string" ? row.period : null,
+            source: typeof row.source === "string" ? row.source : "interno",
+          },
+        ];
+      });
+
+      list.push({
+        output_id: outputId,
+        write_index: writeIndex,
+        evidence,
+        area: areaForWrite(write, area),
+        title,
+        rationale:
+          typeof write.rationale === "string" ? write.rationale.trim() : "",
+        description:
+          typeof write.description === "string" ? write.description.trim() : "",
+        priority:
+          typeof write.priority === "string" ? write.priority : "medium",
+        phase:
+          typeof phaseRaw === "string" && phaseRaw.trim().length > 0
+            ? phaseRaw.trim()
+            : null,
+        pending_approval: pending,
+      });
+    }
+    tasksByOrg.set(orgId, list);
+  }
+
+  // Cliente que peor va primero (misma senal que la cola de atencion); dentro
+  // de cada cliente, la tarea mas prioritaria arriba.
+  const clients = organizations
+    .map((organization) => ({
+      organization_id: organization.id,
+      display_name: organization.display_name,
+      attention_score: organization.attention.score,
+      tasks: (tasksByOrg.get(organization.id) ?? []).sort(
+        (a, b) =>
+          (PRIORITY_RANK[b.priority] ?? 2) - (PRIORITY_RANK[a.priority] ?? 2),
+      ),
+    }))
+    .filter((client) => client.tasks.length > 0)
+    .sort((a, b) => b.attention_score - a.attention_score);
+
+  return { ok: true as const, data: { clients } };
+}
+
+// Widget "Meta Ads · cartera": lista de clientes rankeada por "cuanto hay que
+// revisar su cuenta de Meta". Score determinista (sin IA, explicable):
+// ROAS bajo el break-even, ROAS < 1, ROAS cayendo vs. el periodo comparado,
+// CAC por encima de la contribucion del primer pedido, dependencia alta de
+// Meta con ROAS flojo, datos incompletos y gasto sin ventas.
+type MetaByOrgRow = {
+  organization_id: string;
+  spend: number | string;
+  impressions: number | string;
+  clicks: number | string;
+  purchases: number | string;
+  purchase_value: number | string;
+  roas: number | string | null;
+  cac: number | string | null;
+  days_with_data: number | string;
+};
+
+const META_COMPARE_MONTH = { window: 30, back: 30 } as const;
+const META_COMPARE_OFFSET_DAYS: Record<
+  string,
+  { window: number; back: number }
+> = {
+  week: { window: 7, back: 7 },
+  month: META_COMPARE_MONTH,
+  year: { window: 30, back: 365 },
+};
+
+function pctChange(current: number, previous: number | null): number | null {
+  if (previous == null || previous === 0) return null;
+  return ((current - previous) / Math.abs(previous)) * 100;
+}
+
+export async function listConsultantMetaPortfolio(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  compare: string,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const safeIds = organizations.length
+    ? organizations.map((organization) => organization.id)
+    : ["00000000-0000-0000-0000-000000000000"];
+
+  const cmp = META_COMPARE_OFFSET_DAYS[compare] ?? META_COMPARE_MONTH;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  const curStart = now - cmp.window * dayMs;
+  const prevEnd = now - cmp.back * dayMs;
+  const prevStart = prevEnd - cmp.window * dayMs;
+
+  const supabase = createServiceClient(env);
+  const [curRes, prevRes, financials, backfillConns] = await Promise.all([
+    supabase.rpc("consultant_meta_by_org", {
+      org_ids: safeIds,
+      period_start: day(curStart),
+      period_end: day(now),
+    }),
+    supabase.rpc("consultant_meta_by_org", {
+      org_ids: safeIds,
+      period_start: day(prevStart),
+      period_end: day(prevEnd),
+    }),
+    Promise.all(
+      organizations.map(async (organization) => {
+        const { data } = await supabase.rpc("shopify_financial_summary", {
+          target_organization_id: organization.id,
+          period_start: iso(curStart),
+          period_end: iso(now),
+          target_store_id: null,
+        });
+        return [organization.id, (data ?? [])[0] ?? null] as const;
+      }),
+    ),
+    supabase
+      .from("integration_connections")
+      .select("metadata")
+      .eq("provider", "meta_ads")
+      .in("organization_id", safeIds),
+  ]);
+
+  // Cuántas cuentas de la cartera están importando su histórico ahora mismo
+  // (para el banner del widget).
+  const backfillingAccounts = (backfillConns.data ?? []).filter((row) => {
+    const state = (row.metadata as { backfill?: { status?: string } } | null)
+      ?.backfill;
+    return state?.status === "running";
+  }).length;
+
+  if (curRes.error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_meta_portfolio_load_failed",
+      detail: curRes.error.message,
+    };
+  }
+
+  const num = (value: unknown): number => Number(value ?? 0);
+  const numOrNull = (value: unknown): number | null =>
+    value == null ? null : Number(value);
+  const byId = <T extends { organization_id: string }>(rows: T[] | null) =>
+    new Map((rows ?? []).map((row) => [row.organization_id, row]));
+
+  const curById = byId((curRes.data ?? null) as MetaByOrgRow[] | null);
+  const prevById = byId((prevRes.data ?? null) as MetaByOrgRow[] | null);
+  const finById = new Map(financials);
+
+  const clients = organizations
+    .map((organization) => {
+      const cur = curById.get(organization.id);
+      const prev = prevById.get(organization.id);
+      const fin = finById.get(organization.id) as
+        | {
+            net_sales?: unknown;
+            gross_margin?: unknown;
+            orders_count?: unknown;
+            has_settings?: unknown;
+          }
+        | null
+        | undefined;
+
+      const spend = num(cur?.spend);
+      const prevSpend = num(prev?.spend);
+      const roas = numOrNull(cur?.roas);
+      const prevRoas = numOrNull(prev?.roas);
+      const cac = numOrNull(cur?.cac);
+      const impressions = num(cur?.impressions);
+      const clicks = num(cur?.clicks);
+      const purchases = num(cur?.purchases);
+      const purchaseValue = num(cur?.purchase_value);
+      const daysWithData = num(cur?.days_with_data);
+
+      const ctr = impressions > 0 ? (clicks / impressions) * 100 : null;
+      const cpm = impressions > 0 ? (spend / impressions) * 1000 : null;
+      const prevImpr = num(prev?.impressions);
+      const prevCtr =
+        prevImpr > 0 ? (num(prev?.clicks) / prevImpr) * 100 : null;
+      const prevCpm = prevImpr > 0 ? (prevSpend / prevImpr) * 1000 : null;
+
+      const hasSettings = fin?.has_settings === true;
+      const netSales = num(fin?.net_sales);
+      const grossMargin = num(fin?.gross_margin);
+      const finOrders = num(fin?.orders_count);
+      const breakEvenRoas =
+        hasSettings && grossMargin > 0 ? netSales / grossMargin : null;
+      const contributionPerOrder =
+        grossMargin > 0 && finOrders > 0 ? grossMargin / finOrders : null;
+      const dependencyPct =
+        netSales > 0 ? (purchaseValue / netSales) * 100 : null;
+
+      const roasDeltaPct = pctChange(roas ?? 0, prevRoas);
+
+      let score = 0;
+      if (roas != null && breakEvenRoas != null && roas < breakEvenRoas) {
+        score += ((breakEvenRoas - roas) / breakEvenRoas) * 40;
+      }
+      if (roas != null && roas < 1) score += (1 - roas) * 20;
+      if (roasDeltaPct != null && roasDeltaPct < 0) {
+        score += Math.min(-roasDeltaPct, 100) * 0.3;
+      }
+      if (
+        cac != null &&
+        contributionPerOrder != null &&
+        cac > contributionPerOrder
+      ) {
+        score += ((cac - contributionPerOrder) / contributionPerOrder) * 15;
+      }
+      if (
+        dependencyPct != null &&
+        dependencyPct > 40 &&
+        roas != null &&
+        (breakEvenRoas == null || roas < breakEvenRoas)
+      ) {
+        score += dependencyPct * 0.2;
+      }
+      if (spend > 0 && daysWithData < cmp.window * 0.5) score += 10;
+      if (spend > 0 && purchases === 0) score += 25;
+
+      return {
+        organization_id: organization.id,
+        display_name: organization.display_name,
+        currency_code: organization.currency_code ?? "EUR",
+        score: Math.round(score * 10) / 10,
+        spend,
+        impressions,
+        clicks,
+        purchases,
+        purchase_value: purchaseValue,
+        roas,
+        cac,
+        ctr,
+        cpm,
+        days_with_data: daysWithData,
+        break_even_roas: breakEvenRoas,
+        contribution_per_order: contributionPerOrder,
+        dependency_pct: dependencyPct,
+        delta: {
+          spend_pct: pctChange(spend, prevSpend || null),
+          roas_pct: roasDeltaPct,
+          cac_pct: pctChange(cac ?? 0, numOrNull(prev?.cac)),
+          purchases_pct: pctChange(purchases, num(prev?.purchases) || null),
+          purchase_value_pct: pctChange(
+            purchaseValue,
+            num(prev?.purchase_value) || null,
+          ),
+          ctr_pct: pctChange(ctr ?? 0, prevCtr),
+          cpm_pct: pctChange(cpm ?? 0, prevCpm),
+        },
+      };
+    })
+    .filter((client) => client.spend > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return {
+    ok: true as const,
+    data: {
+      compare: compare in META_COMPARE_OFFSET_DAYS ? compare : "month",
+      window_days: cmp.window,
+      backfilling_accounts: backfillingAccounts,
+      clients,
+    },
+  };
+}
+
+// Widget "Email · campañas por cliente" (vista general): por cada cliente,
+// cuantas campanas Klaviyo envio en la ventana + su rendimiento atribuido.
+// Ranking = mas campanas primero. Enlaces por fila a /marketing (resultados) y
+// /planificacion/tracking, cambiando el cliente activo.
+const KLAVIYO_WINDOW_DAYS: Record<string, number | null> = {
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+  all: null,
+};
+
+type KlaviyoByOrgRow = {
+  organization_id: string;
+  campaigns_sent: number | string;
+  last_send_at: string | null;
+  revenue: number | string;
+  recipients: number | string;
+  opens_unique: number | string;
+  clicks_unique: number | string;
+};
+
+export async function listConsultantKlaviyoPortfolio(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  windowKey: string,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const safeIds = organizations.length
+    ? organizations.map((organization) => organization.id)
+    : ["00000000-0000-0000-0000-000000000000"];
+
+  const days =
+    windowKey in KLAVIYO_WINDOW_DAYS ? KLAVIYO_WINDOW_DAYS[windowKey] : 30;
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const periodStart =
+    days == null
+      ? "2000-01-01T00:00:00.000Z"
+      : new Date(now - days * dayMs).toISOString();
+  const periodEnd = new Date(now).toISOString();
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase.rpc("consultant_klaviyo_by_org", {
+    org_ids: safeIds,
+    period_start: periodStart,
+    period_end: periodEnd,
+  });
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_klaviyo_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const byOrg = new Map(
+    ((data ?? []) as KlaviyoByOrgRow[]).map((row) => [row.organization_id, row]),
+  );
+  const num = (value: unknown) => Number(value ?? 0);
+
+  const clients = organizations
+    .map((organization) => {
+      const row = byOrg.get(organization.id);
+      const recipients = num(row?.recipients);
+      return {
+        organization_id: organization.id,
+        display_name: organization.display_name,
+        currency_code: organization.currency_code ?? "EUR",
+        campaigns_sent: num(row?.campaigns_sent),
+        last_send_at: row?.last_send_at ?? null,
+        revenue: num(row?.revenue),
+        recipients,
+        open_rate: recipients > 0 ? num(row?.opens_unique) / recipients : null,
+        click_rate: recipients > 0 ? num(row?.clicks_unique) / recipients : null,
+      };
+    })
+    .filter((client) => client.campaigns_sent > 0)
+    .sort(
+      (a, b) =>
+        b.campaigns_sent - a.campaigns_sent || b.revenue - a.revenue,
+    );
+
+  return {
+    ok: true as const,
+    data: {
+      window: windowKey in KLAVIYO_WINDOW_DAYS ? windowKey : "30d",
+      clients,
+    },
+  };
+}
+
 /**
  * Dashboard del consultor en estado "vista general" (sin cliente activo):
  * resumen de toda la cartera. Reutiliza listConsultantOrganizations para
@@ -320,6 +1066,8 @@ export async function getConsultantOverview(
   const periodStart = new Date(now - windowDays * dayMs).toISOString();
   const periodEnd = new Date(now).toISOString();
   const prevStart = new Date(now - 2 * windowDays * dayMs).toISOString();
+  // El widget "Pedidos" es siempre 24h, independiente del periodo del resto.
+  const last24hStart = new Date(now - dayMs).toISOString();
 
   const supabase = createServiceClient(env);
   const safeIds = orgIds.length
@@ -332,6 +1080,7 @@ export async function getConsultantOverview(
     { data: reauthRows },
     { data: financialRows },
     { data: taskRows },
+    { data: orders24hRows },
   ] = await Promise.all([
     supabase.rpc("consultant_business_rollup", {
       org_ids: safeIds,
@@ -360,6 +1109,11 @@ export async function getConsultantOverview(
       .in("status", ["pending", "in_progress"])
       .order("due_at", { ascending: true, nullsFirst: false })
       .limit(150),
+    supabase.rpc("consultant_orders_by_org", {
+      org_ids: safeIds,
+      period_start: last24hStart,
+      period_end: periodEnd,
+    }),
   ]);
 
   if (currentError || previousError) {
@@ -444,6 +1198,13 @@ export async function getConsultantOverview(
       (row.organization_id as string),
   }));
 
+  // Widget "Pedidos": una fila por cliente con pedidos en el rango, ordenadas
+  // por facturacion desc (el que mas factura, arriba). Sin numerar.
+  const ordersLast24h = rankOrdersByOrg(
+    organizations,
+    orders24hRows as OrdersByOrgRow[] | null,
+  );
+
   // Tiendas propias del consultor (membership real): no son "cartera", van en
   // su propio bloque del Dashboard. Si falla, no tumba la vista general.
   const ownStoresResult = await listOwnStoresOverview(env, context, windowDays);
@@ -468,7 +1229,192 @@ export async function getConsultantOverview(
       },
       portfolio,
       tasks,
+      orders_last_24h: ordersLast24h,
       own_stores: ownStores,
+    },
+  };
+}
+
+/**
+ * Agenda del consultor (dashboard vista general + pagina /agenda). Reune, en una
+ * ventana [from, to): tareas con due_at de la cartera, dias de planificacion de
+ * campanas (campaign_calendar_items) e hitos de Mi Camino con target_date.
+ * scope:
+ *   - "own": tareas de las tiendas propias del consultor (membership real) +
+ *     cualquier tarea assigned_to/created_by el consultor en el resto de la
+ *     cartera. Planificacion e hitos: solo de las tiendas propias.
+ *   - "all": toda la cartera asignada.
+ *   - "<organizationId>": solo esa org (debe ser accesible).
+ * Cliente user-scoped: la RLS limita las filas a las orgs accesibles.
+ */
+export async function listConsultantAgenda(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  params: {
+    from?: string | undefined;
+    to?: string | undefined;
+    scope?: string | undefined;
+  },
+) {
+  // La agenda la usan consultor/admin (cartera completa) y también el cliente
+  // (solo su workspace: `context.memberships` ya lo limita, y la RLS remata).
+  const fromMs = params.from ? Date.parse(params.from) : NaN;
+  const toMs = params.to ? Date.parse(params.to) : NaN;
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs) || toMs <= fromMs) {
+    return { ok: false as const, statusCode: 400, error: "agenda_range_invalid" };
+  }
+  if (toMs - fromMs > 62 * 86_400_000) {
+    return { ok: false as const, statusCode: 400, error: "agenda_range_too_large" };
+  }
+  const fromIso = new Date(fromMs).toISOString();
+  const toIso = new Date(toMs).toISOString();
+  const fromDate = fromIso.slice(0, 10);
+  const toDate = toIso.slice(0, 10);
+
+  const scope = params.scope || "all";
+  const nameByOrg = new Map<string, string>();
+  for (const membership of context.memberships) {
+    nameByOrg.set(
+      membership.organization_id,
+      membership.organization?.display_name ?? membership.organization_id,
+    );
+  }
+  const allOrgIds = [...nameByOrg.keys()];
+  const ownOrgIds = context.memberships
+    .filter((membership) => membership.accessSource === "membership")
+    .map((membership) => membership.organization_id);
+
+  if (scope !== "own" && scope !== "all" && !nameByOrg.has(scope)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
+  }
+
+  // Orgs para planificacion e hitos (bloques ligados a una org concreta).
+  const scopedOrgIds =
+    scope === "all" ? allOrgIds : scope === "own" ? ownOrgIds : [scope];
+  const sentinel = "00000000-0000-0000-0000-000000000000";
+  const safe = (ids: string[]) => (ids.length ? ids : [sentinel]);
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  let tasksQuery = supabase
+    .from("tasks")
+    .select(
+      "id, title, status, priority, due_at, organization_id, source, is_visible_to_client",
+    )
+    .not("due_at", "is", null)
+    .gte("due_at", fromIso)
+    .lt("due_at", toIso);
+
+  if (scope === "own") {
+    // Tiendas propias enteras + tareas del consultor en cualquier org accesible
+    // (la RLS ya limita las filas del OR a orgs asignadas).
+    tasksQuery = tasksQuery.or(
+      [
+        `organization_id.in.(${safe(ownOrgIds).join(",")})`,
+        `assigned_to.eq.${context.user.id}`,
+        `created_by.eq.${context.user.id}`,
+      ].join(","),
+    );
+  } else if (scope === "all") {
+    // ponytail: para platform_admin allOrgIds puede ser grande; mismo patron
+    // que listConsultantOperations. Paginar/acotar si llega a doler.
+    tasksQuery = tasksQuery.in("organization_id", safe(allOrgIds));
+  } else {
+    tasksQuery = tasksQuery.eq("organization_id", scope);
+  }
+
+  const [tasksResult, planningResult, milestonesResult] = await Promise.all([
+    tasksQuery.order("due_at", { ascending: true }).limit(500),
+    supabase
+      .from("campaign_calendar_items")
+      .select(
+        "id, title, channel, item_type, starts_at, ends_at, status, organization_id, blocked_reason, marketing_draft_id",
+      )
+      .in("organization_id", safe(scopedOrgIds))
+      .is("deleted_at", null)
+      .gte("starts_at", fromIso)
+      .lt("starts_at", toIso)
+      .order("starts_at", { ascending: true })
+      .limit(500),
+    supabase
+      .from("strategic_plan_milestones")
+      .select(
+        "id, name, target_date, status, organization_id, strategic_plan_phases(name)",
+      )
+      .in("organization_id", safe(scopedOrgIds))
+      .not("target_date", "is", null)
+      .gte("target_date", fromDate)
+      .lte("target_date", toDate)
+      .order("target_date", { ascending: true })
+      .limit(500),
+  ]);
+
+  const firstError =
+    tasksResult.error || planningResult.error || milestonesResult.error;
+  if (firstError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "agenda_load_failed",
+      detail: firstError.message,
+    };
+  }
+
+  const orgName = (id: string) => nameByOrg.get(id) ?? id;
+  const phaseName = (embedded: unknown): string | null => {
+    if (Array.isArray(embedded)) {
+      return (embedded[0] as { name?: string } | undefined)?.name ?? null;
+    }
+    return (embedded as { name?: string } | null)?.name ?? null;
+  };
+
+  return {
+    ok: true as const,
+    data: {
+      from: fromIso,
+      to: toIso,
+      scope,
+      tasks: (tasksResult.data ?? []).map((row) => ({
+        id: row.id as string,
+        title: row.title as string,
+        status: row.status as string,
+        priority: row.priority as string,
+        due_at: row.due_at as string,
+        organization_id: row.organization_id as string,
+        organization_name: orgName(row.organization_id as string),
+        source: row.source as string,
+        is_visible_to_client: row.is_visible_to_client as boolean,
+      })),
+      planning_items: (planningResult.data ?? []).map((row) => ({
+        id: row.id as string,
+        title: row.title as string,
+        channel: row.channel as string,
+        item_type: row.item_type as string,
+        starts_at: row.starts_at as string,
+        ends_at: row.ends_at as string | null,
+        status: row.status as string,
+        organization_id: row.organization_id as string,
+        organization_name: orgName(row.organization_id as string),
+        // Las dos señales que convierten la agenda en triaje: por que esta
+        // parada una accion, y si ya tiene la pieza escrita.
+        blocked_reason: (row.blocked_reason as string | null) ?? null,
+        marketing_draft_id: (row.marketing_draft_id as string | null) ?? null,
+      })),
+      milestones: (milestonesResult.data ?? []).map((row) => ({
+        id: row.id as string,
+        name: row.name as string,
+        target_date: row.target_date as string,
+        status: row.status as string,
+        organization_id: row.organization_id as string,
+        organization_name: orgName(row.organization_id as string),
+        phase_name: phaseName(row.strategic_plan_phases),
+      })),
     },
   };
 }
@@ -627,7 +1573,7 @@ export async function listConsultantMarketing(
     supabase
       .from("marketing_content_drafts")
       .select(
-        "id, organization_id, content_type, status, template_name, subject, summary, purpose, audience, locale, tone, plain_text, html, confidence, version, created_at, updated_at, decision_reason, request",
+        "id, organization_id, content_type, status, template_name, subject, summary, purpose, audience, locale, tone, plain_text, html, confidence, version, created_at, updated_at, scheduled_for, decision_reason, request",
       )
       .in("organization_id", safeIds)
       .order("updated_at", { ascending: false })
@@ -699,7 +1645,7 @@ export async function listMarketingDraftNotes(
 
   const { data, error } = await supabase
     .from("marketing_content_draft_notes")
-    .select("id, body, author_user_id, created_at")
+    .select("id, body, author_user_id, author_kind, created_at")
     .eq("draft_id", draftId)
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: true });
@@ -745,8 +1691,27 @@ export async function listMarketingDraftNotes(
   };
 }
 
-/** Añade una objeción a un borrador de marketing. Solo consultor asignado o
- * platform_admin (misma frontera que aprobar/rechazar). */
+type DraftAuthorKind = "consultant" | "client" | "platform" | "ai";
+
+/** Rol del actor en el hilo de un borrador. `null` = sin acceso al workspace. */
+function resolveDraftAuthorKind(
+  context: AuthContext,
+  organizationId: string,
+): DraftAuthorKind | null {
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
+  if (!membership) return null;
+  if (context.profile.platform_role === "platform_admin") return "platform";
+  if (context.profile.platform_role === "consultant") return "consultant";
+  if (["owner", "manager"].includes(membership.role)) return "client";
+  return null;
+}
+
+/** Mensaje en el hilo de un borrador de marketing. El hilo es una conversación
+ * bidireccional consultor <-> cliente (y plataforma / IA): cualquier miembro
+ * del workspace escribe. Las líneas de sistema (cambios de fecha) usan la
+ * misma tabla. */
 export async function addMarketingDraftNote(
   env: ApiEnv,
   context: AuthContext,
@@ -754,25 +1719,14 @@ export async function addMarketingDraftNote(
   draftId: string,
   body: { body?: string },
 ) {
-  if (
-    !["platform_admin", "consultant"].includes(context.profile.platform_role)
-  ) {
+  const authorKind = resolveDraftAuthorKind(context, organizationId);
+  if (!authorKind) {
     return {
       ok: false as const,
       statusCode: 403,
-      error: "consultant_access_required",
-      message: "Solo un consultor o platform_admin puede añadir objeciones.",
-    };
-  }
-  if (
-    !context.memberships.some(
-      (membership) => membership.organization_id === organizationId,
-    )
-  ) {
-    return {
-      ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
+      error: "marketing_thread_access_required",
+      message:
+        "Necesitas ser miembro del workspace (cliente, consultor o plataforma) para escribir en el hilo.",
     };
   }
   const text = body.body?.trim();
@@ -805,9 +1759,10 @@ export async function addMarketingDraftNote(
       draft_id: draftId,
       organization_id: organizationId,
       author_user_id: context.user.id,
-      body: text,
+      author_kind: authorKind,
+      body: text.slice(0, 4000),
     })
-    .select("id, body, author_user_id, created_at")
+    .select("id, body, author_user_id, author_kind, created_at")
     .single();
 
   if (error) {
@@ -822,14 +1777,128 @@ export async function addMarketingDraftNote(
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
-    action: "consultant.add_marketing_draft_note",
+    action: "marketing_draft_note.added",
     entityType: "marketing_content_draft",
     entityId: draftId,
     oldData: null,
-    newData: { note_id: note.id },
+    newData: { note_id: note.id, author_kind: authorKind },
   });
 
   return { ok: true as const, data: { note } };
+}
+
+const DRAFT_SCHEDULE_TZ = "Europe/Madrid";
+
+function formatScheduleForThread(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("es-ES", {
+      timeZone: DRAFT_SCHEDULE_TZ,
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
+/** Programa (o desprograma) la publicación de un borrador y deja una línea de
+ * sistema en el hilo. Normalmente la fija el cliente; el consultor también
+ * puede proponer fecha y se discute en el mismo hilo. */
+export async function setMarketingDraftSchedule(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  draftId: string,
+  body: { scheduled_for?: string | null },
+) {
+  const authorKind = resolveDraftAuthorKind(context, organizationId);
+  if (!authorKind) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "marketing_thread_access_required",
+    };
+  }
+
+  let scheduledIso: string | null = null;
+  if (body.scheduled_for != null && body.scheduled_for !== "") {
+    const parsed = Date.parse(body.scheduled_for);
+    if (!Number.isFinite(parsed)) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_scheduled_for",
+      };
+    }
+    scheduledIso = new Date(parsed).toISOString();
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data: draft, error: draftError } = await supabase
+    .from("marketing_content_drafts")
+    .select("id, organization_id, scheduled_for")
+    .eq("id", draftId)
+    .maybeSingle();
+  if (draftError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "marketing_draft_load_failed",
+      detail: draftError.message,
+    };
+  }
+  if (!draft || draft.organization_id !== organizationId) {
+    return { ok: false as const, statusCode: 404, error: "draft_not_found" };
+  }
+
+  const previousIso = (draft.scheduled_for as string | null) ?? null;
+  if (previousIso === scheduledIso) {
+    return { ok: true as const, data: { scheduled_for: scheduledIso } };
+  }
+
+  const { error: updateError } = await supabase
+    .from("marketing_content_drafts")
+    .update({ scheduled_for: scheduledIso })
+    .eq("id", draftId)
+    .eq("organization_id", organizationId);
+  if (updateError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "marketing_draft_schedule_failed",
+      detail: updateError.message,
+    };
+  }
+
+  const systemBody = scheduledIso
+    ? previousIso
+      ? `📅 Publicación reprogramada para el ${formatScheduleForThread(scheduledIso)}.`
+      : `📅 Publicación programada para el ${formatScheduleForThread(scheduledIso)}.`
+    : "📅 Programación de la publicación retirada.";
+
+  await supabase.from("marketing_content_draft_notes").insert({
+    draft_id: draftId,
+    organization_id: organizationId,
+    author_user_id: context.user.id,
+    author_kind: authorKind,
+    body: systemBody,
+  });
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "marketing_draft.scheduled",
+    entityType: "marketing_content_draft",
+    entityId: draftId,
+    oldData: { scheduled_for: previousIso },
+    newData: { scheduled_for: scheduledIso },
+  });
+
+  return { ok: true as const, data: { scheduled_for: scheduledIso } };
 }
 
 /**
@@ -901,6 +1970,25 @@ export async function listConsultantKnowledge(
  * /shopify): estado de conexion y frescura de sincronizacion por tienda, para
  * detectar de un vistazo cuales estan paradas o en error.
  */
+// Los cuatro agentes que leen una tienda entera. El nombre corto es el que
+// aparece en el motivo del ranking, asi que se escribe una vez aqui.
+const TRIAGE_AGENTS = new Map<string, string>([
+  // A02 lee el negocio entero y es el unico con historial largo: sin el, el
+  // ranking estaria vacio hasta la primera pasada del cron de los tres nuevos.
+  ["a02_monitor_negocio", "Negocio"],
+  ["a13_operativa_shopify", "Operativa"],
+  ["a20_retencion_clientes", "Retención"],
+  ["a21_adquisicion_shopify", "Adquisición"],
+  ["a22_postventa_shopify", "Postventa"],
+]);
+
+type SignalRow = {
+  organization_id: string;
+  agent_code: string;
+  ran_at: string;
+  output: unknown;
+};
+
 export async function listConsultantStores(
   env: ApiEnv,
   authorization: string,
@@ -963,6 +2051,67 @@ export async function listConsultantStores(
     last_sync_at: (store.last_sync_at as string | null) ?? null,
   }));
 
+  // --- Ranking por urgencia de revision -----------------------------------
+  //
+  // La lista de tiendas ordenada por nombre no dice a quien hay que llamar
+  // hoy. Los agentes ya leyeron cada tienda entera; esto solo suma lo que
+  // dijeron y ordena. El calculo es deterministico a proposito: el consultor
+  // tiene que poder ver POR QUE una tienda esta la primera.
+  const orgIdsForSignals = ids.length ? ids : [];
+  const { data: signalRows } = orgIdsForSignals.length
+    ? await supabase.rpc("consultant_store_signals", {
+        target_organization_ids: orgIdsForSignals,
+        agent_codes: [...TRIAGE_AGENTS.keys()],
+      })
+    : { data: [] };
+
+  const signalsByOrg = new Map<string, AgentSignal[]>();
+  for (const row of (signalRows ?? []) as SignalRow[]) {
+    const label = TRIAGE_AGENTS.get(row.agent_code);
+    if (!label) continue;
+    const output = (row.output ?? {}) as {
+      findings?: unknown;
+      proposed_writes?: unknown;
+      confidence?: unknown;
+      warnings?: unknown;
+    };
+
+    signalsByOrg.set(row.organization_id, [
+      ...(signalsByOrg.get(row.organization_id) ?? []),
+      {
+        agentCode: row.agent_code,
+        agentLabel: label,
+        ranAt: row.ran_at,
+        findings: Array.isArray(output.findings)
+          ? (output.findings as AgentSignal["findings"])
+          : [],
+        proposals: Array.isArray(output.proposed_writes)
+          ? (output.proposed_writes as AgentSignal["proposals"])
+          : [],
+        confidence:
+          output.confidence === "low" || output.confidence === "medium"
+            ? output.confidence
+            : "high",
+        warnings: Array.isArray(output.warnings)
+          ? (output.warnings as string[])
+          : [],
+      },
+    ]);
+  }
+
+  const ranking = rankStores(
+    stores.map((store) => ({
+      connectionId: store.id,
+      organizationId: store.organization_id,
+      organizationName: store.organization_name,
+      storeName: store.name,
+      status: store.status,
+      lastSyncAt: store.last_sync_at,
+      signals: signalsByOrg.get(store.organization_id) ?? [],
+    })),
+    new Date(),
+  );
+
   return {
     ok: true as const,
     data: {
@@ -971,6 +2120,7 @@ export async function listConsultantStores(
         display_name: organization.display_name,
       })),
       stores,
+      ranking,
     },
   };
 }
@@ -1983,13 +3133,62 @@ export async function restoreOrganizationStore(
 
 const ORGANIZATION_STATUSES = ["onboarding", "active", "suspended", "cancelled"] as const;
 
+/**
+ * Quien puede editar la identidad de una organizacion: su owner real, o quien
+ * la opera desde fuera (consultor asignado / platform admin). Suma al gate
+ * anterior en vez de sustituirlo -- el owner del cliente no pierde nada.
+ *
+ * La membresia del consultor es virtual y solo existe para sus
+ * `consultant_assignments` activas, asi que comprobar que la organizacion esta
+ * en `context.memberships` ya acota el alcance a su cartera.
+ */
+function requireOrganizationEditor(
+  context: AuthContext,
+  organizationId: string,
+) {
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
+
+  if (!membership) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
+  }
+
+  if (
+    ["platform_admin", "consultant"].includes(context.profile.platform_role) ||
+    ["owner", "manager"].includes(membership.role)
+  ) {
+    return { ok: true as const };
+  }
+
+  return {
+    ok: false as const,
+    statusCode: 403,
+    error: "organization_edit_denied",
+    message:
+      "Solo el propietario, un manager, el consultor asignado o un platform admin pueden editar los datos de la organizacion.",
+  };
+}
+
 export async function updateOrganization(
   env: ApiEnv,
   context: AuthContext,
   organizationId: string,
   body: { display_name?: string; status?: string; timezone?: string; currency_code?: string },
 ) {
-  const access = requirePlatformAdminOrStoreOwner(context, organizationId);
+  // El `status` es ciclo de vida de plataforma (suspender, cancelar): sigue
+  // reservado a platform admin o al owner real. La identidad -- nombre, zona
+  // horaria, moneda -- la lleva quien opera el cliente, y hasta ahora el
+  // consultor tenia que pedirsela a Rafa para algo tan basico como corregir
+  // la moneda de una tienda que no factura en euros.
+  const access =
+    body.status === undefined
+      ? requireOrganizationEditor(context, organizationId)
+      : requirePlatformAdminOrStoreOwner(context, organizationId);
   if (access.ok === false) {
     return access;
   }
@@ -2859,6 +4058,11 @@ export async function createClientForConsultant(
     return { ok: false as const, statusCode: 500, error: "assignment_create_failed", detail: assignError.message };
   }
 
+  // Si este consultor comparte cartera con alguien, la tienda nace ya
+  // asignada a los dos. Sin esto habria que acordarse de añadir al socio en
+  // cada alta, y el dia que se olvide deja de ver una tienda sin aviso.
+  await assignPartnersToOrganization(supabase, context.user.id, organization.id);
+
   const code = generateInviteCode();
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86400_000).toISOString();
   const { error: inviteError } = await supabase.from("client_invites").insert({
@@ -2943,7 +4147,7 @@ export async function redeemClientInvite(
   const supabase = createServiceClient(env);
   const { data: invite, error } = await supabase
     .from("client_invites")
-    .select("id, email, status, expires_at")
+    .select("id, email, status, expires_at, organization_id, invited_user_id")
     .eq("code", code)
     .maybeSingle();
   if (error) return { ok: false as const, statusCode: 500, error: "invite_load_failed", detail: error.message };
@@ -2979,6 +4183,19 @@ export async function redeemClientInvite(
   }
   if (!claimedInvite) {
     return { ok: false as const, statusCode: 409, error: "invite_already_used" };
+  }
+
+  // Canjear el codigo es el momento en que la persona entra de verdad, y hasta
+  // ahora nadie marcaba `joined_at`: solo lo escribian el alta de tienda propia
+  // y la ruta de platform admin. Un miembro invitado se quedaba para siempre
+  // como "invitado pero no ha entrado", aunque llevara meses usando el portal.
+  if (invite.organization_id && invite.invited_user_id) {
+    await supabase
+      .from("organization_members")
+      .update({ joined_at: new Date().toISOString() })
+      .eq("organization_id", invite.organization_id)
+      .eq("user_id", invite.invited_user_id)
+      .is("joined_at", null);
   }
 
   return { ok: true as const, data: { url: actionLink } };
@@ -3438,4 +4655,614 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
       })),
     },
   };
+}
+
+// --- "Mi trabajo": lo que le toca al consultor, no a sus clientes ----------
+//
+// Deliberadamente NO hay tabla nueva. Todo lo que hace falta ya existe:
+// llamadas agendadas, notas internas de llamada (`call_internal_notes`, que
+// son los apuntes de preparacion y ya nacen ancladas a la llamada donde se van
+// a usar), tareas internas (`is_visible_to_client = false`, entre ellas las
+// que A01 propone con owner "consultor") y los huecos de la ultima llamada.
+// Lo que faltaba no era donde guardarlo: era una pantalla donde la proxima
+// llamada y lo que debes para ella esten juntos, sin cambiar de cliente cuatro
+// veces para preparar el lunes.
+
+const WORK_HORIZON_DAYS = 14;
+const WORK_PRIORITY_WEIGHT: Record<string, number> = {
+  urgent: 3,
+  high: 2,
+  medium: 1,
+  low: 0,
+};
+
+export type WorkOrganization = { id: string; display_name: string };
+
+export type WorkCallRow = {
+  id: string;
+  title: string;
+  call_type: string;
+  status: string;
+  scheduled_at: string | null;
+  held_at: string | null;
+  organization_id: string;
+  internal_notes: Array<{ id: string; body: string; created_at: string }>;
+  gaps: Array<{ topic: string; severity: string }>;
+};
+
+export type WorkTaskRow = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  due_at: string | null;
+  created_at: string;
+  organization_id: string;
+};
+
+/**
+ * Deriva la pantalla entera a partir de las dos consultas. Puro a proposito:
+ * el reparto (que llamada es "proxima", que cliente esta descubierto, en que
+ * orden van mis tareas) es la logica que importa y la que se rompe en silencio
+ * si alguien toca un criterio.
+ */
+export function buildConsultantWork(input: {
+  organizations: WorkOrganization[];
+  calls: WorkCallRow[];
+  tasks: WorkTaskRow[];
+  nowMs: number;
+}) {
+  const { organizations, calls, tasks, nowMs } = input;
+  const nameByOrg = new Map(
+    organizations.map((organization) => [
+      organization.id,
+      organization.display_name,
+    ]),
+  );
+  const horizonMs = nowMs + WORK_HORIZON_DAYS * 86_400_000;
+
+  // Ultima llamada realizada por cliente: de ahi salen los huecos que el
+  // agente senalo y que siguen sin tratarse.
+  const lastHeldByOrg = new Map<string, WorkCallRow>();
+  for (const call of calls) {
+    if (call.status !== "held" || !call.held_at) continue;
+    const current = lastHeldByOrg.get(call.organization_id);
+    if (
+      !current ||
+      Date.parse(call.held_at) > Date.parse(current.held_at as string)
+    ) {
+      lastHeldByOrg.set(call.organization_id, call);
+    }
+  }
+
+  const openTasks = tasks.filter((task) =>
+    ["pending", "in_progress"].includes(task.status),
+  );
+  const myTaskCountByOrg = new Map<string, number>();
+  for (const task of openTasks) {
+    myTaskCountByOrg.set(
+      task.organization_id,
+      (myTaskCountByOrg.get(task.organization_id) ?? 0) + 1,
+    );
+  }
+
+  const upcoming = calls
+    .filter((call) => {
+      if (call.status !== "scheduled" || !call.scheduled_at) return false;
+      const at = Date.parse(call.scheduled_at);
+      // Una llamada agendada que ya paso y nadie marco como realizada no es
+      // "proxima", pero tampoco puede desaparecer: sigue arriba, marcada.
+      return !Number.isNaN(at) && at <= horizonMs;
+    })
+    .sort(
+      (a, b) =>
+        Date.parse(a.scheduled_at as string) -
+        Date.parse(b.scheduled_at as string),
+    )
+    .map((call) => {
+      const lastHeld = lastHeldByOrg.get(call.organization_id) ?? null;
+      return {
+        ...call,
+        organization_name:
+          nameByOrg.get(call.organization_id) ?? call.organization_id,
+        is_overdue: Date.parse(call.scheduled_at as string) < nowMs,
+        my_open_tasks: myTaskCountByOrg.get(call.organization_id) ?? 0,
+        last_call: lastHeld
+          ? {
+              id: lastHeld.id,
+              title: lastHeld.title,
+              held_at: lastHeld.held_at,
+              gaps: lastHeld.gaps,
+            }
+          : null,
+      };
+    });
+
+  const orgsWithUpcoming = new Set(upcoming.map((call) => call.organization_id));
+
+  // Clientes a los que no tienes nada agendado. Es la mitad del control que no
+  // da ninguna otra pantalla: lo que no esta en el calendario no existe.
+  const uncovered = organizations
+    .filter((organization) => !orgsWithUpcoming.has(organization.id))
+    .map((organization) => {
+      const lastHeld = lastHeldByOrg.get(organization.id) ?? null;
+      const heldAt = lastHeld?.held_at ?? null;
+      return {
+        id: organization.id,
+        display_name: organization.display_name,
+        last_call_at: heldAt,
+        days_since_last_call: heldAt
+          ? Math.floor((nowMs - Date.parse(heldAt)) / 86_400_000)
+          : null,
+        my_open_tasks: myTaskCountByOrg.get(organization.id) ?? 0,
+      };
+    })
+    // Primero el silencio mas largo; los que nunca han tenido llamada, arriba.
+    .sort(
+      (a, b) =>
+        (b.days_since_last_call ?? Number.MAX_SAFE_INTEGER) -
+        (a.days_since_last_call ?? Number.MAX_SAFE_INTEGER),
+    );
+
+  const myTasks = openTasks
+    .map((task) => ({
+      ...task,
+      organization_name:
+        nameByOrg.get(task.organization_id) ?? task.organization_id,
+      is_overdue:
+        Boolean(task.due_at) && Date.parse(task.due_at as string) < nowMs,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.is_overdue) - Number(a.is_overdue) ||
+        (WORK_PRIORITY_WEIGHT[b.priority] ?? 0) -
+          (WORK_PRIORITY_WEIGHT[a.priority] ?? 0) ||
+        Date.parse(a.due_at ?? a.created_at) -
+          Date.parse(b.due_at ?? b.created_at),
+    );
+
+  return {
+    upcoming_calls: upcoming,
+    my_tasks: myTasks,
+    uncovered_clients: uncovered,
+  };
+}
+
+export async function listConsultantWork(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations as WorkOrganization[];
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const [callsResult, tasksResult] = await Promise.all([
+    supabase
+      .from("consulting_calls")
+      .select(
+        "id, title, call_type, status, scheduled_at, held_at, organization_id, call_internal_notes(id, body, created_at), call_ai_summaries(status, key_points)",
+      )
+      .in("organization_id", safeIds)
+      .order("created_at", { ascending: false })
+      .limit(300),
+    supabase
+      .from("tasks")
+      .select("id, title, status, priority, due_at, created_at, organization_id")
+      .in("organization_id", safeIds)
+      .eq("is_visible_to_client", false)
+      .in("status", ["pending", "in_progress"])
+      .order("created_at", { ascending: false })
+      .limit(300),
+  ]);
+
+  if (callsResult.error || tasksResult.error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_work_load_failed",
+      detail: callsResult.error?.message ?? tasksResult.error?.message,
+    };
+  }
+
+  const calls: WorkCallRow[] = (
+    (callsResult.data ?? []) as Array<Record<string, unknown>>
+  ).map((call) => {
+    // Huecos del resumen PUBLICADO: uno pendiente todavia no es una conclusion
+    // sobre la que actuar, y ya aparece como tal en /llamadas.
+    const summaries =
+      (call.call_ai_summaries as Array<{
+        status: string;
+        key_points: unknown;
+      }> | null) ?? [];
+    const published = summaries.find(
+      (summary) => summary.status === "published",
+    );
+    const keyPoints =
+      published?.key_points &&
+      typeof published.key_points === "object" &&
+      !Array.isArray(published.key_points)
+        ? (published.key_points as { consultant_gaps?: unknown })
+        : null;
+    const gaps = Array.isArray(keyPoints?.consultant_gaps)
+      ? (keyPoints.consultant_gaps as Array<Record<string, unknown>>).map(
+          (gap) => ({
+            topic: String(gap.topic ?? ""),
+            severity: String(gap.severity ?? "low"),
+          }),
+        )
+      : [];
+
+    return {
+      id: call.id as string,
+      title: call.title as string,
+      call_type: call.call_type as string,
+      status: call.status as string,
+      scheduled_at: (call.scheduled_at as string | null) ?? null,
+      held_at: (call.held_at as string | null) ?? null,
+      organization_id: call.organization_id as string,
+      internal_notes:
+        (call.call_internal_notes as WorkCallRow["internal_notes"] | null) ?? [],
+      gaps,
+    };
+  });
+
+  return {
+    ok: true as const,
+    data: {
+      ...buildConsultantWork({
+        organizations,
+        calls,
+        tasks: (tasksResult.data ?? []) as WorkTaskRow[],
+        nowMs: Date.now(),
+      }),
+      organizations,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Accesos de un cliente, desde la vista del consultor.
+//
+// `getOrganizationAccess` ya existia pero es platform_admin only, y devuelve
+// `available_profiles` con TODOS los perfiles activos de la plataforma: abrir
+// ese gate al consultor le habria entregado el directorio de usuarios de todos
+// los tenants. Estas funciones son la version acotada a un solo cliente.
+// ---------------------------------------------------------------------------
+
+const CLIENT_MEMBER_ROLES = ["owner", "manager", "member", "readonly"] as const;
+
+/**
+ * ¿Este cambio deja al cliente sin ningun propietario activo?
+ *
+ * Un cliente sin owner no tiene a nadie que pueda aceptar condiciones ni
+ * recuperar la cuenta, y arreglarlo exige entrar por platform admin. El fallo
+ * no da error: el consultor degrada al unico owner "para ordenar roles" y el
+ * cliente se queda huerfano sin que nada lo avise.
+ */
+export function leavesClientWithoutOwner(
+  activeOwnerIds: string[],
+  targetUserId: string,
+  patch: { role?: unknown; is_active?: unknown },
+): boolean {
+  const isLastOwner =
+    activeOwnerIds.length === 1 && activeOwnerIds[0] === targetUserId;
+  if (!isLastOwner) return false;
+
+  const losesAccess = patch.is_active === false;
+  const losesOwnerRole = patch.role !== undefined && patch.role !== "owner";
+  return losesAccess || losesOwnerRole;
+}
+
+/** Quien tiene acceso a este cliente: sus miembros y sus consultores. */
+export async function getClientAccess(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requireStoreManager(context, organizationId);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+
+  const [membersResult, assignmentsResult] = await Promise.all([
+    supabase
+      .from("organization_members")
+      .select("id, user_id, role, is_active, invited_at, joined_at")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("consultant_assignments")
+      .select("id, consultant_user_id, is_primary, is_active")
+      .eq("organization_id", organizationId)
+      .eq("is_active", true),
+  ]);
+
+  if (membersResult.error || assignmentsResult.error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "client_access_load_failed",
+      detail: membersResult.error?.message ?? assignmentsResult.error?.message,
+    };
+  }
+
+  // Solo los perfiles implicados en ESTE cliente, nunca el directorio entero.
+  const userIds = [
+    ...new Set([
+      ...(membersResult.data ?? []).map((row) => row.user_id as string),
+      ...(assignmentsResult.data ?? []).map(
+        (row) => row.consultant_user_id as string,
+      ),
+    ]),
+  ];
+
+  const { data: profiles, error: profilesError } = userIds.length
+    ? await supabase
+        .from("profiles")
+        .select("id, full_name, platform_role, is_active")
+        .in("id", userIds)
+    : { data: [], error: null };
+
+  if (profilesError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "client_access_load_failed",
+      detail: profilesError.message,
+    };
+  }
+
+  const profileById = new Map(
+    (profiles ?? []).map((profile) => [profile.id as string, profile]),
+  );
+
+  const { data: invites } = await supabase
+    .from("client_invites")
+    .select("id, email, status, expires_at, created_at")
+    .eq("organization_id", organizationId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  return {
+    ok: true as const,
+    data: {
+      organization_id: organizationId,
+      members: (membersResult.data ?? []).map((member) => ({
+        ...member,
+        profile: profileById.get(member.user_id as string) ?? null,
+      })),
+      consultants: (assignmentsResult.data ?? []).map((assignment) => ({
+        ...assignment,
+        profile:
+          profileById.get(assignment.consultant_user_id as string) ?? null,
+      })),
+      pending_invites: invites ?? [],
+    },
+  };
+}
+
+/**
+ * Invita a una persona mas a un cliente que ya existe.
+ *
+ * Hasta ahora solo se creaba una invitacion, en el alta del cliente, y
+ * `regenerateClientInvite` solo sabia renovar esa (devuelve `invite_not_found`
+ * si no hay ninguna pendiente): dar de alta a una segunda persona -- el de
+ * marketing del cliente, un socio -- no se podia sin pasar por platform admin.
+ *
+ * Mismo mecanismo que el alta: `generateLink` crea el usuario de Auth sin
+ * enviar correo y el consultor reparte el codigo.
+ */
+export async function inviteClientMember(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  body: { email?: string; full_name?: string; role?: string },
+) {
+  const access = requireStoreManager(context, organizationId);
+  if (access.ok === false) return access;
+
+  const email = body.email?.trim().toLowerCase() ?? "";
+  const fullName = body.full_name?.trim() || null;
+  const role = body.role?.trim() || "member";
+
+  if (!isEmail(email)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_email" };
+  }
+  if (!(CLIENT_MEMBER_ROLES as readonly string[]).includes(role)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_role" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data: link, error: linkError } =
+    await supabase.auth.admin.generateLink({
+      type: "invite",
+      email,
+      options: {
+        redirectTo: onboardingRedirectTo(env),
+        ...(fullName ? { data: { full_name: fullName } } : {}),
+      },
+    });
+
+  if (linkError || !link?.user) {
+    // ponytail: una cuenta que ya existe se deriva a platform admin. Enlazarla
+    // aqui exige resolver el usuario por email con la Admin API y decidir que
+    // pasa si ya pertenece a otro cliente; se hace cuando aparezca el caso.
+    const already = /already|exist/i.test(linkError?.message ?? "");
+    return {
+      ok: false as const,
+      statusCode: already ? 409 : 502,
+      error: already ? "email_already_registered" : "invite_failed",
+      message: already
+        ? "Ese correo ya tiene cuenta en la plataforma. Pidele a un platform admin que lo asocie a este cliente."
+        : undefined,
+      detail: linkError?.message,
+    };
+  }
+
+  const { error: memberError } = await supabase
+    .from("organization_members")
+    .insert({
+      organization_id: organizationId,
+      user_id: link.user.id,
+      role,
+      is_active: true,
+      invited_by: context.user.id,
+      invited_at: new Date().toISOString(),
+    });
+
+  if (memberError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "member_create_failed",
+      detail: memberError.message,
+    };
+  }
+
+  const code = generateInviteCode();
+  const expiresAt = new Date(
+    Date.now() + INVITE_TTL_DAYS * 86400_000,
+  ).toISOString();
+
+  const { error: inviteError } = await supabase.from("client_invites").insert({
+    organization_id: organizationId,
+    invited_user_id: link.user.id,
+    consultant_user_id: context.user.id,
+    email,
+    code,
+    expires_at: expiresAt,
+  });
+
+  if (inviteError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invite_create_failed",
+      detail: inviteError.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "consultant.invite_client_member",
+    entityType: "organization_member",
+    entityId: link.user.id,
+    newData: { email, role },
+  });
+
+  return {
+    ok: true as const,
+    data: {
+      email,
+      role,
+      invite: {
+        code,
+        expires_at: expiresAt,
+        access_url: accessPath(env, code),
+      },
+    },
+  };
+}
+
+/**
+ * Cambia el rol de alguien que YA es miembro, o le retira el acceso.
+ *
+ * Actua sobre un miembro existente a proposito: la version de platform admin
+ * (`upsertOrganizationMember`) pide un UUID de usuario tecleado a mano, que el
+ * consultor no tiene forma de saber.
+ */
+export async function setClientMemberRole(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  userId: string,
+  body: { role?: string; isActive?: unknown },
+) {
+  const access = requireStoreManager(context, organizationId);
+  if (access.ok === false) return access;
+
+  const patch: Record<string, unknown> = {};
+
+  if (body.role !== undefined) {
+    if (!(CLIENT_MEMBER_ROLES as readonly string[]).includes(body.role)) {
+      return { ok: false as const, statusCode: 400, error: "invalid_role" };
+    }
+    patch.role = body.role;
+  }
+  if (body.isActive !== undefined) {
+    patch.is_active = Boolean(body.isActive);
+  }
+  if (Object.keys(patch).length === 0) {
+    return { ok: false as const, statusCode: 400, error: "empty_update" };
+  }
+
+  const supabase = createServiceClient(env);
+
+  // Un cliente sin ningun owner activo se queda sin nadie que pueda aceptar
+  // condiciones ni recuperar la cuenta, y recuperarlo exige entrar por
+  // platform admin. Se comprueba antes de degradar o desactivar al ultimo.
+  const { data: owners } = await supabase
+    .from("organization_members")
+    .select("user_id")
+    .eq("organization_id", organizationId)
+    .eq("role", "owner")
+    .eq("is_active", true);
+
+  const activeOwners = (owners ?? []).map((row) => row.user_id as string);
+
+  if (leavesClientWithoutOwner(activeOwners, userId, patch)) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "last_owner",
+      message:
+        "Es el unico propietario activo del cliente. Nombra a otro antes de cambiarle el rol.",
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("organization_members")
+    .update(patch)
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId)
+    .select("id, user_id, role, is_active")
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "member_update_failed",
+      detail: error.message,
+    };
+  }
+  if (!data) {
+    return { ok: false as const, statusCode: 404, error: "member_not_found" };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "consultant.update_client_member",
+    entityType: "organization_member",
+    entityId: userId,
+    newData: patch,
+  });
+
+  return { ok: true as const, data };
 }

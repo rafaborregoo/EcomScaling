@@ -16,6 +16,10 @@ import {
   klaviyoEmailOutputSchema,
   metaAdsDraftPatchSchema,
   metaAdsOutputSchema,
+  instagramPostOutputSchema,
+  instagramImageAnalysisSchema,
+  instagramImageAnalysisToMarkdown,
+  instagramOverlayDraftSchema,
   sanitizeGeneratedEmailHtml,
   createReplayToolExecutor,
   createToolReplayFixture,
@@ -29,6 +33,8 @@ import {
   VoyageEmbeddingProvider,
   RAG_EMBEDDING_PROFILE,
   chunkText,
+  agentProposedWriteSchema,
+  agentOutputJsonSchema,
 } from "./index.js";
 
 test("el perfil RAG centraliza el contrato de embeddings y chunking", () => {
@@ -475,6 +481,104 @@ test("el contrato Meta Ads no reutiliza campos de email y exige aprobacion", () 
   assert.equal(result.success, true);
 });
 
+test("el contrato Instagram orgánico exige caption, hashtags, formato y aprobación", () => {
+  const base = {
+    summary: "Post de lanzamiento",
+    title: "Lanzamiento colección verano",
+    caption: "Ya está aquí la colección de verano. Descúbrela en la tienda.",
+    hashtags: ["verano", "moda"],
+    call_to_action: "Link en bio",
+    format: "reel" as const,
+    creative_brief: "Reel de 15s mostrando 3 prendas sobre fondo claro.",
+    audience: "Seguidores en España",
+    locale: "es-ES",
+    tone: "cercano",
+    compliance_notes: [],
+    sources: [],
+    confidence: "medium" as const,
+    warnings: [],
+    approval_required: true as const,
+  };
+  assert.equal(instagramPostOutputSchema.safeParse(base).success, true);
+  assert.equal(
+    instagramPostOutputSchema.safeParse({ ...base, format: "billboard" })
+      .success,
+    false,
+  );
+  assert.equal(
+    instagramPostOutputSchema.safeParse({ ...base, approval_required: false })
+      .success,
+    false,
+  );
+});
+
+test("la extracción de imagen de Instagram valida hex y arma el markdown de contexto", () => {
+  const base = {
+    description: "Bodegón de una vela sobre mármol con luz lateral.",
+    objects: ["vela", "cerilla", "superficie de mármol"],
+    colors: [
+      { label: "blanco roto", hex: "#f4f1ec" },
+      { label: "ámbar", hex: "#c8862f" },
+    ],
+    style: "producto editorial, luz natural dura",
+    ocr_text: "",
+    suggested_use: "Portada de carrusel de lanzamiento.",
+    alt_text: "Vela encendida sobre una superficie de mármol claro.",
+    confidence: "high" as const,
+  };
+  assert.equal(instagramImageAnalysisSchema.safeParse(base).success, true);
+  assert.equal(
+    instagramImageAnalysisSchema.safeParse({
+      ...base,
+      colors: [{ label: "rojo", hex: "rojo" }],
+    }).success,
+    false,
+  );
+
+  const md = instagramImageAnalysisToMarkdown(
+    instagramImageAnalysisSchema.parse(base),
+    { filename: "vela.jpg", url: "https://cdn.example.com/vela.jpg" },
+  );
+  assert.match(md, /# Imagen: vela\.jpg/);
+  assert.match(md, /blanco roto \(#f4f1ec\)/);
+  assert.match(md, /\*\*Texto en la imagen:\*\* —/);
+});
+
+test("el borrador de texto sobre imagen exige bloques, paleta con hex y colocación gruesa", () => {
+  const ok = {
+    blocks: [
+      {
+        text: "NUEVA COLECCIÓN",
+        role: "headline" as const,
+        placement: "center" as const,
+        align: "center" as const,
+        emphasis: "strong" as const,
+      },
+      {
+        text: "Link en bio",
+        role: "cta" as const,
+        placement: "bottom" as const,
+        align: "center" as const,
+        emphasis: "normal" as const,
+      },
+    ],
+    palette: { text_hex: "#ffffff", accent_hex: "#1d4ed8" },
+    rationale: "Titular centrado sobre la zona despejada, CTA abajo.",
+  };
+  assert.equal(instagramOverlayDraftSchema.safeParse(ok).success, true);
+  assert.equal(
+    instagramOverlayDraftSchema.safeParse({ ...ok, blocks: [] }).success,
+    false,
+  );
+  assert.equal(
+    instagramOverlayDraftSchema.safeParse({
+      ...ok,
+      palette: { text_hex: "white", accent_hex: "#1d4ed8" },
+    }).success,
+    false,
+  );
+});
+
 test("el Tool Layer bloquea tools futuras que aún no tienen executor operativo", () => {
   const result = authorizeTool(
     "klaviyo_send_campaign",
@@ -867,4 +971,56 @@ test("el presupuesto del runtime no depende de Meta ni de otro conector", () => 
   });
 
   assert.equal(result.allowed, true);
+});
+
+// El consultor decide sobre la cifra, no sobre la prosa del agente: una tarea
+// propuesta viaja con su porque y con los datos que lo sostienen.
+test("agentProposedWriteSchema acepta rationale y evidence", () => {
+  const parsed = agentProposedWriteSchema.parse({
+    kind: "task",
+    title: "Auditar descuentos",
+    description: "Revisar la politica de descuentos.",
+    priority: "urgent",
+    rationale: "El ratio de descuento lleva 30 dias por encima del 50%.",
+    evidence: [
+      {
+        label: "ratio de descuento sobre venta bruta",
+        value: "50,6%",
+        period: "03/08-02/09/2026",
+        source: "shopify",
+      },
+    ],
+  });
+
+  assert.equal(parsed.rationale.startsWith("El ratio"), true);
+  assert.equal(parsed.evidence.length, 1);
+  assert.equal(parsed.evidence[0]?.source, "shopify");
+});
+
+// Las salidas ya guardadas (y cualquier ruta sin structured outputs) no traen
+// los campos nuevos: no deben quedar invalidas por ello.
+test("agentProposedWriteSchema tolera salidas antiguas sin rationale ni evidence", () => {
+  const parsed = agentProposedWriteSchema.parse({
+    kind: "task",
+    title: "Subir costes",
+    description: "Cargar 52 items.",
+    priority: "high",
+  });
+
+  assert.equal(parsed.rationale, "");
+  assert.deepEqual(parsed.evidence, []);
+});
+
+// El JSON Schema es lo que fuerza el formato en la llamada al modelo: si
+// rationale/evidence salen de `required`, los agentes dejan de producirlos y
+// las tarjetas de /tareas se quedan sin el porque sin que falle ningun test.
+test("el JSON Schema exige rationale y evidence en cada proposed_write", () => {
+  const write = (
+    agentOutputJsonSchema.properties.proposed_writes as {
+      items: { required: readonly string[] };
+    }
+  ).items;
+
+  assert.equal(write.required.includes("rationale"), true);
+  assert.equal(write.required.includes("evidence"), true);
 });

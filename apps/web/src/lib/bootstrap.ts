@@ -87,10 +87,21 @@ async function refreshAccessToken() {
   return session?.access_token ?? null;
 }
 
+// Las rutas de IA no son peticiones normales: en fallo de cache el endpoint
+// ejecuta el agente en linea y no responde hasta que termina (a04 tarda 90s de
+// media, 226s el peor medido). Con el timeout general de 15s toda primera carga
+// de un agente moria abortada, y el usuario veia un AbortError en vez del
+// analisis. El limite de verdad lo pone el presupuesto del propio agente.
+const AI_REQUEST_TIMEOUT_MS = 300_000;
+
+export function defaultTimeoutFor(path: string): number | undefined {
+  return path.includes("/ai/") ? AI_REQUEST_TIMEOUT_MS : undefined;
+}
+
 export async function apiFetch(
   path: string,
   init: RequestInit = {},
-  timeoutMs?: number,
+  timeoutMs = defaultTimeoutFor(path),
 ) {
   const token = await getAccessToken();
 

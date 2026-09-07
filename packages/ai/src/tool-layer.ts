@@ -137,6 +137,13 @@ const readTools = [
   "report_confidence",
   "sql_select",
   "search_knowledge",
+  // Metricas del modulo de Shopify. Existen como tool y no solo como contexto
+  // preparado para que el chat no tenga que explorar once tablas con sql_select
+  // para responder "¿vuelven los clientes?": una llamada, una respuesta, y los
+  // mismos numeros que ve el consultor en pantalla.
+  "shopify_customer_health",
+  "shopify_demand_sources",
+  "shopify_fulfillment_health",
 ] as const;
 
 const proposedTools = [
@@ -226,6 +233,9 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "get_call_history",
         "get_financial_settings",
         "report_confidence",
+        "shopify_customer_health",
+        "shopify_demand_sources",
+        "shopify_fulfillment_health",
       ].includes(name)
         ? "implemented_partial"
         : "planned",
@@ -477,6 +487,21 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
   },
   get_financial_settings: {
     definition: getDefinition("get_financial_settings"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  shopify_customer_health: {
+    definition: getDefinition("shopify_customer_health"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  shopify_demand_sources: {
+    definition: getDefinition("shopify_demand_sources"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  shopify_fulfillment_health: {
+    definition: getDefinition("shopify_fulfillment_health"),
     inputSchema: emptyInputSchema,
     outputSchema: domainReadOutputSchema,
   },

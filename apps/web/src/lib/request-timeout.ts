@@ -7,7 +7,19 @@ export async function fetchApiWithTimeout(
   timeoutMs = API_REQUEST_TIMEOUT_MS,
 ) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  // Con `abort()` a secas el error llega como "signal is aborted without
+  // reason" y no hay forma de saber si fue el timeout, una navegacion o el
+  // caller. Darle motivo hace que el mensaje diga cuanto se espero.
+  const timeout = setTimeout(
+    () =>
+      controller.abort(
+        new DOMException(
+          `La peticion al API supero el limite de ${Math.round(timeoutMs / 1000)}s.`,
+          "TimeoutError",
+        ),
+      ),
+    timeoutMs,
+  );
   const signal = init.signal
     ? AbortSignal.any([init.signal, controller.signal])
     : controller.signal;

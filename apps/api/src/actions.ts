@@ -1,5 +1,10 @@
 import type { AccountAction } from "@ecomscaling/contracts";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import {
+  freshnessMessage,
+  summarizeFreshness,
+  type ScopeRun,
+} from "./integration-freshness.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -7,7 +12,25 @@ type ApiEnv = {
   SHOPIFY_SCOPES: string;
 };
 
+// Bloques cuya frescura se comprueba al avisar de una conexion en error. Se
+// consultan uno a uno y no con un solo `order desc + limit`: el bloque parado
+// es, por definicion, el que tiene la fecha mas vieja, asi que en una lista
+// ordenada por fecha queda al final y es justo el que se perderia.
+const FRESHNESS_SCOPES = [
+  "orders",
+  "catalog",
+  "inventory",
+  "customers",
+  "refunds",
+  "sessions",
+  "abandoned_checkouts",
+  "discounts",
+  "marketing_events",
+  "collections",
+] as const;
+
 type IntegrationConnection = {
+  id: string;
   organization_id: string;
   provider: string;
   provider_account_id: string | null;
@@ -42,7 +65,7 @@ export async function listAccountActions(
 
   const { data, error } = await supabase
     .from("integration_connections")
-    .select("organization_id, provider, provider_account_id, provider_account_name, status, scopes")
+    .select("id, organization_id, provider, provider_account_id, provider_account_name, status, scopes")
     .in("organization_id", organizationIds)
     .order("updated_at", { ascending: false });
 
@@ -56,6 +79,57 @@ export async function listAccountActions(
   }
 
   const connections = (data ?? []) as IntegrationConnection[];
+
+  // Frescura por bloque, solo de las conexiones que van a generar aviso: el
+  // texto generico ("los datos pueden estar desactualizados") no lo cree nadie
+  // cuando la pantalla enseña las ventas de hoy, porque los pedidos siguen
+  // entrando por webhook aunque el token este caducado.
+  const brokenConnectionIds = connections
+    .filter((connection) => connection.status === "error")
+    .map((connection) => connection.id);
+
+  // Una consulta por conexion y bloque, cada una con `limit(1)`. Pedir varias
+  // filas de golpe y quedarse con la primera de cada conexion no vale: al
+  // ordenar por fecha, las N primeras pueden ser todas de la misma conexion.
+  // Solo se ejecuta cuando algo esta roto, que es cuando compensa.
+  const freshnessByConnection = new Map<string, ScopeRun[]>();
+  const lookups = await Promise.all(
+    brokenConnectionIds.flatMap((connectionId) =>
+      FRESHNESS_SCOPES.map(async (scope) => {
+        const { data: row } = await supabase
+          .from("integration_sync_runs")
+          .select("created_at")
+          .eq("connection_id", connectionId)
+          .eq("sync_scope", scope)
+          .eq("status", "succeeded")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        return row
+          ? {
+              connectionId,
+              run: {
+                sync_scope: scope,
+                last_success_at: row.created_at as string,
+              },
+            }
+          : null;
+      }),
+    ),
+  );
+
+  for (const item of lookups) {
+    // Un bloque que nunca ha corrido no se inventa: no tiene "desde cuando",
+    // y decir que lleva parado desde siempre confunde mas que callar.
+    if (!item) continue;
+    freshnessByConnection.set(item.connectionId, [
+      ...(freshnessByConnection.get(item.connectionId) ?? []),
+      item.run,
+    ]);
+  }
+
+  const now = new Date();
   const actions = context.memberships.flatMap((membership) => {
     // Un cliente pausado o marcado para borrado no genera avisos: que su sync
     // esté parado es la consecuencia esperada, no algo que reconectar.
@@ -81,8 +155,15 @@ export async function listAccountActions(
           organization_name: organizationName ?? connection.provider_account_name,
           provider: connection.provider,
           title: `${connection.provider === "shopify" ? "Shopify" : connection.provider === "meta_ads" ? "Meta Ads" : connection.provider} ha dejado de sincronizar`,
-          message:
-            "La conexion esta en error y los datos pueden estar desactualizados. Reconectala desde Integraciones.",
+          message: `${
+            freshnessMessage(
+              summarizeFreshness(
+                freshnessByConnection.get(connection.id) ?? [],
+                now,
+              ),
+              now,
+            ) ?? "La conexion esta en error y los datos pueden estar desactualizados."
+          } Reconectala desde Integraciones.`,
           cta_label: "Reconectar",
           cta_href: `/integraciones?organizationId=${membership.organization_id}`,
         });

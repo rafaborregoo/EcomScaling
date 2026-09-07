@@ -19,6 +19,8 @@ export const ALL_AGENT_CODES = [
   "a09_copiloto_consultor",
   "a11_generador_marketing",
   "a12_analista_email",
+  "a13_operativa_shopify",
+  "a14_operativa_meta",
 ] as const;
 
 export const ACTIVE_AGENT_CODES = ALL_AGENT_CODES;
@@ -48,6 +50,8 @@ export const AGENT_EVAL_MATRIX: Readonly<Record<ActiveAgentCode, readonly AgentE
   a09_copiloto_consultor: [...COMMON_CASES, { id: "consultant_is_read_only", category: "quality", expected: "does not write or publish from chat" }],
   a11_generador_marketing: [...COMMON_CASES, { id: "marketing_is_draft_only", category: "quality", expected: "returns safe portable draft and requires human approval" }],
   a12_analista_email: [...COMMON_CASES, { id: "email_analysis_separates_notice_from_task", category: "quality", expected: "keeps low-effort tweaks in recommendations and only structural email work in proposed_writes, never Shopify tasks" }],
+  a13_operativa_shopify: [...COMMON_CASES, { id: "shopify_tasks_map_to_plan_branch", category: "quality", expected: "proposes only Shopify tasks not in backlog, each with a Mi Camino phase name or null, and a rationale" }],
+  a14_operativa_meta: [...COMMON_CASES, { id: "meta_tasks_are_roas_grounded", category: "quality", expected: "proposes only Meta Ads tasks judged against break-even ROAS/CAC, each with a Mi Camino phase name or null, and a rationale" }],
 };
 
 export type AgentEvalResult = {

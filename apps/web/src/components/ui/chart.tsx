@@ -151,6 +151,45 @@ export function Sparkline({
   );
 }
 
+// Igual de "chromeless" que Sparkline (sin ejes, sin grid, sin tooltip) pero
+// grande y multi-serie: una linea por entidad (cliente, producto...), cada una
+// con su propio color -- para "todos a la vez, de un vistazo", no para leer
+// una cifra exacta (para eso esta AreaChart/BarChart con ejes y tooltip).
+export function MultiSparkline({
+  data,
+  xKey,
+  series,
+  height = 180,
+}: {
+  data: ChartData;
+  xKey: string;
+  series: Required<Serie>[];
+  height?: number;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <RAreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+        <XAxis dataKey={xKey} hide />
+        <YAxis hide domain={[0, "dataMax"]} />
+        {series.map((serie) => (
+          <Area
+            key={serie.key}
+            type="monotone"
+            dataKey={serie.key}
+            name={serie.label}
+            stroke={serie.color}
+            strokeWidth={2}
+            fill={serie.color}
+            fillOpacity={0.08}
+            dot={false}
+            isAnimationActive={false}
+          />
+        ))}
+      </RAreaChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function AreaChart({
   data,
   xKey,

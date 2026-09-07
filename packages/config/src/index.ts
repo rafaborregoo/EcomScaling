@@ -94,6 +94,14 @@ const apiEnvSchema = z.object({
   AI_PLATFORM_DAILY_COST_CAP_USD: z.coerce.number().positive().optional(),
   AI_ORG_DAILY_RUN_CAP: z.coerce.number().int().positive().optional(),
   AI_DIAGNOSTICS_MAX_RUNS_PER_TICK: z.coerce.number().int().positive().optional(),
+  // Interruptor de desarrollo: con "false" ningun agente se lanza solo (ni el
+  // cron del orquestador ni la regeneracion al abrir una pagina). Los botones
+  // de "Ejecutar" siguen funcionando, para poder probar un agente concreto sin
+  // que el resto consuma por su cuenta.
+  AI_AUTORUN_ENABLED: z.enum(["true", "false"]).optional(),
+  // Refrescos manuales ("Actualizar ahora") por organizacion y dia, sumando
+  // todos los agentes de diagnostico. Default 12.
+  AI_MANUAL_REFRESH_DAILY_CAP: z.coerce.number().int().positive().optional(),
 });
 
 const workerEnvSchema = z.object({
@@ -151,6 +159,8 @@ export type LoadedApiEnv = {
   AI_PLATFORM_DAILY_COST_CAP_USD?: number;
   AI_ORG_DAILY_RUN_CAP?: number;
   AI_DIAGNOSTICS_MAX_RUNS_PER_TICK?: number;
+  AI_AUTORUN_ENABLED?: "true" | "false";
+  AI_MANUAL_REFRESH_DAILY_CAP?: number;
 };
 
 export function loadApiEnv(
@@ -334,6 +344,12 @@ export function loadApiEnv(
       : {}),
     ...(env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK !== undefined
       ? { AI_DIAGNOSTICS_MAX_RUNS_PER_TICK: env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK }
+      : {}),
+    ...(env.AI_AUTORUN_ENABLED
+      ? { AI_AUTORUN_ENABLED: env.AI_AUTORUN_ENABLED }
+      : {}),
+    ...(env.AI_MANUAL_REFRESH_DAILY_CAP !== undefined
+      ? { AI_MANUAL_REFRESH_DAILY_CAP: env.AI_MANUAL_REFRESH_DAILY_CAP }
       : {}),
   };
 }

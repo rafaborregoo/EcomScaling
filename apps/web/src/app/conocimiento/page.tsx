@@ -13,6 +13,8 @@ import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { ModuleSummary } from "@/components/module-summary";
+import { ClientRules } from "./client-rules";
 import {
   LoadingBlock,
   Heading,
@@ -59,7 +61,6 @@ type KnowledgeMatch = {
 
 function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId } = useActiveOrganization();
-  const isPlatformAdmin = bootstrap.profile.platform_role === "platform_admin";
   const activeMembership = bootstrap.memberships.find(
     (membership) => membership.organization_id === organizationId,
   );
@@ -76,9 +77,16 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [visibility, setVisibility] = useState<"organization" | "global">(
-    "organization",
+  // Quién puede leer lo que se sube. `consultant_only` no llega nunca al
+  // cliente ni a los agentes automáticos; sí al Consultor IA cuando pregunta
+  // un consultor. Solo consultor/platform_admin pueden marcarlo (el backend
+  // lo vuelve a comprobar).
+  const canMarkInternal = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
   );
+  const [audience, setAudience] = useState<
+    "client_visible" | "consultant_only"
+  >("client_visible");
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -143,20 +151,22 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   ) {
     setIsSaving(true);
 
-    const targetPath =
-      visibility === "global"
-        ? "/v1/organizations/global/knowledge/documents"
-        : `/v1/organizations/${organizationId}/knowledge/documents`;
+    // Siempre el cliente activo. La metodología de plataforma (`global`) se
+    // ingiere desde /admin/conocimiento: es nuestra, no de este cliente.
     try {
-      const response = await apiFetch(targetPath, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: documentTitle,
-          content: documentContent,
-          source_type: sourceType,
-        }),
-      });
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/knowledge/documents`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: documentTitle,
+            content: documentContent,
+            source_type: sourceType,
+            audience,
+          }),
+        },
+      );
 
       if (!response.ok) {
         toast.danger(await readApiError(response));
@@ -262,6 +272,66 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page space-y-6 sm:space-y-8">
+      {/* El modelo entero en dos frases. Sin esto, "regla" y "documento" son
+          dos formularios parecidos y nadie sabe cuál usar: la diferencia no es
+          de formato, es de si el copiloto lo tiene siempre o solo a veces. */}
+      <div>
+        <Heading>Lo que el copiloto sabe de este cliente</Heading>
+        <p className="mt-1 max-w-2xl text-sm text-muted">
+          Las <strong>reglas</strong> las tiene delante en cada respuesta. Los{" "}
+          <strong>documentos</strong> los usa cuando la conversación los pide.
+        </p>
+      </div>
+
+      {/* Qué sabe realmente el Consultor IA de este cliente, y qué parte de
+          eso ve también el cliente. `search_knowledge` devuelve los internos
+          solo cuando quien pregunta es un consultor; los agentes automáticos
+          nunca los ven. Esa diferencia se decide al subir el documento y se
+          comprueba aquí, no abriendo la lista uno a uno. */}
+      {documents.length > 0 ? (
+        <ModuleSummary
+          metrics={[
+            {
+              label: "Documentos activos",
+              value: documents
+                .filter((document) => document.status === "active")
+                .length.toLocaleString("es-ES"),
+            },
+            {
+              label: "Los ve el cliente",
+              value: documents
+                .filter(
+                  (document) =>
+                    document.status === "active" &&
+                    document.audience === "client_visible",
+                )
+                .length.toLocaleString("es-ES"),
+            },
+            {
+              label: "Internos del consultor",
+              value: documents
+                .filter(
+                  (document) =>
+                    document.status === "active" &&
+                    document.audience === "consultant_only",
+                )
+                .length.toLocaleString("es-ES"),
+              hint: "Fuera del portal del cliente y de los agentes automáticos",
+            },
+          ]}
+        />
+      ) : null}
+
+      {/* Primero las reglas y después los documentos, porque ese es el orden
+          del modelo: lo que el copiloto tiene SIEMPRE delante, y luego lo que
+          usa si la conversación lo pide. */}
+      {organizationId ? (
+        <ClientRules
+          organizationId={organizationId}
+          canManage={canManageKnowledge}
+        />
+      ) : null}
+
       {organizationId ? (
         <AiDiagnosticSection
           organizationId={organizationId}
@@ -276,7 +346,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card
           title="Añadir documento"
-          description="Ingiere metodología, playbooks y contexto propio para los agentes."
+          description="Playbooks, procesos y contexto de este cliente. El copiloto los usa cuando la conversación los pide, a diferencia de una regla."
         >
 
           {canManageKnowledge ? (
@@ -303,20 +373,32 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     event.target.value = "";
                   }}
                 />
-                {isPlatformAdmin ? (
-                  <Field label="Destino">
+                {canMarkInternal ? (
+                  <Field label="Quién puede leerlo">
                     <Select
-                      aria-label="Destino"
+                      aria-label="Quién puede leerlo"
                       className="mt-2"
-                      value={visibility}
+                      value={audience}
                       onChange={(value) =>
-                        setVisibility(value as "organization" | "global")
+                        setAudience(
+                          value as "client_visible" | "consultant_only",
+                        )
                       }
                       options={[
-                        { value: "organization", label: "Esta organización" },
-                        { value: "global", label: "Global (metodología)" },
+                        { value: "client_visible", label: "Cliente y agentes" },
+                        {
+                          value: "consultant_only",
+                          label: "Solo consultores",
+                        },
                       ]}
                     />
+                    {audience === "consultant_only" ? (
+                      <p className="mt-1 text-xs text-muted">
+                        No aparece en el portal del cliente ni en las salidas
+                        de los agentes automáticos. El Consultor IA sí lo usa
+                        cuando pregunta un consultor.
+                      </p>
+                    ) : null}
                   </Field>
                 ) : null}
               </div>
@@ -362,9 +444,12 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           )}
         </Card>
 
+        {/* Se llamaba "búsqueda semántica" y describía la implementación. Lo
+            que responde es otra cosa: qué encontrará el copiloto si le
+            preguntan esto. */}
         <Card
-          title="Búsqueda semántica"
-          description="Comprueba qué fragmentos recuperará el contexto RAG para una consulta."
+          title="Probar qué encontrará el copiloto"
+          description="Escribe una pregunta como se la haría el cliente y mira qué documentos suyos saldrían."
         >
           <form
             className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end"
@@ -407,10 +492,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted">
-                      {match.visibility === "global"
-                        ? "Global"
-                        : "Organización"}{" "}
-                      - fragmento {match.chunk_index + 1}
+                      fragmento {match.chunk_index + 1}
                     </p>
                     <p className="mt-2 text-sm leading-6">
                       {match.content.slice(0, 400)}
@@ -471,8 +553,13 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     <p className="text-sm text-muted">{document.description}</p>
                   ) : null}
                 </div>
+                {/* Antes ponía "global | organización": ahora todo lo listado
+                    es de este cliente, así que la columna decía siempre lo
+                    mismo. Lo que sí cambia de fila a fila es quién lo lee. */}
                 <span className="text-xs text-muted">
-                  {document.visibility === "global" ? "global" : "organización"}
+                  {document.audience === "consultant_only"
+                    ? "solo consultores"
+                    : "lo ve el cliente"}
                 </span>
                 <span className="text-xs text-muted">
                   {displayValue(document.status)} · {displayValue(document.authority)}

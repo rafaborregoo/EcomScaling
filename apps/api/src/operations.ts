@@ -8,6 +8,7 @@ import {
 import { recordAuditLog } from "./audit-log.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
+import { resolveTaskAssignee } from "./task-assignment.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -144,21 +145,18 @@ async function upsertAlertWithTask(
     throw new Error(`alert_insert_failed: ${insertError?.message}`);
   }
 
-  await notifyAlertCreated(
-    supabase,
-    organizationId,
-    alert.id,
-    template,
-    detection,
-  );
+  let assigneeId: string | null = null;
 
   if (template.task_title_template) {
+    assigneeId = await resolveTaskAssignee(supabase, organizationId);
+
     const { data: createdTask, error: taskError } = await supabase
       .from("tasks")
       .insert({
         organization_id: organizationId,
         alert_id: alert.id,
         source: "alert",
+        assigned_to: assigneeId,
         priority:
           template.default_severity === "critical" ||
           template.default_severity === "high"
@@ -207,11 +205,28 @@ async function upsertAlertWithTask(
     }
   }
 
+  // Despues de la tarea, no antes: la notificacion va tambien a su responsable
+  // y hasta que la tarea no existe no se sabe quien es.
+  await notifyAlertCreated(
+    supabase,
+    organizationId,
+    alert.id,
+    template,
+    detection,
+    assigneeId,
+  );
+
   return { alertId: alert.id, created: true };
 }
 
 /**
- * Notifica una alerta nueva a los owner/manager activos de la organizacion.
+ * Notifica una alerta nueva a los owner/manager activos de la organizacion y al
+ * consultor responsable de su tarea, si lo hay.
+ *
+ * El consultor no es fila de `organization_members` -- su acceso es virtual, via
+ * `consultant_assignments` --, asi que hasta ahora una alerta no le llegaba
+ * nunca: la veia solo si entraba a mirar.
+ *
  * Best-effort: un fallo aqui no debe tumbar la evaluacion de reglas.
  */
 async function notifyAlertCreated(
@@ -220,6 +235,7 @@ async function notifyAlertCreated(
   alertId: string,
   template: TemplateRow,
   detection: Detection,
+  assigneeId: string | null,
 ) {
   try {
     const { data: members, error } = await supabase
@@ -229,7 +245,12 @@ async function notifyAlertCreated(
       .eq("is_active", true)
       .in("role", ["owner", "manager"]);
 
-    if (error || !members || members.length === 0) {
+    const recipients = new Set(
+      error ? [] : (members ?? []).map((member) => member.user_id as string),
+    );
+    if (assigneeId) recipients.add(assigneeId);
+
+    if (recipients.size === 0) {
       return;
     }
 
@@ -239,9 +260,9 @@ async function notifyAlertCreated(
     ).slice(0, 255);
 
     await supabase.from("notifications").insert(
-      members.map((member) => ({
+      [...recipients].map((userId) => ({
         organization_id: organizationId,
-        user_id: member.user_id,
+        user_id: userId,
         type: "alert",
         title,
         message: interpolate(
@@ -304,9 +325,51 @@ export async function runAlertRules(env: ApiEnv, organizationId: string) {
     throw new Error(`alert_templates_load_failed: ${templatesError.message}`);
   }
 
-  const summary = { evaluated: 0, alerts_created: 0, alerts_refreshed: 0 };
+  // Ajustes por cliente. `organization_alert_rules` existe desde DB-07 con
+  // is_enabled / severity_override / condition_override, y hasta ahora este
+  // motor no la miraba: todos los clientes recibian las mismas alertas con el
+  // mismo umbral, y rellenar la tabla no cambiaba nada.
+  const { data: overrides, error: overridesError } = await supabase
+    .from("organization_alert_rules")
+    .select("template_id, is_enabled, severity_override, condition_override")
+    .eq("organization_id", organizationId);
 
-  for (const template of (templates ?? []) as TemplateRow[]) {
+  if (overridesError) {
+    throw new Error(`alert_overrides_load_failed: ${overridesError.message}`);
+  }
+
+  const overrideByTemplate = new Map(
+    (overrides ?? []).map((row) => [row.template_id as string, row]),
+  );
+
+  const summary = {
+    evaluated: 0,
+    skipped: 0,
+    alerts_created: 0,
+    alerts_refreshed: 0,
+  };
+
+  for (const rawTemplate of (templates ?? []) as TemplateRow[]) {
+    const override = overrideByTemplate.get(rawTemplate.id);
+
+    if (override?.is_enabled === false) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    // Se fusiona una sola vez y el resto del motor sigue leyendo
+    // `default_severity` / `default_condition`: asi las tres ramas de reglas y
+    // `upsertAlertWithTask` no necesitan saber que existen los overrides.
+    const template: TemplateRow = {
+      ...rawTemplate,
+      default_severity:
+        (override?.severity_override as string | null) ??
+        rawTemplate.default_severity,
+      default_condition:
+        (override?.condition_override as TemplateRow["default_condition"]) ??
+        rawTemplate.default_condition,
+    };
+
     summary.evaluated += 1;
     const detections: Detection[] = [];
 
@@ -524,7 +587,7 @@ export async function listOperations(
     supabase
       .from("tasks")
       .select(
-        "id, alert_id, source, status, priority, categories, title, description, due_at, is_visible_to_client, created_at, updated_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
+        "id, alert_id, source, status, priority, categories, title, description, due_at, assigned_to, is_visible_to_client, created_at, updated_at, task_comments(id, body, is_internal, author_user_id, created_at), milestone_task_links(strategic_plan_milestones(id, name, strategic_plan_phases(name)))",
       )
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
@@ -557,6 +620,31 @@ export async function listOperations(
       ? (value[0] as Record<string, unknown> | undefined)
       : (value as Record<string, unknown> | undefined);
 
+  // Nombre del responsable. La RLS de `profiles` es "yo o platform admin", asi
+  // que un cliente no puede leer el perfil de su consultor por join: se resuelve
+  // aparte y acotado a quien tiene tareas en ESTA organizacion, que no es un
+  // directorio de la plataforma.
+  const assigneeIds = [
+    ...new Set(
+      (tasksResult.data ?? [])
+        .map((task) => task.assigned_to as string | null)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const nameByAssignee = new Map<string, string | null>();
+  if (assigneeIds.length > 0) {
+    const { data: profiles } = await createServiceClient(env)
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", assigneeIds);
+    for (const profile of profiles ?? []) {
+      nameByAssignee.set(
+        profile.id as string,
+        profile.full_name as string | null,
+      );
+    }
+  }
+
   const tasks = (tasksResult.data ?? []).map((task) => {
     const { milestone_task_links: rawLinks, ...rest } = task as Record<
       string,
@@ -570,6 +658,9 @@ export async function listOperations(
     const phase = firstOf(ms?.strategic_plan_phases);
     return {
       ...rest,
+      assignee_name: task.assigned_to
+        ? (nameByAssignee.get(task.assigned_to as string) ?? null)
+        : null,
       milestone: ms
         ? {
             id: ms.id as string,
@@ -688,6 +779,9 @@ export async function createTask(
       due_at: input.dueAt || null,
       source: "manual",
       created_by: context.user.id,
+      // Quien la crea se hace responsable. El reparto automatico solo decide
+      // cuando no hay nadie eligiendo (alertas, IA).
+      assigned_to: context.user.id,
       // Por defecto visible: una tarea manual sin marcar como interna es
       // igual de visible para el cliente que cualquier otra de la lista.
       is_visible_to_client: input.isVisibleToClient ?? true,

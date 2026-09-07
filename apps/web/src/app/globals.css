@@ -73,6 +73,17 @@
   --color-warn-deep: #856400;
   --color-warn-tint: #fffaf0;
 
+  /* Identidad de canal (Marketing). El canal NO es una severidad, asi que no
+     puede reusar success/warn/danger, y con un unico azul de marca los tres
+     canales se ven identicos en una rejilla de tarjetas. Tres tonos que se
+     distinguen de un vistazo, cada uno con su fondo suave. */
+  --color-channel-email: #1d4ed8;
+  --color-channel-email-soft: #eef3ff;
+  --color-channel-meta: #6d28d9;
+  --color-channel-meta-soft: #f4f0ff;
+  --color-channel-instagram: #be185d;
+  --color-channel-instagram-soft: #fdf0f6;
+
   --radius-card: 0.375rem;
 }
 
@@ -224,6 +235,18 @@ a[data-slot="button"],
 [data-slot="switch-control"],
 [data-slot="switch-thumb"] {
   border-radius: 9999px;
+}
+
+/* Card: el titulo de HeroUI viene a 0.875rem, igual que el cuerpo, y la
+   cabecera de cada modulo no se distinguia del contenido. Un paso mas grande
+   (1rem) y semibold para que se lea como cabecera. El borde fino lo pone el
+   wrapper (@/components/ui/card.tsx) como utilidad, para que una Card que
+   quiera su propio color (border-accent, border-warn) pueda sobreescribirlo. */
+[data-slot="card-title"] {
+  font-size: 1rem;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--color-ink);
 }
 
 /* Modal: el dialog de HeroUI viene con esquinas de 32px, sin borde y con

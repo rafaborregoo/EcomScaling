@@ -272,16 +272,23 @@ function safeUrl(value: string): string {
   return /^https?:\/\//i.test(trimmed) ? escapeHtml(trimmed) : "";
 }
 
-function renderBlock(block: TemplateBlock, styles: TemplateStyles): string {
+function renderBlock(
+  block: TemplateBlock,
+  styles: TemplateStyles,
+  editable = false,
+): string {
   const pad = "padding:8px 24px;";
+  // En el lienzo el texto se escribe encima del propio bloque; en el HTML que
+  // se guarda estos atributos no existen.
+  const ed = editable ? ` data-edit="1" contenteditable="true"` : "";
   switch (block.type) {
     case "heading":
-      return `<div style="${pad}text-align:${block.align};font-size:${HEADING_SIZE_PX[block.size]}px;font-weight:700;line-height:1.25;color:${block.color ?? styles.text};">${escapeHtml(block.text)}</div>`;
+      return `<div${ed} style="${pad}text-align:${block.align};font-size:${HEADING_SIZE_PX[block.size]}px;font-weight:700;line-height:1.25;color:${block.color ?? styles.text};">${escapeHtml(block.text)}</div>`;
     case "text":
-      return `<div style="${pad}text-align:${block.align};font-size:15px;line-height:1.6;color:${block.color ?? styles.text};">${escapeHtml(block.text).replace(/\n/g, "<br>")}</div>`;
+      return `<div${ed} style="${pad}text-align:${block.align};font-size:15px;line-height:1.6;color:${block.color ?? styles.text};">${escapeHtml(block.text).replace(/\n/g, "<br>")}</div>`;
     case "button": {
       const href = safeUrl(block.href) || "#";
-      return `<div style="${pad}text-align:${block.align};"><a href="${href}" style="display:inline-block;padding:12px 22px;border-radius:6px;background:${block.bg ?? styles.primary};color:${block.color ?? "#ffffff"};text-decoration:none;font-weight:600;font-size:15px;">${escapeHtml(block.text)}</a></div>`;
+      return `<div style="${pad}text-align:${block.align};"><a href="${href}"${ed} style="display:inline-block;padding:12px 22px;border-radius:6px;background:${block.bg ?? styles.primary};color:${block.color ?? "#ffffff"};text-decoration:none;font-weight:600;font-size:15px;">${escapeHtml(block.text)}</a></div>`;
     }
     case "image": {
       const src = safeUrl(block.src);
@@ -316,15 +323,107 @@ function renderBlock(block: TemplateBlock, styles: TemplateStyles): string {
   }
 }
 
-export function renderTemplateHtml(design: TemplateDesign): string {
+/**
+ * Bloques que en el email no pintan nada hasta tener URL. En el lienzo tienen
+ * que seguir siendo visibles y seleccionables o no hay forma de rellenarlos.
+ */
+const EMPTY_CANVAS_HINT: Partial<Record<TemplateBlock["type"], string>> = {
+  image: "Imagen sin URL · selecciónala para subirla o pegar el enlace",
+  youtube: "Vídeo sin identificar · selecciónalo para pegar la URL de YouTube",
+};
+
+const CANVAS_STYLE = `<style>
+.eb{position:relative;outline:1px dashed transparent;outline-offset:-1px;}
+.eb:hover{outline-color:#94a3b8;}
+.eb.sel{outline:2px solid #1d4ed8;}
+.eb [data-edit]:focus{outline:2px solid #93c5fd;outline-offset:2px;}
+.ebar{position:absolute;top:0;right:0;display:flex;background:#1d4ed8;z-index:9;}
+.ebar button{border:0;background:transparent;color:#fff;font:13px/1 system-ui,sans-serif;padding:6px 8px;cursor:pointer;}
+.ebar button:hover{background:#1e40af;}
+.ebar button:disabled{opacity:.4;cursor:default;}
+.ebhint{padding:18px 24px;text-align:center;border:1px dashed #cbd5e1;color:#64748b;font:13px/1.4 system-ui,sans-serif;}
+.ebempty{padding:56px 24px;text-align:center;color:#64748b;font:14px/1.5 system-ui,sans-serif;}
+</style>`;
+
+/**
+ * El lienzo habla con React por `postMessage`. Todo lo que se puede resolver
+ * mirando (escribir, reordenar, duplicar, borrar) se hace aqui dentro; el
+ * panel lateral solo guarda lo que no se manipula directamente sobre la pieza
+ * (colores, enlaces, tamaños).
+ */
+const CANVAS_SCRIPT = `<script>
+(function(){
+  var post=function(m){m.tpl=1;parent.postMessage(m,'*');};
+  document.addEventListener('click',function(e){
+    // Un enlace pulsado en el lienzo sacaria al consultor del editor.
+    var a=e.target.closest('a');
+    if(a)e.preventDefault();
+    var act=e.target.closest('[data-a]');
+    if(act){e.stopPropagation();post({t:'act',a:act.dataset.a,id:act.closest('[data-b]').dataset.b});return;}
+    var w=e.target.closest('[data-b]');
+    post({t:'select',id:w?w.dataset.b:null});
+  },true);
+  document.addEventListener('input',function(e){
+    var el=e.target.closest('[data-edit]');
+    if(!el)return;
+    post({t:'text',id:el.closest('[data-b]').dataset.b,value:el.innerText});
+  });
+  var sel=document.querySelector('.eb.sel');
+  if(sel)sel.scrollIntoView({block:'nearest'});
+})();
+</script>`;
+
+function canvasToolbar(isFirst: boolean, isLast: boolean): string {
+  const button = (
+    action: string,
+    label: string,
+    glyph: string,
+    disabled: boolean,
+  ) =>
+    `<button type="button" data-a="${action}" aria-label="${label}" title="${label}"${disabled ? " disabled" : ""}>${glyph}</button>`;
+  return `<div class="ebar" contenteditable="false">${button("up", "Subir el bloque", "&#8593;", isFirst)}${button("down", "Bajar el bloque", "&#8595;", isLast)}${button("dup", "Duplicar el bloque", "&#10697;", false)}${button("del", "Eliminar el bloque", "&#10005;", false)}</div>`;
+}
+
+/**
+ * AI-11 fase 4: el mismo render alimenta dos cosas distintas.
+ *
+ * Sin opciones produce el HTML que se guarda y se envia al cliente: sin
+ * script, sin estilos de editor, sin atributos extra. Con `editable` produce
+ * el LIENZO del editor. Esa version no se guarda nunca: si el `html` de un
+ * borrador arrastrara el script del editor, acabaria en la bandeja de entrada
+ * de alguien.
+ */
+export function renderTemplateHtml(
+  design: TemplateDesign,
+  options?: { editable?: boolean; selectedId?: string | null },
+): string {
   const { styles, blocks } = design;
-  const body = blocks.map((block) => renderBlock(block, styles)).join("\n");
+  const editable = options?.editable === true;
+  const body = blocks
+    .map((block, index) => {
+      const rendered = renderBlock(block, styles, editable);
+      const hint = EMPTY_CANVAS_HINT[block.type];
+      const inner =
+        rendered || (editable && hint ? `<div class="ebhint">${hint}</div>` : "");
+      if (!editable) return inner;
+      const selected = block.id === options?.selectedId;
+      const bar = selected
+        ? canvasToolbar(index === 0, index === blocks.length - 1)
+        : "";
+      return `<div class="eb${selected ? " sel" : ""}" data-b="${block.id}">${bar}${inner}</div>`;
+    })
+    .join("\n");
+  const canvasEmpty =
+    editable && blocks.length === 0
+      ? `<div class="ebempty">Añade el primer bloque desde el panel de la derecha.</div>`
+      : "";
   return `<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${editable ? CANVAS_STYLE : ""}</head>
 <body style="margin:0;padding:24px 0;background:${styles.background};font-family:${styles.fontFamily};">
 <div style="max-width:600px;margin:0 auto;background:${styles.containerBackground};">
-${body}
+${body}${canvasEmpty}
 </div>
+${editable ? CANVAS_SCRIPT : ""}
 </body></html>`;
 }
 

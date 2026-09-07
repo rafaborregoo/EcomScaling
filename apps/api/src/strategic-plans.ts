@@ -8,6 +8,10 @@ import {
 import { recordAuditLog } from "./audit-log.js";
 import { getShopifyMetrics } from "./shopify-metrics.js";
 import { getMetaMetrics } from "./meta-metrics.js";
+import {
+  caminoPlanOutputSchema,
+  type CaminoPlanOutput,
+} from "@ecomscaling/ai";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -23,14 +27,62 @@ type ApiEnv = {
 // nunca queda "sin dato real": nada de metric_key libre ni pipeline nuevo.
 // direction "up" = mas es mejor, "down" = menos es mejor (CAC, agotados).
 export const OBJECTIVE_CATALOG = [
-  { key: "net_sales", label: "Ingresos netos", unit: "money", direction: "up", source: "shopify" },
-  { key: "net_profit", label: "Beneficio neto", unit: "money", direction: "up", source: "shopify" },
-  { key: "net_margin_pct", label: "Margen neto", unit: "pct", direction: "up", source: "shopify" },
-  { key: "orders_count", label: "Pedidos", unit: "count", direction: "up", source: "shopify" },
-  { key: "aov", label: "Ticket medio (AOV)", unit: "money", direction: "up", source: "shopify" },
-  { key: "roas", label: "ROAS Meta Ads", unit: "ratio", direction: "up", source: "meta" },
-  { key: "cac", label: "CAC Meta Ads", unit: "money", direction: "down", source: "meta" },
-  { key: "out_of_stock_items", label: "Productos agotados", unit: "count", direction: "down", source: "shopify" },
+  {
+    key: "net_sales",
+    label: "Ingresos netos",
+    unit: "money",
+    direction: "up",
+    source: "shopify",
+  },
+  {
+    key: "net_profit",
+    label: "Beneficio neto",
+    unit: "money",
+    direction: "up",
+    source: "shopify",
+  },
+  {
+    key: "net_margin_pct",
+    label: "Margen neto",
+    unit: "pct",
+    direction: "up",
+    source: "shopify",
+  },
+  {
+    key: "orders_count",
+    label: "Pedidos",
+    unit: "count",
+    direction: "up",
+    source: "shopify",
+  },
+  {
+    key: "aov",
+    label: "Ticket medio (AOV)",
+    unit: "money",
+    direction: "up",
+    source: "shopify",
+  },
+  {
+    key: "roas",
+    label: "ROAS Meta Ads",
+    unit: "ratio",
+    direction: "up",
+    source: "meta",
+  },
+  {
+    key: "cac",
+    label: "CAC Meta Ads",
+    unit: "money",
+    direction: "down",
+    source: "meta",
+  },
+  {
+    key: "out_of_stock_items",
+    label: "Productos agotados",
+    unit: "count",
+    direction: "down",
+    source: "shopify",
+  },
 ] as const;
 
 type ObjectiveMetricKey = (typeof OBJECTIVE_CATALOG)[number]["key"];
@@ -1296,6 +1348,7 @@ export async function getObjectives(
   authorization: string,
   context: AuthContext,
   organizationId: string,
+  storeId?: string | null,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -1306,13 +1359,18 @@ export async function getObjectives(
   const supabase = createUserScopedClient(env, token);
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data: targets, error } = await supabase
+  let targetsQuery = supabase
     .from("organization_metric_targets")
-    .select("id, metric_key, target_value, period, valid_from, created_by")
+    .select(
+      "id, metric_key, target_value, period, valid_from, created_by, store_id",
+    )
     .eq("organization_id", organizationId)
     .lte("valid_from", today)
     .or(`valid_until.is.null,valid_until.gte.${today}`)
     .order("created_at", { ascending: true });
+  if (storeId) targetsQuery = targetsQuery.eq("store_id", storeId);
+  else targetsQuery = targetsQuery.is("store_id", null);
+  const { data: targets, error } = await targetsQuery;
 
   if (error) {
     return {
@@ -1379,9 +1437,9 @@ export async function getObjectives(
       const actual =
         catalogEntry.source === "manual"
           ? (manualById.get(target.id as string) ?? null)
-          : (catalogEntry.metric_key
+          : ((catalogEntry.metric_key
               ? actuals[catalogEntry.metric_key]
-              : null) ?? null;
+              : null) ?? null);
       const targetValue = Number(target.target_value);
       let progressPct: number | null = null;
       if (actual !== null) {
@@ -1398,6 +1456,7 @@ export async function getObjectives(
       }
       return {
         id: target.id,
+        store_id: target.store_id ?? null,
         metric_key: target.metric_key,
         label: catalogEntry.label,
         unit: catalogEntry.unit,
@@ -1435,6 +1494,7 @@ type ObjectiveInput = {
   metricKey?: string;
   targetValue?: number;
   period?: string;
+  storeId?: string | null;
 };
 
 export async function createObjective(
@@ -1468,9 +1528,7 @@ export async function createObjective(
       error: "invalid_target_value",
     };
   }
-  const period = ["monthly", "quarterly", "yearly"].includes(
-    input.period ?? "",
-  )
+  const period = ["monthly", "quarterly", "yearly"].includes(input.period ?? "")
     ? (input.period as string)
     : "monthly";
 
@@ -1483,17 +1541,21 @@ export async function createObjective(
   // Un objetivo nuevo para la misma metrica reemplaza al anterior en vez de
   // apilarse -- cierra el que estuviera vigente (mismo patron que "editar"
   // en el resto de configuracion financiera de esta organizacion).
-  await supabase
+  let closeQuery = supabase
     .from("organization_metric_targets")
     .update({ valid_until: yesterday })
     .eq("organization_id", organizationId)
-    .eq("metric_key", input.metricKey)
-    .is("valid_until", null);
+    .eq("metric_key", input.metricKey);
+  closeQuery = input.storeId
+    ? closeQuery.eq("store_id", input.storeId)
+    : closeQuery.is("store_id", null);
+  await closeQuery.is("valid_until", null);
 
   const { data, error } = await supabase
     .from("organization_metric_targets")
     .insert({
       organization_id: organizationId,
+      store_id: input.storeId ?? null,
       metric_key: input.metricKey,
       target_value: input.targetValue,
       period,
@@ -1562,7 +1624,11 @@ export async function deactivateObjective(
     };
   }
   if (!data) {
-    return { ok: false as const, statusCode: 404, error: "objective_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "objective_not_found",
+    };
   }
 
   await auditStrategicChange(
@@ -1623,7 +1689,11 @@ export async function setObjectiveActual(
     };
   }
   if (!data) {
-    return { ok: false as const, statusCode: 404, error: "objective_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "objective_not_found",
+    };
   }
 
   await auditStrategicChange(
@@ -1844,7 +1914,11 @@ export async function updateObjectiveDefinition(
   }
   if (input.direction !== undefined) {
     if (!OBJECTIVE_DIRECTIONS.includes(input.direction as never)) {
-      return { ok: false as const, statusCode: 400, error: "invalid_direction" };
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_direction",
+      };
     }
     patch.direction = input.direction;
   }
@@ -2096,6 +2170,7 @@ export async function createMilestoneTask(
       description: input.description ?? null,
       due_at: input.dueAt ?? null,
       created_by: context.user.id,
+      assigned_to: context.user.id,
     })
     .select("id, title, status, priority, due_at, categories, source")
     .single();
@@ -2139,4 +2214,175 @@ export async function createMilestoneTask(
     },
   );
   return { ok: true as const, data: task };
+}
+
+/**
+ * Traduce la propuesta de A19 a la forma que espera `createStrategicPlan`.
+ *
+ * Dos decisiones que viven aqui:
+ *  - El modelo devuelve `target_offset_days` (dias desde hoy) y no fechas
+ *    absolutas, porque no tiene reloj fiable. El ancla es el momento de
+ *    ACEPTAR, no el de generar: entre proponer y aceptar puede pasar una
+ *    semana y el camino no debe nacer ya tarde.
+ *  - `success_metric` se pliega dentro de la descripcion del hito. Es lo que
+ *    hace verificable "completar" y `strategic_plan_milestones` no tiene
+ *    columna propia para el; perderlo dejaria hitos que se marcan a ojo.
+ */
+export function caminoProposalToPlanInput(
+  proposal: CaminoPlanOutput,
+  acceptedAtMs: number,
+): PlanInput {
+  const toTargetDate = (offsetDays: number) =>
+    new Date(acceptedAtMs + offsetDays * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
+  return {
+    name: proposal.plan_name,
+    description: proposal.diagnosis,
+    phases: proposal.phases.map((phase) => ({
+      name: phase.name,
+      description: phase.description,
+      milestones: phase.milestones.map((milestone) => ({
+        name: milestone.name,
+        description: `${milestone.description}\n\nCriterio de exito: ${milestone.success_metric}`,
+        targetDate: toTargetDate(milestone.target_offset_days),
+      })),
+    })),
+  };
+}
+
+/**
+ * Convierte una propuesta de A19 (arquitecto del camino) en un plan real.
+ *
+ * La IA propone; el plan solo existe cuando un humano pulsa crear -- criterio
+ * "ver vs escribir" de AI-02. Y nace en `draft`: activarlo sigue siendo un
+ * segundo gesto deliberado, igual que un plan escrito a mano.
+ *
+ * El modelo devuelve `target_offset_days` (dias desde hoy) en vez de fechas
+ * absolutas porque no tiene reloj fiable; la fecha se calcula aqui, con el
+ * ancla puesta en el momento de aceptar el plan, no en el de generarlo: entre
+ * generar y aceptar puede pasar una semana y el camino no debe nacer ya tarde.
+ */
+export async function createStrategicPlanFromProposal(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  outputId: string,
+) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) {
+    return authz;
+  }
+
+  const supabase = createServiceClient(env);
+
+  // El output se busca acotado a la organizacion: un id de otra cuenta no
+  // resuelve, no "resuelve y luego se comprueba".
+  const { data: output, error: outputError } = await supabase
+    .from("agent_outputs")
+    .select(
+      "id, status, output, organization_id, agent_runs!inner(agent_versions!inner(agent_definitions!inner(code)))",
+    )
+    .eq("id", outputId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (outputError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "plan_proposal_load_failed",
+      detail: outputError.message,
+    };
+  }
+
+  if (!output) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "plan_proposal_not_found",
+    };
+  }
+
+  const runs = output.agent_runs as
+    | { agent_versions?: { agent_definitions?: { code?: string } } }
+    | Array<{ agent_versions?: { agent_definitions?: { code?: string } } }>
+    | null;
+  const run = Array.isArray(runs) ? runs[0] : runs;
+  const versions = run?.agent_versions;
+  const version = Array.isArray(versions) ? versions[0] : versions;
+  const definitions = version?.agent_definitions;
+  const definition = Array.isArray(definitions) ? definitions[0] : definitions;
+
+  if (definition?.code !== "a19_arquitecto_camino") {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "plan_proposal_wrong_agent",
+      message: "Esa salida de IA no es una propuesta de camino.",
+    };
+  }
+
+  if (output.status === "published") {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "plan_proposal_already_applied",
+      message: "Esta propuesta ya se convirtio en un plan.",
+    };
+  }
+
+  const parsed = caminoPlanOutputSchema.safeParse(output.output);
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      statusCode: 422,
+      error: "plan_proposal_invalid",
+      detail: parsed.error.message,
+    };
+  }
+
+  const created = await createStrategicPlan(
+    env,
+    context,
+    organizationId,
+    caminoProposalToPlanInput(parsed.data, Date.now()),
+  );
+
+  if (created.ok === false) {
+    return created;
+  }
+
+  await supabase
+    .from("agent_outputs")
+    .update({ status: "published", published_at: new Date().toISOString() })
+    .eq("id", outputId);
+
+  await supabase.from("agent_approvals").insert({
+    output_id: outputId,
+    organization_id: organizationId,
+    decision: "approved",
+    decided_by: context.user.id,
+    reason: `Camino creado como plan ${created.data.id}`,
+  });
+
+  await auditStrategicChange(
+    supabase,
+    organizationId,
+    context,
+    "strategic_plan.create_from_ai_proposal",
+    "strategic_plan",
+    created.data.id,
+    {
+      output_id: outputId,
+      phases: parsed.data.phases.length,
+      milestones: parsed.data.phases.reduce(
+        (total, phase) => total + phase.milestones.length,
+        0,
+      ),
+    },
+  );
+
+  return { ok: true as const, data: { id: created.data.id } };
 }

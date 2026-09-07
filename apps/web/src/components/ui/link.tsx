@@ -47,15 +47,24 @@ export function ButtonLink({
   children,
   variant = "primary",
   className,
+  target,
+  rel,
+  download,
 }: {
   href: string;
   children?: ReactNode;
   variant?: "primary" | "secondary";
   className?: string;
+  target?: string;
+  rel?: string;
+  download?: string | boolean;
 }) {
   return (
     <HeroLink
       href={href}
+      target={target}
+      rel={rel}
+      download={download}
       className={cn(
         "inline-flex min-h-9 w-fit items-center rounded-md border px-3 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2",
         variant === "primary"

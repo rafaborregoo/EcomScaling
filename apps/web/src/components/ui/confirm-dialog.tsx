@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { cloneElement, useState, type ReactElement, type ReactNode } from "react";
 import { Modal } from "@heroui/react";
 import { Button } from "./button";
 
@@ -21,7 +21,8 @@ export function ConfirmDialog({
   status = "danger",
   onConfirm,
 }: {
-  trigger: ReactNode;
+  /** Boton que abre el dialogo; recibe el `onClick` que lo abre. */
+  trigger: ReactElement<{ onClick?: () => void }>;
   title: ReactNode;
   description?: ReactNode;
   confirmLabel?: string;
@@ -31,41 +32,49 @@ export function ConfirmDialog({
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
+  // `Modal.Trigger` NO sirve para envolver un boton: renderiza un
+  // `<div role="button">` con la pulsacion de react-aria, y el `Button` de
+  // dentro (react-aria tambien) corta la propagacion del evento -- el div
+  // nunca recibe la pulsacion y el dialogo no se abre nunca. Ademas anidaba un
+  // control dentro de `role="button"` (WCAG 4.1.2). Se abre con el `onClick`
+  // del propio boton, que es lo que ya hace el resto de modales de la app.
   return (
-    <Modal isOpen={isOpen} onOpenChange={setIsOpen}>
-      <Modal.Trigger>{trigger}</Modal.Trigger>
-      <Modal.Backdrop>
-        <Modal.Container size="sm">
-          <Modal.Dialog
-            aria-label={typeof title === "string" ? title : "Confirmar"}
-          >
-            <Modal.Header>
-              <Modal.Heading>{title}</Modal.Heading>
-            </Modal.Header>
-            {description ? (
-              <Modal.Body>
-                <p className="text-[13px] leading-relaxed text-foreground">
-                  {description}
-                </p>
-              </Modal.Body>
-            ) : null}
-            <Modal.Footer>
-              <Button variant="ghost" onClick={() => setIsOpen(false)}>
-                {cancelLabel}
-              </Button>
-              <Button
-                variant={status === "danger" ? "danger" : "primary"}
-                onClick={() => {
-                  onConfirm();
-                  setIsOpen(false);
-                }}
-              >
-                {confirmLabel}
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <>
+      {cloneElement(trigger, { onClick: () => setIsOpen(true) })}
+      <Modal isOpen={isOpen} onOpenChange={setIsOpen}>
+        <Modal.Backdrop>
+          <Modal.Container size="sm">
+            <Modal.Dialog
+              aria-label={typeof title === "string" ? title : "Confirmar"}
+            >
+              <Modal.Header>
+                <Modal.Heading>{title}</Modal.Heading>
+              </Modal.Header>
+              {description ? (
+                <Modal.Body>
+                  <p className="text-[13px] leading-relaxed text-foreground">
+                    {description}
+                  </p>
+                </Modal.Body>
+              ) : null}
+              <Modal.Footer>
+                <Button variant="ghost" onClick={() => setIsOpen(false)}>
+                  {cancelLabel}
+                </Button>
+                <Button
+                  variant={status === "danger" ? "danger" : "primary"}
+                  onClick={() => {
+                    onConfirm();
+                    setIsOpen(false);
+                  }}
+                >
+                  {confirmLabel}
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+    </>
   );
 }

@@ -68,6 +68,26 @@ type ShopifyMetricsData = {
   // Serie diaria para los sparklines de las tarjetas KPI. Vacia cuando se pide
   // "Todo" (no hay ventana acotada) o si el bloque falla (no es fatal).
   daily: Array<{ date: string; net_sales: number; orders_count: number }>;
+  // Embudo: sesiones (ShopifyQL, bloque de sync `sessions`) + pedidos propios.
+  // `null` si la consulta falla; `has_sessions: false` si no hay ni un dia con
+  // dato -- la pantalla debe distinguir "0 sesiones" de "no lo sabemos".
+  funnel: {
+    has_sessions: boolean;
+    sessions: number;
+    online_store_visitors: number;
+    conversion_rate_shopify: number | null;
+    orders_count: number;
+    net_sales: number;
+    conversion_rate_own: number | null;
+    revenue_per_session: number | null;
+    days_with_sessions: number;
+  } | null;
+  funnel_daily: Array<{
+    date: string;
+    sessions: number;
+    orders_count: number;
+    conversion_rate_own: number | null;
+  }>;
 };
 
 function parsePeriodDays(daysInput: string | undefined): number | "all" {
@@ -151,6 +171,8 @@ function emptyMetricsData(
     financial: emptyFinancialData(),
     previous_period: null,
     daily: [],
+    funnel: null,
+    funnel_daily: [],
   };
 }
 
@@ -232,6 +254,8 @@ export async function getShopifyMetrics(
       previousSalesResult,
       previousFinancialResult,
       dailyResult,
+      funnelResult,
+      funnelDailyResult,
     ] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
@@ -287,6 +311,20 @@ export async function getShopifyMetrics(
             target_store_id: storeId,
           })
         : Promise.resolve({ data: null, error: null }),
+      supabase.rpc("shopify_funnel_summary", {
+        target_organization_id: organizationId,
+        period_start: periodStart?.toISOString() ?? null,
+        period_end: periodEnd.toISOString(),
+        target_store_id: storeId,
+      }),
+      periodStart
+        ? supabase.rpc("shopify_funnel_daily", {
+            target_organization_id: organizationId,
+            period_start: periodStart.toISOString(),
+            period_end: periodEnd.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (salesResult.error) {
@@ -320,6 +358,14 @@ export async function getShopifyMetrics(
     // No fatal: los sparklines son un adorno de las tarjetas KPI.
     if (dailyResult.error) {
       logger.error("shopify_sales_daily_failed", { organization_id: organizationId, error: dailyResult.error.message });
+    }
+    // No fatal: el embudo depende del bloque de sync `sessions`, que puede no
+    // estar disponible (conexion sin el scope read_reports).
+    if (funnelResult.error) {
+      logger.error("shopify_funnel_summary_failed", { organization_id: organizationId, error: funnelResult.error.message });
+    }
+    if (funnelDailyResult.error) {
+      logger.error("shopify_funnel_daily_failed", { organization_id: organizationId, error: funnelDailyResult.error.message });
     }
 
     type DailyRow = { bucket_date: string; net_sales: number; orders_count: number };
@@ -377,6 +423,66 @@ export async function getShopifyMetrics(
           }
         : null;
 
+    // Embudo. `has_sessions` distingue "0 sesiones reales" de "no tenemos el
+    // dato" (bloque sessions nunca ejecutado o sin permiso de informes): la
+    // pantalla no debe pintar 0 % de conversion cuando en realidad no sabe.
+    // Las RPC del embudo solo traen sesiones: los pedidos salen de `sales` y
+    // `daily`, que esta misma request ya pidio. Antes las recalculaban con su
+    // propio escaneo de shopify_order_facts y esa duplicidad hacia saltar el
+    // statement_timeout de 8s del rol `authenticated` (500 en el dashboard).
+    type FunnelRow = {
+      sessions: number;
+      online_store_visitors: number;
+      conversion_rate_shopify: number | null;
+      days_with_sessions: number;
+    };
+    const funnelRow = (!funnelResult.error
+      ? (funnelResult.data?.[0] as FunnelRow | undefined)
+      : undefined) ?? null;
+    const funnelSessions = Number(funnelRow?.sessions) || 0;
+    const funnelOrders = Number(sales.orders_count) || 0;
+    const funnelNetSales = Number(sales.net_sales) || 0;
+    const funnel = funnelRow
+      ? {
+          has_sessions: Number(funnelRow.days_with_sessions) > 0,
+          sessions: funnelSessions,
+          online_store_visitors: Number(funnelRow.online_store_visitors) || 0,
+          conversion_rate_shopify:
+            funnelRow.conversion_rate_shopify === null ||
+            funnelRow.conversion_rate_shopify === undefined
+              ? null
+              : Number(funnelRow.conversion_rate_shopify),
+          orders_count: funnelOrders,
+          net_sales: funnelNetSales,
+          conversion_rate_own:
+            funnelSessions > 0 ? funnelOrders / funnelSessions : null,
+          revenue_per_session:
+            funnelSessions > 0 ? funnelNetSales / funnelSessions : null,
+          days_with_sessions: Number(funnelRow.days_with_sessions) || 0,
+        }
+      : null;
+
+    type FunnelDailyRow = { bucket_date: string; sessions: number };
+    const sessionsByDate = new Map<string, number>(
+      !funnelDailyResult.error && Array.isArray(funnelDailyResult.data)
+        ? (funnelDailyResult.data as FunnelDailyRow[]).map((row) => [
+            row.bucket_date,
+            Number(row.sessions) || 0,
+          ])
+        : [],
+    );
+    // `daily` ya viene con los huecos rellenos, asi que marca el eje temporal.
+    const funnelDaily = daily.map((day) => {
+      const sessions = sessionsByDate.get(day.date) ?? 0;
+      return {
+        date: day.date,
+        sessions,
+        orders_count: day.orders_count,
+        conversion_rate_own:
+          sessions > 0 ? day.orders_count / sessions : null,
+      };
+    });
+
     const data = {
       organization_id: organizationId,
       selected_connection_id: connectionId ?? null,
@@ -393,6 +499,8 @@ export async function getShopifyMetrics(
       financial,
       previous_period: previousPeriod,
       daily,
+      funnel,
+      funnel_daily: funnelDaily,
     };
 
     await setCached(env.REDIS_URL, cacheKey, data, METRICS_CACHE_TTL_SECONDS);

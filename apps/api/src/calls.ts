@@ -79,6 +79,65 @@ function parseRecordingUrl(
   return url ? { ok: true, url } : { ok: false };
 }
 
+/**
+ * AI-15: `key_points` de un resumen A01 lleva dos bloques que son coaching
+ * INTERNO del consultor -- lo que no trato en la llamada y como fue la
+ * conversacion (incluidas senales de desmotivacion del cliente). La RLS deja
+ * al cliente leer los resumenes `published` enteros, columna `key_points`
+ * incluida, asi que sin este recorte el cliente veria el analisis del
+ * desempeno de su propio consultor y lo que se dice de su motivacion.
+ *
+ * Se recorta aqui, en la unica lectura que sirve estos datos, en vez de mover
+ * los campos a otra tabla: son parte de la misma salida del agente y viajan
+ * juntos hasta el borde de la API.
+ */
+export function redactConsultantOnly(keyPoints: unknown) {
+  if (!keyPoints || typeof keyPoints !== "object" || Array.isArray(keyPoints)) {
+    return keyPoints;
+  }
+
+  const {
+    consultant_gaps: _gaps,
+    conversation_signals: _signals,
+    ...clientVisible
+  } = keyPoints as Record<string, unknown>;
+
+  return clientVisible;
+}
+
+/**
+ * Tareas propuestas que el consultor eligio materializar, CON su indice
+ * original en `proposed_tasks`.
+ *
+ * El indice no es un detalle: es la clave con la que el consultor dijo en que
+ * hito de Mi Camino entra cada tarea (`taskMilestones`). Si al filtrar se
+ * reindexara, la tarea 3 se crearia en el hito que se eligio para la 1.
+ *
+ * Sin `selectedTaskIndexes` se materializan todas (retrocompatible). Los
+ * indices fuera de rango o repetidos se descartan en silencio: vienen del
+ * cliente y no deben poder saltar la validacion ni crear la misma tarea dos
+ * veces.
+ */
+export function selectProposedTasks<T>(
+  allProposedTasks: T[],
+  selectedTaskIndexes: number[] | undefined,
+): Array<{ index: number; task: T }> {
+  const indexes = Array.isArray(selectedTaskIndexes)
+    ? [...new Set(selectedTaskIndexes)].filter(
+        (index) =>
+          Number.isInteger(index) &&
+          index >= 0 &&
+          index < allProposedTasks.length,
+      )
+    : allProposedTasks.map((_, index) => index);
+
+  return indexes
+    .map((index) => ({ index, task: allProposedTasks[index] }))
+    .filter((entry): entry is { index: number; task: T } =>
+      Boolean(entry.task),
+    );
+}
+
 export async function listCalls(
   env: ApiEnv,
   authorization: string,
@@ -121,12 +180,22 @@ export async function listCalls(
   }
 
   const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    context.profile.platform_role,
+  );
 
   const calls = rows.map((call) => ({
     ...call,
     call_transcripts: (
       (call.call_transcripts as Array<{ is_current: boolean }>) ?? []
     ).filter((transcript) => transcript.is_current),
+    call_ai_summaries: (
+      (call.call_ai_summaries as Array<Record<string, unknown>>) ?? []
+    ).map((summary) =>
+      isConsultant
+        ? summary
+        : { ...summary, key_points: redactConsultantOnly(summary.key_points) },
+    ),
   }));
 
   return {
@@ -523,6 +592,9 @@ export async function decideSummary(
   // materializan (índices en el array `proposed_tasks`). Sin este parámetro se
   // crean todas, como antes.
   selectedTaskIndexes?: number[] | undefined,
+  // AI-15: y en qué punto de Mi Camino entra cada una (índice -> milestone_id).
+  // Sin entrada para un índice, la tarea se crea sin enlazar al plan.
+  taskMilestones?: Record<string, string> | undefined,
 ) {
   const access = requireOrganizationAccess(context, organizationId);
   if (access.ok === false) {
@@ -617,19 +689,10 @@ export async function decideSummary(
       : [];
     // Selección del consultor: si viene una lista de índices, solo esos; si no,
     // todas (retrocompatible).
-    const proposedTasks = Array.isArray(selectedTaskIndexes)
-      ? selectedTaskIndexes
-          .filter(
-            (index) =>
-              Number.isInteger(index) &&
-              index >= 0 &&
-              index < allProposedTasks.length,
-          )
-          .map((index) => allProposedTasks[index])
-          .filter(
-            (task): task is Record<string, unknown> => Boolean(task),
-          )
-      : allProposedTasks;
+    const proposedTasks = selectProposedTasks(
+      allProposedTasks,
+      selectedTaskIndexes,
+    );
 
     if (proposedTasks.length > 0) {
       const { data: existingLinks } = await supabase
@@ -659,7 +722,7 @@ export async function decideSummary(
           .filter((title): title is string => Boolean(title)),
       );
 
-      for (const proposed of proposedTasks) {
+      for (const { index, task: proposed } of proposedTasks) {
         const title =
           typeof proposed.title === "string" ? proposed.title.trim() : "";
 
@@ -673,6 +736,12 @@ export async function decideSummary(
             ? proposed.priority
             : "medium";
 
+        // AI-15: `owner` viajaba en el contrato de A01 desde el principio y se
+        // ignoraba al materializar -- una tarea del CONSULTOR ("preparar el
+        // analisis de margen antes de la proxima") acababa en el backlog del
+        // cliente como si fuera suya. Ahora la del consultor nace interna.
+        const isConsultantTask = proposed.owner === "consultor";
+
         const { data: task, error: taskError } = await supabase
           .from("tasks")
           .insert({
@@ -684,8 +753,12 @@ export async function decideSummary(
               typeof proposed.description === "string"
                 ? proposed.description
                 : null,
+            is_visible_to_client: !isConsultantTask,
             created_by: context.user.id,
-            metadata: { call_summary_id: summaryId },
+            // La del consultor es suya; la del cliente no tiene responsable en
+            // el equipo, y ponerle uno falsearia el reparto de carga.
+            assigned_to: isConsultantTask ? context.user.id : null,
+            metadata: { call_summary_id: summaryId, owner: proposed.owner },
           })
           .select("id")
           .single();
@@ -700,6 +773,18 @@ export async function decideSummary(
           task_id: task.id,
           created_by: context.user.id,
         });
+
+        // Punto de Mi Camino que eligio el consultor al aprobar. Best-effort:
+        // el trigger de integridad cross-org rechaza un hito de otra
+        // organizacion, y eso no debe deshacer la tarea ya creada.
+        const milestoneId = taskMilestones?.[String(index)];
+        if (milestoneId) {
+          await supabase.from("milestone_task_links").insert({
+            organization_id: organizationId,
+            milestone_id: milestoneId,
+            task_id: task.id,
+          });
+        }
 
         existingTitles.add(title.toLowerCase());
         tasksCreated += 1;
@@ -858,6 +943,7 @@ export async function createTaskFromCall(
         typeof payload.description === "string" ? payload.description : null,
       due_at: typeof payload.due_at === "string" ? payload.due_at : null,
       created_by: context.user.id,
+      assigned_to: context.user.id,
     })
     .select("id, title")
     .single();

@@ -3,7 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
-import { shopifyGraphql } from "./shopify-client.js";
+import { ShopifyGraphError, shopifyGraphql } from "./shopify-client.js";
 import {
   fetchBulkResult,
   groupBulkLinesByParent,
@@ -11,6 +11,7 @@ import {
   type BulkLine,
 } from "./shopify-bulk.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
+import { syncShopifySessions } from "./shopify-sessions.js";
 import { getValidShopifyAccessToken } from "./shopify-token-store.js";
 import {
   checkOperationalOrganization,
@@ -110,13 +111,89 @@ type BulkOrderLine = BulkLine & {
   totalShippingPriceSet?: MoneySet;
   currentTotalTaxSet?: MoneySet;
   currentTotalPriceSet?: MoneySet;
+  tags?: string[] | null;
+  returnStatus?: string | null;
+  paymentGatewayNames?: string[] | null;
+  risk?: { assessments?: Array<{ riskLevel?: string | null }> | null } | null;
+  transactions?: Array<{
+    id: string;
+    kind?: string | null;
+    status?: string | null;
+    gateway?: string | null;
+    paymentId?: string | null;
+    processedAt?: string | null;
+    createdAt?: string | null;
+    amountSet?: { shopMoney?: { amount?: string | null; currencyCode?: string | null } | null } | null;
+    fees?: Array<{ amount?: { amount?: string | null } | null }> | null;
+  }> | null;
+  fulfillments?: Array<{
+    id: string;
+    status?: string | null;
+    displayStatus?: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+    inTransitAt?: string | null;
+    deliveredAt?: string | null;
+    estimatedDeliveryAt?: string | null;
+    trackingInfo?: Array<{ company?: string | null; number?: string | null }> | null;
+  }> | null;
   customer?: { id?: string | null; numberOfOrders?: number | null } | null;
+  customerJourneySummary?: {
+    customerOrderIndex?: number | null;
+    daysToConversion?: number | null;
+    firstVisit?: CustomerVisitLine | null;
+    lastVisit?: CustomerVisitLine | null;
+  } | null;
   refunds?: Array<{
     id: string;
     createdAt?: string | null;
     totalRefundedSet?: MoneySet;
   }> | null;
 };
+
+// `moments` es una connection y las operaciones bulk solo admiten cinco y a dos
+// niveles: no se pide. `firstVisit`/`lastVisit` son objetos planos y caben.
+type CustomerVisitLine = {
+  occurredAt?: string | null;
+  landingPage?: string | null;
+  referrerUrl?: string | null;
+  source?: string | null;
+  sourceType?: string | null;
+  utmParameters?: {
+    source?: string | null;
+    medium?: string | null;
+    campaign?: string | null;
+  } | null;
+};
+
+// `discountApplications` es una connection, asi que en bulk sus nodos bajan
+// como HIJOS del pedido, mezclados con las lineas, y no tienen `id` propio.
+type BulkDiscountApplicationLine = BulkLine & {
+  allocationMethod?: string | null;
+  targetType?: string | null;
+  code?: string | null;
+  title?: string | null;
+};
+
+/**
+ * Una linea de pedido, identificada por su GID y no por descarte.
+ *
+ * Positivo y no negativo a proposito: un filtro que dijera "lo que no sea un
+ * descuento es una linea" meteria en `shopify_order_items` cualquier tipo de
+ * hijo que Shopify añada mañana a la query, sin avisar. Y esa es la tabla que
+ * sostiene todo el analisis por producto.
+ */
+function isLineItemChild(child: BulkLine): child is BulkLineItemLine {
+  return typeof child.id === "string" && child.id.includes("/LineItem/");
+}
+
+function isDiscountApplicationChild(
+  child: BulkLine,
+): child is BulkDiscountApplicationLine {
+  return (
+    typeof (child as BulkDiscountApplicationLine).allocationMethod === "string"
+  );
+}
 
 type BulkLineItemLine = BulkLine & {
   title: string;
@@ -143,9 +220,137 @@ type BulkCustomerLine = BulkLine & {
   tags?: string[] | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  defaultEmailAddress?: { marketingState?: string | null } | null;
+  defaultPhoneNumber?: { marketingState?: string | null } | null;
+  verifiedEmail?: boolean | null;
+  locale?: string | null;
+  defaultAddress?: {
+    countryCodeV2?: string | null;
+    provinceCode?: string | null;
+    city?: string | null;
+  } | null;
+  lastOrder?: { processedAt?: string | null } | null;
 };
 
-type BlockKey = "catalog" | "inventory" | "orders" | "refunds" | "customers";
+type BulkAbandonedCheckoutLine = BulkLine & {
+  abandonedCheckoutUrl?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  completedAt?: string | null;
+  lineItemsQuantity?: number | null;
+  totalPriceSet?: {
+    shopMoney?: { amount?: string | null; currencyCode?: string | null } | null;
+  } | null;
+  subtotalPriceSet?: MoneySet;
+  customer?: { id: string } | null;
+  shippingAddress?: { countryCodeV2?: string | null } | null;
+};
+
+type BulkAbandonedCheckoutItemLine = BulkLine & {
+  title?: string | null;
+  quantity?: number | null;
+  variant?: { id: string } | null;
+  originalUnitPriceSet?: MoneySet;
+};
+
+type BulkDiscountValue = {
+  percentage?: number | null;
+  amount?: { amount?: string | null } | null;
+};
+
+type BulkDiscountNodeLine = BulkLine & {
+  discount?: {
+    __typename?: string | null;
+    title?: string | null;
+    status?: string | null;
+    startsAt?: string | null;
+    endsAt?: string | null;
+    createdAt?: string | null;
+    usageLimit?: number | null;
+    appliesOncePerCustomer?: boolean | null;
+    asyncUsageCount?: number | null;
+    customerGets?: { value?: BulkDiscountValue | null } | null;
+  } | null;
+};
+
+type BulkDiscountCodeLine = BulkLine & {
+  code?: string | null;
+};
+
+type BulkMarketingEventLine = BulkLine & {
+  type?: string | null;
+  description?: string | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  channelHandle?: string | null;
+  app?: { handle?: string | null } | null;
+};
+
+type BulkCollectionLine = BulkLine & {
+  title?: string | null;
+  handle?: string | null;
+  updatedAt?: string | null;
+  ruleSet?: { appliedDisjunctively?: boolean | null } | null;
+};
+
+/**
+ * Traduce el `__typename` del descuento y su valor a las tres columnas de
+ * `shopify_discounts` que luego permiten decir "este codigo se llevo X".
+ *
+ * `discount_class` es que clase de promocion es (un envio gratis no tiene
+ * importe, un 2x1 tampoco) y `value_type` como esta expresado el numero. Se
+ * separan porque un free shipping sin valor y un porcentaje del 0% son cosas
+ * distintas y con una sola columna se verian igual.
+ */
+export function classifyDiscount(
+  typeName: string,
+  value: BulkDiscountValue | null | undefined,
+) {
+  const percentage = value?.percentage;
+  const fixedAmount = value?.amount?.amount;
+
+  const valueType =
+    typeof percentage === "number"
+      ? "percentage"
+      : fixedAmount != null
+        ? "fixed_amount"
+        : null;
+
+  const discountClass = typeName.includes("FreeShipping")
+    ? "free_shipping"
+    : typeName.includes("Bxgy")
+      ? "bxgy"
+      : typeName.includes("App")
+        ? "app"
+        : valueType;
+
+  return {
+    discountClass,
+    valueType,
+    // Shopify devuelve el porcentaje como fraccion: 0.15 son 15 puntos.
+    amount:
+      typeof percentage === "number"
+        ? percentage * 100
+        : fixedAmount != null
+          ? normalizeMoney(fixedAmount)
+          : null,
+  };
+}
+
+type BlockKey =
+  | "catalog"
+  | "inventory"
+  | "orders"
+  | "refunds"
+  | "customers"
+  | "sessions"
+  | "abandoned_checkouts"
+  | "discounts"
+  | "marketing_events"
+  | "collections";
 
 type BlockState = {
   read: number;
@@ -400,6 +605,53 @@ async function selectAll<T>(
   return results;
 }
 
+/**
+ * Lanza una query bulk con los campos nuevos y, si Shopify la rechaza por su
+ * forma, la repite pidiendo solo lo que ya funcionaba.
+ *
+ * Se reintenta en dos casos, y solo en esos dos: `userErrors` del validador de
+ * bulk (limite de cinco connections y dos niveles) y un error de esquema de
+ * GraphQL, que es como llega un campo que cambio entre versiones de la API.
+ * Ese segundo llega sin status HTTP y sin marca de reintentable, que es lo que
+ * lo distingue de un 401, un 500 o un rate limit: esos se propagan, porque
+ * repetir la operacion seria pagar dos veces la misma espera para nada.
+ *
+ * Existe porque perder un campo nuevo es malo, pero perder los pedidos o los
+ * clientes enteros por un campo nuevo es mucho peor.
+ */
+async function runBulkWithSchemaFallback(
+  shopDomain: string,
+  accessToken: string,
+  buildQuery: (withExtras: boolean) => string,
+  onFallback: (error: unknown) => void,
+) {
+  try {
+    return {
+      result: await runBulkOperation(shopDomain, accessToken, buildQuery(true)),
+      extrasIncluded: true,
+    };
+  } catch (error) {
+    const isQueryRejection =
+      error instanceof ShopifyGraphError
+        ? !error.retryable && error.externalStatus === undefined
+        : error instanceof Error &&
+          error.message.includes("bulk_operation_start_failed");
+
+    if (!isQueryRejection) throw error;
+
+    onFallback(error);
+
+    return {
+      result: await runBulkOperation(
+        shopDomain,
+        accessToken,
+        buildQuery(false),
+      ),
+      extrasIncluded: false,
+    };
+  }
+}
+
 export async function runShopifyInitialSync(
   env: ApiEnv,
   connectionId: string,
@@ -447,51 +699,30 @@ export async function runShopifyInitialSync(
     orders: createBlockState(),
     refunds: createBlockState(),
     customers: createBlockState(),
+    sessions: createBlockState(),
+    abandoned_checkouts: createBlockState(),
+    discounts: createBlockState(),
+    marketing_events: createBlockState(),
+    collections: createBlockState(),
   };
 
-  const syncRuns: Record<BlockKey, { id: string; alreadySucceeded: boolean }> =
-    {
-      catalog: await ensureSyncRun(
-        supabase,
-        connectionId,
-        connection.organization_id,
-        syncType,
-        "catalog",
-        now,
-      ),
-      inventory: await ensureSyncRun(
-        supabase,
-        connectionId,
-        connection.organization_id,
-        syncType,
-        "inventory",
-        now,
-      ),
-      orders: await ensureSyncRun(
-        supabase,
-        connectionId,
-        connection.organization_id,
-        syncType,
-        "orders",
-        now,
-      ),
-      refunds: await ensureSyncRun(
-        supabase,
-        connectionId,
-        connection.organization_id,
-        syncType,
-        "refunds",
-        now,
-      ),
-      customers: await ensureSyncRun(
-        supabase,
-        connectionId,
-        connection.organization_id,
-        syncType,
-        "customers",
-        now,
-      ),
-    };
+  // Recorriendo `blocks` y no una lista aparte: son las mismas claves, y
+  // mantenerlas en dos sitios es como el bloque de sesiones se quedo sin fila
+  // hasta que alguien lo noto.
+  const syncRuns = {} as Record<
+    BlockKey,
+    { id: string; alreadySucceeded: boolean }
+  >;
+  for (const key of Object.keys(blocks) as BlockKey[]) {
+    syncRuns[key] = await ensureSyncRun(
+      supabase,
+      connectionId,
+      connection.organization_id,
+      syncType,
+      key,
+      now,
+    );
+  }
 
   if (Object.values(syncRuns).every((run) => run.alreadySucceeded)) {
     logger.info(
@@ -1006,13 +1237,76 @@ export async function runShopifyInitialSync(
     accessToken = await getValidShopifyAccessToken(env, connectionId);
 
     try {
-      const bulkResult = await runBulkOperation(
-        shopDomain,
-        accessToken,
-        `{
+      // ADR-0006 pto 8: la documentacion no garantiza que estos bloques
+      // anidados pasen el validador de operaciones bulk (limite de cinco
+      // connections y dos niveles de profundidad), y no hay forma de
+      // comprobarlo sin una tienda real conectada. Si Shopify rechazara la
+      // query, dejarian de sincronizarse los PEDIDOS enteros -- mucho peor que
+      // quedarse sin los extras. Por eso van todos detras de una bandera y se
+      // reintenta una vez sin ellos, dejando constancia de que se cayeron.
+      //
+      // Los escalares (tags, returnStatus, paymentGatewayNames) se quedan en la
+      // base: no pueden romper el validador, y separarlos evita perderlos en un
+      // reintento que solo tenia que castigar a lo anidado.
+      const buildOrdersQuery = (withExtras: boolean) => `{
           orders${ordersQueryFilter} {
             edges {
               node {
+                ${
+                  withExtras
+                    ? `customerJourneySummary {
+                  customerOrderIndex
+                  daysToConversion
+                  firstVisit {
+                    occurredAt
+                    landingPage
+                    referrerUrl
+                    source
+                    sourceType
+                    utmParameters { source medium campaign }
+                  }
+                  lastVisit { source sourceType }
+                }
+                risk { assessments { riskLevel } }
+                transactions(first: 10) {
+                  id
+                  kind
+                  status
+                  gateway
+                  paymentId
+                  processedAt
+                  createdAt
+                  amountSet { shopMoney { amount currencyCode } }
+                  fees { amount { amount } }
+                }
+                fulfillments(first: 10) {
+                  id
+                  status
+                  displayStatus
+                  createdAt
+                  updatedAt
+                  inTransitAt
+                  deliveredAt
+                  estimatedDeliveryAt
+                  trackingInfo { company number }
+                }
+                discountApplications(first: 10) {
+                  edges {
+                    node {
+                      allocationMethod
+                      targetType
+                      ... on DiscountCodeApplication { code }
+                      ... on ManualDiscountApplication { title }
+                      ... on ScriptDiscountApplication { title }
+                      ... on AutomaticDiscountApplication { title }
+                    }
+                  }
+                }`
+                    : ""
+                }
+                tags
+                returnStatus
+                paymentGatewayNames
                 id
                 name
                 createdAt
@@ -1055,14 +1349,32 @@ export async function runShopifyInitialSync(
               }
             }
           }
-        }`,
-      );
+        }`;
+
+      const { result: bulkResult, extrasIncluded } =
+        await runBulkWithSchemaFallback(
+          shopDomain,
+          accessToken,
+          buildOrdersQuery,
+          // `error` y no `info`: la atribucion deja de llegar entera y desde
+          // fuera no se distingue de "esta tienda no tiene visitas atribuidas".
+          (error) =>
+            logger.error(
+              `Shopify rechazo los campos extra en la query bulk de pedidos de la conexion ${connectionId}; los pedidos se sincronizan sin atribucion, cobros, envios ni descuentos`,
+              error,
+            ),
+        );
 
       const lines = await fetchBulkResult(bulkResult.url);
       const { topLevel: orderLines, childrenByParentId } =
         groupBulkLinesByParent(lines);
 
-      const orderRows = (orderLines as BulkOrderLine[]).map((order) => ({
+      const orderRows = (orderLines as BulkOrderLine[]).map((order) => {
+      const journey = order.customerJourneySummary;
+      const firstVisit = journey?.firstVisit;
+      const utm = firstVisit?.utmParameters;
+
+      return {
         organization_id: connection.organization_id,
         store_id: storeId,
         external_order_id: order.id,
@@ -1111,14 +1423,43 @@ export async function runShopifyInitialSync(
         total_items: (
           (childrenByParentId.get(order.id) ?? []) as BulkLineItemLine[]
         ).reduce((total, lineItem) => total + (lineItem.quantity ?? 0), 0),
-        is_first_customer_order: order.customer?.numberOfOrders === 1,
+        // `customer.numberOfOrders` es el total ACTUAL del cliente, no la
+        // posicion de ESTE pedido: con el, los tres pedidos de quien repite
+        // salian los tres a false, incluido el primero. En produccion estaba a
+        // false en los 721 pedidos. `customerOrderIndex` si es la posicion.
+        // Null cuando no hay atribucion: mejor sin dato que con uno falso.
+        tags: order.tags ?? [],
+        return_status: order.returnStatus ?? null,
+        payment_gateway_names: order.paymentGatewayNames ?? [],
+        // Shopify devuelve varias evaluaciones de riesgo; la del pedido es la
+        // primera. Sin `?? null` un pedido sin evaluar guardaria "undefined".
+        risk_level: order.risk?.assessments?.[0]?.riskLevel ?? null,
+        customer_order_index: journey?.customerOrderIndex ?? null,
+        is_first_customer_order:
+          typeof journey?.customerOrderIndex === "number"
+            ? journey.customerOrderIndex === 1
+            : null,
+        days_to_conversion: journey?.daysToConversion ?? null,
+        // Adquisicion y cierre por separado: mezclarlas es el error clasico de
+        // atribucion -- la campana que lo trajo no suele ser la que lo cerro.
+        first_visit_at: firstVisit?.occurredAt ?? null,
+        first_visit_source: firstVisit?.source ?? null,
+        first_visit_source_type: firstVisit?.sourceType ?? null,
+        first_visit_landing_page: firstVisit?.landingPage ?? null,
+        first_visit_referrer_url: firstVisit?.referrerUrl ?? null,
+        first_visit_utm_source: utm?.source ?? null,
+        first_visit_utm_medium: utm?.medium ?? null,
+        first_visit_utm_campaign: utm?.campaign ?? null,
+        last_visit_source: journey?.lastVisit?.source ?? null,
+        last_visit_source_type: journey?.lastVisit?.sourceType ?? null,
         is_test_order: order.test ?? false,
         external_created_at: order.createdAt ?? null,
         processed_at: order.processedAt ?? null,
         external_updated_at: order.updatedAt ?? null,
         cancelled_at: order.cancelledAt ?? null,
         cancel_reason: order.cancelReason ?? null,
-      }));
+      };
+      });
 
       blocks.orders.read += orderRows.length;
       await upsertBlockRows(
@@ -1147,14 +1488,28 @@ export async function runShopifyInitialSync(
         orderId: string;
         lineItem: BulkLineItemLine;
       }> = [];
+      const discountApplicationsByOrderId: Array<{
+        orderId: string;
+        application: BulkDiscountApplicationLine;
+      }> = [];
       for (const order of orderLines as BulkOrderLine[]) {
         const orderId = orderMap.get(order.id);
         if (!orderId) {
           continue;
         }
-        for (const lineItem of (childrenByParentId.get(order.id) ??
-          []) as BulkLineItemLine[]) {
-          lineItemsByOrderId.push({ orderId, lineItem });
+        // Solo lo que ES una linea de pedido. Desde que la query pide tambien
+        // `discountApplications`, este mismo cubo trae dos tipos de hijo, y
+        // meter una aplicacion de descuento en `shopify_order_items` seria
+        // corromper la tabla que sostiene todo el analisis por producto.
+        for (const child of childrenByParentId.get(order.id) ?? []) {
+          if (isLineItemChild(child)) {
+            lineItemsByOrderId.push({ orderId, lineItem: child });
+          } else if (isDiscountApplicationChild(child)) {
+            discountApplicationsByOrderId.push({
+              orderId,
+              application: child,
+            });
+          }
         }
       }
 
@@ -1365,6 +1720,117 @@ export async function runShopifyInitialSync(
         refundItemRows.map((row) => row.order_item_id as string),
       );
 
+      // --- Cobros, envios y descuentos aplicados ---------------------------
+      // Vienen dentro del mismo pedido, asi que no cuestan una llamada mas.
+      // Si el reintento tuvo que quitar los extras, estos arrays llegan vacios
+      // y no se escribe nada: mejor sin filas que con filas a medias.
+      const transactionRows: Array<Record<string, unknown>> = [];
+      const fulfillmentRows: Array<Record<string, unknown>> = [];
+
+      for (const order of orderLines as BulkOrderLine[]) {
+        const orderId = orderMap.get(order.id);
+        if (!orderId) continue;
+
+        for (const transaction of order.transactions ?? []) {
+          const amount = normalizeMoney(
+            transaction.amountSet?.shopMoney?.amount,
+          );
+          // Shopify devuelve las comisiones como lista (puede haber varias por
+          // transaccion): la comision real del cobro es la suma, no la primera.
+          const fee = (transaction.fees ?? []).reduce(
+            (total, item) => total + normalizeMoney(item.amount?.amount),
+            0,
+          );
+
+          transactionRows.push({
+            organization_id: connection.organization_id,
+            store_id: storeId,
+            order_id: orderId,
+            external_transaction_id: transaction.id,
+            kind: transaction.kind ?? null,
+            status: transaction.status ?? null,
+            gateway: transaction.gateway ?? null,
+            payment_method: transaction.paymentId ?? null,
+            amount,
+            currency_code:
+              transaction.amountSet?.shopMoney?.currencyCode ?? null,
+            fee_amount: fee,
+            net_amount: amount - fee,
+            processed_at: transaction.processedAt ?? null,
+            external_created_at: transaction.createdAt ?? null,
+          });
+        }
+
+        for (const fulfillment of order.fulfillments ?? []) {
+          fulfillmentRows.push({
+            organization_id: connection.organization_id,
+            store_id: storeId,
+            order_id: orderId,
+            external_fulfillment_id: fulfillment.id,
+            status: fulfillment.status ?? null,
+            display_status: fulfillment.displayStatus ?? null,
+            external_created_at: fulfillment.createdAt ?? null,
+            in_transit_at: fulfillment.inTransitAt ?? null,
+            delivered_at: fulfillment.deliveredAt ?? null,
+            estimated_delivery_at: fulfillment.estimatedDeliveryAt ?? null,
+            tracking_company:
+              fulfillment.trackingInfo?.[0]?.company ?? null,
+            tracking_numbers: (fulfillment.trackingInfo ?? [])
+              .map((info) => info.number)
+              .filter((number): number is string => Boolean(number)),
+            external_updated_at: fulfillment.updatedAt ?? null,
+          });
+        }
+      }
+
+      // La posicion la fija el orden en que Shopify devuelve los descuentos del
+      // pedido, y es parte de la clave: un pedido puede llevar el mismo codigo
+      // aplicado a dos objetivos distintos.
+      const positionByOrder = new Map<string, number>();
+      const discountApplicationRows = discountApplicationsByOrderId.map(
+        ({ orderId, application }) => {
+          const position = positionByOrder.get(orderId) ?? 0;
+          positionByOrder.set(orderId, position + 1);
+
+          return {
+            organization_id: connection.organization_id,
+            order_id: orderId,
+            // El enlace a `shopify_discounts` lo pone el bloque de promociones,
+            // que es quien conoce los ids. Aqui se guarda el texto, que es lo
+            // que sobrevive si la promocion se borra en Shopify.
+            code: application.code ?? null,
+            title: application.title ?? null,
+            allocation_method: application.allocationMethod ?? null,
+            target_type: application.targetType ?? null,
+            amount: 0,
+            position,
+          };
+        },
+      );
+
+      blocks.orders.read += transactionRows.length + fulfillmentRows.length;
+      await upsertBlockRows(
+        supabase,
+        blocks.orders,
+        "shopify_order_transactions",
+        transactionRows,
+        "store_id,external_transaction_id",
+      );
+      await upsertBlockRows(
+        supabase,
+        blocks.orders,
+        "shopify_fulfillments",
+        fulfillmentRows,
+        "store_id,external_fulfillment_id",
+      );
+      await upsertBlockRows(
+        supabase,
+        blocks.orders,
+        "shopify_order_discount_applications",
+        discountApplicationRows,
+        "order_id,position",
+      );
+
       logger.info("Shopify orders and refunds bulk sync completed", {
         connection_id: connectionId,
         organization_id: connection.organization_id,
@@ -1372,6 +1838,10 @@ export async function runShopifyInitialSync(
         object_count: bulkResult.objectCount,
         orders_written: blocks.orders.written,
         refunds_written: blocks.refunds.written,
+        // Si esto sale en false, la tienda se queda sin atribucion y sin
+        // "primer pedido": es lo primero que hay que mirar cuando esas
+        // metricas aparezcan vacias.
+        extras_included: extrasIncluded,
       });
     } catch (error) {
       const message =
@@ -1387,10 +1857,12 @@ export async function runShopifyInitialSync(
       const customersQueryFilter = updatedAtCutoff
         ? `(query: "updated_at:>='${updatedAtCutoff}'")`
         : "";
-      const bulkResult = await runBulkOperation(
-        shopDomain,
-        accessToken,
-        `{
+      // Consentimiento, idioma y geografia cambiaron de forma entre versiones
+      // de la Admin API (`emailMarketingConsent` paso a `defaultEmailAddress`),
+      // asi que van detras de la misma bandera que los extras de pedidos: si
+      // esta tienda responde con otro esquema, se pierden estos campos, no los
+      // clientes.
+      const buildCustomersQuery = (withExtras: boolean) => `{
           customers${customersQueryFilter} {
             edges {
               node {
@@ -1401,11 +1873,32 @@ export async function runShopifyInitialSync(
                 tags
                 createdAt
                 updatedAt
+                ${
+                  withExtras
+                    ? `defaultEmailAddress { marketingState }
+                defaultPhoneNumber { marketingState }
+                verifiedEmail
+                locale
+                defaultAddress { countryCodeV2 provinceCode city }
+                lastOrder { processedAt }`
+                    : ""
+                }
               }
             }
           }
-        }`,
-      );
+        }`;
+
+      const { result: bulkResult, extrasIncluded: customerExtrasIncluded } =
+        await runBulkWithSchemaFallback(
+          shopDomain,
+          accessToken,
+          buildCustomersQuery,
+          (error) =>
+            logger.error(
+              `Shopify rechazo los campos extra en la query bulk de clientes de la conexion ${connectionId}; los clientes se sincronizan sin consentimiento, idioma ni geografia`,
+              error,
+            ),
+        );
 
       const lines = await fetchBulkResult(bulkResult.url);
       const { topLevel: customerLines } = groupBulkLinesByParent(lines);
@@ -1424,6 +1917,16 @@ export async function runShopifyInitialSync(
           is_active: true,
           external_created_at: customer.createdAt ?? null,
           external_updated_at: customer.updatedAt ?? null,
+          email_marketing_state:
+            customer.defaultEmailAddress?.marketingState ?? null,
+          sms_marketing_state:
+            customer.defaultPhoneNumber?.marketingState ?? null,
+          verified_email: customer.verifiedEmail ?? null,
+          locale: customer.locale ?? null,
+          default_country_code: customer.defaultAddress?.countryCodeV2 ?? null,
+          default_province_code: customer.defaultAddress?.provinceCode ?? null,
+          default_city: customer.defaultAddress?.city ?? null,
+          last_order_at: customer.lastOrder?.processedAt ?? null,
         }),
       );
 
@@ -1442,6 +1945,7 @@ export async function runShopifyInitialSync(
         shop_domain: shopDomain,
         object_count: bulkResult.objectCount,
         customers_written: blocks.customers.written,
+        extras_included: customerExtrasIncluded,
       });
     } catch (error) {
       const message =
@@ -1450,6 +1954,598 @@ export async function runShopifyInitialSync(
           : "shopify_customers_sync_failed";
       blocks.customers.failed += 1;
       blocks.customers.error = message;
+    }
+
+    // --- Carritos abandonados ---------------------------------------------
+    // Dinero que ya dijo que si y se fue. `completedAt` es la mitad que
+    // importa: sin el, un carrito que acabo en compra se contaria como perdido
+    // y la tasa de recuperacion saldria siempre por los suelos.
+    try {
+      accessToken = await getValidShopifyAccessToken(env, connectionId);
+      const checkoutsQueryFilter = updatedAtCutoff
+        ? `(query: "updated_at:>='${updatedAtCutoff}'")`
+        : "";
+      const bulkResult = await runBulkOperation(
+        shopDomain,
+        accessToken,
+        `{
+          abandonedCheckouts${checkoutsQueryFilter} {
+            edges {
+              node {
+                id
+                abandonedCheckoutUrl
+                createdAt
+                updatedAt
+                completedAt
+                lineItemsQuantity
+                totalPriceSet { shopMoney { amount currencyCode } }
+                subtotalPriceSet { shopMoney { amount } }
+                customer { id }
+                shippingAddress { countryCodeV2 }
+                lineItems {
+                  edges {
+                    node {
+                      id
+                      title
+                      quantity
+                      variant { id }
+                      originalUnitPriceSet { shopMoney { amount } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }`,
+      );
+
+      const lines = await fetchBulkResult(bulkResult.url);
+      const { topLevel: checkoutLines, childrenByParentId } =
+        groupBulkLinesByParent(lines);
+
+      const checkoutRows = (
+        checkoutLines as BulkAbandonedCheckoutLine[]
+      ).map((checkout) => ({
+        organization_id: connection.organization_id,
+        store_id: storeId,
+        external_checkout_id: checkout.id,
+        // Mismo hash que en los pedidos: es lo que permite cruzar el carrito
+        // con la compra posterior sin guardar un solo dato personal.
+        customer_reference_hash: checkout.customer?.id
+          ? sha256(checkout.customer.id)
+          : null,
+        total_price: normalizeMoney(checkout.totalPriceSet?.shopMoney?.amount),
+        subtotal_price: normalizeMoney(
+          checkout.subtotalPriceSet?.shopMoney?.amount,
+        ),
+        currency_code: checkout.totalPriceSet?.shopMoney?.currencyCode ?? null,
+        total_items: checkout.lineItemsQuantity ?? 0,
+        completed_at: checkout.completedAt ?? null,
+        recovery_url: checkout.abandonedCheckoutUrl ?? null,
+        country_code: checkout.shippingAddress?.countryCodeV2 ?? null,
+        external_created_at: checkout.createdAt ?? null,
+        external_updated_at: checkout.updatedAt ?? null,
+      }));
+
+      blocks.abandoned_checkouts.read += checkoutRows.length;
+      await upsertBlockRows(
+        supabase,
+        blocks.abandoned_checkouts,
+        "shopify_abandoned_checkouts",
+        checkoutRows,
+        "store_id,external_checkout_id",
+      );
+
+      const checkoutRefs = await selectAll<{
+        id: string;
+        external_checkout_id: string;
+      }>(
+        supabase,
+        "shopify_abandoned_checkouts",
+        "id, external_checkout_id",
+        "external_checkout_id",
+        checkoutRows.map((row) => row.external_checkout_id),
+      );
+      const checkoutMap = new Map(
+        checkoutRefs.map((row) => [row.external_checkout_id, row.id]),
+      );
+
+      const checkoutItems: Array<{
+        checkoutId: string;
+        item: BulkAbandonedCheckoutItemLine;
+      }> = [];
+      for (const checkout of checkoutLines) {
+        const checkoutId = checkoutMap.get(checkout.id);
+        if (!checkoutId) continue;
+        for (const child of childrenByParentId.get(checkout.id) ?? []) {
+          checkoutItems.push({
+            checkoutId,
+            item: child as BulkAbandonedCheckoutItemLine,
+          });
+        }
+      }
+
+      const checkoutVariantRefs = await selectAll<{
+        id: string;
+        external_variant_id: string;
+        product_id: string;
+      }>(
+        supabase,
+        "shopify_variants",
+        "id, external_variant_id, product_id",
+        "external_variant_id",
+        [
+          ...new Set(
+            checkoutItems
+              .map(({ item }) => item.variant?.id)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        ],
+      );
+      const checkoutVariantMap = new Map(
+        checkoutVariantRefs.map((variant) => [
+          variant.external_variant_id,
+          variant,
+        ]),
+      );
+
+      const checkoutItemRows = checkoutItems.map(({ checkoutId, item }) => {
+        const matchedVariant = item.variant?.id
+          ? checkoutVariantMap.get(item.variant.id)
+          : null;
+
+        return {
+          organization_id: connection.organization_id,
+          checkout_id: checkoutId,
+          variant_id: matchedVariant?.id ?? null,
+          product_id: matchedVariant?.product_id ?? null,
+          external_line_item_id: item.id,
+          title: item.title ?? "",
+          quantity: item.quantity ?? 0,
+          unit_price: normalizeMoney(
+            item.originalUnitPriceSet?.shopMoney?.amount,
+          ),
+        };
+      });
+
+      blocks.abandoned_checkouts.read += checkoutItemRows.length;
+      await upsertBlockRows(
+        supabase,
+        blocks.abandoned_checkouts,
+        "shopify_abandoned_checkout_items",
+        checkoutItemRows,
+        "checkout_id,external_line_item_id",
+      );
+
+      logger.info("Shopify abandoned checkouts bulk sync completed", {
+        connection_id: connectionId,
+        organization_id: connection.organization_id,
+        shop_domain: shopDomain,
+        object_count: bulkResult.objectCount,
+        checkouts_written: blocks.abandoned_checkouts.written,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "shopify_abandoned_checkouts_sync_failed";
+      blocks.abandoned_checkouts.failed += 1;
+      blocks.abandoned_checkouts.error = message;
+    }
+
+    // --- Promociones -------------------------------------------------------
+    // Sin filtro incremental a proposito: son pocas, cambian de estado sin que
+    // `updated_at` sea fiable en todos los tipos de descuento, y el upsert
+    // in-place hace que traerlas enteras cada vez no cueste filas duplicadas.
+    try {
+      accessToken = await getValidShopifyAccessToken(env, connectionId);
+      const bulkResult = await runBulkOperation(
+        shopDomain,
+        accessToken,
+        `{
+          discountNodes {
+            edges {
+              node {
+                id
+                discount {
+                  __typename
+                  ... on DiscountCodeBasic {
+                    title status startsAt endsAt createdAt
+                    usageLimit appliesOncePerCustomer asyncUsageCount
+                    codes(first: 1) { edges { node { code } } }
+                    customerGets {
+                      value {
+                        ... on DiscountPercentage { percentage }
+                        ... on DiscountAmount { amount { amount } }
+                      }
+                    }
+                  }
+                  ... on DiscountCodeBxgy {
+                    title status startsAt endsAt createdAt
+                    usageLimit appliesOncePerCustomer asyncUsageCount
+                    codes(first: 1) { edges { node { code } } }
+                  }
+                  ... on DiscountCodeFreeShipping {
+                    title status startsAt endsAt createdAt
+                    usageLimit appliesOncePerCustomer asyncUsageCount
+                    codes(first: 1) { edges { node { code } } }
+                  }
+                  ... on DiscountAutomaticBasic {
+                    title status startsAt endsAt createdAt asyncUsageCount
+                    customerGets {
+                      value {
+                        ... on DiscountPercentage { percentage }
+                        ... on DiscountAmount { amount { amount } }
+                      }
+                    }
+                  }
+                  ... on DiscountAutomaticBxgy {
+                    status startsAt endsAt createdAt asyncUsageCount
+                  }
+                  ... on DiscountAutomaticFreeShipping {
+                    title status startsAt endsAt createdAt asyncUsageCount
+                  }
+                }
+              }
+            }
+          }
+        }`,
+      );
+
+      const lines = await fetchBulkResult(bulkResult.url);
+      const { topLevel: discountLines, childrenByParentId } =
+        groupBulkLinesByParent(lines);
+
+      const discountRows = (discountLines as BulkDiscountNodeLine[]).map(
+        (node) => {
+          const discount = node.discount;
+          const typeName = discount?.__typename ?? "";
+          // El codigo baja como hijo de la connection `codes`, no inline. Un
+          // descuento automatico no tiene ninguno, y esa es justo la
+          // distincion que interesa: el automatico se lo lleva todo el mundo.
+          const code =
+            (childrenByParentId.get(node.id)?.[0] as BulkDiscountCodeLine)
+              ?.code ?? null;
+
+          const classified = classifyDiscount(
+            typeName,
+            discount?.customerGets?.value,
+          );
+
+          return {
+            organization_id: connection.organization_id,
+            store_id: storeId,
+            external_discount_id: node.id,
+            title: discount?.title ?? null,
+            code,
+            status: discount?.status ?? null,
+            discount_class: classified.discountClass,
+            value_type: classified.valueType,
+            value: classified.amount,
+            // `asyncUsageCount` se actualiza de forma asincrona segun la
+            // propia documentacion: sirve para ordenar promociones por uso,
+            // no para cuadrar contabilidad al centimo.
+            usage_count: discount?.asyncUsageCount ?? 0,
+            usage_limit: discount?.usageLimit ?? null,
+            applies_once_per_customer:
+              discount?.appliesOncePerCustomer ?? null,
+            starts_at: discount?.startsAt ?? null,
+            ends_at: discount?.endsAt ?? null,
+            external_created_at: discount?.createdAt ?? null,
+          };
+        },
+      );
+
+      blocks.discounts.read += discountRows.length;
+      await upsertBlockRows(
+        supabase,
+        blocks.discounts,
+        "shopify_discounts",
+        discountRows,
+        "store_id,external_discount_id",
+      );
+
+      // Enganchar los descuentos ya aplicados en pedidos. El bloque de pedidos
+      // guarda el texto del codigo porque es lo que sobrevive si la promocion
+      // se borra; el enlace lo pone aqui, que es quien conoce los ids.
+      const discountIdByCode = new Map<string, string>();
+      const storedDiscounts = await selectAll<{
+        id: string;
+        external_discount_id: string;
+        code: string | null;
+      }>(
+        supabase,
+        "shopify_discounts",
+        "id, external_discount_id, code",
+        "external_discount_id",
+        discountRows.map((row) => row.external_discount_id),
+      );
+      for (const stored of storedDiscounts) {
+        if (stored.code) discountIdByCode.set(stored.code, stored.id);
+      }
+
+      for (const [code, discountId] of discountIdByCode) {
+        await supabase
+          .from("shopify_order_discount_applications")
+          .update({ discount_id: discountId })
+          .eq("organization_id", connection.organization_id)
+          .eq("code", code)
+          .is("discount_id", null);
+      }
+
+      logger.info("Shopify discounts bulk sync completed", {
+        connection_id: connectionId,
+        organization_id: connection.organization_id,
+        shop_domain: shopDomain,
+        object_count: bulkResult.objectCount,
+        discounts_written: blocks.discounts.written,
+        codes_linked: discountIdByCode.size,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "shopify_discounts_sync_failed";
+      blocks.discounts.failed += 1;
+      blocks.discounts.error = message;
+    }
+
+    // --- Campañas declaradas en Shopify ------------------------------------
+    try {
+      accessToken = await getValidShopifyAccessToken(env, connectionId);
+      // `channelHandle` y `app` son los dos campos de MarketingEvent que mas
+      // se han movido entre versiones: detras de la bandera para que un
+      // cambio de esquema cueste dos columnas y no las campañas enteras.
+      const buildMarketingEventsQuery = (withExtras: boolean) => `{
+          marketingEvents {
+            edges {
+              node {
+                id
+                type
+                description
+                startedAt
+                endedAt
+                utmSource
+                utmMedium
+                utmCampaign
+                ${withExtras ? `channelHandle\n                app { handle }` : ""}
+              }
+            }
+          }
+        }`;
+
+      const { result: bulkResult, extrasIncluded: eventExtrasIncluded } =
+        await runBulkWithSchemaFallback(
+          shopDomain,
+          accessToken,
+          buildMarketingEventsQuery,
+          (error) =>
+            logger.error(
+              `Shopify rechazo channelHandle/app en la query bulk de campañas de la conexion ${connectionId}; las campañas se sincronizan sin canal ni app`,
+              error,
+            ),
+        );
+
+      const lines = await fetchBulkResult(bulkResult.url);
+      const { topLevel: eventLines } = groupBulkLinesByParent(lines);
+
+      const eventRows = (eventLines as BulkMarketingEventLine[]).map(
+        (event) => ({
+          organization_id: connection.organization_id,
+          store_id: storeId,
+          external_event_id: event.id,
+          event_type: event.type ?? null,
+          channel_handle: event.channelHandle ?? null,
+          app_handle: event.app?.handle ?? null,
+          description: event.description ?? null,
+          // Los mismos UTM que llegan en la atribucion del pedido: es el
+          // enganche que permite decir "esta campaña trajo estos pedidos".
+          utm_source: event.utmSource ?? null,
+          utm_medium: event.utmMedium ?? null,
+          utm_campaign: event.utmCampaign ?? null,
+          started_at: event.startedAt ?? null,
+          ended_at: event.endedAt ?? null,
+          external_created_at: event.startedAt ?? null,
+        }),
+      );
+
+      blocks.marketing_events.read += eventRows.length;
+      await upsertBlockRows(
+        supabase,
+        blocks.marketing_events,
+        "shopify_marketing_events",
+        eventRows,
+        "store_id,external_event_id",
+      );
+
+      logger.info("Shopify marketing events bulk sync completed", {
+        connection_id: connectionId,
+        organization_id: connection.organization_id,
+        shop_domain: shopDomain,
+        object_count: bulkResult.objectCount,
+        events_written: blocks.marketing_events.written,
+        extras_included: eventExtrasIncluded,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "shopify_marketing_events_sync_failed";
+      blocks.marketing_events.failed += 1;
+      blocks.marketing_events.error = message;
+    }
+
+    // --- Colecciones -------------------------------------------------------
+    // Sin filtro incremental: hacen falta enteras para poder rehacer la tabla
+    // de pertenencia, y son pocas.
+    try {
+      accessToken = await getValidShopifyAccessToken(env, connectionId);
+      const bulkResult = await runBulkOperation(
+        shopDomain,
+        accessToken,
+        `{
+          collections {
+            edges {
+              node {
+                id
+                title
+                handle
+                updatedAt
+                ruleSet { appliedDisjunctively }
+                products { edges { node { id } } }
+              }
+            }
+          }
+        }`,
+      );
+
+      const lines = await fetchBulkResult(bulkResult.url);
+      const { topLevel: collectionLines, childrenByParentId } =
+        groupBulkLinesByParent(lines);
+
+      const collectionRows = (collectionLines as BulkCollectionLine[]).map(
+        (collection) => ({
+          organization_id: connection.organization_id,
+          store_id: storeId,
+          external_collection_id: collection.id,
+          title: collection.title ?? "",
+          handle: collection.handle ?? null,
+          // Una coleccion con reglas es automatica; una manual no tiene
+          // `ruleSet`. No hace falta pedir `productsCount`: los productos
+          // bajan como hijos y contarlos aqui sale exacto y gratis.
+          is_automated: Boolean(collection.ruleSet),
+          products_count: (childrenByParentId.get(collection.id) ?? []).length,
+          external_updated_at: collection.updatedAt ?? null,
+        }),
+      );
+
+      blocks.collections.read += collectionRows.length;
+      await upsertBlockRows(
+        supabase,
+        blocks.collections,
+        "shopify_collections",
+        collectionRows,
+        "store_id,external_collection_id",
+      );
+
+      const collectionRefs = await selectAll<{
+        id: string;
+        external_collection_id: string;
+      }>(
+        supabase,
+        "shopify_collections",
+        "id, external_collection_id",
+        "external_collection_id",
+        collectionRows.map((row) => row.external_collection_id),
+      );
+      const collectionMap = new Map(
+        collectionRefs.map((row) => [row.external_collection_id, row.id]),
+      );
+
+      const productExternalIds = [
+        ...new Set(
+          collectionLines.flatMap((collection) =>
+            (childrenByParentId.get(collection.id) ?? []).map(
+              (child) => child.id,
+            ),
+          ),
+        ),
+      ];
+      const productRefs = await selectAll<{
+        id: string;
+        external_product_id: string;
+      }>(
+        supabase,
+        "shopify_products",
+        "id, external_product_id",
+        "external_product_id",
+        productExternalIds,
+      );
+      const productMap = new Map(
+        productRefs.map((row) => [row.external_product_id, row.id]),
+      );
+
+      const membershipRows: Array<Record<string, unknown>> = [];
+      for (const collection of collectionLines) {
+        const collectionId = collectionMap.get(collection.id);
+        if (!collectionId) continue;
+        for (const child of childrenByParentId.get(collection.id) ?? []) {
+          const productId = productMap.get(child.id);
+          if (!productId) continue;
+          membershipRows.push({
+            organization_id: connection.organization_id,
+            collection_id: collectionId,
+            product_id: productId,
+          });
+        }
+      }
+
+      // Un producto sacado de una coleccion no deja rastro en la respuesta, y
+      // una pertenencia caducada falsea las ventas por categoria en silencio.
+      // Como las colecciones se traen enteras, la tabla se rehace: solo se
+      // borra despues de tener las filas nuevas calculadas.
+      // ponytail: borrado por organizacion, no por coleccion. Si esto pasa a
+      // ejecutarse por tienda dentro de una org multi-tienda, filtrar por
+      // collection_id.
+      if (membershipRows.length) {
+        await supabase
+          .from("shopify_product_collections")
+          .delete()
+          .eq("organization_id", connection.organization_id);
+      }
+
+      blocks.collections.read += membershipRows.length;
+      await upsertBlockRows(
+        supabase,
+        blocks.collections,
+        "shopify_product_collections",
+        membershipRows,
+        "product_id,collection_id",
+      );
+
+      logger.info("Shopify collections bulk sync completed", {
+        connection_id: connectionId,
+        organization_id: connection.organization_id,
+        shop_domain: shopDomain,
+        object_count: bulkResult.objectCount,
+        collections_written: blocks.collections.written,
+        memberships: membershipRows.length,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "shopify_collections_sync_failed";
+      blocks.collections.failed += 1;
+      blocks.collections.error = message;
+    }
+
+    // Sesiones y conversión (ShopifyQL). Bloque independiente: si la conexión
+    // no tiene `read_reports` falla solo este, el resto del sync sigue.
+    try {
+      accessToken = await getValidShopifyAccessToken(env, connectionId);
+      const sessionsResult = await syncShopifySessions(supabase, {
+        shopDomain,
+        accessToken,
+        organizationId: connection.organization_id,
+        storeId,
+        connectionId,
+        sinceIso: updatedAtCutoff,
+      });
+      blocks.sessions.read += sessionsResult.read;
+      blocks.sessions.written += sessionsResult.written;
+      logger.info("Shopify sessions block finished", {
+        connection_id: connectionId,
+        organization_id: connection.organization_id,
+        shop_domain: shopDomain,
+        sessions_written: sessionsResult.written,
+        warning: sessionsResult.warning,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "shopify_sessions_sync_failed";
+      blocks.sessions.failed += 1;
+      blocks.sessions.error = message;
     }
   }
 

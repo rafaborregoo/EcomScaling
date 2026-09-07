@@ -31,6 +31,7 @@ const AGENTS: readonly ActiveAgentCode[] = [
   "a04_generador_tareas", "a05_estrategia_campanas", "a06_planificador_stock",
   "a07_rendimiento_contenido", "a08_gestor_conocimiento", "a09_copiloto_consultor",
   "a11_generador_marketing", "a12_analista_email",
+  "a13_operativa_shopify", "a14_operativa_meta",
 ];
 
 function buildFixture(agentCode: ActiveAgentCode): AgentEvalFixture {

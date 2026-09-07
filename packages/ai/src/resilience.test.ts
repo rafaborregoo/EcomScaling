@@ -43,6 +43,21 @@ describe("AI resilience", () => {
     assert.equal(isTransientAgentError(new AgentRequestTimeoutError(1)), true);
   });
 
+  it("does not abort the signal after a successful attempt (deferred body read)", async () => {
+    let captured: AbortSignal | undefined;
+    const result = await withAgentResilience(
+      async (signal) => {
+        captured = signal;
+        return "ok";
+      },
+      { timeoutMs: 100, maxRetries: 2, baseBackoffMs: 0, maxBackoffMs: 10, jitterRatio: 0 },
+    );
+    assert.equal(result, "ok");
+    // El caller lee `response.json()` DESPUES de que la funcion retorne; el
+    // signal no puede estar abortado o esa lectura de un 200 OK revienta.
+    assert.equal(captured?.aborted, false);
+  });
+
   it("caps exponential backoff", () => {
     assert.equal(computeExponentialBackoffMs(10, {
       timeoutMs: 1, maxRetries: 2, baseBackoffMs: 100, maxBackoffMs: 250, jitterRatio: 0,

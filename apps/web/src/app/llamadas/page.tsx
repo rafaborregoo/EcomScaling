@@ -7,6 +7,9 @@ import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
 import { isSummaryCurrentForTranscript } from "./summary-visibility";
+import { callStage, type CallStage } from "./call-stage";
+import { ModuleSummary } from "@/components/module-summary";
+import { daysSince, isUpcoming } from "@/lib/elapsed";
 import {
   AsyncState,
   LoadingBlock,
@@ -31,6 +34,7 @@ import {
   Select,
   Textarea,
   toast,
+  type Tone,
 } from "@/components/ui";
 
 type CallTranscript = {
@@ -59,6 +63,23 @@ type CallSummaryDetail = {
     description: string;
     priority: string;
     owner: string;
+  }>;
+  // AI-15. Los dos son internos: la API los recorta antes de servir la llamada
+  // a un cliente (`redactConsultantOnly`), y aquí solo se pintan si
+  // `isConsultant`. Opcionales porque los resúmenes anteriores a AI-15 no los
+  // tienen.
+  consultant_gaps?: Array<{
+    topic: string;
+    why_it_matters: string;
+    evidence: string;
+    severity: string;
+  }>;
+  conversation_signals?: Array<{
+    label: string;
+    value: string;
+    about: string;
+    reading: string;
+    trend: string;
   }>;
   confidence?: string;
   warnings?: string[];
@@ -206,6 +227,115 @@ function StructuredSummary({
   );
 }
 
+const GAP_SEVERITY: Record<string, { label: string; tone: Tone }> = {
+  high: { label: "Alta", tone: "danger" },
+  medium: { label: "Media", tone: "warn" },
+  low: { label: "Baja", tone: "neutral" },
+};
+
+const TREND_META: Record<string, { label: string; tone: Tone }> = {
+  mejora: { label: "Mejora", tone: "success" },
+  estable: { label: "Estable", tone: "neutral" },
+  empeora: { label: "Empeora", tone: "danger" },
+  sin_referencia: { label: "Sin referencia", tone: "neutral" },
+};
+
+/**
+ * Lectura interna de la llamada: lo que faltó tratar y cómo fue la
+ * conversación. No se aprueba nada aquí -- es análisis de solo lectura, así
+ * que se muestra directamente (la aprobación es para que la IA ESCRIBA, no
+ * para que opine). Nunca se pinta para un cliente, y la API tampoco se lo
+ * envía.
+ */
+function ConsultantCoaching({ detail }: { detail: CallSummaryDetail }) {
+  const gaps = detail.consultant_gaps ?? [];
+  const signals = detail.conversation_signals ?? [];
+  if (gaps.length === 0 && signals.length === 0) return null;
+
+  const aboutConsultant = signals.filter((signal) => signal.about === "consultor");
+  const aboutClient = signals.filter((signal) => signal.about !== "consultor");
+
+  return (
+    <section className="rounded-md border border-separator p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-medium text-foreground">
+          Lectura para ti
+        </p>
+        <Badge tone="neutral">Solo consultor</Badge>
+      </div>
+      <p className="mt-1 text-xs text-muted">
+        El agente tenía delante las cifras de la tienda mientras leía la
+        transcripción. Esto es lo que ve desde ahí. No se publica al cliente.
+      </p>
+
+      {gaps.length > 0 ? (
+        <div className="mt-3">
+          <p className={EYEBROW}>Lo que no se trató</p>
+          <ul className="mt-2 space-y-2">
+            {gaps.map((gap, index) => (
+              <li
+                key={index}
+                className="border-l-2 border-separator pl-3 text-sm"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{gap.topic}</span>
+                  <Badge tone={GAP_SEVERITY[gap.severity]?.tone ?? "neutral"}>
+                    {GAP_SEVERITY[gap.severity]?.label ?? gap.severity}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-xs text-muted">{gap.why_it_matters}</p>
+                {/* La evidencia es lo que separa un hueco real de una opinión
+                    del modelo: siempre visible, no plegada. */}
+                <p className="mt-0.5 text-xs text-muted">
+                  <span className="font-medium text-foreground">
+                    Por qué lo dice:{" "}
+                  </span>
+                  {gap.evidence}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {signals.length > 0 ? (
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {[
+            { title: "Cómo llevaste la llamada", rows: aboutConsultant },
+            { title: "Cómo llegó el cliente", rows: aboutClient },
+          ]
+            .filter((group) => group.rows.length > 0)
+            .map((group) => (
+              <div key={group.title}>
+                <p className={EYEBROW}>{group.title}</p>
+                <ul className="mt-2 space-y-2">
+                  {group.rows.map((signal, index) => (
+                    <li key={index} className="text-sm">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-medium">{signal.label}</span>
+                        <span className="tabular-nums text-muted">
+                          {signal.value}
+                        </span>
+                        <Badge
+                          tone={TREND_META[signal.trend]?.tone ?? "neutral"}
+                        >
+                          {TREND_META[signal.trend]?.label ?? signal.trend}
+                        </Badge>
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {signal.reading}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 type CallInternalNote = {
   id: string;
   body: string;
@@ -274,6 +404,99 @@ function formatDate(value: string | null) {
     : "-";
 }
 
+// --- Flujo de una llamada -------------------------------------------------
+//
+// El modulo tenia todas las piezas (transcripcion, agente A01, aprobacion,
+// tareas) pero ninguna decia en que orden van ni por que el boton de la IA
+// esta apagado. Aqui se declara el flujo una sola vez y lo usan las dos
+// vistas: la fila de la lista (para saberlo sin desplegar) y el detalle (para
+// decir cual es el siguiente paso y quien lo hace).
+
+const PIPELINE_STEPS = [
+  {
+    step: 1,
+    name: "Transcripción",
+    who: "Consultor",
+    what: "Pega lo que se dijo. Es lo único que lee el agente.",
+  },
+  {
+    step: 2,
+    name: "Análisis (A01)",
+    who: "Agente",
+    what: "Extrae hechos, decisiones, riesgos y propone tareas.",
+  },
+  {
+    step: 3,
+    name: "Aprobación",
+    who: "Consultor",
+    what: "Decides qué se publica al cliente y qué tareas se crean.",
+  },
+  {
+    step: 4,
+    name: "Tareas",
+    who: "Cliente",
+    what: "Lo aprobado entra en su backlog con la llamada como origen.",
+  },
+] as const;
+
+// Escalera de 4 pasos con el actual marcado. Es lo primero del detalle: antes
+// habia que deducir el flujo probando botones (y el de la IA salia apagado sin
+// que nada dijera que faltaba la transcripcion).
+function CallPipeline({ stage }: { stage: CallStage }) {
+  return (
+    <section aria-label="Flujo de la llamada">
+      <ol className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]">
+        {PIPELINE_STEPS.map((item) => {
+          const done = item.step < stage.step;
+          const current = item.step === stage.step;
+          return (
+            <li
+              key={item.step}
+              aria-current={current ? "step" : undefined}
+              className={[
+                "rounded-md border p-3",
+                current
+                  ? "border-accent bg-accent-soft"
+                  : "border-separator",
+              ].join(" ")}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className={[
+                    "flex size-5 shrink-0 items-center justify-center rounded-full border text-[0.65rem] font-medium tabular-nums",
+                    done
+                      ? "border-success text-success"
+                      : current
+                        ? "border-accent text-accent"
+                        : "border-separator text-muted",
+                  ].join(" ")}
+                >
+                  {done ? "✓" : item.step}
+                </span>
+                <p className="min-w-0 text-sm font-medium text-foreground">
+                  {item.name}
+                </p>
+                <span className="ml-auto shrink-0 text-[0.65rem] uppercase tracking-[0.08em] text-muted">
+                  {item.who}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted">{item.what}</p>
+              <span className="sr-only">
+                {done ? "Completado" : current ? "Paso actual" : "Pendiente"}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-2 text-sm text-foreground">
+        <span className="font-medium">Siguiente: </span>
+        {stage.next}
+      </p>
+    </section>
+  );
+}
+
 const CONFIDENCE_META: Record<string, { label: string; tone: "success" | "warn" | "danger" }> = {
   high: { label: "Confianza alta", tone: "success" },
   medium: { label: "Confianza media", tone: "warn" },
@@ -287,12 +510,19 @@ const CONFIDENCE_META: Record<string, { label: string; tone: "success" | "warn" 
 function PendingSummaryReview({
   summary,
   isBusy,
+  milestones,
   onApprove,
   onReject,
 }: {
   summary: CallSummary;
   isBusy: boolean;
-  onApprove: (selectedTaskIndexes: number[]) => void;
+  /** Hitos de Mi Camino donde puede entrar una tarea del cliente. */
+  milestones: { value: string; label: string }[];
+  onApprove: (selection: {
+    indexes: number[];
+    /** índice de la tarea -> hito elegido. */
+    milestones: Record<string, string>;
+  }) => void;
   onReject: (reason: string) => void;
 }) {
   const detail = isCallSummaryDetail(summary.key_points)
@@ -304,6 +534,11 @@ function PendingSummaryReview({
 
   const [selected, setSelected] = useState<Set<number>>(
     () => new Set(proposedTasks.map((_, index) => index)),
+  );
+  // Hito de Mi Camino por tarea. Vacío = la tarea se crea suelta, fuera del
+  // plan; es una decisión válida, no un olvido, así que no se autorrellena.
+  const [taskMilestones, setTaskMilestones] = useState<Record<string, string>>(
+    {},
   );
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -318,6 +553,17 @@ function PendingSummaryReview({
       }
       return next;
     });
+  }
+
+  function approve() {
+    const indexes = [...selected];
+    // Solo viajan los hitos de tareas que realmente se van a crear.
+    const chosen = Object.fromEntries(
+      indexes
+        .map((index) => [String(index), taskMilestones[String(index)] ?? ""])
+        .filter(([, milestoneId]) => milestoneId),
+    ) as Record<string, string>;
+    onApprove({ indexes, milestones: chosen });
   }
 
   return (
@@ -356,49 +602,79 @@ function PendingSummaryReview({
               Tareas propuestas · marca las que quieras crear al aprobar
             </p>
             <ul className="mt-2 space-y-1.5">
-              {proposedTasks.map((task, index) => (
-                <li
-                  key={index}
-                  className="rounded-md border border-separator bg-surface p-2.5 text-sm"
-                >
-                  <Checkbox
-                    checked={selected.has(index)}
-                    onChange={() => toggle(index)}
+              {proposedTasks.map((task, index) => {
+                const isForClient = task.owner === "cliente";
+                const isSelected = selected.has(index);
+                return (
+                  <li
+                    key={index}
+                    className="rounded-md border border-separator bg-surface p-2.5 text-sm"
                   >
-                    <span className="font-medium">{task.title}</span>
-                  </Checkbox>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-6">
-                    <Badge tone={task.owner === "cliente" ? "neutral" : "brand"}>
-                      {task.owner}
-                    </Badge>
-                    <Badge
-                      tone={
-                        ["urgent", "high"].includes(task.priority)
-                          ? "warn"
-                          : "neutral"
-                      }
+                    <Checkbox
+                      checked={isSelected}
+                      onChange={() => toggle(index)}
                     >
-                      {priorityLabels[task.priority] ?? task.priority}
-                    </Badge>
-                  </div>
-                  {task.description ? (
-                    <p className="mt-1 pl-6 text-xs text-muted">
-                      {task.description}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
+                      <span className="font-medium">{task.title}</span>
+                    </Checkbox>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-6">
+                      {/* `owner` ya no es decorativo: decide si la tarea entra
+                          en el backlog del cliente o nace interna para ti. */}
+                      <Badge tone={isForClient ? "neutral" : "brand"}>
+                        {isForClient ? "Para el cliente" : "Para ti · interna"}
+                      </Badge>
+                      <Badge
+                        tone={
+                          ["urgent", "high"].includes(task.priority)
+                            ? "warn"
+                            : "neutral"
+                        }
+                      >
+                        {priorityLabels[task.priority] ?? task.priority}
+                      </Badge>
+                    </div>
+                    {task.description ? (
+                      <p className="mt-1 pl-6 text-xs text-muted">
+                        {task.description}
+                      </p>
+                    ) : null}
+                    {/* Punto de Mi Camino en el que entra. Solo para las del
+                        cliente: una tarea interna tuya no es parte del plan de
+                        la tienda. */}
+                    {isForClient && milestones.length > 0 ? (
+                      <div className="mt-2 pl-6">
+                        <Select
+                          className="w-full sm:w-80"
+                          aria-label={`Punto de Mi Camino para «${task.title}»`}
+                          disabled={!isSelected}
+                          value={taskMilestones[String(index)] ?? ""}
+                          onChange={(value) =>
+                            setTaskMilestones((current) => ({
+                              ...current,
+                              [String(index)]: value,
+                            }))
+                          }
+                          options={[
+                            { value: "", label: "Fuera del plan" },
+                            ...milestones,
+                          ]}
+                        />
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
+            {milestones.length === 0 ? (
+              <p className="mt-2 text-xs text-muted">
+                Esta tienda no tiene un camino activo, así que las tareas se
+                crean fuera del plan.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
         <div className="mt-1 flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            type="button"
-            disabled={isBusy}
-            onClick={() => onApprove([...selected])}
-          >
+          <Button size="sm" type="button" disabled={isBusy} onClick={approve}>
             {proposedTasks.length
               ? `Aprobar · ${selected.size}/${proposedTasks.length} tareas`
               : "Aprobar y publicar"}
@@ -500,6 +776,54 @@ function CallDetail({
       summary.status === "pending_approval" &&
       (!currentTranscript || summary.transcript_id === currentTranscript.id),
   );
+
+  const stage = callStage(call);
+
+  // Fases/hitos de Mi Camino para elegir dónde entra cada tarea al aprobar.
+  // Solo se carga cuando hay algo que aprobar: no todas las tiendas tienen
+  // plan y no hace falta en cada llamada plegada.
+  const [milestoneOptions, setMilestoneOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const hasPendingSummary = call.call_ai_summaries.some(
+    (summary) => summary.status === "pending_approval",
+  );
+
+  useEffect(() => {
+    if (!hasPendingSummary || !organizationId) return;
+    let cancelled = false;
+    apiFetch(`/v1/organizations/${organizationId}/strategic-plan`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.plan) return;
+        type PlanMilestone = { id: string; name: string; position: number };
+        type PlanPhase = {
+          name: string;
+          position: number;
+          strategic_plan_milestones: PlanMilestone[];
+        };
+        setMilestoneOptions(
+          ((data.plan.strategic_plan_phases ?? []) as PlanPhase[])
+            .slice()
+            .sort((a, b) => a.position - b.position)
+            .flatMap((phase) =>
+              (phase.strategic_plan_milestones ?? [])
+                .slice()
+                .sort((a, b) => a.position - b.position)
+                .map((milestone) => ({
+                  value: milestone.id,
+                  label: `${phase.name} · ${milestone.name}`,
+                })),
+            ),
+        );
+      })
+      .catch(() => {
+        /* sin plan o error: se aprueba sin enlazar al camino */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPendingSummary, organizationId]);
 
   const previousSummaries = priorCalls
     .filter((other) => other.id !== call.id)
@@ -608,7 +932,11 @@ function CallDetail({
   async function decideSummary(
     summaryId: string,
     decision: "approved" | "rejected",
-    opts?: { reason?: string; selectedTaskIndexes?: number[] },
+    opts?: {
+      reason?: string;
+      selectedTaskIndexes?: number[];
+      taskMilestones?: Record<string, string>;
+    },
   ) {
     await run(
       () =>
@@ -621,6 +949,7 @@ function CallDetail({
               decision,
               reason: opts?.reason,
               selectedTaskIndexes: opts?.selectedTaskIndexes,
+              taskMilestones: opts?.taskMilestones,
             }),
           },
         ),
@@ -697,6 +1026,8 @@ function CallDetail({
       <div className="space-y-6">
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
+        {isConsultant ? <CallPipeline stage={stage} /> : null}
+
         {publishedSummary ? (
           <Card title="Resumen de la llamada">
             <p className="whitespace-pre-wrap text-sm leading-6">
@@ -713,135 +1044,202 @@ function CallDetail({
           </p>
         ) : null}
 
+        {/* La lectura interna sobrevive a la aprobación: sigue siendo lo que
+            revisas antes de la siguiente llamada. Solo si no hay uno pendiente,
+            que trae el suyo. */}
+        {isConsultant &&
+        pendingSummaries.length === 0 &&
+        publishedSummary &&
+        isCallSummaryDetail(publishedSummary.key_points) ? (
+          <ConsultantCoaching detail={publishedSummary.key_points} />
+        ) : null}
+
         {isConsultant ? (
           <>
             {pendingSummaries.map((summary) => (
-              <PendingSummaryReview
-                key={summary.id}
-                summary={summary}
-                isBusy={isBusy}
-                onApprove={(selectedTaskIndexes) =>
-                  decideSummary(summary.id, "approved", { selectedTaskIndexes })
-                }
-                onReject={(reason) =>
-                  decideSummary(summary.id, "rejected", { reason })
-                }
-              />
+              <div key={summary.id} className="space-y-3">
+                <PendingSummaryReview
+                  summary={summary}
+                  isBusy={isBusy}
+                  milestones={milestoneOptions}
+                  onApprove={(selection) =>
+                    decideSummary(summary.id, "approved", {
+                      selectedTaskIndexes: selection.indexes,
+                      taskMilestones: selection.milestones,
+                    })
+                  }
+                  onReject={(reason) =>
+                    decideSummary(summary.id, "rejected", { reason })
+                  }
+                />
+                {/* Fuera del bloque de aprobación a propósito: esto no se
+                    aprueba ni se publica, se lee. */}
+                {isCallSummaryDetail(summary.key_points) ? (
+                  <ConsultantCoaching detail={summary.key_points} />
+                ) : null}
+              </div>
             ))}
 
-            <Accordion
-              className="border border-separator"
-              items={[
-                {
-                  id: "transcript",
-                  title: `Transcripcion ${currentTranscript ? `(v${currentTranscript.version})` : "(sin transcripcion)"}`,
-                  content: (
-                    <div className="space-y-3">
-                      {currentTranscript ? (
-                        <p className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-foreground">
-                          {currentTranscript.content}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-muted">
-                          Pega la transcripcion de Loom/Fathom para que el
-                          resumen (y el futuro agente A01) tenga contexto.
-                        </p>
-                      )}
-                      {showTranscriptForm ? (
-                        <form className="space-y-2" onSubmit={submitTranscript}>
-                          <Textarea
-                            className="h-40"
-                            aria-label="Transcripcion de la llamada"
-                            value={transcriptDraft}
-                            onChange={(event) =>
-                              setTranscriptDraft(event.target.value)
-                            }
-                            placeholder="Pega aquí la transcripcion completa..."
-                          />
-                          <Button
-                            size="sm"
-                            type="submit"
-                            disabled={isBusy || !transcriptDraft.trim()}
-                          >
-                            Guardar nueva version
-                          </Button>
-                        </form>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          type="button"
-                          onClick={() => setShowTranscriptForm(true)}
-                        >
-                          {currentTranscript
-                            ? "Reemplazar transcripcion"
-                            : "Añadir transcripcion"}
-                        </Button>
-                      )}
-                    </div>
-                  ),
-                },
-              ]}
-            />
-
-            {showSummaryForm ? (
-              <form
-                className="space-y-2 border-t border-separator pt-3"
-                onSubmit={submitSummary}
-              >
-                <p className="text-sm font-medium">
-                  Nuevo resumen (quedara pendiente de aprobación)
+            {/* Paso 1. Estaba dentro de un acordeon plegado titulado
+                "Transcripcion (sin transcripcion)": el unico campo que
+                desbloquea todo el flujo quedaba escondido tras dos clics. */}
+            <section className="rounded-md border border-separator p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-foreground">
+                  1 · Transcripción
                 </p>
-                <Textarea
-                  className="h-32"
-                  aria-label="Nuevo resumen de la llamada"
-                  value={summaryDraft}
-                  onChange={(event) => setSummaryDraft(event.target.value)}
-                  placeholder="Puntos tratados, decisiones y próximos pasos..."
-                />
-                <Button
-                  size="sm"
-                  type="submit"
-                  disabled={isBusy || !summaryDraft.trim()}
-                >
-                  Guardar resumen
-                </Button>
-              </form>
-            ) : (
-              <div className="space-y-2">
-                <Input
-                  aria-label="Enfoque para el análisis (opcional)"
-                  value={focusDraft}
-                  onChange={(event) => setFocusDraft(event.target.value)}
-                  placeholder="Enfoque para la IA (opcional): p. ej. «profundiza en pricing», «ignora la parte de RRHH»"
-                />
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    type="button"
-                    disabled={isBusy || !currentTranscript}
-                    onClick={analyzeCall}
-                    title={
-                      currentTranscript
-                        ? "Genera el resumen desde la transcripcion con el agente A01 (usa el enfoque si lo hay)"
-                        : "Añade la transcripcion para poder generar el resumen con IA"
-                    }
-                  >
-                    {isBusy
-                      ? "Generando..."
-                      : pendingSummaries.length
-                        ? "Regenerar con IA"
-                        : "Generar resumen con IA"}
-                  </Button>
+                {currentTranscript ? (
+                  <Badge tone="success">v{currentTranscript.version}</Badge>
+                ) : (
+                  <Badge tone="neutral">Sin transcripción</Badge>
+                )}
+                {!showTranscriptForm ? (
                   <Button
                     variant="ghost"
+                    size="sm"
                     type="button"
-                    onClick={() => setShowSummaryForm(true)}
+                    className="ml-auto"
+                    onClick={() => setShowTranscriptForm(true)}
                   >
-                    Redactar a mano
+                    {currentTranscript ? "Reemplazar" : "Añadir transcripción"}
                   </Button>
-                </div>
+                ) : null}
               </div>
-            )}
+
+              {currentTranscript && !showTranscriptForm ? (
+                <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-muted">
+                  {currentTranscript.content}
+                </p>
+              ) : null}
+
+              {showTranscriptForm ? (
+                <form className="mt-2 space-y-2" onSubmit={submitTranscript}>
+                  <Textarea
+                    className="h-40"
+                    autoFocus
+                    aria-label="Transcripción de la llamada"
+                    value={transcriptDraft}
+                    onChange={(event) =>
+                      setTranscriptDraft(event.target.value)
+                    }
+                    placeholder="Pega aquí la transcripción de Loom, Fathom, Meet..."
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      type="submit"
+                      disabled={isBusy || !transcriptDraft.trim()}
+                    >
+                      {currentTranscript
+                        ? `Guardar como v${currentTranscript.version + 1}`
+                        : "Guardar transcripción"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      onClick={() => {
+                        setShowTranscriptForm(false);
+                        setTranscriptDraft("");
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                  {currentTranscript ? (
+                    <p className="text-xs text-muted">
+                      Se guarda como versión nueva. El resumen ya publicado
+                      queda atado a la versión que lo originó.
+                    </p>
+                  ) : null}
+                </form>
+              ) : null}
+            </section>
+
+            {/* Paso 2. Antes eran dos botones sueltos y un input con
+                placeholder: nada decia que el agente existe, que lee, ni por
+                que estaba apagado. */}
+            <section className="rounded-md border border-separator p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-foreground">
+                  2 · Resumen
+                </p>
+                <Badge tone="brand">Agente A01</Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                Lee la transcripción de esta llamada y el histórico de resúmenes
+                publicados de la tienda, y devuelve hechos, decisiones, riesgos,
+                citas y tareas propuestas. No publica nada: queda pendiente de
+                tu aprobación, igual que uno escrito a mano.
+              </p>
+
+              {showSummaryForm ? (
+                <form className="mt-3 space-y-2" onSubmit={submitSummary}>
+                  <Textarea
+                    className="h-32"
+                    autoFocus
+                    aria-label="Nuevo resumen de la llamada"
+                    value={summaryDraft}
+                    onChange={(event) => setSummaryDraft(event.target.value)}
+                    placeholder="Puntos tratados, decisiones y próximos pasos..."
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      type="submit"
+                      disabled={isBusy || !summaryDraft.trim()}
+                    >
+                      Guardar resumen
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      onClick={() => setShowSummaryForm(false)}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  <Input
+                    aria-label="Enfoque para el análisis (opcional)"
+                    value={focusDraft}
+                    onChange={(event) => setFocusDraft(event.target.value)}
+                    placeholder="Enfoque opcional: «profundiza en pricing», «ignora la parte de RRHH»"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      disabled={isBusy || !currentTranscript}
+                      onClick={analyzeCall}
+                    >
+                      {isBusy
+                        ? "Analizando..."
+                        : pendingSummaries.length
+                          ? "Regenerar con IA"
+                          : "Generar resumen con IA"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      onClick={() => setShowSummaryForm(true)}
+                    >
+                      Redactar a mano
+                    </Button>
+                  </div>
+                  {/* El motivo del boton apagado, escrito. Antes vivia en un
+                      `title` que solo aparecia al pasar el raton. */}
+                  {!currentTranscript ? (
+                    <p className="text-xs text-warning">
+                      Añade la transcripción para poder generar el resumen: es
+                      lo único que lee el agente.
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </section>
           </>
         ) : null}
 
@@ -981,6 +1379,8 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [newTitle, setNewTitle] = useState("");
   const [newType, setNewType] = useState("monthly_review");
   const [newScheduledAt, setNewScheduledAt] = useState("");
+  const [newRecordingUrl, setNewRecordingUrl] = useState("");
+  const [newRecordingProvider, setNewRecordingProvider] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   // Un cliente activo -> una llamada abierta a la vez (lista plegable). Sin
@@ -1025,6 +1425,10 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   async function submitCreate(event: FormEvent) {
     event.preventDefault();
+    if (!organizationId) {
+      setCreateError("Selecciona un cliente antes de registrar la llamada.");
+      return;
+    }
     setIsCreating(true);
     setCreateError(null);
     try {
@@ -1037,6 +1441,8 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             title: newTitle.trim(),
             call_type: newType,
             scheduled_at: newScheduledAt || undefined,
+            recording_url: newRecordingUrl.trim() || undefined,
+            recording_provider: newRecordingProvider || undefined,
           }),
         },
       );
@@ -1048,7 +1454,10 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       setNewTitle("");
       setNewScheduledAt("");
+      setNewRecordingUrl("");
+      setNewRecordingProvider("");
       setShowCreateForm(false);
+      toast.success("Llamada registrada. Añade la transcripción para analizarla.");
       void loadCalls();
     } catch {
       setCreateError(
@@ -1064,6 +1473,16 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <section className="flex flex-wrap items-baseline justify-between gap-3">
         <Heading size="lg">Llamadas de consultoría</Heading>
         {isConsultant ? (
+          <>
+            {/* El boton NO puede ir dentro de `Modal.Trigger`: ese componente
+                renderiza un `<div role="button">` con la pulsacion de
+                react-aria, y el `Button` de dentro (react-aria tambien) corta
+                la propagacion -- el div nunca recibia el clic y "Registrar
+                llamada" no hacia absolutamente nada. El modal ya esta
+                controlado por `isOpen`, asi que se abre desde el propio boton. */}
+            <Button type="button" onClick={() => setShowCreateForm(true)}>
+              Registrar llamada
+            </Button>
           <Modal
             isOpen={showCreateForm}
             onOpenChange={(open) => {
@@ -1071,9 +1490,6 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               if (!open) setCreateError(null);
             }}
           >
-            <Modal.Trigger>
-              <Button type="button">Registrar llamada</Button>
-            </Modal.Trigger>
             <Modal.Backdrop>
               <Modal.Container size="lg">
                 <Modal.Dialog aria-label="Registrar llamada">
@@ -1091,9 +1507,11 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           />
                         </Field>
                         <div className="grid gap-4 sm:grid-cols-2">
-                          <Field label="Fecha">
+                          <Field label="Fecha y hora">
+                            {/* `type="date"` perdia la hora de la llamada, que
+                                es justo lo que hace falta para agendarla. */}
                             <Input
-                              type="date"
+                              type="datetime-local"
                               value={newScheduledAt}
                               onChange={(event) =>
                                 setNewScheduledAt(event.target.value)
@@ -1108,6 +1526,36 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               options={Object.entries(callTypeLabels).map(
                                 ([value, label]) => ({ value, label }),
                               )}
+                            />
+                          </Field>
+                        </div>
+                        {/* La grabacion ya la aceptaba la API desde el primer
+                            dia, pero el formulario no la pedia y no habia
+                            ninguna otra pantalla para añadirla. */}
+                        <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
+                          <Field label="Grabación (opcional)">
+                            <Input
+                              type="url"
+                              value={newRecordingUrl}
+                              onChange={(event) =>
+                                setNewRecordingUrl(event.target.value)
+                              }
+                              placeholder="https://..."
+                            />
+                          </Field>
+                          <Field label="Proveedor">
+                            <Select
+                              aria-label="Proveedor de la grabación"
+                              value={newRecordingProvider}
+                              onChange={setNewRecordingProvider}
+                              options={[
+                                { value: "", label: "Sin especificar" },
+                                { value: "loom", label: "Loom" },
+                                { value: "fathom", label: "Fathom" },
+                                { value: "meet", label: "Meet" },
+                                { value: "zoom", label: "Zoom" },
+                                { value: "other", label: "Otro" },
+                              ]}
                             />
                           </Field>
                         </div>
@@ -1136,10 +1584,99 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </Modal.Container>
             </Modal.Backdrop>
           </Modal>
+          </>
         ) : null}
       </section>
 
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+
+      {/* Antes de una llamada el consultor necesita saber cuándo fue la
+          anterior, qué quedó sin cerrar y si hay resúmenes esperándole. Estaba
+          todo, pero repartido dentro de cada llamada plegada. */}
+      {!isLoading && calls.length > 0 ? (
+        <ModuleSummary
+          metrics={[
+            {
+              label: "Llamadas registradas",
+              value: calls.length.toLocaleString("es-ES"),
+            },
+            {
+              label: "Última realizada",
+              value: (() => {
+                const held = calls
+                  .filter((call) => call.status === "held" && call.held_at)
+                  .sort(
+                    (a, b) =>
+                      Date.parse(b.held_at as string) -
+                      Date.parse(a.held_at as string),
+                  )[0];
+                const days = daysSince(held?.held_at);
+                if (days === null) return "Ninguna";
+                return days === 0 ? "Hoy" : `Hace ${days} d`;
+              })(),
+              hint: "Frecuencia de contacto",
+            },
+            {
+              label: "Próxima programada",
+              value: (() => {
+                const next = calls
+                  .filter(
+                    (call) =>
+                      call.status === "scheduled" &&
+                      isUpcoming(call.scheduled_at),
+
+                  )
+                  .sort(
+                    (a, b) =>
+                      Date.parse(a.scheduled_at as string) -
+                      Date.parse(b.scheduled_at as string),
+                  )[0];
+                return next?.scheduled_at
+                  ? new Date(next.scheduled_at).toLocaleDateString("es-ES", {
+                      day: "2-digit",
+                      month: "short",
+                    })
+                  : "Sin agendar";
+              })(),
+              tone: calls.some(
+                (call) =>
+                  call.status === "scheduled" &&
+                  isUpcoming(call.scheduled_at),
+
+              )
+                ? "default"
+                : "warn",
+            },
+            {
+              label: "Resúmenes por aprobar",
+              value: calls
+                .filter((call) =>
+                  call.call_ai_summaries.some(
+                    (summary) => summary.status === "pending_approval",
+                  ),
+                )
+                .length.toLocaleString("es-ES"),
+              tone: calls.some((call) =>
+                call.call_ai_summaries.some(
+                  (summary) => summary.status === "pending_approval",
+                ),
+              )
+                ? "warn"
+                : "success",
+            },
+            {
+              label: "Acciones acordadas",
+              value: calls
+                .reduce(
+                  (total, call) => total + call.call_task_links.length,
+                  0,
+                )
+                .toLocaleString("es-ES"),
+              hint: "Tareas creadas desde llamadas",
+            },
+          ]}
+        />
+      ) : null}
 
       {isLoading ? (
           <LoadingBlock label="Cargando llamadas..." />
@@ -1157,15 +1694,18 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           {calls.map((call) => {
             const open = expandedCallId === call.id;
             const when = call.held_at ?? call.scheduled_at;
+            const stage = callStage(call);
+            const panelId = `call-panel-${call.id}`;
             return (
               <List.Item key={call.id} className="px-1 py-2.5">
                 <button
                   type="button"
                   aria-expanded={open}
+                  aria-controls={panelId}
                   onClick={() =>
                     setExpandedCallId(open ? null : call.id)
                   }
-                  className="flex w-full items-center gap-2 text-left"
+                  className="flex w-full flex-wrap items-center gap-2 text-left"
                 >
                   <Badge
                     tone={
@@ -1178,10 +1718,15 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   >
                     {callStatusLabels[call.status] ?? call.status}
                   </Badge>
-                  <span className="min-w-0 flex-1 truncate font-medium">
+                  <span className="min-w-0 flex-1 font-medium">
                     {call.title}
                   </span>
-                  <span className="shrink-0 text-xs text-muted">
+                  {/* En que paso del flujo esta, sin desplegar: era la unica
+                      forma de saber que llamada te esta esperando. */}
+                  {isConsultant ? (
+                    <Badge tone={stage.tone}>{stage.label}</Badge>
+                  ) : null}
+                  <span className="shrink-0 text-xs text-muted tabular-nums">
                     {when
                       ? new Date(when).toLocaleDateString("es-ES", {
                           day: "2-digit",
@@ -1199,7 +1744,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   )}
                 </button>
                 {open ? (
-                  <div className="mt-3">
+                  <div id={panelId} className="mt-3">
                     <CallDetail
                       call={call}
                       isConsultant={isConsultant}
@@ -1330,6 +1875,23 @@ function ConsultantCallsView() {
           >
             Solo pendientes de aprobar
           </Button>
+          {/* Registrar una llamada exige un cliente activo (la API es por
+              organizacion), y desde la cartera no habia ninguna forma de
+              llegar: ni boton ni pista. Con un cliente filtrado, esto abre su
+              vista, que es donde se registra. */}
+          {clientFilter === "all" ? (
+            <span className="text-xs text-muted">
+              Elige un cliente para registrar una llamada.
+            </span>
+          ) : (
+            <Button
+              size="sm"
+              className="ml-auto"
+              onClick={() => setOrganizationId(clientFilter)}
+            >
+              Registrar llamada en este cliente
+            </Button>
+          )}
         </div>
 
         {filtered.length === 0 ? (

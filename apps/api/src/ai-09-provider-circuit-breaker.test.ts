@@ -45,7 +45,7 @@ test("el routing por agente sobrescribe solo lo configurado y conserva defaults"
   );
   assert.deepEqual(resolveAgentBudget("a02_monitor_negocio", routing), {
     maxCostUsd: 0.5,
-    maxToolCalls: 10,
+    maxToolCalls: 24,
   });
 });
 

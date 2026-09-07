@@ -26,8 +26,14 @@ function assertCanManage(context: AuthContext, organizationId: string) {
   if (isOperationalOrganizationError(operational)) return operational;
   const { membership } = operational;
 
+  // El consultor entra aqui (decision de Rafa, 2026-09-06): asesora sobre el
+  // margen, asi que no poder fijar costes por pedido, gastos fijos y envios le
+  // dejaba dependiendo del cliente para que sus propios numeros fueran ciertos.
+  // Su membresia es virtual y solo existe para las organizaciones que tiene
+  // asignadas (`consultant_assignments` activas), asi que
+  // `requireOperationalOrganization` de arriba ya acota el alcance.
   if (
-    context.profile.platform_role !== "platform_admin" &&
+    !["platform_admin", "consultant"].includes(context.profile.platform_role) &&
     !["owner", "manager"].includes(membership.role)
   ) {
     return {
@@ -35,7 +41,7 @@ function assertCanManage(context: AuthContext, organizationId: string) {
       statusCode: 403,
       error: "organization_manage_denied",
       message:
-        "Solo owner, manager o platform admin pueden gestionar la configuracion financiera.",
+        "Solo owner, manager, consultor o platform admin pueden gestionar la configuracion financiera.",
     };
   }
 

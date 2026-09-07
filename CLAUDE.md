@@ -15,4 +15,6 @@ Sigue **[docs/decisions/ADR-0006-integration-module-pattern.md](docs/decisions/A
 7. Escrituras via `SUPABASE_SERVICE_ROLE_KEY` + chequeo manual de membership/rol; RLS de las tablas solo permite `select` a `authenticated`.
 8. Validar contra una cuenta de prueba real antes de cerrar el modulo; mientras tanto, logs de diagnostico que delaten si un supuesto de la documentacion del proveedor no se cumple.
 
+Si el modulo expone **ingresos atribuidos** (Klaviyo, Meta, Google), sigue tambien **[docs/decisions/ADR-0021-ingresos-atribuidos-entre-integraciones.md](docs/decisions/ADR-0021-ingresos-atribuidos-entre-integraciones.md)**: nunca sumar atribucion entre plataformas, cada cifra lleva su ventana/metrica, stream first-party en paralelo, y los agentes reciben "EUR atribuidos por X", no "EUR generados".
+
 Otras decisiones arquitectonicas en `docs/decisions/`.

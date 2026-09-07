@@ -17,6 +17,17 @@ const VALUE_TONE = {
   danger: "text-danger",
 } as const;
 
+// El tono solo teñia la cifra, y una tira de cinco KPIs quedaba en cinco cajas
+// blancas identicas: habia que leerlas todas para ver cual pedia algo. La regla
+// de color a la izquierda se lee de un vistazo, y el fondo suave solo aparece
+// cuando hay estado (los tokens `*-soft` ya venian con HeroUI, sin usar).
+const CARD_TONE = {
+  default: "border-l-accent",
+  success: "border-l-success bg-success-soft",
+  warn: "border-l-warning bg-warning-soft",
+  danger: "border-l-danger bg-danger-soft",
+} as const;
+
 export function Metric({
   label,
   value,
@@ -76,7 +87,7 @@ export function Metric({
 
   if (!card) return body;
   return (
-    <HeroCard className="w-full">
+    <HeroCard className={cn("w-full border-l-4", CARD_TONE[tone])}>
       <HeroCard.Content>{body}</HeroCard.Content>
     </HeroCard>
   );

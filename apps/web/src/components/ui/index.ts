@@ -8,8 +8,9 @@ export type { AccordionItem } from "./accordion";
 export { Accordion } from "./accordion";
 export { Button } from "./button";
 export { Card, Section } from "./card";
+export { CollapsibleSection } from "./collapsible-section";
 export { Metric } from "./metric";
-export { AreaChart, BarChart, Sparkline } from "./chart";
+export { AreaChart, BarChart, MultiSparkline, Sparkline } from "./chart";
 export type { Tone } from "./badge";
 export { Badge } from "./badge";
 export { Banner } from "./banner";
@@ -64,16 +65,21 @@ export { Heading } from "./heading";
 export type { TableColumnDef } from "./table";
 export { Table } from "./table";
 export {
+  AlertTriangleIcon,
   AlignCenterIcon,
   AlignLeftIcon,
   AlignRightIcon,
   ArchiveIcon,
   BellIcon,
+  CircleCheckIcon,
+  ClockIcon,
+  InfoIcon,
   CheckAllIcon,
   CheckIcon,
   CloseIcon,
   CompassIcon,
   DotGridIcon,
+  DownloadIcon,
   GripVerticalIcon,
   HomeIcon,
   IconChevronDown,
@@ -88,6 +94,7 @@ export {
   RetryIcon,
   SettingsIcon,
   TasksIcon,
+  TrashIcon,
   UsersIcon,
 } from "./icons";
 
@@ -101,6 +108,7 @@ export {
   Dropdown,
   DateField,
   DatePicker,
+  DateRangePicker,
   Drawer,
   TextField,
   FieldError,

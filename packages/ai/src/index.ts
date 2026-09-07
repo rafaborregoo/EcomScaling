@@ -190,11 +190,26 @@ export const agentSourceSchema = z.object({
   period: z.string().nullable(),
 });
 
+// Una cifra concreta en la que se apoya una tarea propuesta. El consultor
+// tiene que poder juzgar la propuesta sin abrir otra pantalla: que vea el dato,
+// de que periodo es y de donde sale.
+export const agentEvidenceItemSchema = z.object({
+  label: z.string(),
+  value: z.string(),
+  period: z.string().nullable(),
+  source: z.enum(["shopify", "klaviyo", "meta", "instagram", "interno"]),
+});
+
 export const agentProposedWriteSchema = z.object({
   kind: z.enum(["task", "note"]),
   title: z.string(),
   description: z.string(),
   priority: z.enum(["low", "medium", "high", "urgent"]),
+  // Por que existe esta tarea. `.default()` a proposito: las salidas ya
+  // guardadas y cualquier ruta que no use structured outputs no los traen, y
+  // no deben quedar invalidas por ello.
+  rationale: z.string().default(""),
+  evidence: z.array(agentEvidenceItemSchema).default([]),
 });
 
 export const agentOutputSchema = z.object({
@@ -286,18 +301,378 @@ export const agentOutputJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["kind", "title", "description", "priority"],
+        // `rationale` y `evidence` son obligatorios: el consultor decide si
+        // aprueba la tarea a partir de ellos. Una tarea sin el dato que la
+        // justifica no es accionable, es una corazonada.
+        required: [
+          "kind",
+          "title",
+          "description",
+          "priority",
+          "rationale",
+          "evidence",
+        ],
         properties: {
           kind: { type: "string", enum: ["task", "note"] },
           title: { type: "string" },
           description: { type: "string" },
           priority: { type: "string", enum: priorityEnum },
+          rationale: {
+            type: "string",
+            description:
+              "Por que esta tarea, y por que ahora, en una o dos frases. Nada de repetir el titulo: explica que cambio en los datos que la hace necesaria hoy.",
+          },
+          evidence: {
+            type: "array",
+            description:
+              "Las cifras concretas en las que te apoyas para proponerla, sacadas de los datos que has consultado. Nunca inventes un valor: si no tienes ninguna cifra que la sostenga, devuelve una lista vacia y baja la prioridad.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["label", "value", "period", "source"],
+              properties: {
+                label: {
+                  type: "string",
+                  description:
+                    "Que mide, en lenguaje de negocio. Ej: 'ratio de descuento sobre venta bruta'.",
+                },
+                value: {
+                  type: "string",
+                  description:
+                    "El valor tal cual se lee, con su unidad. Ej: '50,6%', '2.946,36 EUR', '16 SKUs'.",
+                },
+                period: {
+                  type: ["string", "null"],
+                  description:
+                    "Periodo al que corresponde el valor, o null si no aplica. Ej: '03/08-02/09/2026'.",
+                },
+                source: {
+                  type: "string",
+                  enum: [
+                    "shopify",
+                    "klaviyo",
+                    "meta",
+                    "instagram",
+                    "interno",
+                  ],
+                },
+              },
+            },
+          },
         },
       },
     },
     approval_required: { type: "boolean" },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
     warnings: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Contrato de salida A19 - arquitecto del camino
+//
+// Un camino NO es una lista de tareas sueltas, que es lo que devuelve
+// `agentOutputSchema` con sus `proposed_writes`: es un arbol con fases
+// ordenadas, hitos dentro de cada fase y una FECHA por hito. Por eso lleva
+// contrato propio en vez de reutilizar el generico:
+//
+//  - Sin `target_offset_days` por hito no hay plan, hay lista de deseos. Se
+//    pide desplazamiento en dias desde hoy y no una fecha absoluta porque el
+//    modelo no tiene reloj fiable; la fecha real la calcula el backend.
+//  - Cada hito lleva `success_metric`: como se sabra que ese hito esta
+//    cumplido. Sin eso, "mejorar la conversion" se marca completado a ojo.
+//  - `evidence` por fase obliga a anclar el plan en cifras de ESTA tienda, que
+//    es la diferencia entre un camino y una plantilla generica.
+// ---------------------------------------------------------------------------
+
+export const CAMINO_HORIZON_MONTHS = {
+  month: 1,
+  quarter: 3,
+  half_year: 6,
+  year: 12,
+} as const;
+
+export type CaminoHorizon = keyof typeof CAMINO_HORIZON_MONTHS;
+
+export const caminoMilestoneSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  /** Dias desde hoy hasta la fecha objetivo. El backend calcula la fecha. */
+  target_offset_days: z.number().int().min(1),
+  success_metric: z.string(),
+});
+
+export const caminoPhaseSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  rationale: z.string(),
+  evidence: z.array(agentEvidenceItemSchema).default([]),
+  milestones: z.array(caminoMilestoneSchema),
+});
+
+export const caminoPlanOutputSchema = z.object({
+  plan_name: z.string(),
+  /** Lectura honesta del punto de partida, con cifras. */
+  diagnosis: z.string(),
+  phases: z.array(caminoPhaseSchema),
+  sources: z.array(agentSourceSchema),
+  confidence: z.enum(["low", "medium", "high"]),
+  warnings: z.array(z.string()),
+});
+
+export type CaminoPlanOutput = z.infer<typeof caminoPlanOutputSchema>;
+
+const caminoEvidenceJsonSchema = {
+  type: "array",
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["label", "value", "period", "source"],
+    properties: {
+      label: { type: "string" },
+      value: { type: "string" },
+      period: { type: ["string", "null"] },
+      source: {
+        type: "string",
+        enum: ["shopify", "klaviyo", "meta", "instagram", "interno"],
+      },
+    },
+  },
+} as const;
+
+export const caminoPlanJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["plan_name", "diagnosis", "phases", "sources", "confidence", "warnings"],
+  properties: {
+    plan_name: {
+      type: "string",
+      description:
+        "Nombre corto del camino, especifico de esta tienda y su horizonte.",
+    },
+    diagnosis: {
+      type: "string",
+      description:
+        "De donde parte la tienda, con cifras reales. Es lo que justifica que el plan sea este y no otro.",
+    },
+    phases: {
+      type: "array",
+      description: "Fases en orden de ejecucion. La primera es la que se activa.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "description", "rationale", "evidence", "milestones"],
+        properties: {
+          name: { type: "string" },
+          description: {
+            type: "string",
+            description: "Que se consigue en esta fase, en una o dos frases.",
+          },
+          rationale: {
+            type: "string",
+            description:
+              "Por que esta fase va en este punto del camino y no antes o despues.",
+          },
+          evidence: {
+            ...caminoEvidenceJsonSchema,
+            description:
+              "Cifras de esta tienda que justifican la fase. Vacio si no hay dato que la sostenga.",
+          },
+          milestones: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: [
+                "name",
+                "description",
+                "target_offset_days",
+                "success_metric",
+              ],
+              properties: {
+                name: { type: "string" },
+                description: { type: "string" },
+                target_offset_days: {
+                  type: "integer",
+                  minimum: 1,
+                  description:
+                    "Dias desde hoy hasta la fecha objetivo del hito, dentro del horizonte pedido.",
+                },
+                success_metric: {
+                  type: "string",
+                  description:
+                    "Como se comprueba que el hito esta cumplido. Medible, no una opinion.",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "reference", "period"],
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["metric", "table", "tool", "document"],
+          },
+          reference: { type: "string" },
+          period: { type: ["string", "null"] },
+        },
+      },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    warnings: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Que falta para que el plan sea fiable: integraciones sin conectar, costes sin configurar, historico insuficiente.",
+    },
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Contrato de salida A05 - estrategia de campanas (AI-23)
+//
+// A05 se definio en AI-22 y se dejo INACTIVO a proposito: "hasta que existan
+// conectores, scopes aprobados y validacion end-to-end". Esa condicion ya se
+// cumple (Shopify, Klaviyo y Meta sincronizan), asi que se activa y su salida
+// deja de ser un marco teorico: son campanas concretas que aterrizan en el
+// calendario de campanas (`campaign_calendar_items`) al aprobarlas.
+//
+// Mismo patron que A19 (camino): el modelo devuelve DESPLAZAMIENTOS en dias,
+// no fechas, y el backend las ancla al aceptar. Un plan aprobado una semana
+// despues no nace con la primera campana ya empezada.
+// ---------------------------------------------------------------------------
+
+export const CAMPAIGN_PLAN_HORIZON_DAYS = {
+  month: 30,
+  quarter: 90,
+} as const;
+
+export type CampaignPlanHorizon = keyof typeof CAMPAIGN_PLAN_HORIZON_DAYS;
+
+/** Canales que el calendario sabe mapear a categoria de tarea. */
+export const CAMPAIGN_CHANNELS = ["Email", "Meta", "Instagram"] as const;
+
+export const proposedCampaignSchema = z.object({
+  title: z.string(),
+  channel: z.enum(CAMPAIGN_CHANNELS),
+  objective: z.string(),
+  audience: z.string(),
+  /** Que se espera que pase y por que. Sin esto una campana es un capricho. */
+  hypothesis: z.string(),
+  start_offset_days: z.number().int().min(0),
+  duration_days: z.number().int().min(1),
+  evidence: z.array(agentEvidenceItemSchema).default([]),
+  success_metric: z.string(),
+});
+
+export const campaignPlanOutputSchema = z.object({
+  plan_name: z.string(),
+  /** Lectura del momento comercial de la tienda, con cifras. */
+  diagnosis: z.string(),
+  campaigns: z.array(proposedCampaignSchema),
+  sources: z.array(agentSourceSchema),
+  confidence: z.enum(["low", "medium", "high"]),
+  warnings: z.array(z.string()),
+});
+
+export type CampaignPlanOutput = z.infer<typeof campaignPlanOutputSchema>;
+
+export const campaignPlanJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "plan_name",
+    "diagnosis",
+    "campaigns",
+    "sources",
+    "confidence",
+    "warnings",
+  ],
+  properties: {
+    plan_name: {
+      type: "string",
+      description:
+        "Nombre corto del plan de campanas, especifico de esta tienda y su horizonte.",
+    },
+    diagnosis: {
+      type: "string",
+      description:
+        "En que momento comercial esta la tienda, con cifras: que canal tira, que producto sostiene la facturacion, que se agoto.",
+    },
+    campaigns: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "title",
+          "channel",
+          "objective",
+          "audience",
+          "hypothesis",
+          "start_offset_days",
+          "duration_days",
+          "evidence",
+          "success_metric",
+        ],
+        properties: {
+          title: { type: "string" },
+          channel: { type: "string", enum: [...CAMPAIGN_CHANNELS] },
+          objective: { type: "string" },
+          audience: {
+            type: "string",
+            description:
+              "A quien va dirigida, en terminos que la tienda pueda construir con lo que tiene.",
+          },
+          hypothesis: {
+            type: "string",
+            description:
+              "Que se espera que pase y por que lo dicen los datos de esta tienda.",
+          },
+          start_offset_days: {
+            type: "integer",
+            minimum: 0,
+            description: "Dias desde la aprobacion hasta el arranque.",
+          },
+          duration_days: { type: "integer", minimum: 1 },
+          evidence: caminoEvidenceJsonSchema,
+          success_metric: {
+            type: "string",
+            description:
+              "Como se sabe si funciono, con una cifra que la plataforma ya mide.",
+          },
+        },
+      },
+      description:
+        "Campanas propuestas en orden de arranque. Vacio es valido si no hay datos suficientes.",
+    },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "reference", "period"],
+        properties: {
+          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          reference: { type: "string" },
+          period: { type: ["string", "null"] },
+        },
+      },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    warnings: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Que falta para que el plan sea fiable: canal sin conectar, sin historico, sin margen configurado.",
+    },
   },
 } as const;
 
@@ -600,6 +975,243 @@ export const metaAdsJsonSchema = {
   },
 } as const;
 
+// AI-11: contrato de salida para posts orgánicos de Instagram. Ni email ni
+// anuncio: caption + hashtags + brief de creativo. No se publica; el consultor
+// copia el texto y sube la pieza a mano.
+export const instagramPostOutputSchema = z.object({
+  summary: z.string().min(1).max(2000),
+  title: z.string().min(1).max(160),
+  caption: z.string().min(1).max(2200),
+  hashtags: z.array(z.string().min(1).max(100)).max(30),
+  call_to_action: z.string().min(1).max(80),
+  format: z.enum(["feed", "carousel", "reel", "story"]),
+  creative_brief: z.string().min(1).max(2000),
+  audience: z.string().min(1).max(500),
+  locale: z.string().min(2).max(20),
+  tone: z.string().min(1).max(120),
+  compliance_notes: z.array(z.string().max(1000)).max(50),
+  sources: z.array(agentSourceSchema),
+  confidence: z.enum(["low", "medium", "high"]),
+  warnings: z.array(z.string()),
+  approval_required: z.literal(true),
+});
+
+export type InstagramPostOutput = z.infer<typeof instagramPostOutputSchema>;
+
+/** Campos editables de un post de Instagram: reutiliza la forma del patch Meta
+ * (headline -> título, primary_text -> caption, description -> brief creativo)
+ * para no duplicar la ruta de edición del backend. */
+export const instagramPostJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "summary",
+    "title",
+    "caption",
+    "hashtags",
+    "call_to_action",
+    "format",
+    "creative_brief",
+    "audience",
+    "locale",
+    "tone",
+    "compliance_notes",
+    "sources",
+    "confidence",
+    "warnings",
+    "approval_required",
+  ],
+  properties: {
+    summary: { type: "string" },
+    title: { type: "string" },
+    caption: { type: "string" },
+    hashtags: { type: "array", items: { type: "string" } },
+    call_to_action: { type: "string" },
+    format: { type: "string", enum: ["feed", "carousel", "reel", "story"] },
+    creative_brief: { type: "string" },
+    audience: { type: "string" },
+    locale: { type: "string" },
+    tone: { type: "string" },
+    compliance_notes: { type: "array", items: { type: "string" } },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "reference", "period"],
+        properties: {
+          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          reference: { type: "string" },
+          period: { type: ["string", "null"] },
+        },
+      },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    warnings: { type: "array", items: { type: "string" } },
+    approval_required: { type: "boolean", enum: [true] },
+  },
+} as const;
+
+// Banco de imágenes de Instagram: extracción de solo lectura que un agente de
+// visión hace de cada imagen importada. El resultado se convierte en markdown y
+// entra como contexto RAG (`source_type: 'instagram_image'`) para que el
+// generador de contenido lo cite al redactar posts.
+export const instagramImageAnalysisSchema = z.object({
+  description: z.string().min(1).max(4000),
+  objects: z.array(z.string().min(1).max(120)).max(40),
+  colors: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(60),
+        hex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      }),
+    )
+    .max(8),
+  style: z.string().min(1).max(600),
+  ocr_text: z.string().max(4000),
+  suggested_use: z.string().min(1).max(1200),
+  alt_text: z.string().min(1).max(1000),
+  confidence: z.enum(["low", "medium", "high"]),
+});
+
+export type InstagramImageAnalysis = z.infer<
+  typeof instagramImageAnalysisSchema
+>;
+
+export const instagramImageAnalysisJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "description",
+    "objects",
+    "colors",
+    "style",
+    "ocr_text",
+    "suggested_use",
+    "alt_text",
+    "confidence",
+  ],
+  properties: {
+    description: { type: "string" },
+    objects: { type: "array", items: { type: "string" } },
+    colors: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "hex"],
+        properties: {
+          label: { type: "string" },
+          hex: { type: "string" },
+        },
+      },
+    },
+    style: { type: "string" },
+    ocr_text: { type: "string" },
+    suggested_use: { type: "string" },
+    alt_text: { type: "string" },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+  },
+} as const;
+
+/**
+ * Ficha markdown de una imagen del banco, lista para indexar como documento RAG.
+ * Un solo formato para que el generador de contenido lea siempre lo mismo.
+ */
+export function instagramImageAnalysisToMarkdown(
+  analysis: InstagramImageAnalysis,
+  meta: { filename: string; url: string },
+): string {
+  const lines = [
+    `# Imagen: ${meta.filename}`,
+    "",
+    `![${analysis.alt_text}](${meta.url})`,
+    "",
+    `**Descripción:** ${analysis.description}`,
+    "",
+    `**Estilo / registro:** ${analysis.style}`,
+    "",
+    `**Objetos / elementos:** ${
+      analysis.objects.length > 0 ? analysis.objects.join(", ") : "—"
+    }`,
+    "",
+    `**Colores dominantes:** ${
+      analysis.colors.length > 0
+        ? analysis.colors.map((c) => `${c.label} (${c.hex})`).join(", ")
+        : "—"
+    }`,
+    "",
+    `**Texto en la imagen:** ${analysis.ocr_text.trim() || "—"}`,
+    "",
+    `**Uso sugerido en Instagram:** ${analysis.suggested_use}`,
+    "",
+    `**Alt text:** ${analysis.alt_text}`,
+  ];
+  return lines.join("\n");
+}
+
+// Borrador de texto sobre una imagen del banco (pieza estática de Instagram).
+// El agente propone bloques con colocación GRUESA (top/center/bottom + align);
+// el editor los convierte en coordenadas y el humano los ajusta antes de
+// exportar. No escribe en el dominio: es un punto de partida editable.
+export const instagramOverlayDraftSchema = z.object({
+  blocks: z
+    .array(
+      z.object({
+        text: z.string().min(1).max(220),
+        role: z.enum(["kicker", "headline", "subheadline", "cta"]),
+        placement: z.enum(["top", "center", "bottom"]),
+        align: z.enum(["left", "center", "right"]),
+        emphasis: z.enum(["normal", "strong"]),
+      }),
+    )
+    .min(1)
+    .max(5),
+  palette: z.object({
+    text_hex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    accent_hex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  }),
+  rationale: z.string().min(1).max(1000),
+});
+
+export type InstagramOverlayDraft = z.infer<typeof instagramOverlayDraftSchema>;
+
+export const instagramOverlayDraftJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["blocks", "palette", "rationale"],
+  properties: {
+    blocks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["text", "role", "placement", "align", "emphasis"],
+        properties: {
+          text: { type: "string" },
+          role: {
+            type: "string",
+            enum: ["kicker", "headline", "subheadline", "cta"],
+          },
+          placement: { type: "string", enum: ["top", "center", "bottom"] },
+          align: { type: "string", enum: ["left", "center", "right"] },
+          emphasis: { type: "string", enum: ["normal", "strong"] },
+        },
+      },
+    },
+    palette: {
+      type: "object",
+      additionalProperties: false,
+      required: ["text_hex", "accent_hex"],
+      properties: {
+        text_hex: { type: "string" },
+        accent_hex: { type: "string" },
+      },
+    },
+    rationale: { type: "string" },
+  },
+} as const;
+
 /** Removes active HTML capabilities before a generated draft is persisted. */
 export function sanitizeGeneratedEmailHtml(html: string) {
   return html
@@ -624,6 +1236,35 @@ export const callProposedTaskSchema = z.object({
   owner: z.enum(["cliente", "consultor"]),
 });
 
+/**
+ * Lo que el consultor NO trato y, segun los datos del negocio, tocaba tratar.
+ * Es coaching interno: nunca se publica al cliente (ver `redactConsultantOnly`
+ * en apps/api/src/calls.ts). Vacio es una salida valida y frecuente: una
+ * llamada bien llevada no tiene huecos que senalar.
+ */
+export const callConsultantGapSchema = z.object({
+  topic: z.string(),
+  why_it_matters: z.string(),
+  /** Que dato del negocio lo hace relevante y por que se cree que no se trato. */
+  evidence: z.string(),
+  severity: z.enum(["low", "medium", "high"]),
+});
+
+/**
+ * Senal medible de COMO fue la conversacion, no de que se dijo: reparto de
+ * palabra, objeciones sin respuesta, compromisos asumidos, senales de
+ * desmotivacion del cliente. `about` separa lo que es feedback para el
+ * consultor de lo que describe el estado del cliente. Tambien interno.
+ */
+export const callConversationSignalSchema = z.object({
+  label: z.string(),
+  value: z.string(),
+  about: z.enum(["consultor", "cliente"]),
+  /** Que significa y que hacer con ello en la proxima llamada. */
+  reading: z.string(),
+  trend: z.enum(["mejora", "estable", "empeora", "sin_referencia"]),
+});
+
 export const callSummaryOutputSchema = z.object({
   summary: z.string(),
   facts: z.array(z.string()),
@@ -638,6 +1279,10 @@ export const callSummaryOutputSchema = z.object({
   risks: z.array(z.string()),
   proposed_tasks: z.array(callProposedTaskSchema),
   key_quotes: z.array(z.string()),
+  // Anadidos en AI-15. `.default([])` para que un resumen guardado por una
+  // version anterior de A01 siga validando al releerse.
+  consultant_gaps: z.array(callConsultantGapSchema).default([]),
+  conversation_signals: z.array(callConversationSignalSchema).default([]),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
 });
@@ -655,6 +1300,8 @@ export const callSummaryJsonSchema = {
     "risks",
     "proposed_tasks",
     "key_quotes",
+    "consultant_gaps",
+    "conversation_signals",
     "confidence",
     "warnings",
   ],
@@ -721,6 +1368,54 @@ export const callSummaryJsonSchema = {
       items: { type: "string" },
       description:
         "Fragmentos textuales de la transcripcion que respaldan el resumen (citas de origen).",
+    },
+    consultant_gaps: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["topic", "why_it_matters", "evidence", "severity"],
+        properties: {
+          topic: {
+            type: "string",
+            description:
+              "Asunto que el contexto de negocio hacia relevante y que no se trato en la llamada.",
+          },
+          why_it_matters: { type: "string" },
+          evidence: {
+            type: "string",
+            description:
+              "Dato concreto del contexto que lo hace relevante y por que se concluye que no se trato.",
+          },
+          severity: { type: "string", enum: ["low", "medium", "high"] },
+        },
+      },
+      description:
+        "Huecos de la consultoria: lo que tocaba tratar segun los datos y no aparece en la transcripcion. Interno, nunca se publica al cliente. Lista vacia si la llamada cubrio lo importante.",
+    },
+    conversation_signals: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "value", "about", "reading", "trend"],
+        properties: {
+          label: { type: "string" },
+          value: {
+            type: "string",
+            description:
+              "Cifra u observacion contable sobre la transcripcion (p. ej. '~30% del tiempo', '2 objeciones').",
+          },
+          about: { type: "string", enum: ["consultor", "cliente"] },
+          reading: { type: "string" },
+          trend: {
+            type: "string",
+            enum: ["mejora", "estable", "empeora", "sin_referencia"],
+          },
+        },
+      },
+      description:
+        "Como fue la conversacion (no que se dijo): reparto de palabra, objeciones sin respuesta, compromisos asumidos, senales de desmotivacion. Interno.",
     },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
     warnings: {
@@ -824,6 +1519,63 @@ const defaultOutputContract: OutputContract<AgentOutput> = {
 };
 
 /**
+ * Campos que se le pueden dejar de pedir al modelo cuando la interfaz que
+ * consume el agente no los pinta.
+ *
+ * Motivo, medido sobre las ejecuciones reales: la salida cuesta 5x la entrada y
+ * es entre el 60% y el 90% de la factura de cada run. Los agentes de plan
+ * escribian ~7.800 tokens de los que la UI solo muestra `proposed_writes` --
+ * pagabamos por prosa que la pantalla descarta al recibirla.
+ */
+export type OmittableOutputField = "answer" | "findings" | "recommendations";
+
+function describeProposals(count: number): string {
+  return count === 0
+    ? "Sin trabajo nuevo que proponer en este ciclo."
+    : `${count} propuesta(s) de trabajo para este ciclo.`;
+}
+
+/**
+ * Contrato de salida recortado: el JSON Schema deja de exigir los campos
+ * omitidos (que es lo que evita que el modelo los escriba) y el parseo los
+ * rellena con valores derivados, para que agent_outputs y todo lo que lee de
+ * ahi sigan viendo la forma completa de siempre.
+ *
+ * `answer` se rellena con una frase real, no vacia: `checkOutputSanity` rechaza
+ * un answer en blanco, y con razon -- es la senal de un turno que no llego a
+ * generar nada.
+ */
+export function buildLeanOutputContract(
+  omit: readonly OmittableOutputField[],
+): OutputContract<AgentOutput> {
+  const jsonSchema = structuredClone(
+    agentOutputJsonSchema,
+  ) as unknown as {
+    required: string[];
+    properties: Record<string, unknown>;
+  };
+
+  for (const field of omit) {
+    delete jsonSchema.properties[field];
+    jsonSchema.required = jsonSchema.required.filter((key) => key !== field);
+  }
+
+  const schema = agentOutputSchema
+    .partial({ answer: true, findings: true, recommendations: true })
+    .transform((value) => ({
+      ...value,
+      answer: value.answer ?? describeProposals(value.proposed_writes.length),
+      findings: value.findings ?? [],
+      recommendations: value.recommendations ?? [],
+    }));
+
+  return {
+    jsonSchema: jsonSchema as unknown as Record<string, unknown>,
+    schema: schema as unknown as z.ZodType<AgentOutput>,
+  };
+}
+
+/**
  * Tool ejecutable durante una vuelta de agente. `execute` corre en el backend
  * (nunca en el modelo) y es responsable de su propia auditoria; lo que
  * devuelve se serializa como tool_result.
@@ -835,7 +1587,25 @@ export type AgentToolDefinition = {
   execute: (input: Record<string, unknown>) => Promise<unknown>;
 };
 
-const MAX_MODEL_CALLS_PER_TURN = 8;
+// 16 rondas, no 8. Con 8 los agentes de operativa se quedaban cortos: a04
+// encadenaba 9 consultas legitimas (config financiera -> cobertura de costes ->
+// Meta -> backlog -> tareas ignoradas -> vigencia del problema) y moria en la
+// ultima. El freno real es el presupuesto en dolares, que se calcula sobre el
+// gasto de verdad; esto solo evita un bucle infinito.
+const MAX_MODEL_CALLS_PER_TURN = 16;
+
+/**
+ * Aviso que se inyecta en la ultima ronda de herramientas del turno. El limite
+ * de llamadas existia pero era invisible para el modelo: planificaba una
+ * investigacion abierta y se lo cortaban a mitad. Decirselo (y quitarle las
+ * herramientas en esa misma request) convierte el corte en una respuesta.
+ */
+const TOOL_BUDGET_NOTICE =
+  "AVISO DEL RUNTIME: has agotado el presupuesto de llamadas a herramientas de " +
+  "este turno. No vas a poder consultar nada mas. Responde AHORA con el JSON " +
+  "final usando solo lo que ya has verificado. Si algo se ha quedado sin " +
+  "comprobar, no lo inventes: dejalo fuera o anotalo en `warnings` como " +
+  "supuesto sin verificar y baja la confianza en consecuencia.";
 
 export class AgentOutputValidationError extends Error {
   constructor(
@@ -900,6 +1670,36 @@ export function evaluateAgentBudget(
   }
 
   return { exceeded: false };
+}
+
+/**
+ * Regla pura: ¿al turno le queda margen para otra ronda de herramientas?
+ *
+ * `evaluateAgentBudget` solo sabe decir "ya te has pasado", y pasarse tira el
+ * run entero. Esto avisa ANTES: al 80% del coste o a dos tool calls del tope,
+ * el runtime pide la respuesta final en vez de dejar que el modelo se estrelle
+ * contra el limite a mitad de investigacion.
+ */
+export function isBudgetNearlyExhausted(
+  budget: AgentBudget | undefined,
+  costSoFarUsd: number,
+  toolCallCount: number,
+): boolean {
+  if (!budget) {
+    return false;
+  }
+
+  if (
+    budget.maxCostUsd !== undefined &&
+    costSoFarUsd >= budget.maxCostUsd * 0.8
+  ) {
+    return true;
+  }
+
+  return (
+    budget.maxToolCalls !== undefined &&
+    toolCallCount >= budget.maxToolCalls - 2
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1283,11 +2083,23 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     ...DEFAULT_AGENT_RESILIENCE_POLICY,
     ...(params.resilience ?? {}),
   };
-  const createMessage = (requestMessages: Anthropic.MessageParam[]) =>
-    withAgentResilience(
-      (signal) => client.messages.create({ ...requestBase, messages: requestMessages }, { signal }),
+  // `withoutTools` sirve la ultima llamada del turno: sin herramientas en la
+  // request el modelo no puede volver a pedir una y esta obligado a responder.
+  const createMessage = (
+    requestMessages: Anthropic.MessageParam[],
+    withoutTools = false,
+  ) => {
+    const { tools: declaredTools, ...toolless } = requestBase as typeof requestBase & {
+      tools?: unknown;
+    };
+    void declaredTools;
+    const base = withoutTools ? toolless : requestBase;
+    return withAgentResilience(
+      (signal) =>
+        client.messages.create({ ...base, messages: requestMessages }, { signal }),
       resiliencePolicy,
     );
+  };
 
   let response = await createMessage(messages);
   modelCalls += 1;
@@ -1297,12 +2109,19 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   enforceBudget();
 
   while (response.stop_reason === "tool_use") {
-    if (modelCalls >= MAX_MODEL_CALLS_PER_TURN) {
-      throw new AgentOutputValidationError(
-        "agent_tool_loop_limit_exceeded",
-        "",
+    // Ultima ronda disponible. Antes se tiraba el run entero aqui y se perdian
+    // todas las consultas ya hechas (a04 moria asi la mitad de las veces, con
+    // 9 queries correctas en la mano). Ahora se ejecutan estas herramientas, se
+    // avisa al modelo de que se ha quedado sin presupuesto y se le pide la
+    // respuesta final sin herramientas: un run con menos evidencia es util, un
+    // run cortado a media investigacion no.
+    const isFinalRound =
+      modelCalls >= MAX_MODEL_CALLS_PER_TURN - 1 ||
+      isBudgetNearlyExhausted(
+        budget,
+        estimateCostUsd(params.model, inputTokens, outputTokens),
+        toolCallCount,
       );
-    }
 
     const toolUses = response.content.filter(
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
@@ -1347,14 +2166,23 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     }
 
     messages.push({ role: "assistant", content: response.content });
-    messages.push({ role: "user", content: toolResults });
+    messages.push({
+      role: "user",
+      content: isFinalRound
+        ? [...toolResults, { type: "text" as const, text: TOOL_BUDGET_NOTICE }]
+        : toolResults,
+    });
 
-    response = await createMessage(messages);
+    response = await createMessage(messages, isFinalRound);
     modelCalls += 1;
     inputTokens += response.usage.input_tokens;
     outputTokens += response.usage.output_tokens;
     cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
     enforceBudget();
+
+    if (isFinalRound) {
+      break;
+    }
   }
 
   const latencyMs = Date.now() - startedAt;
@@ -1523,15 +2351,22 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   };
   const createCompletion = (
     requestMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-  ) =>
-    withAgentResilience(
+    withoutTools = false,
+  ) => {
+    const { tools: declaredTools, ...toolless } = requestBase as typeof requestBase & {
+      tools?: unknown;
+    };
+    void declaredTools;
+    const base = withoutTools ? toolless : requestBase;
+    return withAgentResilience(
       (signal) =>
         client.chat.completions.create(
-          { ...requestBase, messages: requestMessages },
+          { ...base, messages: requestMessages },
           { signal },
         ),
       resiliencePolicy,
     );
+  };
 
   let response = await createCompletion(messages);
   modelCalls += 1;
@@ -1547,12 +2382,15 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   }
 
   while (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
-    if (modelCalls >= MAX_MODEL_CALLS_PER_TURN) {
-      throw new AgentOutputValidationError(
-        "agent_tool_loop_limit_exceeded",
-        "",
+    // Misma regla que en la ruta Anthropic: la ultima ronda se avisa y se
+    // responde sin herramientas, en vez de tirar el run.
+    const isFinalRound =
+      modelCalls >= MAX_MODEL_CALLS_PER_TURN - 1 ||
+      isBudgetNearlyExhausted(
+        budget,
+        estimateCostUsd(params.model, inputTokens, outputTokens),
+        toolCallCount,
       );
-    }
 
     const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] =
       [];
@@ -1598,8 +2436,11 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
 
     messages.push(choice.message);
     messages.push(...toolResults);
+    if (isFinalRound) {
+      messages.push({ role: "user", content: TOOL_BUDGET_NOTICE });
+    }
 
-    response = await createCompletion(messages);
+    response = await createCompletion(messages, isFinalRound);
     modelCalls += 1;
     inputTokens += response.usage?.prompt_tokens ?? 0;
     outputTokens += response.usage?.completion_tokens ?? 0;
@@ -1612,6 +2453,10 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
       throw new AgentOutputValidationError("agent_output_missing_choice", "");
     }
     choice = nextChoice;
+
+    if (isFinalRound) {
+      break;
+    }
   }
 
   const latencyMs = Date.now() - startedAt;

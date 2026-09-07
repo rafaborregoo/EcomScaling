@@ -13,9 +13,11 @@ import {
   ColorSwatch,
   Label,
   ListBox,
+  parseColor,
   Select,
 } from "@heroui/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { sameHex, toEmailHex } from "./color-hex";
 
 const colorChannelsByColorSpace: Record<ColorSpace, ColorChannel[]> = {
   hsb: ["hue", "saturation", "brightness", "alpha"],
@@ -23,7 +25,16 @@ const colorChannelsByColorSpace: Record<ColorSpace, ColorChannel[]> = {
   rgb: ["red", "green", "blue", "alpha"],
 };
 
-type RacColor = { toString: (format: "hex") => string };
+type RacColor = ReturnType<typeof parseColor>;
+
+/** El hex de la app puede venir vacío o corrupto; el selector no puede reventar. */
+function parseOrBlack(value: string): RacColor {
+  try {
+    return parseColor(toEmailHex(value)).toFormat("hsl");
+  } catch {
+    return parseColor("#000000").toFormat("hsl");
+  }
+}
 
 export function ColorField({
   label,
@@ -35,26 +46,52 @@ export function ColorField({
   onChange: (hex: string) => void;
 }) {
   const [colorSpace, setColorSpace] = useState<ColorSpace>("hsl");
+  /**
+   * El color vive AQUI, no en el hex del padre.
+   *
+   * Antes el picker se controlaba con el hex, y el hex no sabe de tono: en
+   * blanco (#ffffff) o en el gris casi negro del texto (#171717), mover el
+   * tirador de tono producía el mismo hex, el padre devolvía ese hex sin
+   * cambios y el tirador saltaba atrás. Es decir: en los dos colores por
+   * defecto de la plantilla, el selector no hacía absolutamente nada.
+   *
+   * Guardando el Color en HSL, el tono y la saturación sobreviven aunque el
+   * hex no cambie, y subir la saturación desde blanco ya da color.
+   */
+  const [color, setColor] = useState<RacColor>(() => parseOrBlack(value));
+
+  useEffect(() => {
+    // Solo re-sincroniza cuando de verdad llega otro color de fuera (cargar
+    // otra plantilla, cambiar de tienda), no en el eco del propio arrastre.
+    setColor((current) =>
+      sameHex(current.toString("hex"), value) ? current : parseOrBlack(value),
+    );
+  }, [value]);
 
   return (
     <ColorPicker
-      value={value}
-      onChange={(color) => {
-        // Fuerza 6 dígitos: si el canal alpha baja de 1, toString("hex")
-        // devuelve #RRGGBBAA y el render del email solo acepta #RRGGBB.
-        onChange((color as RacColor).toString("hex").slice(0, 7).toLowerCase());
+      value={color}
+      onChange={(next) => {
+        setColor(next as RacColor);
+        onChange(toEmailHex((next as RacColor).toString("hex")));
       }}
     >
-      <ColorPicker.Trigger>
+      {/* El trigger es un <button>: la etiqueta va en un <span>. Un <label>
+          aquí dentro es contenido interactivo anidado (WCAG 4.1.2) y puede
+          quedarse el clic que debía abrir el desplegable. */}
+      <ColorPicker.Trigger aria-label={label}>
         <ColorSwatch size="lg" />
-        <Label>{label}</Label>
+        <span>{label}</span>
       </ColorPicker.Trigger>
       <ColorPicker.Popover className="max-w-62 gap-2 px-2 py-3">
+        {/* HeroUI Select es el de react-aria: `value`/`onChange` no existen en
+            su contrato, se colaban como atributos de div y se ignoraban, así
+            que cambiar de espacio de color no hacía nada. */}
         <Select
           aria-label="Espacio de color"
-          value={colorSpace}
+          selectedKey={colorSpace}
           variant="secondary"
-          onChange={(space) => setColorSpace(space as ColorSpace)}
+          onSelectionChange={(space) => setColorSpace(space as ColorSpace)}
         >
           <Select.Trigger>
             <Select.Value className="uppercase" />

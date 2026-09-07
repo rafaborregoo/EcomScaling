@@ -2,8 +2,6 @@
 
 import {
   FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   Suspense,
   useCallback,
@@ -29,15 +27,22 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
 import { formatMoney } from "@/lib/money";
+import { ModuleSummary } from "@/components/module-summary";
+import { CaminoProposal } from "@/components/camino-proposal";
+import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
+import { clientNextStep } from "./next-step";
+import { isPast } from "@/lib/elapsed";
 import {
   AsyncState,
   Badge,
   BarChart,
   Button,
+  ButtonLink,
   Card,
   CheckIcon,
   Dropdown,
@@ -242,10 +247,18 @@ function OriginDot({ origin }: { origin: CreatorOrigin }) {
     <span
       className="inline-block h-2 w-2 shrink-0 rounded-full"
       style={{ background: ORIGIN_COLOR[origin] }}
-      title={`Propuesto por: ${ORIGIN_LABEL[origin]}`}
       aria-hidden
     />
   );
+}
+
+/**
+ * El punto de color codifica quien propuso la fase/hito, pero un `title` sobre
+ * un elemento `aria-hidden` no lo lee ningun lector de pantalla (y en tactil no
+ * existe). El dato viaja ahora como texto solo-lectores junto al punto.
+ */
+function originSentence(origin: CreatorOrigin) {
+  return origin ? `Propuesto por ${ORIGIN_LABEL[origin].toLowerCase()}.` : "";
 }
 
 // --- Arbol de rama (peticion explicita de Rafa 2026-08-27: nada de lista
@@ -261,31 +274,27 @@ function OriginDot({ origin }: { origin: CreatorOrigin }) {
 // vistazo sin depender solo del indentado.
 const TREE_NODE_SIZE = { phase: 40, milestone: 32 } as const;
 
-// Paleta del arbol: azul y verde solo como matiz (borde fino + nodo), fondo
-// blanco salvo la fase/hito en foco que se tinta muy suave. Antes cada tarjeta
-// llevaba un `border-2` de color plano y el toggle del hito era un Button
-// solido de HeroUI -> barras azules macizas ilegibles (ver captura de Rafa).
-function nodeTone(kind: "done" | "active" | "idle") {
-  if (kind === "done")
-    return {
-      border: "var(--color-success)",
-      badgeBg: "var(--color-success)",
-      badgeText: "#fff",
-      bg: "#fff",
-    };
-  if (kind === "active")
-    return {
-      border: "var(--color-brand)",
-      badgeBg: "var(--color-brand)",
-      badgeText: "#fff",
-      bg: "var(--color-brand-tint)",
-    };
-  return {
-    border: "var(--color-edge)",
-    badgeBg: "#fff",
-    badgeText: "var(--color-muted)",
-    bg: "#fff",
-  };
+// Paleta del arbol en clases del sistema, no en estilos inline. Antes cada
+// nodo calculaba `var(--color-...)` y `#fff` a mano en un `style`, que ademas
+// de saltarse ADR-0020 dejaba fuera hover y foco. Aqui solo hay tres estados y
+// el color es un matiz (borde + texto), nunca un relleno macizo.
+const NODE_STATE = {
+  done: {
+    node: "border-separator bg-surface text-success",
+    row: "border-separator",
+  },
+  active: {
+    node: "border-accent bg-accent-soft text-accent",
+    row: "border-accent bg-accent-soft",
+  },
+  idle: {
+    node: "border-separator bg-white text-muted",
+    row: "border-separator bg-white",
+  },
+} as const;
+
+function nodeState(kind: keyof typeof NODE_STATE) {
+  return NODE_STATE[kind];
 }
 
 function TreeTrunk({ size }: { size: number }) {
@@ -336,30 +345,19 @@ function RowMenu({
   );
 }
 
-// Todo el bloque (fase/hito) es un objetivo de clic para plegar/desplegar, no
-// solo el titulo. Un div con onClick necesita rol y teclado de boton; los
-// controles interactivos de dentro (asa de arrastre, editar, menu) paran la
-// propagacion para no disparar tambien el toggle.
-function blockToggle(handler: () => void) {
-  return {
-    role: "button" as const,
-    tabIndex: 0,
-    onClick: handler,
-    onKeyDown: (event: ReactKeyboardEvent) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        handler();
-      }
-    },
-  };
-}
-
-function stopBlockToggle() {
-  return {
-    onClick: (event: ReactMouseEvent) => event.stopPropagation(),
-    onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
-  };
-}
+// Antes, todo el bloque de una fase/hito era un `div role="button"` que
+// envolvia el asa de arrastre, el boton de editar y el menu de acciones. Eso
+// es un fallo de WCAG 4.1.2: no se pueden anidar controles dentro de un
+// elemento con rol de boton -- el lector de pantalla anuncia la tarjeta entera
+// como un unico boton cuyo nombre es todo su contenido, y los controles de
+// dentro dependian de `stopPropagation` para no disparar tambien el toggle.
+//
+// Ahora el patron es el estandar de "disclosure": un <button> de verdad que
+// contiene SOLO el titulo y la flecha, con aria-expanded y aria-controls
+// apuntando al panel que abre; el resto de controles son hermanos suyos, no
+// hijos. Ids compartidos entre el boton y su panel:
+const phasePanelId = (phaseId: string) => `camino-fase-${phaseId}`;
+const milestonePanelId = (milestoneId: string) => `camino-hito-${milestoneId}`;
 
 // Nodo "+" en la punta de una rama: pulsarlo abre el formulario de alta en el
 // sitio (misma fila), no un modal aparte -- se ve la rama crecer. Es el CTA
@@ -435,7 +433,7 @@ function PhaseNode({
   totalCount: number;
 }) {
   const size = TREE_NODE_SIZE.phase;
-  const t = nodeTone(
+  const state = nodeState(
     phase.status === "completed"
       ? "done"
       : phase.status === "active"
@@ -443,17 +441,14 @@ function PhaseNode({
         : "idle",
   );
   const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+  const Chevron = isOpen ? IconChevronUp : IconChevronDown;
+
   return (
     <div className="relative flex items-start gap-3">
       <span
-        className="z-10 flex shrink-0 items-center justify-center rounded-full border font-mono text-sm font-semibold"
-        style={{
-          background: t.badgeBg,
-          color: t.badgeText,
-          borderColor: t.border,
-          width: size,
-          height: size,
-        }}
+        aria-hidden
+        className={`z-10 flex shrink-0 items-center justify-center rounded-full border font-mono text-sm font-semibold ${state.node}`}
+        style={{ width: size, height: size }}
       >
         {phase.status === "completed" ? (
           <CheckIcon aria-hidden />
@@ -461,63 +456,74 @@ function PhaseNode({
           phase.position
         )}
       </span>
+
       <div
-        {...blockToggle(onToggle)}
-        aria-expanded={isOpen}
-        className="min-w-0 flex-1 cursor-pointer rounded-lg border px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow"
-        style={{ borderColor: t.border, background: t.bg }}
+        className={`min-w-0 flex-1 rounded-lg border px-3 py-2.5 ${state.row}`}
         aria-current={phase.status === "active" ? "step" : undefined}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {canManage && handleProps ? (
-              <span {...stopBlockToggle()}>
-                <DragHandle
-                  label={`Reordenar la fase ${phase.name}`}
-                  handleProps={handleProps}
-                />
-              </span>
-            ) : null}
-            <OriginDot origin={phase.created_by_origin ?? null} />
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-              <p className="min-w-0 break-words text-sm font-semibold">
-                {phase.name}
-              </p>
-              {isOpen ? (
-                <IconChevronUp className="shrink-0 text-muted" aria-hidden />
-              ) : (
-                <IconChevronDown className="shrink-0 text-muted" aria-hidden />
-              )}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge
-              tone={
-                phase.status === "completed"
-                  ? "success"
-                  : phase.status === "active"
-                    ? "brand"
-                    : "neutral"
-              }
+        <div className="flex flex-wrap items-center gap-2">
+          {canManage && handleProps ? (
+            <DragHandle
+              label={`Reordenar la fase ${phase.name}`}
+              handleProps={handleProps}
+            />
+          ) : null}
+          <OriginDot origin={phase.created_by_origin ?? null} />
+          <span className="sr-only">
+            {originSentence(phase.created_by_origin ?? null)}
+          </span>
+
+          {/* El disclosure es solo el titulo y su flecha. El resto de
+              controles son hermanos, nunca hijos de este boton. */}
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={isOpen}
+            aria-controls={phasePanelId(phase.id)}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left"
+          >
+            <span className="min-w-0 break-words text-sm font-semibold">
+              {phase.name}
+            </span>
+            <Chevron className="shrink-0 text-muted" aria-hidden />
+          </button>
+
+          <Badge
+            tone={
+              phase.status === "completed"
+                ? "success"
+                : phase.status === "active"
+                  ? "brand"
+                  : "neutral"
+            }
+          >
+            {PHASE_STATUS_LABELS[phase.status] ?? phase.status}
+          </Badge>
+          {canManage ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onEdit}
+              aria-expanded={isEditing}
             >
-              {PHASE_STATUS_LABELS[phase.status] ?? phase.status}
-            </Badge>
-            {canManage ? (
-              <span {...stopBlockToggle()}>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={onEdit}
-                  aria-expanded={isEditing}
-                >
-                  {isEditing ? "Cerrar" : "Editar"}
-                </Button>
-              </span>
-            ) : null}
-          </div>
+              {isEditing ? "Cerrar" : "Editar"}
+            </Button>
+          ) : null}
         </div>
+
+        {/* Progreso con semantica real: antes eran dos spans aria-hidden, asi
+            que un lector de pantalla solo oia "3/7 hitos" sin saber que era
+            una barra de progreso. */}
         {totalCount > 0 ? (
-          <div className="mt-1.5 flex items-center gap-2">
+          <div
+            className="mt-1.5 flex items-center gap-2"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={totalCount}
+            aria-valuenow={doneCount}
+            aria-valuetext={`${doneCount} de ${totalCount} hitos completados`}
+            aria-label={`Progreso de la fase ${phase.name}`}
+          >
             <span className="shrink-0 font-mono text-[0.65rem] text-muted">
               {doneCount}/{totalCount} hitos
             </span>
@@ -532,6 +538,7 @@ function PhaseNode({
             </span>
           </div>
         ) : null}
+
         {phase.description ? (
           <p className="mt-1 text-xs text-muted">{phase.description}</p>
         ) : null}
@@ -565,7 +572,7 @@ function MilestoneNode({
 }) {
   const size = TREE_NODE_SIZE.milestone;
   const isDone = ["completed", "skipped"].includes(milestone.status);
-  const t = nodeTone(
+  const state = nodeState(
     milestone.status === "completed"
       ? "done"
       : milestone.status === "in_progress"
@@ -573,7 +580,11 @@ function MilestoneNode({
         : "idle",
   );
   const taskCount = milestone.milestone_task_links.length;
+  const Chevron = isExpanded ? IconChevronUp : IconChevronDown;
 
+  // El boton "Hecho"/"Reabrir" desaparece: hacia exactamente lo mismo que el
+  // circulo de la izquierda, que ya es un boton con su propia etiqueta. Una
+  // fila, un control por accion.
   const menuItems: Array<{ id: string; label: string }> = [];
   if (milestone.status === "pending")
     menuItems.push({ id: "start", label: "Empezar" });
@@ -585,30 +596,23 @@ function MilestoneNode({
   });
 
   return (
-    <div className="relative flex items-center gap-2.5">
-      {/* El circulo de la izquierda ES el boton de completar: un clic aqui
-          marca/desmarca el hito, sin abrir menus ni apuntar a un sitio fino. */}
+    <div className="relative flex items-start gap-2.5">
       <button
         type="button"
         onClick={canManage ? onToggleComplete : undefined}
         aria-label={
           milestone.status === "completed"
             ? `Reabrir el hito ${milestone.name}`
-            : `Completar el hito ${milestone.name}`
+            : `Marcar como completado el hito ${milestone.name}`
         }
         aria-pressed={milestone.status === "completed"}
         disabled={!canManage}
         className={[
           "z-10 flex shrink-0 items-center justify-center rounded-full border font-mono text-[0.65rem] font-semibold transition-transform",
+          state.node,
           canManage ? "cursor-pointer hover:scale-110" : "cursor-default",
         ].join(" ")}
-        style={{
-          background: t.badgeBg,
-          color: t.badgeText,
-          borderColor: t.border,
-          width: size,
-          height: size,
-        }}
+        style={{ width: size, height: size }}
       >
         {milestone.status === "completed" ? (
           <CheckIcon aria-hidden />
@@ -616,72 +620,63 @@ function MilestoneNode({
           milestone.position
         )}
       </button>
-      {/* Todo el bloque del hito es clic para expandir el detalle, no solo el
-          nombre. */}
+
       <div
-        {...blockToggle(onToggleExpand)}
-        aria-expanded={isExpanded}
-        className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1.5 rounded-lg border px-2.5 py-2 transition-colors hover:bg-black/[0.02] sm:flex-row sm:items-center sm:gap-2.5"
-        style={{
-          borderColor: t.border,
-          background: isFocus ? "var(--color-brand-tint)" : t.bg,
-        }}
+        className={[
+          "flex min-w-0 flex-1 flex-col gap-1 rounded-lg border px-2.5 py-2 sm:flex-row sm:items-center sm:gap-2.5",
+          isFocus ? "border-accent bg-accent-soft" : state.row,
+        ].join(" ")}
         aria-current={isFocus ? "step" : undefined}
       >
         <div className="flex min-w-0 items-center gap-2 sm:flex-1 sm:gap-2.5">
           {canManage && handleProps ? (
-            <span {...stopBlockToggle()}>
-              <DragHandle
-                label={`Reordenar el hito ${milestone.name}`}
-                handleProps={handleProps}
-              />
-            </span>
+            <DragHandle
+              label={`Reordenar el hito ${milestone.name}`}
+              handleProps={handleProps}
+            />
           ) : null}
-          <div className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left sm:gap-2.5">
-            <span className="shrink-0 font-mono text-[0.65rem] text-muted">
-              {numberLabel}
-            </span>
-            <OriginDot origin={milestone.created_by_origin ?? null} />
-            <p
+          <span className="shrink-0 font-mono text-[0.65rem] text-muted">
+            {numberLabel}
+          </span>
+          <OriginDot origin={milestone.created_by_origin ?? null} />
+          <span className="sr-only">
+            {originSentence(milestone.created_by_origin ?? null)}
+          </span>
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            aria-expanded={isExpanded}
+            aria-controls={milestonePanelId(milestone.id)}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1 text-left"
+          >
+            {/* Sin `truncate`: un hito con nombre largo se leia cortado y sin
+                forma de ver el resto. Ahora rompe de linea. */}
+            <span
               className={[
-                "min-w-0 flex-1 truncate text-xs font-medium",
+                "min-w-0 flex-1 break-words text-xs font-medium",
                 isDone ? "text-muted line-through" : "",
               ].join(" ")}
             >
               {milestone.name}
-            </p>
-            {isExpanded ? (
-              <IconChevronUp className="shrink-0 text-[0.6rem] text-muted" aria-hidden />
-            ) : (
-              <IconChevronDown
-                className="shrink-0 text-[0.6rem] text-muted"
-                aria-hidden
-              />
-            )}
-          </div>
+            </span>
+            <Chevron className="shrink-0 text-[0.6rem] text-muted" aria-hidden />
+          </button>
         </div>
+
         <div className="flex shrink-0 items-center justify-between gap-2 pl-8 sm:justify-start sm:pl-0">
+          {/* La fecha objetivo sube a la fila: era el dato que obligaba a
+              desplegar cada hito uno a uno para saber si el plan va tarde. */}
           <span className="shrink-0 text-[0.65rem] text-muted">
             {MILESTONE_STATUS_LABELS[milestone.status] ?? milestone.status}
+            {milestone.target_date ? ` · ${milestone.target_date}` : ""}
             {taskCount ? ` · ${taskCount} tareas` : ""}
           </span>
           {canManage ? (
-            <span className="flex items-center gap-1.5" {...stopBlockToggle()}>
-              <Button
-                size="sm"
-                variant={
-                  milestone.status === "completed" ? "secondary" : "primary"
-                }
-                onClick={onToggleComplete}
-              >
-                {milestone.status === "completed" ? "Reabrir" : "Hecho"}
-              </Button>
-              <RowMenu
-                ariaLabel={`Más acciones del hito ${milestone.name}`}
-                onAction={(key) => onAction(key as "start" | "skip" | "edit")}
-                items={menuItems}
-              />
-            </span>
+            <RowMenu
+              ariaLabel={`Más acciones del hito ${milestone.name}`}
+              onAction={(key) => onAction(key as "start" | "skip" | "edit")}
+              items={menuItems}
+            />
           ) : null}
         </div>
       </div>
@@ -1520,10 +1515,64 @@ function ObjectivesPanel({
   );
 }
 
+/**
+ * "Qué toca ahora", para el cliente.
+ *
+ * El árbol de abajo es el mismo para los dos porque el artefacto es el mismo,
+ * pero el consultor lo abre para asesorar -- necesita verlo entero -- y el
+ * cliente para saber qué hace hoy. Hasta ahora tenía que deducirlo leyéndose el
+ * plan; esto lo dice, y nombra los estados que engañan (borrador, fase parada,
+ * fase terminada sin relevo).
+ */
+const NEXT_STEP_LABEL: Record<"brand" | "warn" | "success", string> = {
+  brand: "En marcha",
+  warn: "Atención",
+  success: "Completado",
+};
+
+function ClientNextStep({ plan, phases }: { plan: Plan; phases: Phase[] }) {
+  const step = clientNextStep(
+    plan.status,
+    phases,
+    new Date().toISOString().slice(0, 10),
+  );
+
+  return (
+    <Card
+      kicker="Ahora"
+      title={step.headline}
+      description={step.detail}
+      actions={
+        <div className="flex items-center gap-2">
+          <Badge tone={step.tone}>{NEXT_STEP_LABEL[step.tone]}</Badge>
+          {step.tasks.length > 0 ? (
+            <ButtonLink href="/tareas" variant="secondary">
+              Ver mis tareas
+            </ButtonLink>
+          ) : null}
+        </div>
+      }
+    >
+      {step.tasks.length > 0 ? (
+        <List as="ul">
+          {step.tasks.map((task) => (
+            <List.Item as="li" key={task.id} className="py-2 text-sm">
+              {task.title}
+            </List.Item>
+          ))}
+        </List>
+      ) : null}
+    </Card>
+  );
+}
+
 // --- Contenido principal -----------------------------------------------------
 
 function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
+  // Tienda activa del selector: el camino se propone para la tienda que el
+  // consultor tiene delante, no para el agregado del cliente.
+  const { connectionId } = useActiveConnection();
   const organization =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
@@ -1538,6 +1587,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
   const canManage =
     isConsultantView || ["owner", "manager"].includes(membership?.role ?? "");
+  // Un cliente sin consultor no espera a nadie: decirle "tu consultor está
+  // preparando el plan" lo deja mirando una pantalla que no va a cambiar sola.
+  const { isAutonomous } = useAssignedConsultant(organization?.id ?? null);
 
   const [payload, setPayload] = useState<PlanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1931,10 +1983,87 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       null)
     : null;
 
+  // Salud del plan en cifras, no solo el árbol de fases: para asesorar hace
+  // falta saber si el plan avanza, si se está desviando de sus fechas y
+  // cuánto trabajo del plan sigue abierto.
+  const allMilestones = phases.flatMap(
+    (phase) => phase.strategic_plan_milestones,
+  );
+  const overdueMilestones = allMilestones.filter(
+    (milestone) =>
+      !["completed", "skipped"].includes(milestone.status) &&
+      isPast(milestone.target_date),
+  ).length;
+  const planTasks = allMilestones.flatMap((milestone) =>
+    milestone.milestone_task_links
+      .map((link) => link.tasks)
+      .filter((task): task is MilestoneTask => task !== null),
+  );
+  const openPlanTasks = planTasks.filter((task) =>
+    ["pending", "in_progress"].includes(task.status),
+  ).length;
+
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
+      {/* Para el cliente lo primero es qué toca hoy; las cifras del plan y el
+          árbol vienen después. El consultor abre la pantalla a asesorar, y para
+          eso el panel de siempre manda. */}
+      {!isConsultantView && plan ? (
+        <ClientNextStep plan={plan} phases={phases} />
+      ) : null}
+
+      {plan && totalMilestones > 0 ? (
+        <ModuleSummary
+          metrics={[
+            {
+              label: "Progreso del plan",
+              value: `${Math.round((doneMilestones / totalMilestones) * 100)}%`,
+              hint: `${doneMilestones}/${totalMilestones} hitos`,
+            },
+            {
+              label: "Fase activa",
+              value: activePhase?.name ?? "Sin fase activa",
+              tone: activePhase ? "default" : "warn",
+            },
+            {
+              label: "Hito en curso",
+              value: focusMilestone?.name ?? "Ninguno",
+              hint: focusMilestone?.target_date
+                ? `Objetivo ${focusMilestone.target_date}`
+                : undefined,
+            },
+            {
+              label: "Hitos fuera de fecha",
+              value: overdueMilestones.toLocaleString("es-ES"),
+              tone: overdueMilestones > 0 ? "danger" : "success",
+            },
+            {
+              label: "Tareas del plan abiertas",
+              value: openPlanTasks.toLocaleString("es-ES"),
+              hint: `${planTasks.length} vinculadas en total`,
+            },
+          ]}
+        />
+      ) : null}
+
       {organizationId ? (
         <ObjectivesPanel organizationId={organizationId} canManage={canManage} />
+      ) : null}
+
+      {/* El camino lo puede dibujar el consultor a mano o proponerlo la IA.
+          Para una tienda sin consultor asignado esta tarjeta ES el modulo, y
+          para una que si lo tiene es el borrador de partida que el consultor
+          edita despues en el arbol. Va antes del plan porque cuando no hay
+          plan es lo unico que hay que hacer en esta pantalla. */}
+      {organizationId && canManage ? (
+        <CaminoProposal
+          organizationId={organizationId}
+          connectionId={connectionId || undefined}
+          hasOpenPlan={Boolean(
+            plan && ["draft", "active"].includes(plan.status),
+          )}
+          onPlanCreated={() => void loadPlan()}
+        />
       ) : null}
 
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
@@ -2009,7 +2138,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           {phases.length === 0 && !canManage ? (
             <EmptyState
               title="Este plan todavía no tiene fases"
-              hint="Tu consultor todavía está preparando las fases del plan."
+              hint={
+                isAutonomous
+                  ? "El plan existe pero está vacío: quien lleve la cuenta tiene que añadirle fases, o pedirle a la IA que las proponga."
+                  : "Tu consultor todavía está preparando las fases del plan."
+              }
             />
           ) : null}
 
@@ -2078,7 +2211,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     ) : null}
 
                     {phaseOpen ? (
-                    <div className="relative ml-5 mt-3">
+                    <div
+                      id={phasePanelId(phase.id)}
+                      className="relative ml-5 mt-3"
+                    >
                       {milestones.length > 0 ? (
                         <TreeTrunk size={TREE_NODE_SIZE.milestone} />
                       ) : null}
@@ -2176,15 +2312,16 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               ) : null}
 
                               {isMilestoneExpanded ? (
-                                <div className="ml-11 mt-2 space-y-2">
+                                <div
+                                  id={milestonePanelId(milestone.id)}
+                                  className="ml-11 mt-2 space-y-2"
+                                >
+                                  {/* La fecha objetivo ya no se repite aqui:
+                                      vive en la fila del hito, visible sin
+                                      desplegar. */}
                                   {milestone.description ? (
                                     <p className="text-xs text-muted">
                                       {milestone.description}
-                                    </p>
-                                  ) : null}
-                                  {milestone.target_date ? (
-                                    <p className="text-xs text-muted">
-                                      objetivo {milestone.target_date}
                                     </p>
                                   ) : null}
                                   {tasks.length > 0 ? (
@@ -2324,7 +2461,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : !canManage ? (
         <EmptyState
           title="Aún no hay un camino"
-          hint="Tu consultor todavía no ha publicado un plan para esta organización."
+          hint={
+            isAutonomous
+              ? "Nadie ha creado todavía el camino de esta tienda. Quien lleve la cuenta puede pedirle una propuesta a la IA."
+              : "Tu consultor todavía no ha publicado un plan para esta organización."
+          }
         />
       ) : isCreatingPlan ? (
         <EmptyState
@@ -2359,12 +2500,24 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           }
         />
       ) : (
+        /* El consultor dibuja el camino: es su oficio. Al cliente pedirle
+           "fases, hitos y tareas" sobre un campo en blanco es pedirle que sea
+           su propio consultor de estrategia -- la propuesta de la IA de arriba
+           es su punto de partida, y escribirlo a mano sigue disponible. */
         <EmptyState
           title="Aún no hay un camino"
-          hint="Crea el camino estratégico de esta empresa: fases, hitos y tareas."
+          hint={
+            isConsultantView
+              ? "Crea el camino estratégico de esta empresa: fases, hitos y tareas."
+              : "Pídele una propuesta a la IA aquí arriba: analiza tus datos y dibuja las fases y los hitos. También puedes escribirlo tú."
+          }
           action={
-            <Button type="button" onClick={() => setIsCreatingPlan(true)}>
-              Crear camino
+            <Button
+              type="button"
+              variant={isConsultantView ? "primary" : "secondary"}
+              onClick={() => setIsCreatingPlan(true)}
+            >
+              {isConsultantView ? "Crear camino" : "Prefiero escribirlo yo"}
             </Button>
           }
         />

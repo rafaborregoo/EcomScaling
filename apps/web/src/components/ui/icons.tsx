@@ -10,12 +10,14 @@ import {
   faChevronRight,
   faChevronUp,
   faCheck,
+  faDownload,
   faEllipsis,
   faGear,
   faGripVertical,
   faPencil,
   faPlus,
   faRotate,
+  faTrashCan,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -120,6 +122,14 @@ export function RetryIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faRotate} {...props} />;
 }
 
+export function DownloadIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faDownload} {...props} />;
+}
+
+export function TrashIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faTrashCan} {...props} />;
+}
+
 // --- Iconos de navegacion (barra inferior movil). Trazos de Lucide, inline
 // para no depender de `lucide-react`. Todos comparten el mismo lienzo/estilo. ---
 function LucideIcon({
@@ -201,6 +211,44 @@ export function DotGridIcon(props: ComponentPropsWithoutRef<"svg">) {
       <circle cx="12" cy="19" r="1" />
       <circle cx="5" cy="12" r="1" />
       <circle cx="12" cy="12" r="1" />
+    </LucideIcon>
+  );
+}
+
+export function AlertTriangleIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </LucideIcon>
+  );
+}
+
+export function CircleCheckIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m9 12 2 2 4-4" />
+    </LucideIcon>
+  );
+}
+
+export function InfoIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </LucideIcon>
+  );
+}
+
+export function ClockIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
     </LucideIcon>
   );
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fetchApiWithTimeout } from "./request-timeout.js";
+import { defaultTimeoutFor } from "./bootstrap.js";
 
 test("aborta una petición del frontend que supera el timeout", async () => {
   const originalFetch = globalThis.fetch;
@@ -79,4 +80,15 @@ test("conserva la cancelación explícita del caller", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// Las rutas de IA ejecutan el agente en linea en fallo de cache: con el
+// timeout general de 15s la primera carga de cualquier agente moria abortada.
+test("las rutas de IA reciben un timeout largo y el resto el general", () => {
+  assert.equal(
+    defaultTimeoutFor("/v1/organizations/x/ai/operativa-shopify"),
+    300_000,
+  );
+  assert.equal(defaultTimeoutFor("/v1/organizations/x/ai/plan/week"), 300_000);
+  assert.equal(defaultTimeoutFor("/v1/consultant/organizations"), undefined);
 });

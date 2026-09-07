@@ -87,11 +87,16 @@ export async function withAgentResilience<T>(
       return await Promise.race([operationPromise, timeoutPromise]);
     } catch (error) {
       lastError = error;
+      // Aborta el fetch en curso antes de reintentar o salir por error. NO se
+      // hace en `finally`: en el camino de exito el caller todavia no ha leido
+      // el body (`await response.json()` corre despues de que esta funcion
+      // retorne) y un abort incondicional cancelaba esa lectura de un 200 OK,
+      // que subia como `AbortError: The operation was aborted.` -> 500.
+      controller.abort();
       if (!isTransientAgentError(error) || attempt === attempts) throw error;
       await sleep(computeExponentialBackoffMs(attempt, policy, options.random));
     } finally {
       if (timer) clearTimeout(timer);
-      controller.abort();
     }
   }
 

@@ -4,6 +4,10 @@
 
 Cada fase debe responder a cinco preguntas: qué dato necesitamos, de dónde sale, qué decisión permite tomar, qué acción se ejecuta y qué evidencia confirma que se ejecutó. Un dato vacío significa “no disponible”, nunca cero.
 
+## Dónde vive el tracking
+
+El tracking vive dentro de **Planificación** como la capa de ejecución y evaluación. No se crea un módulo separado: Dashboard explica la situación, Planificación define y sigue las acciones, Tareas/Mi Camino ejecutan el trabajo y los snapshots registran la realidad. Todo se filtra por el mismo cliente, tienda y periodo.
+
 ## Flujo completo
 
 | Fase | Objetivo | Datos de entrada | Acción | Evidencia de salida |
@@ -53,4 +57,16 @@ Cada snapshot debe conservar periodo, organización, tienda opcional, fecha de c
 
 ## Estado actual
 
+### Fase 5 iniciada
+
+La primera capa de evaluaciÃ³n ya estÃ¡ operativa: PlanificaciÃ³n consulta acciones vencidas y bloqueadas, las muestra agrupadas por el alcance seleccionado y permite resolverlas desde el modal de ejecuciÃ³n. Sin tienda seleccionada, la bandeja agrega todas las tiendas autorizadas de la organizaciÃ³n.
+
+Pendiente para cerrar esta fase: umbrales configurables de ROAS/CAC/margen/stock, comparaciÃ³n objetivo-versus-real, decisiones de mantener/corregir/detener y exportaciÃ³n completa del tracking-sheet.
+
 Fases 1–3 tienen base implementada: métricas conectadas, calendarios persistidos, snapshots, enlaces con Marketing/Meta/Klaviyo/Mi Camino, archivado lógico y auditoría. La siguiente implementación debe completar la fase 4: estados de ejecución, responsable, incidencias y resultado de cada acción. Después se añadirán alertas y comparación automática de la fase 5.
+### Cierre tecnico de la fase 5
+
+- Los objetivos admiten ahora `store_id`; `NULL` representa el agregado de la organizacion.
+- La API de objetivos acepta `storeId` y mantiene la separacion por cliente y tienda.
+- El CSV del historico incluye ventas, pedidos, AOV, gasto ads, ROAS, CAC, beneficio y notas.
+- La migracion `20260901190000_phase5_objective_store_scope.sql` esta aplicada en remoto.

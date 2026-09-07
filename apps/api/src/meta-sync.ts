@@ -31,6 +31,46 @@ export function buildMetaSyncIdempotencyKey(
   return `meta:${mode}:${scope}:${connectionId}:${startedAt.slice(0, 10)}`;
 }
 
+// Ventana [since, until] en fechas ISO (YYYY-MM-DD). initial/incremental la
+// derivan de INSIGHTS_LOOKBACK_DAYS; el backfill pasa un mes concreto.
+export type MetaInsightsWindow = { since: string; until: string };
+
+function lookbackWindow(days: number): MetaInsightsWindow {
+  const until = new Date();
+  const since = new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
+  return {
+    since: since.toISOString().slice(0, 10),
+    until: until.toISOString().slice(0, 10),
+  };
+}
+
+function parseMonth(month: string): { year: number; mon: number } {
+  const parts = month.split("-");
+  return { year: Number(parts[0] ?? 0), mon: Number(parts[1] ?? 1) };
+}
+
+// Primer y ultimo dia (ISO) del mes `YYYY-MM`.
+function monthWindow(month: string): MetaInsightsWindow {
+  const { year, mon } = parseMonth(month);
+  const first = new Date(Date.UTC(year, mon - 1, 1));
+  const last = new Date(Date.UTC(year, mon, 0));
+  return {
+    since: first.toISOString().slice(0, 10),
+    until: last.toISOString().slice(0, 10),
+  };
+}
+
+function addMonths(month: string, delta: number): string {
+  const { year, mon } = parseMonth(month);
+  const d = new Date(Date.UTC(year, mon - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function currentMonth(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 // Import completo e incremental son el mismo codigo parametrizado (ADR-0006
 // punto 3). La ventana incremental es de 28 dias porque Meta reatribuye
 // compras dentro de la ventana de atribucion: una fila ya sincronizada puede
@@ -56,14 +96,14 @@ async function recordSyncRun(
   scope: string,
   mode: MetaSyncMode,
   runner: () => Promise<SyncBlockResult>,
+  // El backfill pasa una clave estable por mes (sin la fecha de hoy) para que
+  // reintentar el mismo mes sea idempotente y no cree una fila nueva por dia.
+  idempotencyKeyOverride?: string,
 ) {
   const startedAt = new Date().toISOString();
-  const idempotencyKey = buildMetaSyncIdempotencyKey(
-    connectionId,
-    scope,
-    mode,
-    startedAt,
-  );
+  const idempotencyKey =
+    idempotencyKeyOverride ??
+    buildMetaSyncIdempotencyKey(connectionId, scope, mode, startedAt);
 
   const { data: existing } = await supabase
     .from("integration_sync_runs")
@@ -187,9 +227,75 @@ type MetaInsightRowPayload = {
   cpc: number | null;
   ctr: number | null;
   cpp: number | null;
+  // Creatividad: la curva de video y lo que Meta opina de la subasta.
+  video_plays: number | null;
+  video_p25_watched: number | null;
+  video_p50_watched: number | null;
+  video_p75_watched: number | null;
+  video_p95_watched: number | null;
+  video_p100_watched: number | null;
+  video_thruplays: number | null;
+  video_avg_time_watched_seconds: number | null;
+  cost_per_thruplay: number | null;
+  quality_ranking: string | null;
+  engagement_rate_ranking: string | null;
+  conversion_rate_ranking: string | null;
+  outbound_clicks: number | null;
+  outbound_clicks_ctr: number | null;
+  unique_inline_link_clicks: number | null;
+  inline_link_click_ctr: number | null;
+  cost_per_inline_link_click: number | null;
+  estimated_ad_recallers: number | null;
+  estimated_ad_recall_rate: number | null;
+  full_view_impressions: number | null;
+  full_view_reach: number | null;
+  attribution_setting: string | null;
   raw_data: InsightNode;
   synced_at: string;
 };
+
+/**
+ * Lee una metrica de insights de Meta, venga como escalar o como lista.
+ *
+ * Meta mezcla las dos formas sin criterio aparente: `ctr` llega como cadena,
+ * `outbound_clicks` como `[{action_type, value}]`, y el video entero tambien
+ * como lista. Tratar una lista como escalar da NaN, y NaN entra en la base
+ * como null sin que nada falle: la metrica desaparece en silencio, que es el
+ * peor final posible.
+ *
+ * Devuelve null y no 0 cuando no viene: un anuncio de imagen no tiene cero
+ * reproducciones de video, no tiene video. De esa diferencia depende el
+ * indice parcial de las metricas de creatividad.
+ */
+export function readInsightNumber(value: unknown): number | null {
+  if (value == null) return null;
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    if (!value.trim()) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  if (Array.isArray(value)) {
+    let total = 0;
+    let seen = false;
+    for (const entry of value) {
+      const parsed = Number((entry as { value?: unknown })?.value);
+      if (Number.isFinite(parsed)) {
+        total += parsed;
+        seen = true;
+      }
+    }
+    // Una lista vacia o con valores ilegibles es "no vino", no un cero.
+    return seen ? total : null;
+  }
+
+  return null;
+}
 
 export function buildMetaInsightRowPayload(
   organizationId: string,
@@ -241,6 +347,53 @@ export function buildMetaInsightRowPayload(
     cpc: insight.cpc != null ? Number(insight.cpc) : null,
     ctr: insight.ctr != null ? Number(insight.ctr) : null,
     cpp: insight.cpp != null ? Number(insight.cpp) : null,
+    video_plays: readInsightNumber(insight.video_play_actions),
+    video_p25_watched: readInsightNumber(insight.video_p25_watched_actions),
+    video_p50_watched: readInsightNumber(insight.video_p50_watched_actions),
+    video_p75_watched: readInsightNumber(insight.video_p75_watched_actions),
+    video_p95_watched: readInsightNumber(insight.video_p95_watched_actions),
+    video_p100_watched: readInsightNumber(insight.video_p100_watched_actions),
+    video_thruplays: readInsightNumber(
+      insight.video_thruplay_watched_actions,
+    ),
+    video_avg_time_watched_seconds: readInsightNumber(
+      insight.video_avg_time_watched_actions,
+    ),
+    cost_per_thruplay: readInsightNumber(insight.cost_per_thruplay),
+    // Meta responde UNKNOWN cuando el anuncio no tiene volumen suficiente
+    // para rankearlo. Se guarda tal cual: "no hay bastante dato" es una
+    // respuesta distinta de "esta por debajo de la media".
+    quality_ranking:
+      typeof insight.quality_ranking === "string"
+        ? insight.quality_ranking
+        : null,
+    engagement_rate_ranking:
+      typeof insight.engagement_rate_ranking === "string"
+        ? insight.engagement_rate_ranking
+        : null,
+    conversion_rate_ranking:
+      typeof insight.conversion_rate_ranking === "string"
+        ? insight.conversion_rate_ranking
+        : null,
+    outbound_clicks: readInsightNumber(insight.outbound_clicks),
+    outbound_clicks_ctr: readInsightNumber(insight.outbound_clicks_ctr),
+    unique_inline_link_clicks: readInsightNumber(
+      insight.unique_inline_link_clicks,
+    ),
+    inline_link_click_ctr: readInsightNumber(insight.inline_link_click_ctr),
+    cost_per_inline_link_click: readInsightNumber(
+      insight.cost_per_inline_link_click,
+    ),
+    estimated_ad_recallers: readInsightNumber(insight.estimated_ad_recallers),
+    estimated_ad_recall_rate: readInsightNumber(
+      insight.estimated_ad_recall_rate,
+    ),
+    full_view_impressions: readInsightNumber(insight.full_view_impressions),
+    full_view_reach: readInsightNumber(insight.full_view_reach),
+    attribution_setting:
+      typeof insight.attribution_setting === "string"
+        ? insight.attribution_setting
+        : null,
     raw_data: insight,
     synced_at: syncedAt,
   };
@@ -289,8 +442,22 @@ export function buildMetaActionMetricPayloads(
   return [...deduped.values()];
 }
 
-const META_INSIGHT_FIELDS =
+const META_INSIGHT_BASE_FIELDS =
   "ad_id,adset_id,campaign_id,date_start,publisher_platform,platform_position,device_platform,spend,impressions,reach,frequency,clicks,unique_clicks,inline_link_clicks,cpm,cpc,ctr,cpp,actions,action_values,purchase_roas";
+
+// Video, rankings de subasta, clics reales y recuerdo. Van en un bloque
+// separado porque son los que pueden hacer que Meta rechace la peticion:
+// entonces se repite sin ellos y los insights siguen entrando.
+const META_INSIGHT_EXTRA_FIELDS =
+  "video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched_actions,cost_per_thruplay,quality_ranking,engagement_rate_ranking,conversion_rate_ranking,outbound_clicks,outbound_clicks_ctr,unique_inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click,estimated_ad_recallers,estimated_ad_recall_rate,full_view_impressions,full_view_reach,attribution_setting";
+
+export function metaInsightFields(withExtras: boolean) {
+  return withExtras
+    ? `${META_INSIGHT_BASE_FIELDS},${META_INSIGHT_EXTRA_FIELDS}`
+    : META_INSIGHT_BASE_FIELDS;
+}
+
+const META_INSIGHT_FIELDS = metaInsightFields(true);
 const META_INSIGHT_BREAKDOWNS = "publisher_platform,platform_position,device_platform";
 const META_ACTION_ATTRIBUTION_WINDOWS = ["1d_click", "7d_click", "1d_view"];
 const ASYNC_REPORT_MAX_POLLS = 30;
@@ -316,23 +483,60 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Pide los insights con los campos nuevos y, si Meta rechaza la peticion, la
+ * repite sin ellos.
+ *
+ * ADR-0006 pto 8: no hay forma de comprobar contra una cuenta real que Meta
+ * acepte los veintidos campos extra en una sola peticion -- su limite de
+ * tamaño depende del volumen de la cuenta y no esta documentado como un
+ * numero. Si los rechaza, lo que NO puede pasar es quedarse sin gasto ni
+ * conversiones, que es lo unico que hoy llega a una pantalla.
+ *
+ * El log va como error y nombra que se perdio: desde fuera, una cuenta sin
+ * metricas de video se ve igual que una cuenta que solo hace imagen.
+ */
+async function fetchMetaInsightsWithFallback(
+  env: ApiEnv,
+  accountId: string,
+  accessToken: string,
+  window: MetaInsightsWindow,
+  mode: MetaInsightsMode,
+): Promise<{ rows: InsightNode[]; extrasIncluded: boolean }> {
+  try {
+    return {
+      rows: await fetchMetaInsights(env, accountId, accessToken, window, mode, true),
+      extrasIncluded: true,
+    };
+  } catch (error) {
+    logger.error(
+      `Meta rechazo los campos extra de insights de la cuenta ${accountId}; se reintenta sin video, rankings de subasta ni clics salientes`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+
+    return {
+      rows: await fetchMetaInsights(env, accountId, accessToken, window, mode, false),
+      extrasIncluded: false,
+    };
+  }
+}
+
 async function fetchMetaInsights(
   env: ApiEnv,
   accountId: string,
   accessToken: string,
-  lookbackDays: number,
+  window: MetaInsightsWindow,
   mode: MetaInsightsMode,
+  withExtras = true,
 ): Promise<InsightNode[]> {
-  const until = new Date();
-  const since = new Date(until.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
   const params = {
     level: "ad",
     time_increment: "1",
     time_range: JSON.stringify({
-      since: since.toISOString().slice(0, 10),
-      until: until.toISOString().slice(0, 10),
+      since: window.since,
+      until: window.until,
     }),
-    fields: META_INSIGHT_FIELDS,
+    fields: metaInsightFields(withExtras),
     breakdowns: META_INSIGHT_BREAKDOWNS,
     action_attribution_windows: JSON.stringify(META_ACTION_ATTRIBUTION_WINDOWS),
   };
@@ -654,21 +858,30 @@ async function syncAdAccountInsights(
   adAccountRowId: string,
   externalAdAccountId: string,
   accessToken: string,
-  lookbackDays: number,
+  window: MetaInsightsWindow,
   insightsMode: MetaInsightsMode,
 ): Promise<SyncBlockResult> {
   let read = 0;
   let written = 0;
 
-  const insights = await fetchMetaInsights(
-    env,
-    externalAdAccountId,
-    accessToken,
-    lookbackDays,
-    insightsMode,
-  );
+  const { rows: insights, extrasIncluded } =
+    await fetchMetaInsightsWithFallback(
+      env,
+      externalAdAccountId,
+      accessToken,
+      window,
+      insightsMode,
+    );
 
   read = insights.length;
+
+  if (!extrasIncluded) {
+    logger.info("Meta insights sincronizados sin los campos extra", {
+      organization_id: organizationId,
+      ad_account_id: externalAdAccountId,
+      rows: insights.length,
+    });
+  }
 
   // Resolucion de ids internos en bloque para no hacer una query por fila.
   const { data: adRows, error: adLookupError } = await supabase
@@ -841,7 +1054,7 @@ export async function runMetaSync(
           account.id,
           account.external_ad_account_id,
           accessToken,
-          INSIGHTS_LOOKBACK_DAYS[mode],
+          lookbackWindow(INSIGHTS_LOOKBACK_DAYS[mode]),
           resolveMetaInsightsMode(env),
         ),
     );
@@ -863,6 +1076,292 @@ export async function runMetaSync(
         : { last_error_message: null }),
     })
     .eq("id", connectionId);
+
+  // Tras la primera importacion: arranca el backfill historico (24 meses) si
+  // hace falta. No bloquea el sync; el avance real lo hace el cron de
+  // reconciliacion, un mes por pasada.
+  if (mode === "initial" && !anyFailed) {
+    try {
+      await maybeStartMetaBackfill(
+        env,
+        supabase,
+        connectionId,
+        connection.organization_id,
+      );
+    } catch (error) {
+      logger.error("meta_backfill_start_failed", {
+        connection_id: connectionId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Backfill historico (plan 2+3). El estado vive en
+// integration_connections.metadata.backfill:
+//   { status: "running"|"done", from: "YYYY-MM", cursor: "YYYY-MM", pct: 0-100,
+//     started_at, completed_at }
+// Se procesa un mes por pasada del cron de reconciliacion: throttle natural,
+// reanudable (el cursor solo baja cuando el mes acaba bien) e idempotente
+// (clave estable por mes en integration_sync_runs).
+// ---------------------------------------------------------------------------
+
+const META_BACKFILL_MAX_MONTHS = 24;
+
+export type MetaBackfillState = {
+  status: "running" | "done";
+  from: string;
+  cursor: string;
+  pct: number;
+  started_at?: string;
+  completed_at?: string;
+};
+
+function readBackfillState(
+  metadata: Record<string, unknown> | null | undefined,
+): MetaBackfillState | null {
+  const raw = (metadata ?? {})["backfill"];
+  if (!raw || typeof raw !== "object") return null;
+  const state = raw as Record<string, unknown>;
+  if (state.status !== "running" && state.status !== "done") return null;
+  const parsed: MetaBackfillState = {
+    status: state.status,
+    from: String(state.from ?? ""),
+    cursor: String(state.cursor ?? ""),
+    pct: Number(state.pct ?? 0),
+  };
+  if (typeof state.started_at === "string") parsed.started_at = state.started_at;
+  if (typeof state.completed_at === "string") {
+    parsed.completed_at = state.completed_at;
+  }
+  return parsed;
+}
+
+async function writeBackfillState(
+  supabase: SupabaseClient,
+  connectionId: string,
+  state: MetaBackfillState | null,
+) {
+  const { data } = await supabase
+    .from("integration_connections")
+    .select("metadata")
+    .eq("id", connectionId)
+    .single();
+  const metadata = (data?.metadata ?? {}) as Record<string, unknown>;
+  if (state) {
+    metadata.backfill = state;
+  } else {
+    delete metadata.backfill;
+  }
+  await supabase
+    .from("integration_connections")
+    .update({ metadata })
+    .eq("id", connectionId);
+}
+
+/**
+ * Arranca un backfill si la conexion no tiene estado y le faltan datos
+ * historicos. `from` = max(hace 24 meses, mes de creacion de la campana mas
+ * antigua). `cursor` = el mes anterior al dato mas antiguo que ya tenemos.
+ */
+export async function maybeStartMetaBackfill(
+  env: ApiEnv,
+  supabase: SupabaseClient,
+  connectionId: string,
+  organizationId: string,
+): Promise<void> {
+  const { data: connection } = await supabase
+    .from("integration_connections")
+    .select("metadata")
+    .eq("id", connectionId)
+    .single();
+  if (readBackfillState(connection?.metadata as Record<string, unknown>)) {
+    return; // ya hay un backfill (running o done)
+  }
+
+  const floor = addMonths(currentMonth(), -META_BACKFILL_MAX_MONTHS);
+
+  const { data: accountIds } = await supabase
+    .from("meta_ad_accounts")
+    .select("id")
+    .eq("connection_id", connectionId);
+  const accountRowIds = (accountIds ?? []).map((row) => row.id as string);
+
+  let campaignFloor = floor;
+  if (accountRowIds.length > 0) {
+    const { data: oldestCampaign } = await supabase
+      .from("meta_campaigns")
+      .select("external_created_at")
+      .in("ad_account_id", accountRowIds)
+      .not("external_created_at", "is", null)
+      .order("external_created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (oldestCampaign?.external_created_at) {
+      const month = String(oldestCampaign.external_created_at).slice(0, 7);
+      if (month > floor) campaignFloor = month;
+    }
+  }
+
+  const { data: oldestRow } = await supabase
+    .from("meta_insight_rows_daily")
+    .select("metric_date")
+    .eq("organization_id", organizationId)
+    .order("metric_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const startMonth = oldestRow?.metric_date
+    ? addMonths(String(oldestRow.metric_date).slice(0, 7), -1)
+    : addMonths(currentMonth(), -1);
+
+  if (startMonth < campaignFloor) {
+    await writeBackfillState(supabase, connectionId, {
+      status: "done",
+      from: campaignFloor,
+      cursor: campaignFloor,
+      pct: 100,
+      completed_at: new Date().toISOString(),
+    });
+    return;
+  }
+
+  await writeBackfillState(supabase, connectionId, {
+    status: "running",
+    from: campaignFloor,
+    cursor: startMonth,
+    pct: 0,
+    started_at: new Date().toISOString(),
+  });
+  logger.info("meta_backfill_started", {
+    connection_id: connectionId,
+    from: campaignFloor,
+    cursor: startMonth,
+  });
+}
+
+/**
+ * Procesa UN mes del backfill de una conexion (el mes en `cursor`), baja el
+ * cursor y persiste el progreso. Devuelve si avanzo y si termino.
+ */
+export async function backfillMetaConnectionStep(
+  env: ApiEnv,
+  connectionId: string,
+): Promise<{ advanced: boolean; month?: string; done?: boolean }> {
+  if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
+    return { advanced: false };
+  }
+  const supabase = createServiceClient(env);
+  const { data: connection } = await supabase
+    .from("integration_connections")
+    .select("id, organization_id, metadata")
+    .eq("id", connectionId)
+    .single();
+  const state = readBackfillState(
+    connection?.metadata as Record<string, unknown>,
+  );
+  if (!connection || !state || state.status !== "running") {
+    return { advanced: false };
+  }
+
+  const accessToken = await getValidMetaAccessToken(env, connectionId);
+  if (!accessToken) return { advanced: false };
+
+  const { data: adAccounts } = await supabase
+    .from("meta_ad_accounts")
+    .select("id, external_ad_account_id")
+    .eq("connection_id", connectionId)
+    .eq("is_selected", true)
+    .eq("is_active", true);
+
+  const month = state.cursor;
+  const window = monthWindow(month);
+  let anyFailed = false;
+
+  for (const account of adAccounts ?? []) {
+    const ok = await recordSyncRun(
+      supabase,
+      connectionId,
+      connection.organization_id as string,
+      `backfill:${month}:${account.external_ad_account_id}`,
+      "initial",
+      () =>
+        syncAdAccountInsights(
+          env,
+          supabase,
+          connection.organization_id as string,
+          account.id,
+          account.external_ad_account_id,
+          accessToken,
+          window,
+          resolveMetaInsightsMode(env),
+        ),
+      `meta:backfill:${account.external_ad_account_id}:${connectionId}:${month}`,
+    );
+    anyFailed = anyFailed || !ok;
+  }
+
+  if (anyFailed) {
+    // No bajamos el cursor: el proximo tick reintenta el mismo mes.
+    return { advanced: false, month };
+  }
+
+  const nextCursor = addMonths(month, -1);
+  const totalMonths = Math.max(
+    1,
+    monthsBetween(state.from, addMonths(currentMonth(), -1)),
+  );
+  const doneMonths = monthsBetween(nextCursor, addMonths(currentMonth(), -1));
+  const pct = Math.min(100, Math.round((doneMonths / totalMonths) * 100));
+
+  if (nextCursor < state.from) {
+    await writeBackfillState(supabase, connectionId, {
+      ...state,
+      status: "done",
+      cursor: state.from,
+      pct: 100,
+      completed_at: new Date().toISOString(),
+    });
+    logger.info("meta_backfill_completed", { connection_id: connectionId });
+    return { advanced: true, month, done: true };
+  }
+
+  await writeBackfillState(supabase, connectionId, {
+    ...state,
+    cursor: nextCursor,
+    pct,
+  });
+  return { advanced: true, month, done: false };
+}
+
+function monthsBetween(fromMonth: string, toMonth: string): number {
+  const from = parseMonth(fromMonth);
+  const to = parseMonth(toMonth);
+  return (to.year - from.year) * 12 + (to.mon - from.mon);
+}
+
+/**
+ * Estado del backfill de Meta para una organizacion (la conexion que aun este
+ * importando manda). Lo usan el banner del frontend y los agentes (a14/a02)
+ * para avisar de que los datos historicos aun no estan completos.
+ */
+export async function getOrgMetaBackfillStatus(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<{ status: "running" | "done"; pct: number; from: string } | null> {
+  const { data } = await supabase
+    .from("integration_connections")
+    .select("metadata")
+    .eq("provider", "meta_ads")
+    .eq("organization_id", organizationId);
+  const states = (data ?? [])
+    .map((row) => readBackfillState(row.metadata as Record<string, unknown>))
+    .filter((state): state is MetaBackfillState => state !== null);
+  if (states.length === 0) return null;
+  const running = states.find((state) => state.status === "running");
+  const chosen = running ?? states[0];
+  if (!chosen) return null;
+  return { status: chosen.status, pct: chosen.pct, from: chosen.from };
 }
 
 /**
@@ -901,6 +1400,43 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
       }
 
       await runMetaSync(env, connection.id, "incremental");
+
+      // Backfill historico: arranca si falta y avanza un mes por pasada del
+      // cron (throttle natural). Un fallo aqui no marca la reconciliacion como
+      // fallida: se reintenta el mismo mes en el proximo tick.
+      try {
+        const stepSupabase = createServiceClient(env);
+        const { data: conn } = await stepSupabase
+          .from("integration_connections")
+          .select("organization_id")
+          .eq("id", connection.id)
+          .single();
+        if (conn) {
+          await maybeStartMetaBackfill(
+            env,
+            stepSupabase,
+            connection.id,
+            conn.organization_id as string,
+          );
+        }
+        const step = await backfillMetaConnectionStep(env, connection.id);
+        if (step.advanced) {
+          logger.info("meta_backfill_step", {
+            connection_id: connection.id,
+            month: step.month,
+            done: step.done ?? false,
+          });
+        }
+      } catch (backfillError) {
+        logger.error("meta_backfill_step_failed", {
+          connection_id: connection.id,
+          message:
+            backfillError instanceof Error
+              ? backfillError.message
+              : String(backfillError),
+        });
+      }
+
       return { connectionId: connection.id, status: "succeeded" as const };
     } catch (syncError) {
       const detail =

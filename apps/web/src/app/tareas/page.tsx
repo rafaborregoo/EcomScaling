@@ -1,11 +1,26 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import {
+  ProposedTasksList,
+  useProposedTasks,
+} from "@/components/ai-proposed-tasks";
+import { ModuleSummary } from "@/components/module-summary";
+import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
+import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
+import { assigneeLabel } from "./assignee-label";
+import { daysSince, isWithinLastDays, oldest } from "@/lib/elapsed";
 import { displayValue } from "@/lib/display-labels";
 import {
   LoadingBlock,
@@ -15,6 +30,7 @@ import {
   Button,
   Card,
   ErrorBlock,
+  EYEBROW,
   Input,
   List,
   Modal,
@@ -44,6 +60,11 @@ type Task = {
   title: string;
   description: string | null;
   due_at: string | null;
+  // Quién se encarga. Lo escribe el reparto de Configuración -> Accesos (o el
+  // creador, en las tareas a mano). La lista de cartera del consultor todavía
+  // no los trae, de ahí que sean opcionales.
+  assigned_to?: string | null;
+  assignee_name?: string | null;
   is_visible_to_client: boolean;
   created_at: string;
   updated_at: string;
@@ -145,9 +166,46 @@ function formatDueDate(dueAt: string) {
   });
 }
 
+// Dias de calendario hasta `value` (0 = hoy, negativo = ya paso). Se compara a
+// medianoche local: contando horas, una tarea que vence hoy a las 23:00 salia
+// como "en 1 d" a mediodia.
+function daysUntilDate(value: string) {
+  const target = new Date(value);
+  target.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+// El vencimiento sale de la meta y pasa a columna propia en la fila. Al
+// escanear un backlog la pregunta es "que va tarde", no "que fecha exacta
+// tiene": relativo mientras la fecha significa algo, absoluto cuando ya no
+// ("en 47 d" no se lee, "12 nov 2026" si).
+const DUE_TONE = {
+  danger: "text-danger font-medium",
+  warn: "text-warning font-medium",
+  muted: "text-muted",
+} as const;
+
+function dueSignal(task: Task): {
+  text: string;
+  tone: keyof typeof DUE_TONE;
+} {
+  if (!task.due_at) return { text: "Sin fecha", tone: "muted" };
+  const open = ["pending", "in_progress"].includes(task.status);
+  const days = daysUntilDate(task.due_at);
+  // Cerrada: la fecha ya no urge, solo documenta.
+  if (!open) return { text: formatDueDate(task.due_at), tone: "muted" };
+  if (days < 0) return { text: `Vencida ${-days} d`, tone: "danger" };
+  if (days === 0) return { text: "Vence hoy", tone: "warn" };
+  if (days <= 7) return { text: `En ${days} d`, tone: days <= 2 ? "warn" : "muted" };
+  return { text: formatDueDate(task.due_at), tone: "muted" };
+}
+
 function TaskDetail({
   task,
   showVisibility,
+  viewerUserId,
   commentDraft,
   onCommentChange,
   canMarkInternal,
@@ -158,6 +216,7 @@ function TaskDetail({
 }: {
   task: Task;
   showVisibility: boolean;
+  viewerUserId?: string;
   commentDraft: string;
   onCommentChange: (value: string) => void;
   canMarkInternal: boolean;
@@ -174,6 +233,9 @@ function TaskDetail({
     milestoneLabel(task),
     task.due_at ? `vence ${formatDueDate(task.due_at)}` : null,
     isTaskOverdue(task) ? "vencida" : null,
+    viewerUserId
+      ? assigneeLabel(task.assigned_to, task.assignee_name, viewerUserId)
+      : null,
     showVisibility && !task.is_visible_to_client ? "interna" : null,
   ].filter(Boolean);
 
@@ -460,6 +522,7 @@ function TabBar({
 function TaskRow({
   task,
   showVisibility,
+  viewerUserId,
   clientName,
   isPending,
   onStatusChange,
@@ -467,12 +530,17 @@ function TaskRow({
 }: {
   task: Task;
   showVisibility: boolean;
+  viewerUserId?: string;
   clientName?: string;
   isPending: boolean;
   onStatusChange: (status: string) => void;
   onOpenDetail: () => void;
 }) {
-  const overdue = isTaskOverdue(task);
+  const due = dueSignal(task);
+  // La prioridad ya no la tapa el vencimiento: antes el badge "Vencida"
+  // SUSTITUIA al de prioridad, asi que una urgente vencida se leia igual que
+  // una baja vencida. Ahora el retraso vive en la columna de fecha y el badge
+  // clasifica solo por prioridad.
   const priorityBadge =
     task.priority === "urgent"
       ? ({ tone: "danger", label: PRIORITY_LABELS.urgent } as const)
@@ -485,29 +553,48 @@ function TaskRow({
     STATUS_LABELS[task.status] ?? task.status,
     task.source === "alert" ? "desde alerta" : null,
     milestoneLabel(task),
-    task.due_at ? `vence ${formatDueDate(task.due_at)}` : null,
     task.task_comments.length > 0
       ? `${task.task_comments.length} coment.`
+      : null,
+    viewerUserId
+      ? assigneeLabel(task.assigned_to, task.assignee_name, viewerUserId)
       : null,
     showVisibility && !task.is_visible_to_client ? "interna" : null,
   ].filter(Boolean);
 
   return (
-    <div className="flex items-start justify-between gap-4 py-3">
-      <div className="min-w-0">
+    <div className="flex flex-wrap items-start gap-x-4 gap-y-2 py-3">
+      <div className="min-w-[15rem] flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          {clientName ? <Badge tone="neutral">{clientName}</Badge> : null}
-          {overdue ? (
-            <Badge tone="danger">Vencida</Badge>
-          ) : priorityBadge ? (
+          {priorityBadge ? (
             <Badge tone={priorityBadge.tone}>{priorityBadge.label}</Badge>
           ) : null}
-          <p className="truncate text-sm font-medium text-foreground">
-            {task.title}
-          </p>
+          {/* Sin `truncate`: un titulo cortado obliga a abrir el detalle solo
+              para saber de que va la tarea. */}
+          <p className="text-sm font-medium text-foreground">{task.title}</p>
         </div>
-        <p className="mt-0.5 text-xs text-muted">{meta.join(" · ")}</p>
+        {/* El cliente va en la meta con peso propio, no en un badge gris que
+            competia con los que si clasifican la tarea. */}
+        <p className="mt-0.5 text-xs text-muted">
+          {clientName ? (
+            <>
+              <span className="font-medium text-foreground">{clientName}</span>
+              {" · "}
+            </>
+          ) : null}
+          {meta.join(" · ")}
+        </p>
       </div>
+      {/* Columna fija de vencimiento: alineada en todas las filas, "que va
+          tarde" se lee en vertical sin entrar en cada meta. */}
+      <span
+        className={[
+          "w-28 shrink-0 pt-0.5 text-right text-xs tabular-nums",
+          DUE_TONE[due.tone],
+        ].join(" ")}
+      >
+        {due.text}
+      </span>
       <div className="flex shrink-0 items-center gap-1.5">
         {task.status === "pending" ? (
           <Button
@@ -536,6 +623,161 @@ function TaskRow({
   );
 }
 
+// Filtros del modulo: eran el mismo bloque copiado en la vista de cartera y en
+// la de tienda, y ya habian empezado a divergir (la de cartera dejaba el
+// buscador visible en la pestana de alertas, donde no filtraba nada).
+function TaskFilters({
+  query,
+  onQueryChange,
+  clientOptions,
+  client,
+  onClientChange,
+  status,
+  onStatusChange,
+  category,
+  onCategoryChange,
+  actions,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  clientOptions?: { value: string; label: string }[];
+  client?: string;
+  onClientChange?: (value: string) => void;
+  /** Estado y modulo solo aplican a tareas; en alertas no se pintan. */
+  status?: string;
+  onStatusChange?: (value: string) => void;
+  category?: string;
+  onCategoryChange?: (value: string) => void;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Input
+        className="w-full sm:w-64"
+        type="search"
+        aria-label="Buscar"
+        placeholder="Buscar por título o descripción..."
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+      />
+      {clientOptions && onClientChange ? (
+        <Select
+          className="w-48"
+          aria-label="Filtrar por cliente"
+          value={client ?? "all"}
+          onChange={onClientChange}
+          options={clientOptions}
+        />
+      ) : null}
+      {onStatusChange && onCategoryChange ? (
+        <>
+          <Select
+            className="w-44"
+            aria-label="Filtrar por estado"
+            value={status ?? "open"}
+            onChange={onStatusChange}
+            options={[
+              { value: "open", label: "Abiertas" },
+              { value: "pending", label: "Pendientes" },
+              { value: "in_progress", label: "En curso" },
+              { value: "completed", label: "Completadas" },
+              { value: "ignored", label: "Ignoradas" },
+              { value: "all", label: "Todas" },
+            ]}
+          />
+          <Select
+            className="w-40"
+            aria-label="Filtrar por módulo"
+            value={category ?? "all"}
+            onChange={onCategoryChange}
+            options={[
+              { value: "all", label: "Todos los módulos" },
+              { value: "shopify", label: "Shopify" },
+              { value: "meta", label: "Meta Ads" },
+              { value: "klaviyo", label: "Klaviyo" },
+              { value: "general", label: "General" },
+            ]}
+          />
+        </>
+      ) : null}
+      {actions ? <div className="ml-auto">{actions}</div> : null}
+    </div>
+  );
+}
+
+// Fila de alerta: misma estructura que estaba duplicada literalmente en las dos
+// vistas. El nombre del cliente va en la meta con peso, no en un badge gris
+// junto al de severidad (mismo criterio que en TaskRow).
+function AlertRow({
+  alert,
+  clientName,
+  isPending,
+  onStatusChange,
+}: {
+  alert: Alert;
+  clientName?: string;
+  isPending: boolean;
+  onStatusChange: (status: string) => void;
+}) {
+  return (
+    <List.Item className="flex flex-wrap items-start justify-between gap-3 py-3">
+      <div className="min-w-[15rem] flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={SEVERITY_TONE[alert.severity] ?? "neutral"}>
+            {SEVERITY_LABELS[alert.severity] ?? alert.severity}
+          </Badge>
+          <p className="text-sm font-medium text-foreground">{alert.title}</p>
+        </div>
+        <p className="mt-1 text-[13px] leading-relaxed text-muted">
+          {alert.message}
+        </p>
+        <p className="mt-1 text-xs text-muted">
+          {clientName ? (
+            <>
+              <span className="font-medium text-foreground">{clientName}</span>
+              {" · "}
+            </>
+          ) : null}
+          detectada{" "}
+          {new Date(alert.first_detected_at).toLocaleDateString("es-ES")}
+          {/* "ultima vez" solo cuando aporta: si coincide con la deteccion es
+              ruido repetido en cada fila. */}
+          {alert.last_detected_at !== alert.first_detected_at
+            ? ` · última vez ${new Date(alert.last_detected_at).toLocaleDateString("es-ES")}`
+            : ""}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {alert.status === "open" ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={isPending}
+            onClick={() => onStatusChange("acknowledged")}
+          >
+            Marcar vista
+          </Button>
+        ) : null}
+        <Button
+          size="sm"
+          disabled={isPending}
+          onClick={() => onStatusChange("resolved")}
+        >
+          {isPending ? "..." : "Resolver"}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={isPending}
+          onClick={() => onStatusChange("dismissed")}
+        >
+          Descartar
+        </Button>
+      </div>
+    </List.Item>
+  );
+}
+
 // --- Estado "vista general" de /tareas (consultor sin cliente activo):
 // tareas y alertas de toda la cartera, mismos filtros + filtro por cliente. ---
 
@@ -553,6 +795,122 @@ type ConsultantOperations = {
   alerts: PortfolioAlert[];
 };
 
+// Una card por tienda con como va de tareas: abiertas, vencidas, completadas.
+// Es lo primero que se ve en vista general -- antes de bucear en la lista
+// plana de tareas, saber que cliente lleva retraso.
+type ClientSummary = {
+  organization_id: string;
+  organization_name: string;
+  open: number;
+  overdue: number;
+  completed: number;
+  /** Dias que lleva esperando la tarea abierta mas vieja de este cliente. */
+  stalestOpenDays: number | null;
+};
+
+function buildClientSummaries(
+  data: ConsultantOperations | null,
+): ClientSummary[] {
+  const tasksByOrg = new Map<string, PortfolioTask[]>();
+  for (const task of data?.tasks ?? []) {
+    const list = tasksByOrg.get(task.organization_id) ?? [];
+    list.push(task);
+    tasksByOrg.set(task.organization_id, list);
+  }
+  return (data?.organizations ?? [])
+    .map((org) => {
+      const tasks = tasksByOrg.get(org.id) ?? [];
+      const open = tasks.filter((t) =>
+        ["pending", "in_progress"].includes(t.status),
+      );
+      return {
+        organization_id: org.id,
+        organization_name: org.display_name,
+        open: open.length,
+        overdue: tasks.filter(isTaskOverdue).length,
+        completed: tasks.filter((t) => t.status === "completed").length,
+        stalestOpenDays: daysSince(oldest(open.map((t) => t.created_at))),
+      };
+    })
+    .sort((a, b) => b.overdue - a.overdue || b.open - a.open);
+}
+
+function ClientSummaryGrid({
+  summaries,
+  activeClientId,
+  onSelectClient,
+  proposedByOrg,
+}: {
+  summaries: ClientSummary[];
+  activeClientId: string;
+  onSelectClient: (organizationId: string) => void;
+  /** Propuestas de la IA sin decidir, por organizacion. */
+  proposedByOrg: Map<string, number>;
+}) {
+  if (summaries.length === 0) return null;
+  return (
+    <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
+      {summaries.map((summary) => {
+        const active = summary.organization_id === activeClientId;
+        const proposed = proposedByOrg.get(summary.organization_id) ?? 0;
+        return (
+          <button
+            key={summary.organization_id}
+            type="button"
+            // Es un filtro que se queda puesto, no una navegacion: sin
+            // `aria-pressed` un lector de pantalla no distingue la tarjeta
+            // activa de las demas (el borde solo lo dice en pantalla).
+            aria-pressed={active}
+            onClick={() =>
+              onSelectClient(active ? "all" : summary.organization_id)
+            }
+            className={[
+              "rounded-md border p-4 text-left transition-colors",
+              active
+                ? "border-accent bg-accent-soft"
+                : "border-separator hover:border-foreground",
+            ].join(" ")}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="truncate text-sm font-medium text-foreground">
+                {summary.organization_name}
+              </p>
+              {summary.overdue > 0 ? (
+                <Badge tone="danger">
+                  {summary.overdue} vencida{summary.overdue === 1 ? "" : "s"}
+                </Badge>
+              ) : null}
+            </div>
+            {/* La cifra que importa (abiertas) con peso propio; el resto es
+                contexto. Antes las tres iban al mismo tamano y color. */}
+            <p className="mt-1.5 text-sm tabular-nums text-foreground">
+              <span className="font-semibold">{summary.open}</span>{" "}
+              <span className="text-muted">
+                abierta{summary.open === 1 ? "" : "s"} · {summary.completed}{" "}
+                completada{summary.completed === 1 ? "" : "s"}
+              </span>
+            </p>
+            {/* Backlog vivo o cementerio: 8 tareas abiertas de hace tres dias
+                y 8 de hace tres meses son dos clientes distintos. */}
+            {summary.stalestOpenDays !== null && summary.stalestOpenDays >= 14 ? (
+              <p className="mt-0.5 text-xs text-warning">
+                la más antigua lleva {summary.stalestOpenDays} d
+              </p>
+            ) : null}
+            {proposed > 0 ? (
+              <p className="mt-2">
+                <Badge tone="brand">
+                  {proposed} propuesta{proposed === 1 ? "" : "s"} de la IA
+                </Badge>
+              </p>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
   const [data, setData] = useState<ConsultantOperations | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -569,6 +927,11 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
   const [commentInternalDrafts, setCommentInternalDrafts] = useState<
     Record<string, boolean>
   >({});
+  const {
+    clients: proposedClients,
+    reload: reloadProposed,
+    pendingByOrg,
+  } = useProposedTasks();
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -682,14 +1045,6 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
     }
   }
 
-  if (isLoading && !data) {
-    return (
-      <div className="portal-page">
-        <LoadingBlock label="Cargando tareas de la cartera..." />
-      </div>
-    );
-  }
-
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredTasks = (data?.tasks ?? []).filter((task) => {
     if (clientFilter !== "all" && task.organization_id !== clientFilter)
@@ -728,11 +1083,22 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
     return Date.parse(b.created_at) - Date.parse(a.created_at);
   });
 
-  const activeAlerts = (data?.alerts ?? []).filter(
-    (alert) =>
-      ["open", "acknowledged"].includes(alert.status) &&
-      (clientFilter === "all" || alert.organization_id === clientFilter),
-  );
+  const tasksPage = usePaginatedUrl(sortedTasks, TASKS_PAGE_SIZE);
+
+  const activeAlerts = (data?.alerts ?? []).filter((alert) => {
+    if (!["open", "acknowledged"].includes(alert.status)) return false;
+    if (clientFilter !== "all" && alert.organization_id !== clientFilter)
+      return false;
+    // El buscador esta encima de las dos pestanas: si no filtrara alertas,
+    // escribir en el con la pestana de alertas abierta no haria nada.
+    if (
+      normalizedQuery &&
+      !alert.title.toLowerCase().includes(normalizedQuery) &&
+      !alert.message.toLowerCase().includes(normalizedQuery)
+    )
+      return false;
+    return true;
+  });
 
   const detailTask = detailTaskId
     ? filteredTasks.find((task) => task.id === detailTaskId) ?? null
@@ -746,9 +1112,101 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
     })),
   ];
 
+  const clientSummaries = buildClientSummaries(data);
+
+  if (isLoading && !data) {
+    return (
+      <div className="portal-page">
+        <LoadingBlock label="Cargando tareas de la cartera..." />
+      </div>
+    );
+  }
+
+  // Estado de la cartera entera, no del filtro: el consultor abre esta
+  // pantalla para decidir a quien llama hoy. Las mismas cifras viajan al
+  // Consultor IA como "vista actual" (ModuleSummary publica lo que pinta).
+  const allTasks = data?.tasks ?? [];
+  const portfolioOpen = allTasks.filter((task) =>
+    ["pending", "in_progress"].includes(task.status),
+  );
+  const portfolioOverdue = allTasks.filter(isTaskOverdue).length;
+  const clientsBehind = clientSummaries.filter(
+    (summary) => summary.overdue > 0,
+  ).length;
+  const criticalAlerts = (data?.alerts ?? []).filter(
+    (alert) =>
+      ["open", "acknowledged"].includes(alert.status) &&
+      ["critical", "high"].includes(alert.severity),
+  ).length;
+  const proposedTotal = [...pendingByOrg.values()].reduce(
+    (total, count) => total + count,
+    0,
+  );
+  const stalestOpenDays =
+    daysSince(oldest(portfolioOpen.map((task) => task.created_at))) ?? 0;
+
   return (
     <div className="portal-page space-y-5">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+
+      <div>
+        <p className={EYEBROW}>Vista general</p>
+        <p className="mt-0.5 text-sm text-muted">
+          Tareas y alertas de toda la cartera ({clientSummaries.length}{" "}
+          {clientSummaries.length === 1 ? "cliente" : "clientes"}).
+        </p>
+      </div>
+
+      <ModuleSummary
+        metrics={[
+          {
+            label: "Clientes con retraso",
+            value: clientsBehind.toLocaleString("es-ES"),
+            tone: clientsBehind > 0 ? "danger" : "success",
+            hint: `de ${clientSummaries.length}`,
+          },
+          {
+            label: "Tareas abiertas",
+            value: portfolioOpen.length.toLocaleString("es-ES"),
+          },
+          {
+            label: "Vencidas",
+            value: portfolioOverdue.toLocaleString("es-ES"),
+            tone: portfolioOverdue > 0 ? "danger" : "success",
+          },
+          {
+            label: "Alertas activas",
+            value: (data?.alerts ?? [])
+              .filter((alert) =>
+                ["open", "acknowledged"].includes(alert.status),
+              )
+              .length.toLocaleString("es-ES"),
+            tone: criticalAlerts > 0 ? "danger" : "default",
+            hint:
+              criticalAlerts > 0
+                ? `${criticalAlerts} de severidad alta o crítica`
+                : undefined,
+          },
+          {
+            label: "Más antigua abierta",
+            value: portfolioOpen.length ? `${stalestOpenDays} d` : "—",
+            tone: stalestOpenDays >= 30 ? "warn" : "default",
+          },
+          {
+            label: "Propuestas de la IA",
+            value: proposedTotal.toLocaleString("es-ES"),
+            tone: proposedTotal > 0 ? "warn" : "default",
+            hint: proposedTotal > 0 ? "Esperando decisión" : undefined,
+          },
+        ]}
+      />
+
+      <ClientSummaryGrid
+        summaries={clientSummaries}
+        activeClientId={clientFilter}
+        onSelectClient={setClientFilter}
+        proposedByOrg={pendingByOrg}
+      />
 
       <TabBar
         tabs={[
@@ -759,78 +1217,69 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
         onChange={(value) => setTab(value as "tasks" | "alerts")}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          className="w-full sm:w-64"
-          type="search"
-          aria-label="Buscar tarea"
-          placeholder="Buscar por título o descripción..."
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-        />
-        <Select
-          className="w-48"
-          aria-label="Filtrar por cliente"
-          value={clientFilter}
-          onChange={setClientFilter}
-          options={clientOptions}
-        />
-        {tab === "tasks" ? (
-          <>
-            <Select
-              className="w-44"
-              aria-label="Filtrar por estado"
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { value: "open", label: "Abiertas" },
-                { value: "pending", label: "Pendientes" },
-                { value: "in_progress", label: "En curso" },
-                { value: "completed", label: "Completadas" },
-                { value: "ignored", label: "Ignoradas" },
-                { value: "all", label: "Todas" },
-              ]}
-            />
-            <Select
-              className="w-40"
-              aria-label="Filtrar por módulo"
-              value={categoryFilter}
-              onChange={setCategoryFilter}
-              options={[
-                { value: "all", label: "Todos los módulos" },
-                { value: "shopify", label: "Shopify" },
-                { value: "meta", label: "Meta Ads" },
-                { value: "klaviyo", label: "Klaviyo" },
-                { value: "general", label: "General" },
-              ]}
-            />
-          </>
-        ) : null}
-      </div>
+      <TaskFilters
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        clientOptions={clientOptions}
+        client={clientFilter}
+        onClientChange={setClientFilter}
+        {...(tab === "tasks"
+          ? {
+              status: statusFilter,
+              onStatusChange: setStatusFilter,
+              category: categoryFilter,
+              onCategoryChange: setCategoryFilter,
+            }
+          : {})}
+      />
 
       {tab === "tasks" ? (
         <Card>
-          {sortedTasks.length === 0 ? (
+          {sortedTasks.length === 0 && pendingByOrg.size === 0 ? (
             <EmptyState
               title="Sin tareas para este filtro"
               hint="Prueba otro filtro o abre un cliente para crear una."
             />
           ) : (
-            <List>
-              {sortedTasks.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  showVisibility={isConsultant}
-                  clientName={task.organization_name}
-                  isPending={pendingTaskId === task.id}
-                  onStatusChange={(status) =>
-                    void changeTaskStatus(task.organization_id, task.id, status)
-                  }
-                  onOpenDetail={() => setDetailTaskId(task.id)}
+            <>
+              <List>
+                {/* Propuestas de la IA en la misma lista, arriba y con badge
+                    "IA": el consultor decide sin cambiar de pantalla. */}
+                <ProposedTasksList
+                  clients={proposedClients}
+                  activeClientId={clientFilter}
+                  onApproved={() => {
+                    void reloadProposed();
+                    void load();
+                  }}
                 />
-              ))}
-            </List>
+                {/* Paginada como la vista de tienda: la cartera entera podia
+                    pintar cientos de filas de golpe. */}
+                {tasksPage.pageItems.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    showVisibility={isConsultant}
+                    clientName={task.organization_name}
+                    isPending={pendingTaskId === task.id}
+                    onStatusChange={(status) =>
+                      void changeTaskStatus(
+                        task.organization_id,
+                        task.id,
+                        status,
+                      )
+                    }
+                    onOpenDetail={() => setDetailTaskId(task.id)}
+                  />
+                ))}
+              </List>
+              <Pagination
+                className="mt-3"
+                page={tasksPage.page}
+                pageCount={tasksPage.pageCount}
+                onChange={tasksPage.setPage}
+              />
+            </>
           )}
         </Card>
       ) : (
@@ -842,81 +1291,21 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
             />
           ) : (
             <List>
-              {activeAlerts.map((alert) => {
-                const busy = pendingAlertId === alert.id;
-                return (
-                  <List.Item
-                    key={alert.id}
-                    className="flex flex-wrap items-start justify-between gap-3 py-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone="neutral">{alert.organization_name}</Badge>
-                        <Badge tone={SEVERITY_TONE[alert.severity] ?? "neutral"}>
-                          {SEVERITY_LABELS[alert.severity] ?? alert.severity}
-                        </Badge>
-                        <p className="text-sm font-medium text-foreground">
-                          {alert.title}
-                        </p>
-                      </div>
-                      <p className="mt-1 text-[13px] leading-relaxed text-muted">
-                        {alert.message}
-                      </p>
-                      <p className="mt-1 text-xs text-muted">
-                        detectada{" "}
-                        {new Date(alert.first_detected_at).toLocaleDateString(
-                          "es-ES",
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      {alert.status === "open" ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() =>
-                            void changeAlertStatus(
-                              alert.organization_id,
-                              alert.id,
-                              "acknowledged",
-                            )
-                          }
-                        >
-                          Marcar vista
-                        </Button>
-                      ) : null}
-                      <Button
-                        size="sm"
-                        disabled={busy}
-                        onClick={() =>
-                          void changeAlertStatus(
-                            alert.organization_id,
-                            alert.id,
-                            "resolved",
-                          )
-                        }
-                      >
-                        {busy ? "..." : "Resolver"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() =>
-                          void changeAlertStatus(
-                            alert.organization_id,
-                            alert.id,
-                            "dismissed",
-                          )
-                        }
-                      >
-                        Descartar
-                      </Button>
-                    </div>
-                  </List.Item>
-                );
-              })}
+              {activeAlerts.map((alert) => (
+                <AlertRow
+                  key={alert.id}
+                  alert={alert}
+                  clientName={alert.organization_name}
+                  isPending={pendingAlertId === alert.id}
+                  onStatusChange={(status) =>
+                    void changeAlertStatus(
+                      alert.organization_id,
+                      alert.id,
+                      status,
+                    )
+                  }
+                />
+              ))}
             </List>
           )}
         </Card>
@@ -990,6 +1379,11 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
+  // Un cliente sin consultor se apoya en los agentes: son su única fuente de
+  // trabajo propuesto. Con consultor, es el consultor quien decide qué entra.
+  const { isAutonomous } = useAssignedConsultant(
+    isConsultant ? null : (organization?.id ?? null),
+  );
 
   const [payload, setPayload] = useState<OperationsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1020,6 +1414,14 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // que recargaba la lista entera).
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [pendingAlertId, setPendingAlertId] = useState<string | null>(null);
+  const { clients: proposedClients, reload: reloadProposed } =
+    useProposedTasks({ enabled: isConsultant });
+  // Si hay propuestas, la lista no esta vacia aunque el backlog si lo este.
+  const hasProposals = (proposedClients ?? []).some(
+    (client) =>
+      client.organization_id === organization?.id &&
+      client.tasks.some((task) => task.pending_approval),
+  );
 
   const loadOperations = useCallback(async () => {
     if (!organization) {
@@ -1342,9 +1744,95 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     ? filteredTasks.find((task) => task.id === detailTaskId) ?? null
     : null;
 
+  // Estado real del backlog de este cliente. Antes había que contar a ojo
+  // entre pestañas y filtros para responder "¿voy tarde con este cliente?".
+  const allTasks = payload?.tasks ?? [];
+  const openTasks = allTasks.filter((task) =>
+    ["pending", "in_progress"].includes(task.status),
+  );
+  const overdueTasks = allTasks.filter(isTaskOverdue);
+  const criticalAlerts = activeAlerts.filter((alert) =>
+    ["critical", "high"].includes(alert.severity),
+  );
+  // Cuánto lleva esperando lo más viejo que sigue abierto: la señal de si el
+  // backlog está vivo o es un cementerio.
+  const oldestOpenDays =
+    daysSince(oldest(openTasks.map((task) => task.created_at))) ?? 0;
+  const completedLast30 = allTasks.filter(
+    (task) =>
+      task.status === "completed" && isWithinLastDays(task.updated_at, 30),
+  ).length;
+
   return (
     <div className="portal-page space-y-5">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+
+      {isConsultant && organization ? (
+        <div>
+          <p className={EYEBROW}>Tienda</p>
+          <p className="mt-0.5 text-sm font-medium text-foreground">
+            {organization.display_name}
+          </p>
+        </div>
+      ) : null}
+
+      {payload ? (
+        <ModuleSummary
+          metrics={[
+            {
+              label: "Tareas abiertas",
+              value: openTasks.length.toLocaleString("es-ES"),
+            },
+            {
+              label: "Vencidas",
+              value: overdueTasks.length.toLocaleString("es-ES"),
+              tone: overdueTasks.length > 0 ? "danger" : "success",
+            },
+            {
+              label: "Alertas activas",
+              value: activeAlerts.length.toLocaleString("es-ES"),
+              tone: criticalAlerts.length > 0 ? "danger" : "default",
+              hint:
+                criticalAlerts.length > 0
+                  ? `${criticalAlerts.length} de severidad alta o crítica`
+                  : undefined,
+            },
+            {
+              label: "Más antigua abierta",
+              value: openTasks.length ? `${oldestOpenDays} d` : "—",
+              tone: oldestOpenDays >= 30 ? "warn" : "default",
+            },
+            {
+              label: "Cerradas · 30 días",
+              value: completedLast30.toLocaleString("es-ES"),
+              hint: "Ritmo de ejecución",
+            },
+          ]}
+          notes={
+            hasProposals
+              ? "Hay propuestas de la IA pendientes de aprobar en este cliente."
+              : undefined
+          }
+        />
+      ) : null}
+
+      {/* Un cliente sin consultor no tenía quien le llenara esta página: el
+          consultor no está, y las propuestas de la IA estaban gateadas a
+          `enabled: isConsultant`. Se quedaba con una lista vacía que rellenar a
+          mano. El agente ya se ejecuta dos veces al día para su organización;
+          aquí es donde sus propuestas se convierten en tareas. */}
+      {!isConsultant && isAutonomous && organization ? (
+        <AiDiagnosticSection
+          organizationId={organization.id}
+          title="Qué hacer esta semana"
+          getPath="/ai/task-planner"
+          runPath="/ai/task-planner-run"
+          loadingLabel="Buscando el siguiente paso para tu tienda…"
+          tasksLabelSingular="acción"
+          variant="tasks"
+          days={30}
+        />
+      ) : null}
 
       <TabBar
         tabs={[
@@ -1359,51 +1847,23 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <LoadingBlock label="Cargando tareas y alertas..." />
       ) : tab === "tasks" ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              className="w-full sm:w-64"
-              type="search"
-              aria-label="Buscar tarea"
-              placeholder="Buscar por título o descripción..."
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
-            <Select
-              className="w-44"
-              aria-label="Filtrar por estado"
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { value: "open", label: "Abiertas" },
-                { value: "pending", label: "Pendientes" },
-                { value: "in_progress", label: "En curso" },
-                { value: "completed", label: "Completadas" },
-                { value: "ignored", label: "Ignoradas" },
-                { value: "all", label: "Todas" },
-              ]}
-            />
-            <Select
-              className="w-40"
-              aria-label="Filtrar por módulo"
-              value={categoryFilter}
-              onChange={setCategoryFilter}
-              options={[
-                { value: "all", label: "Todos los módulos" },
-                { value: "shopify", label: "Shopify" },
-                { value: "meta", label: "Meta Ads" },
-                { value: "klaviyo", label: "Klaviyo" },
-                { value: "general", label: "General" },
-              ]}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              className="ml-auto"
-              onClick={() => setIsCreatingTask((value) => !value)}
-            >
-              {isCreatingTask ? "Cerrar" : "Nueva tarea"}
-            </Button>
-          </div>
+          <TaskFilters
+            query={searchQuery}
+            onQueryChange={setSearchQuery}
+            status={statusFilter}
+            onStatusChange={setStatusFilter}
+            category={categoryFilter}
+            onCategoryChange={setCategoryFilter}
+            actions={
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setIsCreatingTask((value) => !value)}
+              >
+                {isCreatingTask ? "Cerrar" : "Nueva tarea"}
+              </Button>
+            }
+          />
 
           {isCreatingTask ? (
             <NewTaskForm
@@ -1420,7 +1880,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : null}
 
           <Card>
-            {filteredTasks.length === 0 ? (
+            {filteredTasks.length === 0 && !hasProposals ? (
               <EmptyState
                 title="Sin tareas para este filtro"
                 hint="Prueba otro filtro, o crea una con «Nueva tarea»."
@@ -1428,11 +1888,26 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ) : (
               <>
                 <List>
+                  {/* Las propuestas de la IA van en la MISMA lista que el
+                      backlog, arriba y marcadas con un badge "IA": es trabajo
+                      esperando decision, y el consultor lo lee sin cambiar de
+                      sitio. Solo consultor: el cliente no aprueba salidas IA. */}
+                  {isConsultant && organization ? (
+                    <ProposedTasksList
+                      clients={proposedClients}
+                      activeClientId={organization.id}
+                      onApproved={() => {
+                        void reloadProposed();
+                        void loadOperations();
+                      }}
+                    />
+                  ) : null}
                   {tasksPage.pageItems.map((task) => (
                     <TaskRow
                       key={task.id}
                       task={task}
                       showVisibility={isConsultant}
+                      viewerUserId={bootstrap.profile.id}
                       isPending={pendingTaskId === task.id}
                       onStatusChange={(status) =>
                         void changeTaskStatus(task.id, status)
@@ -1479,74 +1954,16 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               />
             ) : (
               <List>
-                {activeAlerts.map((alert) => {
-                  const busy = pendingAlertId === alert.id;
-                  return (
-                    <List.Item
-                      key={alert.id}
-                      className="flex flex-wrap items-start justify-between gap-3 py-3"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            tone={SEVERITY_TONE[alert.severity] ?? "neutral"}
-                          >
-                            {SEVERITY_LABELS[alert.severity] ?? alert.severity}
-                          </Badge>
-                          <p className="text-sm font-medium text-foreground">
-                            {alert.title}
-                          </p>
-                        </div>
-                        <p className="mt-1 text-[13px] leading-relaxed text-muted">
-                          {alert.message}
-                        </p>
-                        <p className="mt-1 text-xs text-muted">
-                          detectada{" "}
-                          {new Date(
-                            alert.first_detected_at,
-                          ).toLocaleDateString("es-ES")}
-                          {" · última vez "}
-                          {new Date(
-                            alert.last_detected_at,
-                          ).toLocaleDateString("es-ES")}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {alert.status === "open" ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={busy}
-                            onClick={() =>
-                              void changeAlertStatus(alert.id, "acknowledged")
-                            }
-                          >
-                            Marcar vista
-                          </Button>
-                        ) : null}
-                        <Button
-                          size="sm"
-                          disabled={busy}
-                          onClick={() =>
-                            void changeAlertStatus(alert.id, "resolved")
-                          }
-                        >
-                          {busy ? "..." : "Resolver"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() =>
-                            void changeAlertStatus(alert.id, "dismissed")
-                          }
-                        >
-                          Descartar
-                        </Button>
-                      </div>
-                    </List.Item>
-                  );
-                })}
+                {activeAlerts.map((alert) => (
+                  <AlertRow
+                    key={alert.id}
+                    alert={alert}
+                    isPending={pendingAlertId === alert.id}
+                    onStatusChange={(status) =>
+                      void changeAlertStatus(alert.id, status)
+                    }
+                  />
+                ))}
               </List>
             )}
           </Card>
@@ -1587,6 +2004,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <TaskDetail
                     task={detailTask}
                     showVisibility={isConsultant}
+                    viewerUserId={bootstrap.profile.id}
                     canMarkInternal={isConsultant}
                     isInternalDraft={Boolean(
                       commentInternalDrafts[detailTask.id],
@@ -1627,8 +2045,10 @@ function TasksRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
     bootstrap.profile.platform_role,
   );
 
-  // Consultor sin cliente activo -> tareas/alertas de toda la cartera.
-  if (isConsultant && !organizationId) {
+  // Consultor sin cliente activo -> tareas/alertas de toda la cartera. Si
+  // solo tiene una tienda no hay cartera que ver: va directo a su dashboard
+  // (OperationsContent ya cae al unico membership cuando organizationId es "").
+  if (isConsultant && !organizationId && bootstrap.memberships.length > 1) {
     return <ConsultantOperationsView isConsultant={isConsultant} />;
   }
 

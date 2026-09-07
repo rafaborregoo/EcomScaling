@@ -6,6 +6,8 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
+import { ModuleSummary } from "@/components/module-summary";
+import { daysSince, oldest } from "@/lib/elapsed";
 import {
   AsyncState,
   Badge,
@@ -111,6 +113,54 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
           />
         </Field>
       </Card>
+
+      {/* Cobertura de datos: sin esto, cualquier consejo sobre un canal es una
+          opinión. Es la misma pregunta que el Consultor IA responde con
+          data_coverage antes de recomendar nada. */}
+      <ModuleSummary
+        metrics={[
+          {
+            label: "Conectadas",
+            value: `${payload.providers.filter((provider) => provider.connection).length}/${payload.providers.length}`,
+            tone: payload.providers.every((provider) => provider.connection)
+              ? "success"
+              : "warn",
+          },
+          {
+            label: "Con incidencia",
+            value: payload.providers
+              .filter((provider) => provider.health.status !== "healthy")
+              .length.toLocaleString("es-ES"),
+            tone: payload.providers.some(
+              (provider) => provider.health.status !== "healthy",
+            )
+              ? "danger"
+              : "success",
+          },
+          {
+            label: "Sincronización más antigua",
+            value: (() => {
+              const days = daysSince(
+                oldest(
+                  payload.providers.map((provider) => provider.health.lastSyncAt),
+                ),
+              );
+              if (days === null) return "Nunca";
+              return days === 0 ? "Hoy" : `Hace ${days} d`;
+            })(),
+            hint: "Antigüedad del dato más viejo",
+          },
+          {
+            label: "Pendientes de activar",
+            value: payload.providers
+              .filter(
+                (provider) => provider.connection && !provider.activation.ready,
+              )
+              .length.toLocaleString("es-ES"),
+            hint: "Conectadas pero sin permisos o activos elegidos",
+          },
+        ]}
+      />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {payload.providers.map((provider) => {

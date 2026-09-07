@@ -13,6 +13,9 @@ import {
   orgDailyRunCapReached,
   platformBudgetExceeded,
   scoreDiagnosticPriority,
+  isPlanHorizon,
+  orchestratorMinRunAgeFor,
+  PLAN_HORIZONS,
 } from "./ai-runtime.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -81,11 +84,13 @@ test("run viejo, digest guardado nulo (run anterior a esta feature): regenera al
   assert.equal(d.serve, false);
 });
 
-test("tope de refrescos manuales: bloquea al llegar a 3, no antes", () => {
+test("tope de refrescos manuales: bloquea al llegar al cap, no antes", () => {
+  // El default subio de 3 a 12 al dejar de cubrir solo tres agentes y pasar a
+  // contar cualquier refresco manual de la organizacion.
   assert.equal(manualRefreshCapExceeded(0), false);
-  assert.equal(manualRefreshCapExceeded(2), false);
-  assert.equal(manualRefreshCapExceeded(3), true);
-  assert.equal(manualRefreshCapExceeded(9), true);
+  assert.equal(manualRefreshCapExceeded(11), false);
+  assert.equal(manualRefreshCapExceeded(12), true);
+  assert.equal(manualRefreshCapExceeded(30), true);
   // cap configurable
   assert.equal(manualRefreshCapExceeded(1, 1), true);
   assert.equal(manualRefreshCapExceeded(0, 1), false);
@@ -175,4 +180,50 @@ test("prioridad: alertas abiertas pesan mas que facturacion", () => {
     planActive: true,
   });
   assert.ok(withAlert > richNoAlert);
+});
+
+// Plan diario / semanal / mensual comparten el mismo tick del orquestador (2
+// veces al dia). Lo que los separa NO es el cron, es la antiguedad minima: sin
+// esto los tres se regenerarian a diario y el "plan mensual" seria un plan
+// diario con otro nombre.
+test("cada horizonte de plan tiene su propia antiguedad minima", () => {
+  const day = orchestratorMinRunAgeFor(PLAN_HORIZONS.day.agentCode);
+  const week = orchestratorMinRunAgeFor(PLAN_HORIZONS.week.agentCode);
+  const month = orchestratorMinRunAgeFor(PLAN_HORIZONS.month.agentCode);
+
+  assert.ok(day < week, "el plan diario se regenera antes que el semanal");
+  assert.ok(week < month, "el plan semanal se regenera antes que el mensual");
+  assert.ok(day < DAY_MS, "el diario cabe dentro del dia");
+  assert.ok(week >= 6 * DAY_MS, "el semanal no se regenera a media semana");
+  assert.ok(month >= 27 * DAY_MS, "el mensual no se regenera a media mes");
+});
+
+test("un agente sin horizonte propio usa la antiguedad general", () => {
+  assert.equal(
+    orchestratorMinRunAgeFor("a02_monitor_negocio"),
+    orchestratorMinRunAgeFor("a06_planificador_stock"),
+  );
+});
+
+// `:horizon` llega de la URL: si la guarda aceptara cualquier string, se
+// indexaria PLAN_HORIZONS con basura y el agentCode saldria undefined.
+test("isPlanHorizon solo acepta los tres horizontes reales", () => {
+  assert.equal(isPlanHorizon("day"), true);
+  assert.equal(isPlanHorizon("week"), true);
+  assert.equal(isPlanHorizon("month"), true);
+  assert.equal(isPlanHorizon("year"), false);
+  assert.equal(isPlanHorizon("constructor"), false);
+  assert.equal(isPlanHorizon("__proto__"), false);
+});
+
+// El semanal y el mensual solo son utiles si se coordinan: cada uno tiene que
+// poder mirar lo que proponen los otros dos, y para eso los codigos han de ser
+// distintos entre si.
+test("los tres horizontes son agentes distintos", () => {
+  const codes = [
+    PLAN_HORIZONS.day.agentCode,
+    PLAN_HORIZONS.week.agentCode,
+    PLAN_HORIZONS.month.agentCode,
+  ];
+  assert.equal(new Set(codes).size, 3);
 });

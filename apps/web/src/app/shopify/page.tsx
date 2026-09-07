@@ -7,7 +7,11 @@ import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
+import { ModuleSummary } from "@/components/module-summary";
+import { ShopifyInsightsSections } from "./insights-sections";
+import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
+  AreaChart,
   AsyncState,
   Badge,
   Banner,
@@ -23,6 +27,7 @@ import {
   Link,
   List,
   LoadingBlock,
+  Metric,
   Select,
 } from "@/components/ui";
 
@@ -60,6 +65,26 @@ type ShopifyMetrics = {
     items_with_cost: number;
     items_without_cost: number;
   };
+  // Embudo: sesiones de ShopifyQL + pedidos propios. `null` o
+  // `has_sessions: false` = todavía no tenemos el dato (bloque `sessions` sin
+  // ejecutar o conexión sin permiso de informes), que no es lo mismo que 0.
+  funnel: {
+    has_sessions: boolean;
+    sessions: number;
+    online_store_visitors: number;
+    conversion_rate_shopify: number | null;
+    orders_count: number;
+    net_sales: number;
+    conversion_rate_own: number | null;
+    revenue_per_session: number | null;
+    days_with_sessions: number;
+  } | null;
+  funnel_daily: Array<{
+    date: string;
+    sessions: number;
+    orders_count: number;
+    conversion_rate_own: number | null;
+  }>;
 };
 
 const periodOptions: Array<{ days: number | "all"; label: string }> = [
@@ -337,6 +362,68 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : null}
       </Card>
 
+      {/* Las seis cifras con las que se abre una consultoría de tienda: cuánto
+          vende, a qué ticket, con qué margen, si convierte, si se está
+          quedando sin stock y si el margen es fiable. Estaban todas en la
+          página, repartidas en cuatro bloques distintos. */}
+      {metrics ? (
+        <ModuleSummary
+          period={
+            metrics.period.days === "all"
+              ? "Todo el histórico"
+              : `Últimos ${metrics.period.days} días`
+          }
+          metrics={[
+            {
+              label: "Ventas netas",
+              value: formatMoney(metrics.sales.net_sales, currency),
+              hint: `${metrics.sales.orders_count.toLocaleString("es-ES")} pedidos`,
+            },
+            {
+              label: "Ticket medio",
+              value: formatMoney(metrics.sales.aov, currency),
+            },
+            {
+              label: "Margen bruto",
+              value: `${metrics.margin.margin_pct.toFixed(1)}%`,
+              tone:
+                metrics.margin.margin_pct < 20
+                  ? "danger"
+                  : metrics.margin.margin_pct < 35
+                    ? "warn"
+                    : "success",
+              hint: formatMoney(metrics.margin.gross_margin, currency),
+            },
+            {
+              label: "Conversión",
+              value:
+                metrics.funnel?.has_sessions &&
+                metrics.funnel.conversion_rate_own != null
+                  ? `${(metrics.funnel.conversion_rate_own * 100).toFixed(2)}%`
+                  : "Sin datos",
+              hint: metrics.funnel?.has_sessions
+                ? `${metrics.funnel.sessions.toLocaleString("es-ES")} sesiones`
+                : "Falta el permiso de informes de Shopify",
+            },
+            {
+              label: "Sin stock",
+              value: metrics.stock.out_of_stock_items.toLocaleString("es-ES"),
+              tone: metrics.stock.out_of_stock_items > 0 ? "danger" : "success",
+              hint: `${metrics.stock.low_stock_items} con stock bajo`,
+            },
+            {
+              label: "Productos sin coste",
+              value: metrics.margin.items_without_cost.toLocaleString("es-ES"),
+              tone: metrics.margin.items_without_cost > 0 ? "warn" : "success",
+              hint:
+                metrics.margin.items_without_cost > 0
+                  ? "El margen real es mejor que el mostrado"
+                  : "Margen fiable",
+            },
+          ]}
+        />
+      ) : null}
+
       <Card
         title="Ventas"
         actions={
@@ -526,6 +613,149 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         )}
       </Card>
 
+      {/* Embudo: sesiones (ShopifyQL) vs pedidos propios. Se separan las dos
+          tasas de conversión a propósito -- cada una lleva su fuente, no se
+          promedian entre sí (ADR-0021). */}
+      <Card
+        title="Embudo"
+        description="Cuánta gente entra y cuánta compra."
+      >
+        {!metrics ? (
+          <LoadingBlock label="Cargando embudo..." />
+        ) : !metrics.funnel || !metrics.funnel.has_sessions ? (
+          <Banner tone="warn" className="text-sm">
+            <p className="font-medium">
+              Todavía no hay datos de sesiones para esta tienda.
+            </p>
+            <p className="text-muted">
+              Las sesiones vienen de los informes de Shopify y necesitan el
+              permiso de informes en la conexión. Si la tienda se autorizó antes
+              de activarlo, vuelve a conectarla en{" "}
+              <Link href="/integraciones">Integraciones</Link> y lanza un
+              sincronizado.
+            </p>
+          </Banner>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <Metric
+                card
+                label="Sesiones"
+                value={metrics.funnel.sessions.toLocaleString("es-ES")}
+                trend={metrics.funnel_daily.map((day) => day.sessions)}
+              />
+              <Metric
+                card
+                label="Pedidos"
+                value={metrics.funnel.orders_count.toLocaleString("es-ES")}
+                trend={metrics.funnel_daily.map((day) => day.orders_count)}
+              />
+              <Metric
+                card
+                label="Tasa de conversión"
+                value={
+                  metrics.funnel.conversion_rate_own != null
+                    ? `${(metrics.funnel.conversion_rate_own * 100).toFixed(2)}%`
+                    : "—"
+                }
+                hint={
+                  metrics.funnel.conversion_rate_shopify != null
+                    ? `${(metrics.funnel.conversion_rate_shopify * 100).toFixed(2)}% según Shopify`
+                    : "pedidos ÷ sesiones"
+                }
+              />
+              <Metric
+                card
+                label="Ingreso por sesión"
+                value={
+                  metrics.funnel.revenue_per_session != null
+                    ? formatMoney(metrics.funnel.revenue_per_session, currency)
+                    : "—"
+                }
+              />
+            </div>
+
+            {metrics.funnel_daily.length > 1 ? (
+              <div className="mt-4">
+                <AreaChart
+                  data={metrics.funnel_daily.map((day) => ({
+                    date: new Date(day.date).toLocaleDateString("es-ES", {
+                      day: "2-digit",
+                      month: "short",
+                    }),
+                    Sesiones: day.sessions,
+                    Pedidos: day.orders_count,
+                  }))}
+                  xKey="date"
+                  series={[
+                    { key: "Sesiones", label: "Sesiones", color: "#1d4ed8" },
+                    { key: "Pedidos", label: "Pedidos", color: "#059669" },
+                  ]}
+                  height={220}
+                  valueFormatter={(value) => String(Math.round(value))}
+                />
+              </div>
+            ) : null}
+
+            <p className="mt-3 text-xs text-muted">
+              {metrics.funnel.days_with_sessions} días con datos de sesiones ·{" "}
+              {metrics.funnel.online_store_visitors.toLocaleString("es-ES")}{" "}
+              visitantes únicos. La tasa propia es pedidos ÷ sesiones sobre el
+              mismo periodo; la de Shopify es la que reporta su analítica.
+            </p>
+          </>
+        )}
+      </Card>
+
+      {/* Clientes, cohortes, canales, carritos, promociones y operativa. El
+          orden va de quien compra a como se le sirve, que es el mismo en el
+          que se revisa una tienda. */}
+      {organization ? (
+        <ShopifyInsightsSections
+          organizationId={organization.id}
+          connectionId={selectedConnectionId}
+          periodDays={periodDays}
+          currency={currency}
+        />
+      ) : null}
+      {/* Los tres especialistas del modulo. Cada uno debajo de las cifras
+          que analiza: leer "no retienen" pegado a la tabla de cohortes que
+          lo demuestra vale mas que un panel de IA aparte. */}
+      {organization ? (
+        <>
+          <AiDiagnosticSection
+            organizationId={organization.id}
+            title="Retención de clientes"
+            getPath="/ai/retencion-clientes"
+            runPath="/ai/retencion-clientes-run"
+            loadingLabel="Analizando si tus clientes vuelven…"
+            tasksLabelSingular="tarea"
+            days={90}
+            showInternals={isConsultant}
+          />
+          <AiDiagnosticSection
+            organizationId={organization.id}
+            title="Adquisición y conversión"
+            getPath="/ai/adquisicion-shopify"
+            runPath="/ai/adquisicion-shopify-run"
+            loadingLabel="Analizando de dónde vienen tus ventas…"
+            tasksLabelSingular="tarea"
+            days={90}
+            showInternals={isConsultant}
+          />
+          <AiDiagnosticSection
+            organizationId={organization.id}
+            title="Entrega y devoluciones"
+            getPath="/ai/postventa-shopify"
+            runPath="/ai/postventa-shopify-run"
+            loadingLabel="Revisando plazos y devoluciones…"
+            tasksLabelSingular="tarea"
+            days={90}
+            showInternals={isConsultant}
+          />
+        </>
+      ) : null}
+
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
           <span>
@@ -546,44 +776,65 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 }
 
 // --- Estado "vista general" de /shopify (consultor sin cliente activo):
-// todas las tiendas de la cartera con su frescura de sincronización. ---
+// las tiendas de la cartera ordenadas por urgencia de revisión. ---
+//
+// El orden lo calcula el backend sumando lo que ya dijeron los cuatro agentes
+// que leen cada tienda entera (operativa, retención, adquisición, postventa).
+// Aquí no se decide nada: se pinta el porqué, que es lo que convierte un
+// ranking en algo en lo que se puede confiar.
 
-type ConsultantStoreRow = {
-  id: string;
-  organization_id: string;
-  organization_name: string;
-  name: string;
-  status: string;
-  connected_at: string | null;
-  last_sync_at: string | null;
+type TriageReason = {
+  text: string;
+  kind: "conexion" | "dato" | "hallazgo" | "trabajo" | "silencio";
 };
 
-const STALE_SYNC_DAYS = 2;
+type TriagedStore = {
+  connection_id: string;
+  organization_id: string;
+  organization_name: string;
+  store_name: string;
+  status: string;
+  last_sync_at: string | null;
+  level: "critica" | "alta" | "media" | "estable";
+  reasons: TriageReason[];
+  analyzed_at: string | null;
+  agents_reporting: number;
+  // Cuando es true la tienda sube por lo que NO se sabe de ella, no por lo que
+  // se sabe. Se dice distinto: "no sabemos cómo va" no es "va mal".
+  blind: boolean;
+};
 
-function syncAge(lastSyncAt: string | null): {
-  label: string;
-  stale: boolean;
-} {
-  if (!lastSyncAt) return { label: "sin sincronizar", stale: true };
+const LEVEL_PRESENTATION: Record<
+  TriagedStore["level"],
+  { label: string; tone: "danger" | "warn" | "neutral" | "success" }
+> = {
+  critica: { label: "Crítica", tone: "danger" },
+  alta: { label: "Alta", tone: "warn" },
+  media: { label: "Media", tone: "neutral" },
+  estable: { label: "Estable", tone: "success" },
+};
+
+function analyzedLabel(analyzedAt: string | null) {
+  if (!analyzedAt) return "sin analizar";
   const days = Math.floor(
-    (Date.now() - Date.parse(lastSyncAt)) / (24 * 60 * 60 * 1000),
+    (Date.now() - Date.parse(analyzedAt)) / (24 * 60 * 60 * 1000),
   );
-  if (days <= 0) return { label: "hoy", stale: false };
-  if (days === 1) return { label: "ayer", stale: false };
-  return { label: `hace ${days} días`, stale: days > STALE_SYNC_DAYS };
+  if (days <= 0) return "analizada hoy";
+  if (days === 1) return "analizada ayer";
+  return `analizada hace ${days} días`;
 }
 
 function ConsultantStoresView() {
   const { setOrganizationId } = useActiveOrganization();
   const { setConnectionId } = useActiveConnection();
   const [data, setData] = useState<{
-    stores: ConsultantStoreRow[];
+    ranking: TriagedStore[];
     organizations: Array<{ id: string; display_name: string }>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [clientFilter, setClientFilter] = useState("all");
-  const [onlyIssues, setOnlyIssues] = useState(false);
+  const [onlyNeedsReview, setOnlyNeedsReview] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -592,12 +843,14 @@ function ConsultantStoresView() {
       .then(async (response) => {
         if (cancelled) return;
         if (!response.ok) {
-          setError(`No se pudieron cargar las tiendas (HTTP ${response.status}).`);
+          setError(
+            `No se pudieron cargar las tiendas (HTTP ${response.status}).`,
+          );
           return;
         }
         setData(
           (await response.json()) as {
-            stores: ConsultantStoreRow[];
+            ranking: TriagedStore[];
             organizations: Array<{ id: string; display_name: string }>;
           },
         );
@@ -618,7 +871,7 @@ function ConsultantStoresView() {
   if (isLoading && !data) {
     return (
       <div className="portal-page">
-        <LoadingBlock label="Cargando tiendas de la cartera..." />
+        <LoadingBlock label="Ordenando las tiendas por urgencia..." />
       </div>
     );
   }
@@ -631,28 +884,34 @@ function ConsultantStoresView() {
   }
   if (!data) return null;
 
-  const isIssue = (store: ConsultantStoreRow) =>
-    ["error", "reauthorization_required", "needs_reauth"].includes(
-      store.status,
-    ) || syncAge(store.last_sync_at).stale;
-  const issueCount = data.stores.filter(isIssue).length;
-  const rows = data.stores
+  const ranking = data.ranking ?? [];
+  const needsReview = ranking.filter((store) => store.level !== "estable");
+  const blind = ranking.filter((store) => store.blind);
+  const rows = ranking
     .filter(
       (store) =>
         clientFilter === "all" || store.organization_id === clientFilter,
     )
-    .filter((store) => !onlyIssues || isIssue(store));
+    .filter((store) => !onlyNeedsReview || store.level !== "estable");
 
-  function openStore(store: ConsultantStoreRow) {
+  function openStore(store: TriagedStore) {
     setOrganizationId(store.organization_id);
-    setConnectionId(store.id);
+    setConnectionId(store.connection_id);
   }
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
       <Card
-        title="Tiendas Shopify · toda la cartera"
-        description={`${data.stores.length} tiendas · ${issueCount} en error o con la sincronización parada.`}
+        title="Tiendas por urgencia de revisión"
+        description={
+          ranking.length === 0
+            ? "Todavía no hay tiendas conectadas en la cartera."
+            : `${needsReview.length} de ${ranking.length} piden revisión${
+                blind.length
+                  ? ` · ${blind.length} sin datos suficientes para juzgarlas`
+                  : ""
+              }.`
+        }
       >
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <Select
@@ -669,64 +928,75 @@ function ConsultantStoresView() {
             ]}
           />
           <Button
-            variant={onlyIssues ? "primary" : "secondary"}
+            variant={onlyNeedsReview ? "primary" : "secondary"}
             size="sm"
-            onClick={() => setOnlyIssues((value) => !value)}
+            onClick={() => setOnlyNeedsReview((value) => !value)}
           >
-            Solo con incidencias
+            Solo las que piden revisión
           </Button>
         </div>
 
         {rows.length === 0 ? (
           <EmptyState
             title={
-              onlyIssues ? "Ninguna tienda con incidencias" : "Sin tiendas"
+              onlyNeedsReview
+                ? "Ninguna tienda pide revisión"
+                : "Sin tiendas conectadas"
             }
             hint={
-              onlyIssues
-                ? "Toda la cartera sincronizando al día."
+              onlyNeedsReview
+                ? "Toda la cartera al día según los agentes."
                 : "Los clientes conectan sus tiendas desde Integraciones."
             }
           />
         ) : (
           <List>
-            {rows.map((store) => {
-              const age = syncAge(store.last_sync_at);
-              const brokenStatus = [
-                "error",
-                "reauthorization_required",
-                "needs_reauth",
-              ].includes(store.status);
+            {rows.map((store, index) => {
+              const level = LEVEL_PRESENTATION[store.level];
               return (
                 <List.Item
                   as="button"
-                  key={store.id}
+                  key={store.connection_id}
                   type="button"
                   onClick={() => openStore(store)}
-                  className="flex w-full items-start justify-between gap-4 py-3 text-left hover:bg-surface"
+                  className="flex w-full items-start gap-4 py-3 text-left hover:bg-surface"
                 >
-                  <div className="min-w-0">
+                  {/* El puesto se muestra solo mientras la lista está entera:
+                      con un filtro puesto, un "3" sería el tercero de lo que
+                      queda en pantalla, no de la cartera. */}
+                  <span className="w-6 shrink-0 pt-0.5 text-sm tabular-nums text-muted">
+                    {clientFilter === "all" && !onlyNeedsReview
+                      ? index + 1
+                      : "·"}
+                  </span>
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        tone={
-                          brokenStatus
-                            ? "danger"
-                            : store.status === "connected"
-                              ? "success"
-                              : "neutral"
-                        }
-                      >
-                        {store.status}
-                      </Badge>
-                      <span className="font-medium">{store.name}</span>
+                      <Badge tone={level.tone}>{level.label}</Badge>
+                      {store.blind ? (
+                        <Badge tone="neutral">sin datos fiables</Badge>
+                      ) : null}
+                      <span className="font-medium">{store.store_name}</span>
                     </div>
                     <p className="mt-1 text-xs text-muted">
-                      {store.organization_name} · sync {age.label}
+                      {store.organization_name} · {analyzedLabel(store.analyzed_at)}
+                      {store.agents_reporting > 0
+                        ? ` · ${store.agents_reporting} de 5 agentes`
+                        : ""}
                     </p>
+                    {store.reasons.length ? (
+                      <ul className="mt-2 space-y-1">
+                        {store.reasons.map((reason) => (
+                          <li key={reason.text} className="text-sm">
+                            {reason.text}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-sm text-muted">
+                        Los agentes no han encontrado nada que revisar.
+                      </p>
+                    )}
                   </div>
-                  {age.stale && !brokenStatus ? (
-                    <Badge tone="warn">sync parada</Badge>
-                  ) : null}
                 </List.Item>
               );
             })}

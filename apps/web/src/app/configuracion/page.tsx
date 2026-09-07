@@ -2,6 +2,12 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
+import { AlertRulesSection } from "./alert-rules-section";
+import { ClientAccessSection } from "./client-access-section";
+import { ConsultantPartnersSection } from "./consultant-partners-section";
+import { WorkSplitSection } from "./work-split-section";
+import { ConsultantStatusSection } from "./consultant-status-section";
+import { OrganizationIdentity } from "./organization-identity";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -221,9 +227,12 @@ function FinancialConfigSection({
   const membership = bootstrap.memberships.find(
     (item) => item.organization_id === organizationId,
   );
+  // Mismo criterio que `assertCanManage` en el backend: el consultor asesora
+  // sobre el margen, así que también lo configura.
   const canManage =
-    bootstrap.profile.platform_role === "platform_admin" ||
-    ["owner", "manager"].includes(membership?.role ?? "");
+    ["platform_admin", "consultant"].includes(
+      bootstrap.profile.platform_role,
+    ) || ["owner", "manager"].includes(membership?.role ?? "");
 
   const [config, setConfig] = useState<FinancialConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -735,6 +744,98 @@ function InfoRow({
   );
 }
 
+type SettingsTab =
+  | "general"
+  | "accesos"
+  | "alertas"
+  | "cartera"
+  | "shopify";
+
+// Cartera: el total de tus clientes y tus tiendas. Antes eran dos entradas de
+// nav (/consultor y /tiendas) que no se operan a diario, solo se consultan. Las
+// paginas siguen existiendo; aqui esta el recuento y el acceso.
+function PortfolioSection() {
+  const [counts, setCounts] = useState<{
+    clients: number;
+    stores: number;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [clientsResponse, storesResponse] = await Promise.all([
+          apiFetch("/v1/consultant/organizations"),
+          apiFetch("/v1/consultant/own-stores"),
+        ]);
+        if (cancelled) return;
+        if (!clientsResponse.ok) {
+          setError(await readApiError(clientsResponse));
+          return;
+        }
+        if (!storesResponse.ok) {
+          setError(await readApiError(storesResponse));
+          return;
+        }
+        const clients = (await clientsResponse.json()) as {
+          organizations: unknown[];
+        };
+        const stores = (await storesResponse.json()) as { stores: unknown[] };
+        if (cancelled) return;
+        setCounts({
+          clients: clients.organizations.length,
+          stores: stores.stores.length,
+        });
+        setError(null);
+      } catch {
+        if (!cancelled) {
+          setError("No se pudo cargar la cartera. Revisa la conexión.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Card title="Clientes" description="Las organizaciones que asesoras.">
+        {error ? (
+          <ErrorBlock>{error}</ErrorBlock>
+        ) : counts === null ? (
+          <LoadingBlock label="Contando clientes..." />
+        ) : (
+          <>
+            <p className="text-3xl font-semibold">{counts.clients}</p>
+            <p className="mt-3 text-sm">
+              <Link href="/consultor">Gestionar clientes</Link>
+            </p>
+          </>
+        )}
+      </Card>
+      <Card
+        title="Tiendas propias"
+        description="Las tiendas que llevas tú directamente."
+      >
+        {error ? (
+          <ErrorBlock>{error}</ErrorBlock>
+        ) : counts === null ? (
+          <LoadingBlock label="Contando tiendas..." />
+        ) : (
+          <>
+            <p className="text-3xl font-semibold">{counts.stores}</p>
+            <p className="mt-3 text-sm">
+              <Link href="/tiendas">Gestionar tiendas</Link>
+            </p>
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const organization =
@@ -748,54 +849,66 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         (item) => item.organization_id === organization.id,
       )
     : null;
-  const [tab, setTab] = useState<"general" | "shopify">("general");
+  const isConsultant = ["platform_admin", "consultant"].includes(
+    bootstrap.profile.platform_role,
+  );
+  // Mismo criterio que el backend (`assertCanManage`): consultor incluido.
+  const canManageOrganization =
+    isConsultant ||
+    ["owner", "manager"].includes(
+      bootstrap.memberships.find(
+        (membership) => membership.organization_id === organization?.id,
+      )?.role ?? "",
+    );
+  const [tab, setTab] = useState<SettingsTab>("general");
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
       <Tabs
         value={tab}
-        onChange={(value) => setTab(value as "general" | "shopify")}
+        onChange={(value) => setTab(value as SettingsTab)}
         items={[
           { value: "general", label: "General" },
+          // Sin cliente activo la pestaña sigue teniendo sentido: con quién
+          // compartes cartera no depende de ninguna tienda en concreto.
+          ...(isConsultant ? [{ value: "accesos", label: "Accesos" }] : []),
+          ...(organization ? [{ value: "alertas", label: "Alertas" }] : []),
+          ...(isConsultant
+            ? [{ value: "cartera", label: "Clientes y tiendas" }]
+            : []),
           { value: "shopify", label: "Cobertura Shopify" },
         ]}
       />
 
       {tab === "general" ? (
         <div className="space-y-4">
-          <div className="grid gap-4">
-            <Card
-              title="Organización activa"
-              description="Contexto operativo y plan aplicado a esta organización."
-            >
+          {organization ? (
+            <OrganizationIdentity
+              organization={organization}
+              planLabel={
+                subscription
+                  ? `${subscription.plan_code} · ${displayValue(subscription.status)}`
+                  : "Sin plan"
+              }
+              canManage={canManageOrganization}
+            />
+          ) : (
+            <Card title="Organización activa">
               <dl className="space-y-3 text-sm">
-                <InfoRow label="Nombre">
-                  {organization?.display_name ?? "Sin organización"}
-                </InfoRow>
-                <InfoRow label="Zona horaria">
-                  <span className="font-mono">
-                    {organization?.timezone ?? "n/a"}
-                  </span>
-                </InfoRow>
-                <InfoRow label="Moneda">
-                  <span className="font-mono">
-                    {organization?.currency_code ?? "n/a"}
-                  </span>
-                </InfoRow>
-                <InfoRow label="Plan">
-                  <span className="font-mono">
-                    {subscription
-                      ? `${subscription.plan_code} · ${displayValue(subscription.status)}`
-                      : "Sin plan"}
-                  </span>
-                </InfoRow>
+                <InfoRow label="Nombre">Sin organización</InfoRow>
               </dl>
               <p className="mt-4 text-xs text-muted">
                 Tu nombre, avatar y datos de cuenta están en{" "}
                 <Link href="/perfil">Perfil</Link>.
               </p>
             </Card>
-          </div>
+          )}
+
+          {/* Solo al cliente: al consultor no le interesa saber si "tiene
+              consultor", y es el único que ve Chats apagado sin explicación. */}
+          {organization && !isConsultant ? (
+            <ConsultantStatusSection organizationId={organization.id} />
+          ) : null}
 
           {organization ? (
             <FinancialConfigSection
@@ -804,6 +917,30 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             />
           ) : null}
         </div>
+      ) : tab === "accesos" ? (
+        <div className="space-y-4">
+          {/* Con quién compartes cartera va antes que los accesos de UN
+              cliente: define quién lleva todas las tiendas, no solo esta. */}
+          <ConsultantPartnersSection />
+          {/* Y justo después, quién se encarga de qué: compartir cartera sin
+              repartir el trabajo deja las tareas sin dueño. */}
+          <WorkSplitSection />
+          {organization ? (
+            <ClientAccessSection
+              organizationId={organization.id}
+              canManage={isConsultant}
+            />
+          ) : null}
+        </div>
+      ) : tab === "alertas" ? (
+        organization ? (
+          <AlertRulesSection
+            organizationId={organization.id}
+            canManage={canManageOrganization}
+          />
+        ) : null
+      ) : tab === "cartera" ? (
+        <PortfolioSection />
       ) : organization ? (
         <ShopifyCoverageSection organizationId={organization.id} />
       ) : null}

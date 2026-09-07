@@ -23,6 +23,9 @@
     "format:check": "prettier --check .",
     "seed:demo-user": "dotenv -e .env.local -- tsx scripts/seed-demo-user.ts",
     "seed:shopify-store": "dotenv -e .env.local -- tsx scripts/seed-shopify-store.ts",
+    "seed:meta-history": "dotenv -e .env.local -- tsx scripts/seed-meta-history.ts",
+    "seed:klaviyo-history": "dotenv -e .env.local -- tsx scripts/seed-klaviyo-history.ts",
+    "db:push": "dotenv -e .env.local -- node scripts/db-push.mjs",
     "supabase": "supabase",
     "supabase:init": "supabase init",
     "supabase:link": "supabase link --project-ref cthjwpeygpzwdmjkxeqa",
@@ -32,6 +35,7 @@
   "devDependencies": {
     "concurrently": "^9.2.4",
     "dotenv-cli": "^11.0.0",
+    "pg": "^8.23.0",
     "prettier": "^3.6.2",
     "supabase": "^2.31.8",
     "tsx": "^4.21.0",

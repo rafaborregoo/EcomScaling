@@ -1,5 +1,6 @@
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+import { getOrgMetaBackfillStatus } from "./meta-sync.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -60,7 +61,7 @@ export async function getMetaMetrics(
   const periodStartDate = periodStart?.toISOString().slice(0, 10) ?? null;
   const periodEndDate = periodEnd.toISOString().slice(0, 10);
 
-  const [summaryResult, dailyResult] = await Promise.all([
+  const [summaryResult, dailyResult, byCampaignResult] = await Promise.all([
     supabase.rpc("meta_spend_summary", {
       target_organization_id: organizationId,
       period_start: periodStartDate,
@@ -73,6 +74,13 @@ export async function getMetaMetrics(
           period_end: periodEndDate,
         })
       : Promise.resolve({ data: null, error: null }),
+    // Desglose por campaña: es lo que cierra el hilo del calendario (que
+    // campaña se lanzo, con que pieza, y que atribuyo Meta).
+    supabase.rpc("meta_spend_by_campaign", {
+      target_organization_id: organizationId,
+      period_start: periodStartDate,
+      period_end: periodEndDate,
+    }),
   ]);
 
   const { data, error } = summaryResult;
@@ -95,6 +103,8 @@ export async function getMetaMetrics(
       }))
     : [];
 
+  const backfill = await getOrgMetaBackfillStatus(supabase, organizationId);
+
   const summary = data?.[0] ?? {
     spend: 0,
     impressions: 0,
@@ -109,6 +119,22 @@ export async function getMetaMetrics(
     purchase_action_types: [],
   };
 
+  // Igual que el sparkline: el desglose es informacion añadida. Si falla, la
+  // tarjeta de adquisicion sigue saliendo con su total.
+  type MetaCampaignRow = {
+    campaign_id: string;
+    campaign_name: string | null;
+    spend: number | string | null;
+    purchases: number | string | null;
+    purchase_value: number | string | null;
+    roas: number | string | null;
+    purchase_action_type: string | null;
+  };
+  const campaigns =
+    !byCampaignResult.error && Array.isArray(byCampaignResult.data)
+      ? (byCampaignResult.data as MetaCampaignRow[])
+      : [];
+
   return {
     ok: true as const,
     data: {
@@ -120,6 +146,8 @@ export async function getMetaMetrics(
       },
       acquisition: summary,
       daily,
+      campaigns,
+      backfill,
     },
   };
 }

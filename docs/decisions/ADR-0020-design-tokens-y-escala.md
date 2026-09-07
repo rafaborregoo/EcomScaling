@@ -56,7 +56,7 @@ en columnas (`.font-mono` ya aplica `tnum`), nunca para etiquetas ni fechas.
 | Rol | Clases | Uso |
 |---|---|---|
 | Título de página | `text-lg font-semibold` (o `Heading`) | uno por pantalla; si ya está en el breadcrumb, se omite |
-| Título de sección / `Card` | `text-sm font-semibold text-ink` | cabecera de tarjeta o grupo |
+| Título de sección / `Card` | `text-base font-semibold text-ink` (lo aplica `[data-slot="card-title"]` en `globals.css`; actualizado 2026-09-03 desde `text-sm` para que la cabecera de cada módulo destaque sobre su contenido) | cabecera de tarjeta o grupo |
 | Título de fila | `text-sm font-medium text-ink` | ítem de lista |
 | Cuerpo / descripción | `text-[13px] leading-relaxed text-ink` | párrafo de contenido |
 | Secundario | `text-[13px] text-muted` | descripción bajo un título |
@@ -95,6 +95,13 @@ o `rounded-[Npx]` sueltos en las páginas: ya no hacen nada distinto, pero ensuc
 | Acento (marca + acción + foco + activo) | `--accent` / `text-brand` / `bg-brand` | **solo** estado activo, acción primaria, foco. Un uso, no decoración. |
 | Peligro / vencido | `--danger` / `tone="danger"` | destructivo y overdue, nada más |
 | Aviso | `--warning` / `tone="warn"` | prioridad alta, permisos pendientes |
+| Fondo de estado | `bg-accent-soft` / `bg-success-soft` / `bg-warning-soft` / `bg-danger-soft` | superficie teñida cuando la tarjeta **tiene** estado (KPI en aviso, fila seleccionada). Vienen con HeroUI (12–15% del color); no se inventan tints nuevos |
+| Canal (Marketing) | `--color-channel-{email,meta,instagram}` (+ `-soft`) | identidad de canal en rejillas y planes. **No es una severidad**: por eso no reusa success/warn/danger. Único caso de familia de color fuera del neutro+acento |
+
+Aclaración añadida el 2026-09-06: "neutro dominante" describe el **fondo**, no la ausencia de
+color. Una pantalla en la que cinco KPIs, tres canales y cuatro estados se pintan todos en
+`text-muted` sobre blanco no cumple esta tabla: la cumple mal. Si una dimensión se repite en
+toda una pantalla y hay que **leerla** para distinguirla, le falta color.
 
 `text-brand`/`text-black` heredados equivalen a `text-ink` (primario); código nuevo usa el nombre
 semántico. La retirada de los alias `--color-brand*` legacy es una pasada aparte (ver `@theme`).

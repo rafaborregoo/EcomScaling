@@ -7,6 +7,8 @@ const promptSources = [
   "supabase/migrations/20260824120000_ai_13_canonical_prompt_sections.sql",
   "supabase/migrations/20260824170000_ai_18_a08_canonical_prompt.sql",
   "supabase/migrations/20260826120000_ai_22_prepared_agent_prompts.sql",
+  "supabase/migrations/20260905140000_ai_a19_arquitecto_camino.sql",
+  "supabase/migrations/20260907180000_ai_agentes_shopify_especialistas.sql",
 ];
 
 const promptCodes = [
@@ -20,6 +22,10 @@ const promptCodes = [
   "a08_gestor_conocimiento_system",
   "a09_copiloto_consultor_system",
   "a11_generador_marketing_system",
+  "a19_arquitecto_camino_system",
+  "a20_retencion_clientes_system",
+  "a21_adquisicion_shopify_system",
+  "a22_postventa_shopify_system",
 ];
 
 const requiredSections = [
