@@ -1,0 +1,11 @@
+# Falsos positivos verificados. Formato: <commit>:<archivo>:<regla>:<linea>
+
+# publishable key de Supabase (sb_publishable_...): es PUBLICA por diseño
+# (va en el bundle del navegador, protegida por RLS). No es un secreto.
+c14dfd662f72ad1c2e77309052b21dc6e1964436:deploy/.env.production.example:generic-api-key:19
+
+# valor de fixture en un test, no es un secreto real
+1e16a19feefce52f8731fd5d50fefcf2fbab9743:apps/api/src/fathom-webhook-handler.test.ts:generic-api-key:11
+
+# ejemplo dentro de un documento de roadmap, no es un secreto real
+cb3a52a3641e758bbdef756a56158ec12661b478:roadmap/roadmaps/05-agentes-ia/DURABLE_STATE_EXECUTION_ENGINEERING_SAAS_MULTI_PRODUCTO.md:generic-api-key:1381
