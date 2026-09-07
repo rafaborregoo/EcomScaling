@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (141 archivos).
+-- Regenerado desde supabase/migrations (145 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -13931,3 +13931,452 @@ comment on column public.meta_insight_rows_daily.attribution_setting is
   'Ventana con la que Meta atribuyo esta fila. Dos conjuntos con ventanas distintas no son comparables (ADR-0021).';
 comment on column public.meta_ad_sets.learning_stage_status is
   'LEARNING, SUCCESS o LEARNING_LIMITED. Un conjunto en LEARNING_LIMITED gasta sin llegar a estabilizarse.';
+
+-- =============================================================================
+-- Migracion: 20260907210000_store_scope_meta_klaviyo.sql
+-- =============================================================================
+-- Una "tienda" es la que tiene conexion Shopify; los datos de Meta y Klaviyo
+-- son datos DE esa tienda. Hasta ahora las cuentas de ambos proveedores solo
+-- colgaban de organization_id, asi que con dos tiendas en un mismo cliente no
+-- habia forma de decir que cuenta publicitaria pertenece a cual: /marketing
+-- mostraba la suma de las dos sin avisar.
+--
+-- El punto de discriminacion en Meta es la cuenta publicitaria (un portfolio
+-- puede tener una por tienda, con su propio pixel), no la conexion: una sola
+-- conexion OAuth legitimamente sirve a varias tiendas. En Klaviyo la cuenta es
+-- 1:1 con la conexion, pero se marca en la misma tabla para que el patron sea
+-- uno solo: "la entidad cuenta del proveedor lleva la tienda a la que pertenece".
+--
+-- NULL = sin asignar (comportamiento actual, agregado de la organizacion).
+-- Mismo criterio que organization_metric_targets.store_id (fase 5).
+--
+-- ON DELETE SET NULL a proposito, no CASCADE: desconectar la tienda de Shopify
+-- no puede llevarse por delante el historico de insights de Meta ni los
+-- informes de Klaviyo, que siguen siendo datos validos del cliente.
+
+alter table public.meta_ad_accounts
+  add column if not exists store_id uuid references public.shopify_stores (id) on delete set null;
+
+alter table public.klaviyo_accounts
+  add column if not exists store_id uuid references public.shopify_stores (id) on delete set null;
+
+create index if not exists meta_ad_accounts_store_idx
+  on public.meta_ad_accounts (organization_id, store_id);
+
+create index if not exists klaviyo_accounts_store_idx
+  on public.klaviyo_accounts (organization_id, store_id);
+
+-- La tienda tiene que ser del mismo cliente que la cuenta. Sin esto, un id de
+-- tienda de otra organizacion colaria por la API y filtraria datos entre
+-- clientes. Misma forma que private.enforce_metric_target_scope().
+create or replace function private.enforce_provider_account_store_scope()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.store_id is not null and not exists (
+    select 1 from public.shopify_stores s
+    where s.id = new.store_id and s.organization_id = new.organization_id
+  ) then
+    raise exception 'store must belong to the same organization';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function private.enforce_provider_account_store_scope() from public;
+
+drop trigger if exists enforce_meta_ad_account_store_scope on public.meta_ad_accounts;
+create trigger enforce_meta_ad_account_store_scope
+before insert or update on public.meta_ad_accounts
+for each row execute function private.enforce_provider_account_store_scope();
+
+drop trigger if exists enforce_klaviyo_account_store_scope on public.klaviyo_accounts;
+create trigger enforce_klaviyo_account_store_scope
+before insert or update on public.klaviyo_accounts
+for each row execute function private.enforce_provider_account_store_scope();
+
+-- Backfill: donde el cliente tiene exactamente UNA tienda la asignacion es
+-- inequivoca y se hace sola. Donde tiene varias se deja NULL a proposito --
+-- adivinar ahi es justo el error que esta migracion existe para impedir.
+with single_store as (
+  select organization_id, (array_agg(id))[1] as store_id
+  from public.shopify_stores
+  where is_active
+  group by organization_id
+  having count(*) = 1
+)
+update public.meta_ad_accounts a
+set store_id = s.store_id
+from single_store s
+where a.organization_id = s.organization_id and a.store_id is null;
+
+with single_store as (
+  select organization_id, (array_agg(id))[1] as store_id
+  from public.shopify_stores
+  where is_active
+  group by organization_id
+  having count(*) = 1
+)
+update public.klaviyo_accounts a
+set store_id = s.store_id
+from single_store s
+where a.organization_id = s.organization_id and a.store_id is null;
+
+comment on column public.meta_ad_accounts.store_id is
+  'Tienda Shopify a la que pertenece esta cuenta publicitaria; NULL = sin asignar.';
+comment on column public.klaviyo_accounts.store_id is
+  'Tienda Shopify a la que pertenece esta cuenta de Klaviyo; NULL = sin asignar.';
+
+-- =============================================================================
+-- Migracion: 20260907220000_store_limit_pricing.sql
+-- =============================================================================
+-- Pricing por numero de tiendas: 2 tiendas 100 EUR, 3 tiendas 139 EUR, etc.
+-- Una "tienda" a efectos de factura es una conexion Shopify activa, porque es
+-- la que trae los datos que los agentes analizan. Una tienda sin consultor
+-- cuenta igual: consume sync, almacenamiento y analisis lo mismo que una con.
+-- Meta y Klaviyo NO son unidades facturables aparte -- cuelgan de una tienda
+-- (ver store_id en meta_ad_accounts / klaviyo_accounts).
+--
+-- El limite vive en la suscripcion y no en una tabla de planes porque hoy el
+-- plan es una etiqueta de texto (plan_code) sin catalogo: meter el catalogo
+-- entero para guardar un entero seria construir el edificio antes que la
+-- puerta. Cuando haya catalogo, esta columna pasa a derivarse de el.
+--
+-- NULL = sin limite. Es el valor de todo lo que ya existe, asi que la
+-- migracion no puede dejar a ningun cliente por encima de su plan de golpe.
+
+alter table public.service_subscriptions
+  add column if not exists store_limit integer;
+
+alter table public.service_subscriptions
+  drop constraint if exists service_subscriptions_store_limit_positive;
+
+alter table public.service_subscriptions
+  add constraint service_subscriptions_store_limit_positive
+  check (store_limit is null or store_limit > 0);
+
+comment on column public.service_subscriptions.store_limit is
+  'Maximo de conexiones Shopify activas que permite el plan; NULL = sin limite.';
+
+-- Conteo canonico de tiendas facturables. Existe como funcion y no como un
+-- count() suelto en Node para que el limite, la factura y lo que ve el cliente
+-- salgan los tres del mismo sitio (ADR-0006 pto 6). Las conexiones 'pending'
+-- no cuentan: es un OAuth empezado y no terminado, y cobrar por eso -- o
+-- bloquear por eso -- seria cobrar por una tienda que no trae ningun dato.
+create or replace function public.billable_store_count(target_organization_id uuid)
+returns integer
+language sql
+stable
+set search_path = ''
+as $$
+  select count(*)::integer
+  from public.integration_connections c
+  where c.organization_id = target_organization_id
+    and c.provider = 'shopify'
+    and c.status in ('connected', 'syncing', 'error')
+    and c.disconnected_at is null;
+$$;
+
+revoke all on function public.billable_store_count(uuid) from public;
+grant execute on function public.billable_store_count(uuid) to authenticated, service_role;
+
+create index if not exists integration_connections_billable_store_idx
+  on public.integration_connections (organization_id, provider, status)
+  where disconnected_at is null;
+
+-- =============================================================================
+-- Migracion: 20260907230000_meta_metrics_store_scope.sql
+-- =============================================================================
+-- Meta filtrado por tienda. Con dos tiendas en un mismo cliente estas tres
+-- funciones devolvian la suma de las dos y la UI la presentaba como si fuera
+-- de la tienda seleccionada: un numero que no existe en ninguna parte.
+--
+-- El filtro entra por meta_insight_rows_daily.ad_account_id -> meta_ad_accounts
+-- .store_id (columna anadida en store_scope_meta_klaviyo). En las tres, todo
+-- deriva de un unico CTE base, asi que una sola clausula filtra la funcion
+-- entera: totales, series y desglose por campana salen coherentes entre si.
+--
+-- target_store_id NULL = agregado de la organizacion, el comportamiento
+-- anterior. Se mantiene porque la vista de cartera del consultor y los agentes
+-- siguen preguntando por cliente, no por tienda.
+--
+-- Hay que DROP y no solo CREATE OR REPLACE: anadir un parametro con DEFAULT
+-- crea una sobrecarga, y entonces una llamada con tres argumentos encaja en las
+-- dos firmas y Postgres la rechaza por ambigua.
+
+drop function if exists public.meta_spend_summary(uuid, date, date);
+
+create or replace function public.meta_spend_summary(
+  target_organization_id uuid,
+  period_start date,
+  period_end date,
+  target_store_id uuid default null
+)
+returns table(
+  spend numeric, impressions bigint, clicks bigint, purchases numeric,
+  purchase_value numeric, roas numeric, cac numeric, days_with_data bigint,
+  purchase_action_types text[]
+)
+language sql
+stable
+set search_path to 'pg_catalog', 'public'
+as $function$
+  with base_rows as (
+    select r.id, r.ad_account_id, r.spend, r.impressions, r.clicks, r.metric_date
+    from public.meta_insight_rows_daily r
+    where r.organization_id = target_organization_id
+      and r.level = 'ad'
+      and r.breakdown_hash = 'none'
+      and (period_start is null or r.metric_date >= period_start)
+      and r.metric_date <= period_end
+      and (target_store_id is null or exists (
+        select 1 from public.meta_ad_accounts sa
+        where sa.id = r.ad_account_id and sa.store_id = target_store_id
+      ))
+  ),
+  purchase_actions as (
+    select
+      coalesce(sum(m.value) filter (where m.metric_name = 'actions'), 0) as purchases,
+      coalesce(sum(m.value) filter (where m.metric_name = 'action_values'), 0) as purchase_value
+    from public.meta_insight_action_metrics m
+    join base_rows b on b.id = m.insight_row_id
+    join public.meta_ad_accounts a on a.id = b.ad_account_id
+    where m.action_type = a.canonical_purchase_action_type
+  ),
+  action_types as (
+    select coalesce(array_agg(distinct a.canonical_purchase_action_type), '{}') as types
+    from base_rows b
+    join public.meta_ad_accounts a on a.id = b.ad_account_id
+  )
+  select
+    coalesce(sum(b.spend), 0) as spend,
+    coalesce(sum(b.impressions), 0)::bigint as impressions,
+    coalesce(sum(b.clicks), 0)::bigint as clicks,
+    p.purchases,
+    p.purchase_value,
+    case when coalesce(sum(b.spend), 0) > 0 then round(p.purchase_value / sum(b.spend), 4) else null end as roas,
+    case when p.purchases > 0 then round(coalesce(sum(b.spend), 0) / p.purchases, 2) else null end as cac,
+    count(distinct b.metric_date)::bigint as days_with_data,
+    t.types as purchase_action_types
+  from base_rows b
+  cross join purchase_actions p
+  cross join action_types t
+  group by p.purchases, p.purchase_value, t.types;
+$function$;
+
+drop function if exists public.meta_spend_daily(uuid, date, date);
+
+create or replace function public.meta_spend_daily(
+  target_organization_id uuid,
+  period_start date,
+  period_end date,
+  target_store_id uuid default null
+)
+returns table(bucket_date date, spend numeric)
+language sql
+stable
+set search_path to 'pg_catalog', 'public'
+as $function$
+  with days as (
+    select generate_series(period_start, period_end, interval '1 day')::date as bucket_date
+  ),
+  daily as (
+    select
+      r.metric_date as bucket_date,
+      coalesce(sum(r.spend), 0) as spend
+    from public.meta_insight_rows_daily r
+    where r.organization_id = target_organization_id
+      and r.level = 'ad'
+      and r.breakdown_hash = 'none'
+      and r.metric_date >= period_start
+      and r.metric_date <= period_end
+      and (target_store_id is null or exists (
+        select 1 from public.meta_ad_accounts sa
+        where sa.id = r.ad_account_id and sa.store_id = target_store_id
+      ))
+    group by r.metric_date
+  )
+  select
+    d.bucket_date,
+    coalesce(daily.spend, 0) as spend
+  from days d
+  left join daily on daily.bucket_date = d.bucket_date
+  order by d.bucket_date;
+$function$;
+
+drop function if exists public.meta_spend_by_campaign(uuid, date, date);
+
+create or replace function public.meta_spend_by_campaign(
+  target_organization_id uuid,
+  period_start date,
+  period_end date,
+  target_store_id uuid default null
+)
+returns table(
+  campaign_id uuid, campaign_name text, spend numeric, impressions bigint,
+  clicks bigint, purchases numeric, purchase_value numeric, roas numeric,
+  days_with_data bigint, purchase_action_type text
+)
+language sql
+stable
+as $function$
+  with base_rows as (
+    select
+      r.id,
+      r.ad_account_id,
+      r.campaign_id,
+      r.spend,
+      r.impressions,
+      r.clicks,
+      r.metric_date
+    from public.meta_insight_rows_daily r
+    where r.organization_id = target_organization_id
+      and r.level = 'ad'
+      and r.breakdown_hash = 'none'
+      and r.campaign_id is not null
+      and (period_start is null or r.metric_date >= period_start)
+      and r.metric_date <= period_end
+      and (target_store_id is null or exists (
+        select 1 from public.meta_ad_accounts sa
+        where sa.id = r.ad_account_id and sa.store_id = target_store_id
+      ))
+  ),
+  purchases_by_campaign as (
+    select
+      b.campaign_id,
+      coalesce(sum(m.value) filter (where m.metric_name = 'actions'), 0) as purchases,
+      coalesce(sum(m.value) filter (where m.metric_name = 'action_values'), 0) as purchase_value
+    from public.meta_insight_action_metrics m
+    join base_rows b on b.id = m.insight_row_id
+    join public.meta_ad_accounts a on a.id = b.ad_account_id
+    where m.action_type = a.canonical_purchase_action_type
+    group by b.campaign_id
+  )
+  select
+    b.campaign_id,
+    max(c.name)::text as campaign_name,
+    coalesce(sum(b.spend), 0) as spend,
+    coalesce(sum(b.impressions), 0)::bigint as impressions,
+    coalesce(sum(b.clicks), 0)::bigint as clicks,
+    coalesce(p.purchases, 0) as purchases,
+    coalesce(p.purchase_value, 0) as purchase_value,
+    case
+      when coalesce(sum(b.spend), 0) > 0
+      then round(coalesce(p.purchase_value, 0) / sum(b.spend), 4)
+      else null
+    end as roas,
+    count(distinct b.metric_date)::bigint as days_with_data,
+    max(a.canonical_purchase_action_type)::text as purchase_action_type
+  from base_rows b
+  join public.meta_campaigns c on c.id = b.campaign_id
+  join public.meta_ad_accounts a on a.id = b.ad_account_id
+  left join purchases_by_campaign p on p.campaign_id = b.campaign_id
+  group by b.campaign_id, p.purchases, p.purchase_value
+  order by coalesce(sum(b.spend), 0) desc;
+$function$;
+
+-- Enlaza la fila de insight con la tienda sin pasar por la tabla de cuentas en
+-- cada evaluacion del predicado.
+create index if not exists meta_insight_rows_daily_ad_account_idx
+  on public.meta_insight_rows_daily (organization_id, ad_account_id, metric_date);
+
+-- =============================================================================
+-- Migracion: 20260907240000_klaviyo_report_store_scope.sql
+-- =============================================================================
+-- Klaviyo filtrado por tienda, la otra mitad del panel de rendimiento de
+-- /marketing (la de Meta va en meta_metrics_store_scope).
+--
+-- klaviyo_report_values no lleva cuenta, pero si report_run_id, y la ejecucion
+-- del informe si sabe de que cuenta salio. La cadena completa es:
+--   klaviyo_report_values.report_run_id
+--     -> klaviyo_report_runs.account_id
+--       -> klaviyo_accounts.store_id
+-- Por eso no hace falta tocar el esquema ni el sync para separar por tienda.
+--
+-- target_store_id NULL = agregado de la organizacion, comportamiento anterior.
+--
+-- DROP y no solo REPLACE: un parametro nuevo con DEFAULT crea una sobrecarga y
+-- la llamada de tres argumentos quedaria ambigua.
+
+drop function if exists public.klaviyo_email_report(uuid, date, date);
+
+create or replace function public.klaviyo_email_report(
+  target_organization_id uuid,
+  period_start date,
+  period_end date,
+  target_store_id uuid default null
+)
+returns table(
+  bucket_month date, entity_type text, entity_id uuid, entity_name text,
+  subject text, send_time timestamp with time zone, trigger_type text,
+  revenue numeric, conversions numeric, recipients numeric, delivered numeric,
+  opens_unique numeric, clicks_unique numeric, unsubscribes numeric,
+  bounced numeric, spam_complaints numeric
+)
+language sql
+stable
+set search_path to 'pg_catalog', 'public'
+as $function$
+  select distinct on (
+      date_trunc('month', rv.period_start),
+      rv.entity_type,
+      coalesce(c.id::text, f.id::text, rv.external_entity_id)
+    )
+    date_trunc('month', rv.period_start)::date as bucket_month,
+    rv.entity_type::text,
+    coalesce(c.id, f.id) as entity_id,
+    coalesce(c.name, f.name, rv.entity_name) as entity_name,
+    cm.subject,
+    c.send_time,
+    f.trigger_type,
+    coalesce(rv.revenue, nullif(rv.raw_data->'statistics'->>'conversion_value', '')::numeric, 0) as revenue,
+    coalesce(rv.conversions, nullif(rv.raw_data->'statistics'->>'conversion_uniques', '')::numeric, 0) as conversions,
+    coalesce(nullif(rv.raw_data->'statistics'->>'recipients', '')::numeric, 0) as recipients,
+    coalesce(nullif(rv.raw_data->'statistics'->>'delivered', '')::numeric, 0) as delivered,
+    coalesce(nullif(rv.raw_data->'statistics'->>'opens_unique', '')::numeric, 0) as opens_unique,
+    coalesce(nullif(rv.raw_data->'statistics'->>'clicks_unique', '')::numeric, 0) as clicks_unique,
+    coalesce(nullif(rv.raw_data->'statistics'->>'unsubscribes', '')::numeric, 0) as unsubscribes,
+    coalesce(nullif(rv.raw_data->'statistics'->>'bounced', '')::numeric, 0) as bounced,
+    coalesce(nullif(rv.raw_data->'statistics'->>'spam_complaints', '')::numeric, 0) as spam_complaints
+  from public.klaviyo_report_values rv
+  left join public.klaviyo_campaigns c
+    on rv.entity_type = 'campaign'
+   and c.organization_id = rv.organization_id
+   and c.external_campaign_id = rv.external_entity_id
+  left join public.klaviyo_flows f
+    on rv.entity_type = 'flow'
+   and f.organization_id = rv.organization_id
+   and f.external_flow_id = rv.external_entity_id
+  left join lateral (
+    select coalesce(
+             m.raw_data->'definition'->'content'->>'subject',
+             m.raw_data->'content'->>'subject'
+           ) as subject
+    from public.klaviyo_campaign_messages m
+    where m.campaign_id = c.id
+    order by (m.channel = 'email') desc nulls last
+    limit 1
+  ) cm on true
+  where rv.organization_id = target_organization_id
+    and rv.entity_type in ('campaign', 'flow')
+    and rv.period_start >= period_start
+    and rv.period_start < (period_end + 1)
+    and (target_store_id is null or exists (
+      select 1
+      from public.klaviyo_report_runs rr
+      join public.klaviyo_accounts ka on ka.id = rr.account_id
+      where rr.id = rv.report_run_id
+        and ka.store_id = target_store_id
+    ))
+  order by
+    date_trunc('month', rv.period_start),
+    rv.entity_type,
+    coalesce(c.id::text, f.id::text, rv.external_entity_id),
+    (rv.period_end - rv.period_start) desc,
+    rv.created_at desc;
+$function$;
+
+create index if not exists klaviyo_report_runs_account_idx
+  on public.klaviyo_report_runs (account_id);

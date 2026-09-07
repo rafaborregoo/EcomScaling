@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import {
   requireOperationalOrganization,
@@ -107,6 +107,69 @@ function parseAppMode(metadata: unknown): ShopifyAppMode {
   return "public";
 }
 
+/**
+ * Tope de tiendas del plan (pricing por numero de tiendas: 2 -> 100 EUR,
+ * 3 -> 139 EUR...). Devuelve un fallo si conectar esta tienda pasaria del
+ * limite, o null si puede seguir.
+ *
+ * El conteo sale de `billable_store_count`, la misma funcion que usara la
+ * factura: si el limite y el cobro contaran distinto, un cliente pagaria por
+ * tiendas que la app no le deja conectar, o al reves.
+ */
+export async function assertStoreLimit(
+  supabase: SupabaseClient,
+  organizationId: string,
+  shopDomain: string,
+): Promise<{
+  ok: false;
+  statusCode: number;
+  error: string;
+  message: string;
+} | null> {
+  const { data: subscription } = await supabase
+    .from("service_subscriptions")
+    .select("store_limit")
+    .eq("organization_id", organizationId)
+    .in("status", ["active", "trial"])
+    .order("starts_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const limit = subscription?.store_limit as number | null | undefined;
+  if (limit === null || limit === undefined) return null;
+
+  // Una tienda que ya esta conectada no consume cupo nuevo: reconectarla tras
+  // caducar el token, o reinstalar la app, no puede toparse con el limite.
+  const { data: existing } = await supabase
+    .from("integration_connections")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("provider", "shopify")
+    .eq("provider_account_id", shopDomain)
+    .maybeSingle();
+  if (existing) return null;
+
+  const { data: used, error: countError } = await supabase.rpc(
+    "billable_store_count",
+    { target_organization_id: organizationId },
+  );
+  // Si el conteo falla no se bloquea la conexion: dejar a un cliente sin poder
+  // conectar por un error de lectura es peor que una tienda de mas, que se ve
+  // en la facturacion y se corrige.
+  if (countError) return null;
+
+  if ((used ?? 0) >= limit) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "store_limit_reached",
+      message: `Tu plan incluye ${limit} ${limit === 1 ? "tienda" : "tiendas"} y ya tienes ${used}. Amplia el plan para conectar otra.`,
+    };
+  }
+
+  return null;
+}
+
 export async function createShopifyConnectionAuthUrl(
   env: ApiEnv,
   authContext: AuthContext,
@@ -177,6 +240,17 @@ export async function createShopifyConnectionAuthUrl(
 
   const state = createShopifyState();
   const supabase = createServiceClient(env);
+
+  // Limite de tiendas del plan. Se comprueba antes de sembrar la conexion
+  // pendiente para que el cliente vea el tope aqui y no despues de haber
+  // aprobado los permisos en Shopify. Reconectar una tienda que ya existe no
+  // consume cupo: el upsert la pisa, no la duplica.
+  const limitCheck = await assertStoreLimit(
+    supabase,
+    organizationId,
+    shopDomain,
+  );
+  if (limitCheck) return limitCheck;
 
   const { error } = await supabase.from("integration_connections").upsert(
     {

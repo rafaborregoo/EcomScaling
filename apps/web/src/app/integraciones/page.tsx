@@ -30,6 +30,7 @@ import {
   readOAuthNotice,
   useIntegrations,
 } from "./shared";
+import { StoreScopeCard } from "./store-scope-card";
 
 // Hub de /integraciones: una tarjeta de estado por conector con enlace a su
 // propia pagina. La configuracion detallada de cada uno vive en
@@ -113,6 +114,10 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
           />
         </Field>
       </Card>
+
+      {organization?.id ? (
+        <StoreScopeCard organizationId={organization.id} />
+      ) : null}
 
       {/* Cobertura de datos: sin esto, cualquier consejo sobre un canal es una
           opinión. Es la misma pregunta que el Consultor IA responde con

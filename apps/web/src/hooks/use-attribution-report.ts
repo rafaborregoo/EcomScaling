@@ -64,7 +64,16 @@ export type ShopifyFirstParty = {
   sales: { net_sales: number; orders_count: number };
 } | null;
 
-export function useAttributionReport(organizationId: string, days: number) {
+/**
+ * connectionId = tienda activa del selector. Klaviyo y Meta filtran por ella
+ * (store_id en sus tablas de cuenta); sin ella devuelven el agregado del
+ * cliente, que es lo que quiere la vista de cartera del consultor.
+ */
+export function useAttributionReport(
+  organizationId: string,
+  days: number,
+  connectionId = "",
+) {
   const [klaviyo, setKlaviyo] = useState<KlaviyoAttribution | null>(null);
   const [meta, setMeta] = useState<MetaAttribution | null>(null);
   const [shopify, setShopify] = useState<ShopifyFirstParty>(null);
@@ -89,16 +98,17 @@ export function useAttributionReport(organizationId: string, days: number) {
         return null;
       }
     };
+    const store = connectionId ? `&connectionId=${connectionId}` : "";
     const [klaviyoData, metaData, shopifyData] = await Promise.all([
-      read<KlaviyoAttribution>(`klaviyo/email-report?days=${days}`),
-      read<MetaAttribution>(`meta/metrics?days=${days}`),
-      read<ShopifyFirstParty>(`shopify/metrics?days=${days}`),
+      read<KlaviyoAttribution>(`klaviyo/email-report?days=${days}${store}`),
+      read<MetaAttribution>(`meta/metrics?days=${days}${store}`),
+      read<ShopifyFirstParty>(`shopify/metrics?days=${days}${store}`),
     ]);
     setKlaviyo(klaviyoData);
     setMeta(metaData);
     setShopify(shopifyData);
     setIsLoading(false);
-  }, [organizationId, days]);
+  }, [organizationId, days, connectionId]);
 
   useEffect(() => {
     void reload();

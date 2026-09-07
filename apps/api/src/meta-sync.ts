@@ -297,6 +297,12 @@ export function readInsightNumber(value: unknown): number | null {
   return null;
 }
 
+export const META_PLATFORM_BREAKDOWN_KEYS = [
+  "publisher_platform",
+  "platform_position",
+  "device_platform",
+] as const;
+
 export function buildMetaInsightRowPayload(
   organizationId: string,
   adAccountRowId: string,
@@ -304,13 +310,16 @@ export function buildMetaInsightRowPayload(
   internal: { adId: string; adSetId: string; campaignId: string | null } | undefined,
   syncedAt = new Date().toISOString(),
   actionReportTime: MetaActionReportTime | undefined = undefined,
+  // Que claves forman el desglose de esta fila. Edad/genero, pais y hora
+  // van al mismo jsonb que la plataforma, no a columnas propias: Meta no
+  // deja pedirlos juntos, asi que cada corte es una peticion distinta y
+  // seis columnas casi siempre nulas describirian peor esa realidad.
+  breakdownKeys: readonly string[] = META_PLATFORM_BREAKDOWN_KEYS,
 ): MetaInsightRowPayload | null {
   if (!insight.ad_id || !insight.date_start) return null;
-  const breakdownEntries = Object.entries({
-    publisher_platform: insight.publisher_platform,
-    platform_position: insight.platform_position,
-    device_platform: insight.device_platform,
-  }).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  const breakdownEntries = breakdownKeys
+    .map((key) => [key, insight[key]] as [string, unknown])
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string");
   const breakdowns = breakdownEntries.length
     ? Object.fromEntries(breakdownEntries)
     : null;
@@ -457,8 +466,57 @@ export function metaInsightFields(withExtras: boolean) {
     : META_INSIGHT_BASE_FIELDS;
 }
 
-const META_INSIGHT_FIELDS = metaInsightFields(true);
 const META_INSIGHT_BREAKDOWNS = "publisher_platform,platform_position,device_platform";
+
+/**
+ * Un corte de insights: un desglose distinto es una peticion distinta.
+ *
+ * Meta no admite pedir todos los desgloses a la vez ni combinarlos entre si,
+ * y los rankings de subasta y el video no vienen con cualquier desglose. Por
+ * eso los cortes secundarios piden solo los campos base: cruzar demografia
+ * con `quality_ranking` haria fallar la peticion entera.
+ */
+export type MetaInsightCut = {
+  scope: string;
+  breakdowns: string;
+  keys: readonly string[];
+  withExtras: boolean;
+};
+
+/**
+ * El corte canonico: sin desglose ninguno.
+ *
+ * Es el unico donde `reach` y `frequency` significan algo. Meta deduplica
+ * personas dentro de una peticion, no entre peticiones: sumar el alcance de
+ * facebook y de instagram cuenta dos veces a quien vio las dos, y no hay
+ * forma de saber cuantos son. El gasto y las impresiones si son aditivos,
+ * pero el alcance no, asi que el total se pide aparte en vez de derivarse.
+ *
+ * Los rankings de subasta tampoco vienen con desglose, y llegan aqui.
+ */
+export const META_TOTAL_CUT: MetaInsightCut = {
+  scope: "insights",
+  breakdowns: "",
+  keys: [],
+  withExtras: true,
+};
+
+export const META_SECONDARY_CUTS: MetaInsightCut[] = [
+  {
+    scope: "insights_plataforma",
+    breakdowns: META_INSIGHT_BREAKDOWNS,
+    keys: META_PLATFORM_BREAKDOWN_KEYS,
+    withExtras: false,
+  },
+  { scope: "insights_demografia", breakdowns: "age,gender", keys: ["age", "gender"], withExtras: false },
+  { scope: "insights_pais", breakdowns: "country", keys: ["country"], withExtras: false },
+  {
+    scope: "insights_hora",
+    breakdowns: "hourly_stats_aggregated_by_advertiser_time_zone",
+    keys: ["hourly_stats_aggregated_by_advertiser_time_zone"],
+    withExtras: false,
+  },
+];
 const META_ACTION_ATTRIBUTION_WINDOWS = ["1d_click", "7d_click", "1d_view"];
 const ASYNC_REPORT_MAX_POLLS = 30;
 const ASYNC_REPORT_POLL_MS = 2000;
@@ -483,6 +541,30 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type MetaReportContext = {
+  supabase: SupabaseClient;
+  organizationId: string;
+  connectionId: string;
+  adAccountRowId: string;
+};
+
+// La fila de meta_insight_report_runs es trazabilidad, no dato: si falla al
+// guardarse no puede tumbar un sync que si trajo los insights.
+async function saveMetaReportRun(
+  supabase: SupabaseClient,
+  row: Record<string, unknown>,
+) {
+  const { error } = await supabase
+    .from("meta_insight_report_runs")
+    .upsert(row, { onConflict: "external_report_run_id" });
+  if (error) {
+    logger.error("meta_report_run_upsert_failed", {
+      external_report_run_id: row.external_report_run_id,
+      message: error.message,
+    });
+  }
+}
+
 /**
  * Pide los insights con los campos nuevos y, si Meta rechaza la peticion, la
  * repite sin ellos.
@@ -502,10 +584,35 @@ async function fetchMetaInsightsWithFallback(
   accessToken: string,
   window: MetaInsightsWindow,
   mode: MetaInsightsMode,
+  cut: MetaInsightCut,
+  reportContext?: MetaReportContext,
 ): Promise<{ rows: InsightNode[]; extrasIncluded: boolean }> {
+  if (!cut.withExtras) {
+    return {
+      rows: await fetchMetaInsights(
+        env,
+        accountId,
+        accessToken,
+        window,
+        mode,
+        cut,
+        reportContext,
+      ),
+      extrasIncluded: true,
+    };
+  }
+
   try {
     return {
-      rows: await fetchMetaInsights(env, accountId, accessToken, window, mode, true),
+      rows: await fetchMetaInsights(
+        env,
+        accountId,
+        accessToken,
+        window,
+        mode,
+        cut,
+        reportContext,
+      ),
       extrasIncluded: true,
     };
   } catch (error) {
@@ -515,7 +622,15 @@ async function fetchMetaInsightsWithFallback(
     );
 
     return {
-      rows: await fetchMetaInsights(env, accountId, accessToken, window, mode, false),
+      rows: await fetchMetaInsights(
+        env,
+        accountId,
+        accessToken,
+        window,
+        mode,
+        { ...cut, withExtras: false },
+        reportContext,
+      ),
       extrasIncluded: false,
     };
   }
@@ -527,7 +642,8 @@ async function fetchMetaInsights(
   accessToken: string,
   window: MetaInsightsWindow,
   mode: MetaInsightsMode,
-  withExtras = true,
+  cut: MetaInsightCut = META_TOTAL_CUT,
+  reportContext?: MetaReportContext,
 ): Promise<InsightNode[]> {
   const params = {
     level: "ad",
@@ -536,10 +652,13 @@ async function fetchMetaInsights(
       since: window.since,
       until: window.until,
     }),
-    fields: metaInsightFields(withExtras),
-    breakdowns: META_INSIGHT_BREAKDOWNS,
+    fields: metaInsightFields(cut.withExtras),
     action_attribution_windows: JSON.stringify(META_ACTION_ATTRIBUTION_WINDOWS),
   };
+  // Meta rechaza `breakdowns` vacio: el corte total no lleva el parametro.
+  if (cut.breakdowns) {
+    Object.assign(params, { breakdowns: cut.breakdowns });
+  }
   const actionReportTime = resolveMetaActionReportTime(env);
   if (actionReportTime) {
     Object.assign(params, { action_report_time: actionReportTime });
@@ -565,6 +684,28 @@ async function fetchMetaInsights(
     throw new Error("meta_async_report_id_missing");
   }
 
+  // `request_params` es not null y el upsert reemplaza la fila entera, asi
+  // que la base viaja con cada cambio de estado.
+  const reportBase = reportContext
+    ? {
+        organization_id: reportContext.organizationId,
+        connection_id: reportContext.connectionId,
+        ad_account_id: reportContext.adAccountRowId,
+        external_report_run_id: reportRunId,
+        level: "ad",
+        request_params: params,
+      }
+    : null;
+
+  if (reportContext && reportBase) {
+    await saveMetaReportRun(reportContext.supabase, {
+      ...reportBase,
+      status: "running",
+      percent_complete: 0,
+      started_at: new Date().toISOString(),
+    });
+  }
+
   for (let poll = 0; poll < ASYNC_REPORT_MAX_POLLS; poll += 1) {
     const status = await metaGraphGet<{
       async_status?: string;
@@ -574,26 +715,67 @@ async function fetchMetaInsights(
     }, env.META_APP_SECRET);
 
     if (isMetaInsightsReportComplete(status.async_status)) {
-      return metaGraphGetAll<InsightNode>(
+      const rows = await metaGraphGetAll<InsightNode>(
         `${reportRunId}/insights`,
         accessToken,
         {
-          fields: META_INSIGHT_FIELDS,
-          breakdowns: META_INSIGHT_BREAKDOWNS,
+          // Los mismos campos con los que se pidio: si el reintento sin
+          // extras creo el informe, pedirlos aqui lo rompe.
+          fields: metaInsightFields(cut.withExtras),
+          ...(cut.breakdowns ? { breakdowns: cut.breakdowns } : {}),
           action_attribution_windows: JSON.stringify(META_ACTION_ATTRIBUTION_WINDOWS),
         },
         env.META_APP_SECRET,
       );
+
+      if (reportContext && reportBase) {
+        const finishedAt = new Date().toISOString();
+        await saveMetaReportRun(reportContext.supabase, {
+          ...reportBase,
+          status: "completed",
+          percent_complete: 100,
+          completed_at: finishedAt,
+          downloaded_at: finishedAt,
+        });
+      }
+
+      return rows;
     }
 
     if (
       status.async_status === "Job Failed" ||
       status.async_status === "failed"
     ) {
+      if (reportContext && reportBase) {
+        await saveMetaReportRun(reportContext.supabase, {
+          ...reportBase,
+          status: "failed",
+          percent_complete: status.async_percent_completion ?? 0,
+          completed_at: new Date().toISOString(),
+          error_message: `meta_async_report_failed:${status.async_status}`,
+        });
+      }
       throw new Error(`meta_async_report_failed:${status.async_status}`);
     }
 
+    if (reportContext && reportBase && status.async_percent_completion != null) {
+      await saveMetaReportRun(reportContext.supabase, {
+        ...reportBase,
+        status: "running",
+        percent_complete: status.async_percent_completion,
+      });
+    }
+
     await sleep(ASYNC_REPORT_POLL_MS);
+  }
+
+  if (reportContext && reportBase) {
+    await saveMetaReportRun(reportContext.supabase, {
+      ...reportBase,
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error_message: "meta_async_report_timeout",
+    });
   }
 
   throw new Error("meta_async_report_timeout");
@@ -676,7 +858,7 @@ async function syncAdAccountStructure(
     accessToken,
     {
       fields:
-        "id,name,campaign_id,configured_status,effective_status,optimization_goal,billing_event,bid_strategy,bid_amount,daily_budget,lifetime_budget,budget_remaining,destination_type,promoted_object,targeting,attribution_spec,is_dynamic_creative,start_time,end_time,created_time,updated_time",
+        "id,name,campaign_id,configured_status,effective_status,optimization_goal,billing_event,bid_strategy,bid_amount,daily_budget,lifetime_budget,budget_remaining,destination_type,promoted_object,targeting,attribution_spec,is_dynamic_creative,learning_stage_info,start_time,end_time,created_time,updated_time",
     },
     env.META_APP_SECRET,
   );
@@ -686,6 +868,13 @@ async function syncAdAccountStructure(
 
   for (const adSet of adSets) {
     const campaignRowId = campaignIdMap.get(adSet.campaign_id as string);
+
+    // Un conjunto en aprendizaje entrega peor y no es culpa de la
+    // creatividad. Sin este dato, cada reinicio de la fase se lee como una
+    // caida de rendimiento.
+    const learning = adSet.learning_stage_info as
+      | { status?: string; exit_reason?: string; conversions?: number }
+      | undefined;
 
     if (!campaignRowId) {
       continue;
@@ -723,6 +912,12 @@ async function syncAdAccountStructure(
           targeting_data: adSet.targeting ?? null,
           attribution_spec: adSet.attribution_spec ?? null,
           is_dynamic_creative: Boolean(adSet.is_dynamic_creative),
+          learning_stage_status: asText(learning?.status),
+          learning_stage_exit_reason: asText(learning?.exit_reason),
+          learning_conversions: asInteger(learning?.conversions),
+          learning_conversions_needed: learning
+            ? META_LEARNING_PHASE_CONVERSIONS
+            : null,
           starts_at: (adSet.start_time as string) ?? null,
           ends_at: (adSet.end_time as string) ?? null,
           external_created_at: (adSet.created_time as string) ?? null,
@@ -798,6 +993,42 @@ async function syncAdAccountStructure(
 
     written += 1;
     creativeIdMap.set(creative.id, data.id);
+
+    // Derivado puro de la creatividad que acaba de llegar: no cuesta una
+    // peticion mas. La tabla no tiene clave natural (una creatividad puede
+    // repetir el mismo texto en dos posiciones), asi que se reescribe
+    // entera: es un retrato, no un historico.
+    const assetRows = buildMetaCreativeAssetRows(creative);
+
+    const { error: assetDeleteError } = await supabase
+      .from("meta_creative_assets")
+      .delete()
+      .eq("creative_id", data.id);
+
+    if (assetDeleteError) {
+      throw new Error(
+        `meta_creative_assets_delete_failed: ${assetDeleteError.message}`,
+      );
+    }
+
+    if (assetRows.length > 0) {
+      const { error: assetError } = await supabase
+        .from("meta_creative_assets")
+        .insert(
+          assetRows.map((row) => ({
+            ...row,
+            organization_id: organizationId,
+            creative_id: data.id,
+          })),
+        );
+
+      if (assetError) {
+        throw new Error(
+          `meta_creative_assets_insert_failed: ${assetError.message}`,
+        );
+      }
+      written += assetRows.length;
+    }
   }
 
   const ads = await metaGraphGetAll<CampaignNode>(
@@ -811,6 +1042,25 @@ async function syncAdAccountStructure(
   );
   read += ads.length;
 
+  // Que creatividad lleva ahora mismo cada anuncio: cuando el rendimiento
+  // cambia, esto es lo que dice si cambio el anuncio o cambio el mercado.
+  const { data: openAssignments, error: assignmentLookupError } =
+    await supabase
+      .from("meta_ad_creative_assignments")
+      .select("id, ad_id, creative_id, valid_from")
+      .eq("organization_id", organizationId)
+      .is("valid_until", null);
+
+  if (assignmentLookupError) {
+    throw new Error(
+      `meta_ad_creative_assignments_lookup_failed: ${assignmentLookupError.message}`,
+    );
+  }
+
+  const openByAd = new Map(
+    (openAssignments ?? []).map((row) => [row.ad_id as string, row]),
+  );
+
   for (const ad of ads) {
     const adSetRowId = adSetIdMap.get(ad.adset_id as string);
 
@@ -819,14 +1069,15 @@ async function syncAdAccountStructure(
     }
 
     const creativeExternalId = (ad.creative as { id?: string } | undefined)?.id;
+    const creativeRowId = creativeExternalId
+      ? (creativeIdMap.get(creativeExternalId) ?? null)
+      : null;
 
-    const { error } = await supabase.from("meta_ads").upsert(
+    const { data: adRow, error } = await supabase.from("meta_ads").upsert(
       {
         organization_id: organizationId,
         ad_set_id: adSetRowId,
-        current_creative_id: creativeExternalId
-          ? (creativeIdMap.get(creativeExternalId) ?? null)
-          : null,
+        current_creative_id: creativeRowId,
         external_ad_id: ad.id,
         name: (ad.name as string) ?? ad.id,
         configured_status: (ad.configured_status as string) ?? null,
@@ -839,13 +1090,74 @@ async function syncAdAccountStructure(
         last_synced_at: now,
       },
       { onConflict: "ad_set_id,external_ad_id" },
-    );
+    )
+      .select("id")
+      .single();
 
     if (error) {
       throw new Error(`meta_ad_upsert_failed: ${error.message}`);
     }
 
     written += 1;
+
+    if (creativeRowId) {
+      const open = openByAd.get(adRow.id);
+
+      if (!open) {
+        const { error: openError } = await supabase
+          .from("meta_ad_creative_assignments")
+          .insert({
+            organization_id: organizationId,
+            ad_id: adRow.id,
+            creative_id: creativeRowId,
+            valid_from: asText(ad.updated_time) ?? now,
+          });
+
+        if (openError) {
+          throw new Error(
+            `meta_ad_creative_assignment_insert_failed: ${openError.message}`,
+          );
+        }
+        written += 1;
+      } else if (open.creative_id !== creativeRowId) {
+        // La tabla exige valid_until > valid_from. Si el cambio se detecta
+        // en el mismo instante en que se abrio la fila, se cierra un
+        // segundo despues en vez de romper el bloque entero.
+        const closedAt = new Date(
+          Math.max(
+            Date.now(),
+            Date.parse(open.valid_from as string) + 1000,
+          ),
+        ).toISOString();
+
+        const { error: closeError } = await supabase
+          .from("meta_ad_creative_assignments")
+          .update({ valid_until: closedAt })
+          .eq("id", open.id);
+
+        if (closeError) {
+          throw new Error(
+            `meta_ad_creative_assignment_close_failed: ${closeError.message}`,
+          );
+        }
+
+        const { error: reopenError } = await supabase
+          .from("meta_ad_creative_assignments")
+          .insert({
+            organization_id: organizationId,
+            ad_id: adRow.id,
+            creative_id: creativeRowId,
+            valid_from: closedAt,
+          });
+
+        if (reopenError) {
+          throw new Error(
+            `meta_ad_creative_assignment_insert_failed: ${reopenError.message}`,
+          );
+        }
+        written += 1;
+      }
+    }
   }
 
   return { read, written };
@@ -860,6 +1172,8 @@ async function syncAdAccountInsights(
   accessToken: string,
   window: MetaInsightsWindow,
   insightsMode: MetaInsightsMode,
+  cut: MetaInsightCut = META_TOTAL_CUT,
+  reportContext?: MetaReportContext,
 ): Promise<SyncBlockResult> {
   let read = 0;
   let written = 0;
@@ -871,6 +1185,8 @@ async function syncAdAccountInsights(
       accessToken,
       window,
       insightsMode,
+      cut,
+      reportContext,
     );
 
   read = insights.length;
@@ -879,6 +1195,7 @@ async function syncAdAccountInsights(
     logger.info("Meta insights sincronizados sin los campos extra", {
       organization_id: organizationId,
       ad_account_id: externalAdAccountId,
+      cut: cut.scope,
       rows: insights.length,
     });
   }
@@ -919,6 +1236,7 @@ async function syncAdAccountInsights(
         insight.ad_id ? adMap.get(insight.ad_id) : undefined,
         syncedAt,
         resolveMetaActionReportTime(env),
+        cut.keys,
       ),
     }))
     .filter((item): item is { insight: InsightNode; row: MetaInsightRowPayload } => item.row !== null);
@@ -965,6 +1283,714 @@ async function syncAdAccountInsights(
   }
 
   return { read, written };
+}
+
+// ---------------------------------------------------------------------------
+// Bloques independientes (ADR-0006 punto 2). Cada uno tiene su propio scope,
+// su try/catch y su fila en integration_sync_runs: que Meta no de acceso al
+// pixel no puede dejar sin publicos ni sin gasto a la misma cuenta.
+// ---------------------------------------------------------------------------
+
+type MetaNode = Record<string, unknown> & { id?: string };
+
+function asText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function asInteger(value: unknown): number | null {
+  const parsed = readInsightNumber(value);
+  return parsed == null ? null : Math.trunc(parsed);
+}
+
+function asBool(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+// Meta documenta que un conjunto sale de aprendizaje sobre las cincuenta
+// conversiones en siete dias, pero no devuelve el numero: lo publica y lo
+// deja en manos de quien lo lea.
+const META_LEARNING_PHASE_CONVERSIONS = 50;
+
+type MetaCreativeAssetRow = {
+  asset_type:
+    | "image"
+    | "video"
+    | "primary_text"
+    | "headline"
+    | "description"
+    | "call_to_action"
+    | "link_url"
+    | "thumbnail"
+    | "other";
+  position: number;
+  external_asset_id: string | null;
+  asset_hash: string | null;
+  text_value: string | null;
+  media_url: string | null;
+  thumbnail_url: string | null;
+  link_url: string | null;
+  asset_label: string | null;
+  is_primary: boolean;
+  metadata: Record<string, unknown> | null;
+};
+
+// Cuantas piezas distintas hay dentro de una creatividad dinamica: el
+// `asset_feed_spec` lleva varias listas paralelas y Meta las combina en tiempo
+// real. Sin desplegarlas, un anuncio con seis textos y cuatro videos se guarda
+// como una sola fila y no hay forma de decir que copy funciono.
+const ASSET_FEED_LISTS: Array<{
+  key: string;
+  type: MetaCreativeAssetRow["asset_type"];
+  textField?: string;
+}> = [
+  { key: "bodies", type: "primary_text", textField: "text" },
+  { key: "titles", type: "headline", textField: "text" },
+  { key: "descriptions", type: "description", textField: "text" },
+  { key: "images", type: "image" },
+  { key: "videos", type: "video" },
+  { key: "link_urls", type: "link_url" },
+  { key: "call_to_action_types", type: "call_to_action" },
+];
+
+/**
+ * Despliega una creatividad en sus piezas.
+ *
+ * Es derivado puro de lo que ya trae el bloque de estructura: no cuesta una
+ * peticion mas. Devuelve una lista, no la escribe: asi se puede comprobar sin
+ * base de datos.
+ */
+export function buildMetaCreativeAssetRows(
+  creative: Record<string, unknown>,
+): MetaCreativeAssetRow[] {
+  const rows: MetaCreativeAssetRow[] = [];
+  const push = (
+    type: MetaCreativeAssetRow["asset_type"],
+    position: number,
+    isPrimary: boolean,
+    fields: Partial<MetaCreativeAssetRow>,
+  ) => {
+    rows.push({
+      asset_type: type,
+      position,
+      external_asset_id: null,
+      asset_hash: null,
+      text_value: null,
+      media_url: null,
+      thumbnail_url: null,
+      link_url: null,
+      asset_label: null,
+      is_primary: isPrimary,
+      metadata: null,
+      ...fields,
+    });
+  };
+
+  // La creatividad fija: lo que se ve si no hay variantes.
+  if (asText(creative.image_hash)) {
+    push("image", 0, true, { asset_hash: asText(creative.image_hash) });
+  }
+  if (creative.video_id != null) {
+    push("video", 0, true, { external_asset_id: String(creative.video_id) });
+  }
+  if (asText(creative.body)) {
+    push("primary_text", 0, true, { text_value: asText(creative.body) });
+  }
+  if (asText(creative.title)) {
+    push("headline", 0, true, { text_value: asText(creative.title) });
+  }
+  if (asText(creative.link_url)) {
+    push("link_url", 0, true, { link_url: asText(creative.link_url) });
+  }
+  if (asText(creative.thumbnail_url)) {
+    push("thumbnail", 0, true, {
+      thumbnail_url: asText(creative.thumbnail_url),
+    });
+  }
+  if (asText(creative.call_to_action_type)) {
+    push("call_to_action", 0, true, {
+      text_value: asText(creative.call_to_action_type),
+    });
+  }
+
+  const feed = creative.asset_feed_spec;
+  if (!feed || typeof feed !== "object" || Array.isArray(feed)) {
+    return rows;
+  }
+
+  for (const list of ASSET_FEED_LISTS) {
+    const entries = (feed as Record<string, unknown>)[list.key];
+    if (!Array.isArray(entries)) continue;
+
+    entries.forEach((raw, index) => {
+      // Las listas de textos traen objetos; la de CTA, cadenas sueltas.
+      if (typeof raw === "string") {
+        push(list.type, index, false, { text_value: raw });
+        return;
+      }
+      if (!raw || typeof raw !== "object") return;
+
+      const entry = raw as Record<string, unknown>;
+
+      push(list.type, index, false, {
+        external_asset_id: asText(entry.video_id),
+        asset_hash: asText(entry.image_hash) ?? asText(entry.hash),
+        text_value: list.textField ? asText(entry[list.textField]) : null,
+        media_url: asText(entry.url) ?? asText(entry.video_url),
+        thumbnail_url: asText(entry.thumbnail_url),
+        link_url: asText(entry.website_url),
+        metadata: entry,
+      });
+    });
+  }
+
+  return rows;
+}
+
+/**
+ * Datos de la cuenta que solo se ven pidiendo la cuenta en si: como se paga y
+ * si sigue viva.
+ *
+ * Una cuenta con la tarjeta caducada deja de gastar y desde las metricas se ve
+ * igual que una campaña pausada a proposito.
+ */
+async function syncAdAccountProfile(
+  env: ApiEnv,
+  supabase: SupabaseClient,
+  adAccountRowId: string,
+  externalAdAccountId: string,
+  accessToken: string,
+): Promise<SyncBlockResult> {
+  const account = await metaGraphGet<MetaNode>(
+    externalAdAccountId,
+    accessToken,
+    {
+      fields:
+        "funding_source_details,business_country_code,tos_accepted,account_status,disable_reason,amount_spent,balance,spend_cap",
+    },
+    env.META_APP_SECRET,
+  );
+
+  // Meta no devuelve un booleano de terminos: devuelve un mapa de que version
+  // se acepto. Vacio o ausente es "no consta", no "no aceptado".
+  const tos = account.tos_accepted;
+  const hasAcceptedTerms =
+    tos && typeof tos === "object" && !Array.isArray(tos)
+      ? Object.values(tos as Record<string, unknown>).some((v) => Number(v) > 0)
+      : null;
+
+  const { error } = await supabase
+    .from("meta_ad_accounts")
+    .update({
+      funding_source_details: account.funding_source_details ?? null,
+      business_country_code: asText(account.business_country_code),
+      has_accepted_terms: hasAcceptedTerms,
+      account_status_code: asInteger(account.account_status),
+      disable_reason_code: asInteger(account.disable_reason),
+      amount_spent:
+        account.amount_spent != null ? Number(account.amount_spent) / 100 : null,
+      balance: account.balance != null ? Number(account.balance) / 100 : null,
+      spend_cap:
+        account.spend_cap != null ? Number(account.spend_cap) / 100 : null,
+      last_synced_at: new Date().toISOString(),
+    })
+    .eq("id", adAccountRowId);
+
+  if (error) {
+    throw new Error(`meta_ad_account_profile_update_failed: ${error.message}`);
+  }
+
+  return { read: 1, written: 1 };
+}
+
+/**
+ * Normaliza la respuesta de /{pixel}/stats.
+ *
+ * ADR-0006 pto 8: la documentacion describe una entrada por bucket con un mapa
+ * `value` de evento a recuento, pero no hay forma de comprobarlo sin una cuenta
+ * real. Se aceptan las dos formas plausibles y el llamador registra un error si
+ * llegaron entradas y no salio ninguna fila: un pixel "sin eventos" y un pixel
+ * que no sabemos leer se ven igual desde fuera.
+ */
+export function parseMetaPixelStats(
+  entries: unknown[],
+): Array<{ metricDate: string; eventName: string; eventCount: number }> {
+  const rows: Array<{
+    metricDate: string;
+    eventName: string;
+    eventCount: number;
+  }> = [];
+
+  for (const raw of entries) {
+    const entry = raw as Record<string, unknown>;
+    const startTime = asText(entry.start_time) ?? asText(entry.timestamp);
+    if (!startTime) continue;
+    const metricDate = startTime.slice(0, 10);
+
+    const value = entry.value;
+    if (value != null && typeof value === "object" && !Array.isArray(value)) {
+      for (const [eventName, count] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        const parsed = readInsightNumber(count);
+        if (parsed != null) {
+          rows.push({ metricDate, eventName, eventCount: parsed });
+        }
+      }
+      continue;
+    }
+
+    const eventName = asText(entry.event) ?? asText(entry.action_type);
+    const parsed = readInsightNumber(value ?? entry.count);
+    if (eventName && parsed != null) {
+      rows.push({ metricDate, eventName, eventCount: parsed });
+    }
+  }
+
+  return rows;
+}
+
+async function syncAdAccountPixels(
+  env: ApiEnv,
+  supabase: SupabaseClient,
+  organizationId: string,
+  adAccountRowId: string,
+  externalAdAccountId: string,
+  accessToken: string,
+  window: MetaInsightsWindow,
+): Promise<SyncBlockResult> {
+  let read = 0;
+  let written = 0;
+  const now = new Date().toISOString();
+
+  const pixels = await metaGraphGetAll<MetaNode>(
+    `${externalAdAccountId}/adspixels`,
+    accessToken,
+    {
+      fields:
+        "id,name,last_fired_time,is_unavailable,data_use_setting,enable_automatic_matching,first_party_cookie_status,creation_time",
+    },
+    env.META_APP_SECRET,
+  );
+  read += pixels.length;
+
+  for (const pixel of pixels) {
+    if (!pixel.id) continue;
+
+    const { data: pixelRow, error } = await supabase
+      .from("meta_pixels")
+      .upsert(
+        {
+          organization_id: organizationId,
+          ad_account_id: adAccountRowId,
+          external_pixel_id: pixel.id,
+          name: asText(pixel.name),
+          last_fired_at: asText(pixel.last_fired_time),
+          is_unavailable: asBool(pixel.is_unavailable),
+          data_use_setting: asText(pixel.data_use_setting),
+          enable_automatic_matching: asBool(pixel.enable_automatic_matching),
+          first_party_cookie_status: asText(pixel.first_party_cookie_status),
+          external_created_at: asText(pixel.creation_time),
+          last_synced_at: now,
+        },
+        { onConflict: "ad_account_id,external_pixel_id" },
+      )
+      .select("id")
+      .single();
+
+    if (error) {
+      throw new Error(`meta_pixel_upsert_failed: ${error.message}`);
+    }
+    written += 1;
+
+    const stats = await metaGraphGetAll<MetaNode>(
+      `${pixel.id}/stats`,
+      accessToken,
+      {
+        aggregation: "event",
+        start_time: window.since,
+        end_time: window.until,
+      },
+      env.META_APP_SECRET,
+    );
+    read += stats.length;
+
+    const parsed = parseMetaPixelStats(stats);
+
+    if (stats.length > 0 && parsed.length === 0) {
+      logger.error("meta_pixel_stats_shape_unexpected", {
+        organization_id: organizationId,
+        pixel_id: pixel.id,
+        entries: stats.length,
+        keys: Object.keys(stats[0] ?? {}),
+      });
+    }
+
+    // Meta puede repetir el mismo evento en varios buckets del mismo dia: se
+    // suman antes de escribir, o el upsert se pisa a si mismo dentro del lote.
+    const byKey = new Map<
+      string,
+      { metricDate: string; eventName: string; eventCount: number }
+    >();
+    for (const row of parsed) {
+      const key = `${row.metricDate}:${row.eventName}`;
+      const previous = byKey.get(key);
+      byKey.set(
+        key,
+        previous
+          ? { ...row, eventCount: previous.eventCount + row.eventCount }
+          : row,
+      );
+    }
+
+    if (byKey.size > 0) {
+      const { error: statsError } = await supabase
+        .from("meta_pixel_daily_stats")
+        .upsert(
+          [...byKey.values()].map((row) => ({
+            organization_id: organizationId,
+            pixel_id: pixelRow.id,
+            metric_date: row.metricDate,
+            event_name: row.eventName,
+            event_count: row.eventCount,
+          })),
+          { onConflict: "pixel_id,metric_date,event_name" },
+        );
+
+      if (statsError) {
+        throw new Error(`meta_pixel_stats_upsert_failed: ${statsError.message}`);
+      }
+      written += byKey.size;
+    }
+  }
+
+  return { read, written };
+}
+
+async function syncAdAccountAudiences(
+  env: ApiEnv,
+  supabase: SupabaseClient,
+  organizationId: string,
+  adAccountRowId: string,
+  externalAdAccountId: string,
+  accessToken: string,
+): Promise<SyncBlockResult> {
+  const now = new Date().toISOString();
+
+  const audiences = await metaGraphGetAll<MetaNode>(
+    `${externalAdAccountId}/customaudiences`,
+    accessToken,
+    {
+      fields:
+        "id,name,description,subtype,approximate_count_lower_bound,approximate_count_upper_bound,retention_days,operation_status,delivery_status,data_source,lookalike_spec,time_created,time_updated",
+    },
+    env.META_APP_SECRET,
+  );
+
+  let written = 0;
+
+  for (const audience of audiences) {
+    if (!audience.id) continue;
+
+    const lookalike = audience.lookalike_spec as
+      | {
+          origin?: Array<{ id?: string }>;
+          ratio?: number;
+          country?: string;
+        }
+      | undefined;
+
+    const { error } = await supabase.from("meta_custom_audiences").upsert(
+      {
+        organization_id: organizationId,
+        ad_account_id: adAccountRowId,
+        external_audience_id: audience.id,
+        name: asText(audience.name),
+        description: asText(audience.description),
+        subtype: asText(audience.subtype),
+        // Meta nunca da un tamaño exacto: da una horquilla. Se guardan los dos
+        // extremos en vez de aparentar una precision que no existe.
+        approximate_count_lower: asInteger(
+          audience.approximate_count_lower_bound,
+        ),
+        approximate_count_upper: asInteger(
+          audience.approximate_count_upper_bound,
+        ),
+        retention_days: asInteger(audience.retention_days),
+        operation_status: audience.operation_status ?? null,
+        delivery_status: audience.delivery_status ?? null,
+        data_source: audience.data_source ?? null,
+        is_lookalike: Boolean(lookalike),
+        lookalike_origin_external_id: asText(lookalike?.origin?.[0]?.id),
+        lookalike_ratio: lookalike?.ratio ?? null,
+        lookalike_country: asText(lookalike?.country),
+        external_created_at: asText(audience.time_created),
+        external_updated_at: asText(audience.time_updated),
+        last_synced_at: now,
+      },
+      { onConflict: "ad_account_id,external_audience_id" },
+    );
+
+    if (error) {
+      throw new Error(`meta_custom_audience_upsert_failed: ${error.message}`);
+    }
+    written += 1;
+  }
+
+  return { read: audiences.length, written };
+}
+
+/**
+ * Registro de cambios de la cuenta.
+ *
+ * Sin esto, una caida de resultados no se puede separar de alguien que subio
+ * el presupuesto o cambio la puja el martes.
+ */
+async function syncAdAccountActivities(
+  env: ApiEnv,
+  supabase: SupabaseClient,
+  organizationId: string,
+  adAccountRowId: string,
+  externalAdAccountId: string,
+  accessToken: string,
+  window: MetaInsightsWindow,
+): Promise<SyncBlockResult> {
+  const activities = await metaGraphGetAll<MetaNode>(
+    `${externalAdAccountId}/activities`,
+    accessToken,
+    {
+      fields:
+        "event_time,event_type,translated_event_type,actor_id,actor_name,object_type,object_id,object_name,extra_data",
+      since: window.since,
+      until: window.until,
+    },
+    env.META_APP_SECRET,
+  );
+
+  // La clave natural es (instante, tipo, objeto, actor): Meta no da id. Dos
+  // filas iguales en el mismo lote romperian el on conflict.
+  const deduped = new Map<string, Record<string, unknown>>();
+
+  for (const activity of activities) {
+    const eventTime = asText(activity.event_time);
+    const eventType = asText(activity.event_type);
+    if (!eventTime || !eventType) continue;
+
+    const actorId = asText(activity.actor_id) ?? "";
+    const objectId = asText(activity.object_id) ?? "";
+
+    deduped.set(`${eventTime}:${eventType}:${objectId}:${actorId}`, {
+      organization_id: organizationId,
+      ad_account_id: adAccountRowId,
+      event_time: eventTime,
+      event_type: eventType,
+      translated_event_type: asText(activity.translated_event_type),
+      actor_id: actorId,
+      actor_name: asText(activity.actor_name),
+      object_type: asText(activity.object_type),
+      object_external_id: objectId,
+      object_name: asText(activity.object_name),
+      extra_data: activity.extra_data ?? null,
+    });
+  }
+
+  if (deduped.size > 0) {
+    const { error } = await supabase
+      .from("meta_account_activities")
+      .upsert([...deduped.values()], {
+        onConflict:
+          "ad_account_id,event_time,event_type,object_external_id,actor_id",
+      });
+
+    if (error) {
+      throw new Error(`meta_activity_upsert_failed: ${error.message}`);
+    }
+  }
+
+  return { read: activities.length, written: deduped.size };
+}
+
+/**
+ * Problemas de revision por anuncio.
+ *
+ * Un anuncio rechazado deja de gastar y en las cifras se ve igual que uno que
+ * dejo de funcionar. Es un retrato del momento: lo que ya no viene, se borra.
+ */
+async function syncAdIssues(
+  env: ApiEnv,
+  supabase: SupabaseClient,
+  organizationId: string,
+  externalAdAccountId: string,
+  accessToken: string,
+): Promise<SyncBlockResult> {
+  const ads = await metaGraphGetAll<MetaNode>(
+    `${externalAdAccountId}/ads`,
+    accessToken,
+    { fields: "id,issues_info,ad_review_feedback" },
+    env.META_APP_SECRET,
+  );
+
+  const { data: adRows, error: lookupError } = await supabase
+    .from("meta_ads")
+    .select("id, external_ad_id, review_feedback")
+    .eq("organization_id", organizationId);
+
+  if (lookupError) {
+    throw new Error(`meta_ads_lookup_failed: ${lookupError.message}`);
+  }
+
+  const adIdMap = new Map(
+    (adRows ?? []).map((row) => [
+      row.external_ad_id,
+      { id: row.id as string, reviewFeedback: row.review_feedback },
+    ]),
+  );
+
+  const touchedAdIds: string[] = [];
+  const issues: Record<string, unknown>[] = [];
+  const detectedAt = new Date().toISOString();
+
+  for (const ad of ads) {
+    const known = ad.id ? adIdMap.get(ad.id) : undefined;
+    if (!known) continue;
+    const adRowId = known.id;
+    touchedAdIds.push(adRowId);
+
+    // Solo se escribe si cambio. La mayoria de los anuncios no tienen
+    // veredicto de revision nunca, y sin esta comparacion cada sync haria
+    // una escritura por anuncio para dejar el mismo null.
+    const nextFeedback = ad.ad_review_feedback ?? null;
+    if (
+      JSON.stringify(known.reviewFeedback ?? null) !==
+      JSON.stringify(nextFeedback)
+    ) {
+      const { error: feedbackError } = await supabase
+        .from("meta_ads")
+        .update({ review_feedback: nextFeedback })
+        .eq("id", adRowId);
+
+      if (feedbackError) {
+        throw new Error(
+          `meta_ad_review_feedback_failed: ${feedbackError.message}`,
+        );
+      }
+    }
+
+    const byCode = new Map<number, Record<string, unknown>>();
+    for (const raw of (ad.issues_info as unknown[]) ?? []) {
+      const issue = raw as Record<string, unknown>;
+      const errorCode = asInteger(issue.error_code) ?? 0;
+      byCode.set(errorCode, {
+        organization_id: organizationId,
+        ad_id: adRowId,
+        level: asText(issue.level),
+        error_code: errorCode,
+        error_type: asText(issue.error_type),
+        error_summary: asText(issue.error_summary),
+        error_message: asText(issue.error_message),
+        detected_at: detectedAt,
+      });
+    }
+    issues.push(...byCode.values());
+  }
+
+  if (touchedAdIds.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("meta_ad_issues")
+      .delete()
+      .in("ad_id", touchedAdIds);
+
+    if (deleteError) {
+      throw new Error(`meta_ad_issues_delete_failed: ${deleteError.message}`);
+    }
+  }
+
+  if (issues.length > 0) {
+    const { error: insertError } = await supabase
+      .from("meta_ad_issues")
+      .insert(issues);
+
+    if (insertError) {
+      throw new Error(`meta_ad_issues_insert_failed: ${insertError.message}`);
+    }
+  }
+
+  return { read: ads.length, written: issues.length };
+}
+
+/**
+ * Lo que la propia Meta sugiere sobre cada campaña, conjunto y anuncio.
+ *
+ * Vale como segunda opinion, no como orden: se guarda para que el consultor la
+ * vea. Tambien es un retrato del momento.
+ */
+async function syncAccountRecommendations(
+  env: ApiEnv,
+  supabase: SupabaseClient,
+  organizationId: string,
+  adAccountRowId: string,
+  externalAdAccountId: string,
+  accessToken: string,
+): Promise<SyncBlockResult> {
+  const levels: Array<{ edge: string; level: "campaign" | "adset" | "ad" }> = [
+    { edge: "campaigns", level: "campaign" },
+    { edge: "adsets", level: "adset" },
+    { edge: "ads", level: "ad" },
+  ];
+
+  let read = 0;
+  const deduped = new Map<string, Record<string, unknown>>();
+  const detectedAt = new Date().toISOString();
+
+  for (const { edge, level } of levels) {
+    const nodes = await metaGraphGetAll<MetaNode>(
+      `${externalAdAccountId}/${edge}`,
+      accessToken,
+      { fields: "id,recommendations" },
+      env.META_APP_SECRET,
+    );
+    read += nodes.length;
+
+    for (const node of nodes) {
+      if (!node.id) continue;
+      for (const raw of (node.recommendations as unknown[]) ?? []) {
+        const recommendation = raw as Record<string, unknown>;
+        const code = asInteger(recommendation.code) ?? 0;
+        deduped.set(`${level}:${node.id}:${code}`, {
+          organization_id: organizationId,
+          ad_account_id: adAccountRowId,
+          entity_level: level,
+          entity_external_id: node.id,
+          code,
+          title: asText(recommendation.title),
+          message: asText(recommendation.message),
+          confidence: asText(recommendation.confidence),
+          importance: asText(recommendation.importance),
+          detected_at: detectedAt,
+        });
+      }
+    }
+  }
+
+  const { error: deleteError } = await supabase
+    .from("meta_recommendations")
+    .delete()
+    .eq("ad_account_id", adAccountRowId);
+
+  if (deleteError) {
+    throw new Error(`meta_recommendations_delete_failed: ${deleteError.message}`);
+  }
+
+  if (deduped.size > 0) {
+    const { error } = await supabase
+      .from("meta_recommendations")
+      .insert([...deduped.values()]);
+
+    if (error) {
+      throw new Error(`meta_recommendations_insert_failed: ${error.message}`);
+    }
+  }
+
+  return { read, written: deduped.size };
 }
 
 export async function runMetaSync(
@@ -1020,46 +2046,153 @@ export async function runMetaSync(
 
   let anyFailed = false;
 
-  // Bloques independientes por ADR-0006: la estructura y los insights de cada
-  // cuenta fallan o triunfan por separado, con su fila en integration_sync_runs.
+  // Bloques independientes por ADR-0006: cada uno falla o triunfa por su
+  // cuenta, con su fila en integration_sync_runs. Que Meta no de acceso al
+  // pixel no puede dejar sin gasto a la misma cuenta.
   for (const account of adAccounts ?? []) {
+    const organizationId = connection.organization_id as string;
+    const external = account.external_ad_account_id as string;
+    const window = lookbackWindow(INSIGHTS_LOOKBACK_DAYS[mode]);
+    const insightsMode = resolveMetaInsightsMode(env);
+    const reportContext: MetaReportContext = {
+      supabase,
+      organizationId,
+      connectionId,
+      adAccountRowId: account.id,
+    };
+
+    // La estructura va primero y aparte: los problemas por anuncio y los
+    // insights necesitan que las filas de anuncio ya existan.
     const structureOk = await recordSyncRun(
       supabase,
       connectionId,
-      connection.organization_id,
-      `structure:${account.external_ad_account_id}`,
+      organizationId,
+      `structure:${external}`,
       mode,
       () =>
         syncAdAccountStructure(
           env,
           supabase,
-          connection.organization_id,
+          organizationId,
           account.id,
-          account.external_ad_account_id,
+          external,
           accessToken,
         ),
     );
 
-    const insightsOk = await recordSyncRun(
-      supabase,
-      connectionId,
-      connection.organization_id,
-      `insights:${account.external_ad_account_id}`,
-      mode,
-      () =>
-        syncAdAccountInsights(
-          env,
-          supabase,
-          connection.organization_id,
-          account.id,
-          account.external_ad_account_id,
-          accessToken,
-          lookbackWindow(INSIGHTS_LOOKBACK_DAYS[mode]),
-          resolveMetaInsightsMode(env),
-        ),
-    );
+    const blocks: Array<[string, () => Promise<SyncBlockResult>]> = [
+      [
+        `account:${external}`,
+        () =>
+          syncAdAccountProfile(env, supabase, account.id, external, accessToken),
+      ],
+      [
+        `${META_TOTAL_CUT.scope}:${external}`,
+        () =>
+          syncAdAccountInsights(
+            env,
+            supabase,
+            organizationId,
+            account.id,
+            external,
+            accessToken,
+            window,
+            insightsMode,
+            META_TOTAL_CUT,
+            reportContext,
+          ),
+      ],
+      // Un corte por desglose, cada uno con su peticion y su fila: si Meta
+      // no sirve la demografia, el gasto por plataforma sigue entrando.
+      ...META_SECONDARY_CUTS.map(
+        (cut): [string, () => Promise<SyncBlockResult>] => [
+          `${cut.scope}:${external}`,
+          () =>
+            syncAdAccountInsights(
+              env,
+              supabase,
+              organizationId,
+              account.id,
+              external,
+              accessToken,
+              window,
+              insightsMode,
+              cut,
+              reportContext,
+            ),
+        ],
+      ),
+      [
+        `pixels:${external}`,
+        () =>
+          syncAdAccountPixels(
+            env,
+            supabase,
+            organizationId,
+            account.id,
+            external,
+            accessToken,
+            window,
+          ),
+      ],
+      [
+        `audiences:${external}`,
+        () =>
+          syncAdAccountAudiences(
+            env,
+            supabase,
+            organizationId,
+            account.id,
+            external,
+            accessToken,
+          ),
+      ],
+      [
+        `activities:${external}`,
+        () =>
+          syncAdAccountActivities(
+            env,
+            supabase,
+            organizationId,
+            account.id,
+            external,
+            accessToken,
+            window,
+          ),
+      ],
+      [
+        `issues:${external}`,
+        () => syncAdIssues(env, supabase, organizationId, external, accessToken),
+      ],
+      [
+        `recommendations:${external}`,
+        () =>
+          syncAccountRecommendations(
+            env,
+            supabase,
+            organizationId,
+            account.id,
+            external,
+            accessToken,
+          ),
+      ],
+    ];
 
-    anyFailed = anyFailed || !structureOk || !insightsOk;
+    let accountFailed = !structureOk;
+
+    for (const [scope, runner] of blocks) {
+      const ok = await recordSyncRun(
+        supabase,
+        connectionId,
+        organizationId,
+        scope,
+        mode,
+        runner,
+      );
+      accountFailed = accountFailed || !ok;
+    }
+
+    anyFailed = anyFailed || accountFailed;
   }
 
   const now = new Date().toISOString();

@@ -118,6 +118,11 @@ import {
   updateMetaAssetSelection,
 } from "./meta.js";
 import {
+  assignStoreScope,
+  listStoreScope,
+  type StoreScopeInput,
+} from "./store-scope.js";
+import {
   connectKlaviyoWithApiKey,
   createKlaviyoConnectionAuthUrl,
   getKlaviyoEmailReport,
@@ -2877,7 +2882,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get<{
     Params: { organizationId: string };
-    Querystring: { days?: string };
+    Querystring: { days?: string; connectionId?: string };
   }>(
     "/v1/organizations/:organizationId/klaviyo/email-report",
     async (request, reply) => {
@@ -2888,6 +2893,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
         request.query.days,
+        request.query.connectionId,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
@@ -3012,6 +3018,59 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Que cuenta de Meta y de Klaviyo pertenece a que tienda Shopify. Con una
+  // sola tienda la migracion ya lo resolvio sola; esto existe para el cliente
+  // con varias, donde adivinarlo seria inventarse la atribucion.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/store-scope",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await listStoreScope(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.put<{
+    Params: { organizationId: string };
+    Body: StoreScopeInput;
+  }>(
+    "/v1/organizations/:organizationId/store-scope",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await assignStoreScope(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
   app.get<{ Params: { organizationId: string } }>(
     "/v1/organizations/:organizationId/meta/purchase-action-types",
     async (request, reply) => {
@@ -3091,7 +3150,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get<{
     Params: { organizationId: string };
-    Querystring: { days?: string };
+    Querystring: { days?: string; connectionId?: string };
   }>(
     "/v1/organizations/:organizationId/meta/metrics",
     async (request, reply) => {
@@ -3113,6 +3172,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
         request.query.days,
+        request.query.connectionId,
       );
 
       if (isServiceFailure(result)) {

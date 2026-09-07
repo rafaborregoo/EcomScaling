@@ -34,7 +34,9 @@ const WORKFLOWS_DIR = join(
 
 /** Claves del bloque `env:` de nivel job (dos niveles de indentacion). */
 function declaredEnvKeys(content: string): string[] {
-  const envBlock = content.match(
+  // Normaliza CRLF: en Windows git dejaba \r\n en algun workflow y el bloque
+  // env: no se encontraba, dando un falso "el cron no declara nada".
+  const envBlock = content.replace(/\r\n/g, "\n").match(
     /\n {4}env:\n((?: {6}\S[^\n]*\n|\n|(?: {6}#[^\n]*\n))+)/,
   );
   if (!envBlock) return [];

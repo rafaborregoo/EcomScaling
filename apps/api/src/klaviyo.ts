@@ -837,6 +837,8 @@ export async function getKlaviyoEmailReport(
   context: AuthContext,
   organizationId: string,
   daysInput: string | undefined,
+  // Tienda activa del selector; sin ella, agregado del cliente.
+  connectionId?: string,
 ): Promise<Result<KlaviyoEmailReport>> {
   if (!isIntegrationFeatureEnabled("klaviyo", env.INTEGRATION_FEATURE_FLAGS)) {
     return {
@@ -872,11 +874,31 @@ export async function getKlaviyoEmailReport(
   };
 
   const supabase = serviceClient(env);
-  const { data: account, error: accountError } = await supabase
+
+  // El selector de la UI maneja ids de conexion Shopify; la funcion SQL filtra
+  // por tienda. Se traduce aqui para que el frontend use un unico identificador
+  // de tienda en todas las pantallas.
+  let storeId: string | null = null;
+  if (connectionId) {
+    const { data: store } = await supabase
+      .from("shopify_stores")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("connection_id", connectionId)
+      .maybeSingle();
+    storeId = (store?.id as string | undefined) ?? null;
+  }
+
+  // Antes era maybeSingle(), que con dos cuentas de Klaviyo en un mismo cliente
+  // devuelve error y dejaba el panel entero vacio. Ahora se listan todas y, si
+  // hay tienda activa, se mira solo la suya.
+  let accountQuery = supabase
     .from("klaviyo_accounts")
     .select("id")
-    .eq("organization_id", organizationId)
-    .maybeSingle();
+    .eq("organization_id", organizationId);
+  if (storeId) accountQuery = accountQuery.eq("store_id", storeId);
+  const { data: accounts, error: accountError } = await accountQuery.limit(1);
+  const account = accounts?.[0] ?? null;
   if (accountError) {
     return {
       ok: false,
@@ -907,11 +929,13 @@ export async function getKlaviyoEmailReport(
       target_organization_id: organizationId,
       period_start: toDate(periodStart),
       period_end: toDate(periodEnd),
+      target_store_id: storeId,
     }),
     supabase.rpc("klaviyo_email_report", {
       target_organization_id: organizationId,
       period_start: toDate(previousStart),
       period_end: toDate(periodStart),
+      target_store_id: storeId,
     }),
   ]);
 

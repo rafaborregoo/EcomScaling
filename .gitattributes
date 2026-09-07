@@ -1,0 +1,16 @@
+# Ficheros que DEBEN ser LF aunque se editen en Windows.
+#
+# Motivo real: git dejo CRLF en .github/workflows/ops-health-check.yml y el
+# regex de apps/worker/src/cron-workflow-env.test.ts no encontraba el bloque
+# env:, con lo que CI fallaba. El mismo problema rompe scripts que se ejecutan
+# en Linux ("bad interpreter: bash\r") y los Dockerfiles.
+#
+# Deliberadamente acotado por extension: un `* text=auto` renormalizaria todo
+# el repo de golpe.
+
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.mjs       text eol=lf
+Dockerfile  text eol=lf
+Caddyfile   text eol=lf

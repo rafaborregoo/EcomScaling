@@ -36,6 +36,7 @@ import {
   type CampaignItem,
 } from "@/hooks/use-campaign-items";
 import { useAttributionReport } from "@/hooks/use-attribution-report";
+import { useActiveConnection } from "@/components/active-connection";
 import { CampaignThread } from "./campaign-thread";
 import { DraftCampaignLink } from "./draft-campaign-link";
 import { PerformanceTab } from "./performance-tab";
@@ -694,9 +695,13 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // Rendimiento), con el periodo compartido: si cada uno pidiera el suyo, la
   // misma cifra saldria distinta en dos pantallas a la vez.
   const [performanceDays, setPerformanceDays] = useState("30");
+  // El panel de rendimiento se lee de la tienda activa del selector: con dos
+  // tiendas en el mismo cliente, el agregado no es de ninguna de las dos.
+  const { connectionId: activeConnectionId } = useActiveConnection();
   const attribution = useAttributionReport(
     organizationId,
     Number(performanceDays),
+    activeConnectionId,
   );
 
   // Blocker: el diseño del editor vive en estado local. Al cambiar de tienda,

@@ -917,8 +917,11 @@ function PortalShellContent({
     (isConsultant
       ? bootstrap.memberships.length >= 1
       : bootstrap.memberships.length >= 2);
+  // Con una sola tienda tambien se muestra: el pricing es por numero de
+  // tiendas, asi que el cliente tiene que ver cuantas tiene sin contarlas a
+  // ojo, y las cifras dejan de ser ambiguas sobre a que tienda pertenecen.
   const showStoreSelect =
-    Boolean(activeOrganizationId) && shopifyConnections.length >= 2;
+    Boolean(activeOrganizationId) && shopifyConnections.length >= 1;
 
   // Un consultor puede tener tiendas propias (membership real) ademas de las de
   // su cartera (consultant_assignment). Solo cuando tiene de las dos clases se

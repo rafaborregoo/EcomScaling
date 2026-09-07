@@ -17,6 +17,9 @@ export async function getMetaMetrics(
   context: AuthContext,
   organizationId: string,
   daysInput: string | undefined,
+  // Tienda activa del selector. Sin ella se devuelve el agregado del cliente,
+  // que es lo que piden la cartera del consultor y los agentes.
+  connectionId?: string,
 ) {
   if (!isIntegrationFeatureEnabled("meta_ads", env.INTEGRATION_FEATURE_FLAGS)) {
     return {
@@ -61,17 +64,37 @@ export async function getMetaMetrics(
   const periodStartDate = periodStart?.toISOString().slice(0, 10) ?? null;
   const periodEndDate = periodEnd.toISOString().slice(0, 10);
 
+  // El selector de la UI maneja ids de conexion Shopify; las funciones SQL
+  // filtran por tienda. La traduccion se hace aqui para que el frontend siga
+  // usando un unico identificador de tienda en todas las pantallas.
+  //
+  // Si la conexion no resuelve a ninguna tienda (sync aun sin completar) se
+  // cae al agregado en vez de devolver cero: un cero se lee como "no hay
+  // gasto" y aqui significaria "no se ha podido filtrar".
+  let storeId: string | null = null;
+  if (connectionId) {
+    const { data: store } = await supabase
+      .from("shopify_stores")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("connection_id", connectionId)
+      .maybeSingle();
+    storeId = (store?.id as string | undefined) ?? null;
+  }
+
   const [summaryResult, dailyResult, byCampaignResult] = await Promise.all([
     supabase.rpc("meta_spend_summary", {
       target_organization_id: organizationId,
       period_start: periodStartDate,
       period_end: periodEndDate,
+      target_store_id: storeId,
     }),
     periodStartDate
       ? supabase.rpc("meta_spend_daily", {
           target_organization_id: organizationId,
           period_start: periodStartDate,
           period_end: periodEndDate,
+          target_store_id: storeId,
         })
       : Promise.resolve({ data: null, error: null }),
     // Desglose por campaña: es lo que cierra el hilo del calendario (que
@@ -80,6 +103,7 @@ export async function getMetaMetrics(
       target_organization_id: organizationId,
       period_start: periodStartDate,
       period_end: periodEndDate,
+      target_store_id: storeId,
     }),
   ]);
 
