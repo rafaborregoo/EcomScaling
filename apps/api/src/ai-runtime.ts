@@ -64,6 +64,7 @@ import type {
 } from "@ecomscaling/contracts";
 import { INTEGRATION_CATALOG } from "@ecomscaling/integrations";
 import { createLogger } from "@ecomscaling/observability";
+import { emailHtmlToText } from "./email-body-text.js";
 import { apiMetrics } from "./metrics.js";
 import {
   type AuthContext,
@@ -145,6 +146,7 @@ const AGENT_TASK_CATEGORY: Record<
   a21_adquisicion_shopify: "shopify",
   a22_postventa_shopify: "shopify",
   a12_analista_email: "klaviyo",
+  a26_contenido_email: "klaviyo",
   // Los planes por horizonte proponen en los tres canales; la categoria real
   // la pone cada proposed_write en `categories`, esta es solo la base.
   a17_plan_semanal: "general",
@@ -166,6 +168,18 @@ const DEFAULT_AGENT_BUDGET = { maxCostUsd: 2, maxToolCalls: 24 };
 // y las cohortes necesitan tiempo para existir, y con un mes casi todo cliente
 // parece que todavia no ha vuelto.
 const SHOPIFY_INSIGHT_TOOL_DAYS = 90;
+// Mas corta que la de Shopify a proposito: en publicidad de pago, noventa
+// dias mezclan creatividades que ya no existen con las que estan corriendo.
+const META_INSIGHT_TOOL_DAYS = 30;
+
+// Caracteres de cuerpo por email que ve un agente. Cuatro emails de un flujo
+// a 2.000 caracteres son 8.000: suficiente para juzgar el copy y lejos de
+// llenar la ventana. El HTML original son 25 KB por email.
+const KLAVIYO_BODY_CHARS_FOR_AGENT = 2000;
+
+// A26 no analiza una ventana: analiza lo que la tienda manda hoy. El numero
+// solo fija cada cuanto se refresca el diagnostico cacheado.
+const CONTENT_SPECIALIST_LOOKBACK_DAYS = 30;
 
 type PlanBudgetPolicy = {
   dailyBudgetUsd?: number;
@@ -1418,6 +1432,148 @@ function buildAgentTools(
     },
   );
 
+  // --- Metricas del modulo de Meta ----------------------------------------
+  //
+  // Mismo criterio que las de Shopify: tres tools, ventana fijada en el
+  // executor. Las dos viejas (meta_read_ad_accounts,
+  // meta_read_campaign_insights) siguen dando la estructura cruda; estas
+  // devuelven el juicio ya calculado por las funciones SQL, que es lo que
+  // hace falta para responder "que anuncio retiro" sin recorrer seis tablas.
+  const metaWindow = () => {
+    const end = new Date();
+    return {
+      target_organization_id: organizationId,
+      period_start: new Date(
+        end.getTime() - META_INSIGHT_TOOL_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      period_end: end.toISOString(),
+      target_store_id: storeId,
+    };
+  };
+
+  registerScopedReadTool(
+    "meta_creative_health",
+    "Rendimiento por creatividad de Meta y reparto del gasto por veredicto de subasta. hook_rate y hold_rate en null con has_video false significan que el anuncio NO es un video, no que el video sea malo. enough_volume false significa que no hay impresiones suficientes para publicar tasas. UNKNOWN en un ranking es que Meta no tiene volumen para juzgarlo, no un suspenso.",
+    async (client) => {
+      const window = metaWindow();
+      return combineMetricRpcs({
+        creatividades: client.rpc("meta_creative_performance", {
+          ...window,
+          min_impressions: 1000,
+        }),
+        gasto_por_veredicto: client.rpc(
+          "meta_creative_ranking_distribution",
+          window,
+        ),
+      });
+    },
+  );
+
+  registerScopedReadTool(
+    "meta_delivery_health",
+    "Si las cifras de Meta se pueden creer: salud del pixel por evento y conjuntos en fase de aprendizaje. days_missing son dias del periodo sin ese evento; un pixel que manda visitas y dejo de mandar compras se ve vivo desde Meta y deja la optimizacion ciega.",
+    async (client) => {
+      const window = metaWindow();
+      return combineMetricRpcs({
+        pixel: client.rpc("meta_pixel_health", window),
+        aprendizaje: client.rpc("meta_learning_phase_status", window),
+      });
+    },
+  );
+
+  registerScopedReadTool(
+    "meta_change_log",
+    "Que se toco en la cuenta de Meta y que paso en los 7 dias siguientes, sobre la misma entidad y con el dia del cambio excluido de las dos ventanas. Es coincidencia en el tiempo, NO causa demostrada: no lo presentes como una relacion probada.",
+    async (client) =>
+      client.rpc("meta_change_impact", {
+        ...metaWindow(),
+        window_days: 7,
+        min_spend: 50,
+      }),
+  );
+
+  // --- Modulo de Klaviyo ----------------------------------------------
+  //
+  // Dos tools, no cinco: "que dicen estos emails" y "se puede medir lo que
+  // hacen". El cuerpo llega convertido a texto con sus enlaces -- el HTML de
+  // una plantilla son 25 KB de tablas anidadas que ni caben en el contexto ni
+  // se entienden.
+  registerScopedReadTool(
+    "klaviyo_email_content",
+    "Los emails que envia esta tienda, de campana y de flujo, con su asunto, su preheader, el cuerpo en texto y sus enlaces. Los de flujo van numerados en el orden en que los recibe el suscriptor. adds_utm false significa que ese email NO etiqueta sus enlaces: su trafico llega sin atribuir, asi que su efecto no se puede medir aunque funcione. cuerpo_cortado true significa que el texto se trunco, no que el email termine ahi.",
+    async (client) => {
+      const { data, error } = await client.rpc("klaviyo_email_inventory", {
+        target_organization_id: organizationId,
+        target_store_id: storeId,
+      });
+      if (error) return { data: null, error };
+
+      const emails = (data ?? []) as Array<Record<string, unknown>>;
+      const templateIds = [
+        ...new Set(
+          emails
+            .map((email) => email.external_template_id)
+            .filter((id): id is string => typeof id === "string"),
+        ),
+      ];
+
+      // Un solo select para todos los cuerpos; el HTML no sale de aqui.
+      const cuerpos = new Map<string, ReturnType<typeof emailHtmlToText>>();
+      if (templateIds.length > 0) {
+        const { data: plantillas } = await client
+          .from("klaviyo_templates")
+          .select("external_template_id, html_content")
+          .eq("organization_id", organizationId)
+          .in("external_template_id", templateIds);
+        for (const plantilla of (plantillas ?? []) as Array<{
+          external_template_id: string;
+          html_content: string | null;
+        }>) {
+          cuerpos.set(
+            plantilla.external_template_id,
+            emailHtmlToText(
+              plantilla.html_content,
+              KLAVIYO_BODY_CHARS_FOR_AGENT,
+            ),
+          );
+        }
+      }
+
+      return {
+        error: null,
+        data: emails.map((email) => {
+          const cuerpo =
+            typeof email.external_template_id === "string"
+              ? cuerpos.get(email.external_template_id)
+              : undefined;
+          return {
+            origen: email.source,
+            pertenece_a: email.parent_name,
+            estado: email.parent_status,
+            se_dispara_con: email.trigger_type,
+            orden_en_el_flujo: email.position_in_parent,
+            asunto: email.subject,
+            preheader: email.preview_text,
+            adds_utm: email.adds_utm,
+            cuerpo: cuerpo?.text ?? null,
+            cuerpo_cortado: cuerpo?.truncated ?? false,
+            enlaces: cuerpo?.links ?? [],
+          };
+        }),
+      };
+    },
+  );
+
+  registerScopedReadTool(
+    "klaviyo_measurement_health",
+    "Si se puede creer lo que mide el email de esta tienda: cuantos emails no llevan UTM, no tienen cuerpo o no siguen clics, mas el inventario de flujos, campanas, listas y segmentos y el estado del ultimo sync. recursos_no_traidos con valor significa que el catalogo esta INCOMPLETO: que un flujo no aparezca no prueba que no exista.",
+    async (client) =>
+      client.rpc("klaviyo_measurement_health", {
+        target_organization_id: organizationId,
+        target_store_id: storeId,
+      }),
+  );
+
   registerScopedReadTool(
     "get_organization_profile",
     "Lee el perfil operativo de la organizacion activa, sin credenciales ni secretos.",
@@ -2455,6 +2611,10 @@ const LEAN_OUTPUT_BY_AGENT: Record<string, readonly OmittableOutputField[]> = {
   a18_plan_mensual: ["answer", "findings", "recommendations"],
   a13_operativa_shopify: ["answer", "findings", "recommendations"],
   a14_operativa_meta: ["answer", "findings", "recommendations"],
+  a23_creatividad_meta: ["answer", "findings", "recommendations"],
+  a24_medicion_meta: ["answer", "findings", "recommendations"],
+  a25_cambios_meta: ["answer", "findings", "recommendations"],
+  a26_contenido_email: ["answer", "findings", "recommendations"],
   a02_monitor_negocio: ["recommendations"],
 };
 
@@ -4478,7 +4638,7 @@ export async function runEmailAnalystAgent(
             .eq("organization_id", organizationId),
           supabase
             .from("integration_sync_runs")
-            .select("status, error_message, finished_at")
+            .select("status, error_message, finished_at, records_failed")
             .eq("organization_id", organizationId)
             .eq("provider", "klaviyo")
             .order("started_at", { ascending: false })
@@ -4524,7 +4684,13 @@ export async function runEmailAnalystAgent(
 
       // ADR-0006 pto 8: que se vea si el supuesto no se cumple. Un 0 con el
       // sync roto no autoriza a concluir que la tienda no tiene flujos.
-      const syncOk = lastSync.data?.status === "succeeded";
+      // `succeeded` no basta: el sync se anota completo aunque se haya dejado
+      // recursos por el camino (un endpoint que cambió de contrato). Eso va en
+      // records_failed, y un catálogo incompleto no autoriza a concluir que
+      // algo no existe.
+      const syncOk =
+        lastSync.data?.status === "succeeded" &&
+        (lastSync.data?.records_failed ?? 0) === 0;
       const flowsKnown = (flowCount.count ?? 0) > 0;
       blocks.push({
         label: "Cobertura del dato (leelo antes de concluir que algo NO existe)",
@@ -5083,6 +5249,420 @@ export async function getOperativaMetaDiagnostic(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Especialistas del modulo de Meta (A23/A24/A25).
+//
+// Mismo criterio que con Shopify: A14 ya recibe gasto, periodo anterior,
+// financiero, tareas, fases y alertas. Meterle ademas creatividades, veredictos
+// de subasta, pixel, aprendizaje, publicos y registro de cambios lo dejaria
+// mirando siete temas distintos a la vez, y un agente que lo mira todo no mira
+// nada. A14 se queda con lo que ya tenia: el dinero contra el break-even.
+//
+// El corte es por pregunta, no por tabla:
+//   A23 -- ¿que pieza funciona?      creatividades y veredictos de subasta
+//   A24 -- ¿me puedo fiar del dato?  pixel, aprendizaje y anuncios parados
+//   A25 -- ¿que cambio y que paso?   registro de cambios con antes y despues
+//
+// A24 va antes que A23 en el orden de lectura de la pagina a proposito: si el
+// pixel esta apagado, el ROAS por creatividad que analiza A23 mide otra cosa.
+// ---------------------------------------------------------------------------
+
+const META_SPECIALIST_LOOKBACK_DAYS = 30;
+
+// Ventana a cada lado de un cambio, la misma que usa la pantalla: comparar con
+// una ventana distinta daria dos cifras para el mismo hecho.
+const META_CHANGE_WINDOW_DAYS = 7;
+const META_CHANGE_MIN_SPEND = 50;
+
+// Por debajo de esto una tasa de video es ruido. Mismo umbral que /meta: el
+// agente y la pantalla tienen que juzgar con el mismo raton, o el consultor
+// leera dos veredictos distintos sobre el mismo anuncio.
+const META_MIN_IMPRESSIONS = 1000;
+
+function metaSpecialistWindow(organizationId: string) {
+  const now = new Date();
+  const periodStart = new Date(
+    now.getTime() - META_SPECIALIST_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+  );
+  return {
+    now,
+    periodStart,
+    window: {
+      target_organization_id: organizationId,
+      period_start: periodStart.toISOString(),
+      period_end: now.toISOString(),
+      target_store_id: null,
+    },
+  };
+}
+
+export async function runCreatividadMetaAgent(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  runOptions?: DiagnosticRunOptions,
+) {
+  const { now, periodStart, window } = metaSpecialistWindow(organizationId);
+
+  return runGenericDiagnosticAgent(
+    env,
+    context,
+    organizationId,
+    "a23_creatividad_meta",
+    "Decir que creatividad hay que retirar, cual escalar y cuanto presupuesto esta detras de piezas que Meta pone por debajo de la media.",
+    { start: periodStart.toISOString(), end: now.toISOString() },
+    null,
+    META_SPECIALIST_LOOKBACK_DAYS,
+    async (supabase) => {
+      const [creatives, ranking] = await Promise.all([
+        supabase.rpc("meta_creative_performance", {
+          ...window,
+          min_impressions: META_MIN_IMPRESSIONS,
+        }),
+        supabase.rpc("meta_creative_ranking_distribution", window),
+      ]);
+
+      const backfillNotice = await loadMetaBackfillNoticeBlock(
+        supabase,
+        organizationId,
+      );
+
+      return [
+        ...(backfillNotice ? [backfillNotice] : []),
+        {
+          label: `Rendimiento por creatividad (${META_SPECIALIST_LOOKBACK_DAYS} dias). hook_rate/hold_rate en null con has_video false significa que NO es un video, no que sea un video malo. enough_volume false significa menos de ${META_MIN_IMPRESSIONS} impresiones: ahi las tasas no se publican porque serian ruido`,
+          data: creatives.data ?? [],
+        },
+        {
+          label:
+            "Reparto del GASTO por veredicto de subasta de Meta. UNKNOWN y SIN_VEREDICTO no son suspensos: son 'Meta no tiene volumen para juzgarlo'",
+          data: ranking.data ?? [],
+        },
+        await loadOpenTasksBlock(supabase, organizationId),
+        await loadPlanPhasesBlock(supabase, organizationId),
+      ];
+    },
+    runOptions,
+  );
+}
+
+export async function getCreatividadMetaDiagnostic(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  return getCachedDiagnostic(
+    env,
+    context,
+    organizationId,
+    "a23_creatividad_meta",
+    null,
+    META_SPECIALIST_LOOKBACK_DAYS,
+    () =>
+      runCreatividadMetaAgent(env, context, organizationId, {
+        trigger: "cron",
+        enforceManualRefreshCap: false,
+      }),
+  );
+}
+
+/**
+ * A26: el contenido del email. Lee el texto, no las cifras.
+ *
+ * Sin ventana temporal a proposito: un flujo activo es lo que la tienda
+ * manda HOY, no lo que mando en los ultimos 30 dias. El cuerpo llega ya
+ * convertido a texto con sus enlaces -- 25 KB de HTML por email ni caben en
+ * el contexto ni se entienden.
+ */
+export async function runContenidoEmailAgent(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  runOptions?: DiagnosticRunOptions,
+) {
+  const now = new Date();
+
+  return runGenericDiagnosticAgent(
+    env,
+    context,
+    organizationId,
+    "a26_contenido_email",
+    "Leer los asuntos, preheaders y cuerpos de los emails que envia esta tienda y decir que falla en el texto: promesas que el cuerpo no cumple, llamadas a la accion sin destino util y secuencias que repiten el mismo mensaje.",
+    { start: now.toISOString(), end: now.toISOString() },
+    null,
+    CONTENT_SPECIALIST_LOOKBACK_DAYS,
+    async (supabase) => {
+      const { data: emails, error } = await supabase.rpc(
+        "klaviyo_email_inventory",
+        { target_organization_id: organizationId, target_store_id: null },
+      );
+
+      if (error) {
+        return [
+          {
+            label: "Emails de esta tienda",
+            data: `sin_datos: ${error.message}`,
+          },
+        ];
+      }
+
+      const filas = (emails ?? []) as Array<Record<string, unknown>>;
+      const templateIds = [
+        ...new Set(
+          filas
+            .map((fila) => fila.external_template_id)
+            .filter((id): id is string => typeof id === "string"),
+        ),
+      ];
+
+      const cuerpos = new Map<string, ReturnType<typeof emailHtmlToText>>();
+      if (templateIds.length > 0) {
+        const { data: plantillas } = await supabase
+          .from("klaviyo_templates")
+          .select("external_template_id, html_content")
+          .eq("organization_id", organizationId)
+          .in("external_template_id", templateIds);
+        for (const plantilla of (plantillas ?? []) as Array<{
+          external_template_id: string;
+          html_content: string | null;
+        }>) {
+          cuerpos.set(
+            plantilla.external_template_id,
+            emailHtmlToText(
+              plantilla.html_content,
+              KLAVIYO_BODY_CHARS_FOR_AGENT,
+            ),
+          );
+        }
+      }
+
+      // Los de flujo van en su orden real: la secuencia se juzga como
+      // secuencia, no como tres emails sueltos.
+      const preparados = filas.map((fila) => {
+        const cuerpo =
+          typeof fila.external_template_id === "string"
+            ? cuerpos.get(fila.external_template_id)
+            : undefined;
+        return {
+          origen: fila.source,
+          pertenece_a: fila.parent_name,
+          estado: fila.parent_status,
+          se_dispara_con: fila.trigger_type,
+          orden_en_el_flujo: fila.position_in_parent,
+          asunto: fila.subject,
+          preheader: fila.preview_text,
+          etiqueta_sus_enlaces: fila.adds_utm,
+          cuerpo: cuerpo?.text ?? null,
+          cuerpo_cortado: cuerpo?.truncated ?? false,
+          enlaces: cuerpo?.links ?? [],
+        };
+      });
+
+      return [
+        {
+          label:
+            "Emails que envia esta tienda hoy, de campana y de flujo. Los de flujo llevan su orden real dentro del flujo. cuerpo_cortado true significa que el texto se trunco por longitud, NO que el email termine ahi",
+          data: preparados,
+        },
+        {
+          label:
+            "Cobertura del dato (leelo antes de concluir que algo NO existe)",
+          data: await loadKlaviyoCoverage(supabase, organizationId),
+        },
+        await loadOpenTasksBlock(supabase, organizationId),
+        await loadPlanPhasesBlock(supabase, organizationId),
+      ];
+    },
+    runOptions,
+  );
+}
+
+export async function getContenidoEmailDiagnostic(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  return getCachedDiagnostic(
+    env,
+    context,
+    organizationId,
+    "a26_contenido_email",
+    null,
+    CONTENT_SPECIALIST_LOOKBACK_DAYS,
+    () =>
+      runContenidoEmailAgent(env, context, organizationId, {
+        trigger: "cron",
+        enforceManualRefreshCap: false,
+      }),
+  );
+}
+
+/**
+ * Que sabemos y que no del catalogo de Klaviyo. Sin esto, 0 emails y
+ * "no hemos podido traerlos" llegan al agente como el mismo dato.
+ */
+async function loadKlaviyoCoverage(
+  supabase: SupabaseClient,
+  organizationId: string,
+) {
+  const { data } = await supabase.rpc("klaviyo_measurement_health", {
+    target_organization_id: organizationId,
+    target_store_id: null,
+  });
+  const salud = (data ?? [])[0] as Record<string, unknown> | undefined;
+  if (!salud) return { fiabilidad: "sin_datos_de_cobertura" };
+  return {
+    emails_que_conocemos: salud.emails_total,
+    emails_sin_cuerpo: salud.emails_sin_cuerpo,
+    ultimo_sync: salud.ultimo_sync,
+    ultimo_sync_estado: salud.ultimo_sync_estado,
+    fiabilidad: salud.recursos_no_traidos
+      ? `El catalogo esta INCOMPLETO: el ultimo sync no trajo ${String(salud.recursos_no_traidos)}. Que un email o un flujo no aparezca aqui NO prueba que no exista.`
+      : "El catalogo esta al dia: si un email no aparece, es que no existe.",
+  };
+}
+
+export async function runMedicionMetaAgent(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  runOptions?: DiagnosticRunOptions,
+) {
+  const { now, periodStart, window } = metaSpecialistWindow(organizationId);
+
+  return runGenericDiagnosticAgent(
+    env,
+    context,
+    organizationId,
+    "a24_medicion_meta",
+    "Decir si las cifras de esta cuenta se pueden creer: si el pixel dispara los eventos que las campañas optimizan, si hay anuncios parados por revision y que conjuntos siguen en aprendizaje.",
+    { start: periodStart.toISOString(), end: now.toISOString() },
+    null,
+    META_SPECIALIST_LOOKBACK_DAYS,
+    async (supabase) => {
+      const [pixels, learning, issues] = await Promise.all([
+        supabase.rpc("meta_pixel_health", window),
+        supabase.rpc("meta_learning_phase_status", window),
+        supabase
+          .from("meta_ad_issues")
+          .select("level, error_code, error_type, error_summary, detected_at")
+          .eq("organization_id", organizationId)
+          .limit(30),
+      ]);
+
+      return [
+        {
+          label:
+            "Salud del pixel, una fila por (pixel, evento). days_missing son dias del periodo SIN ese evento: un pixel que manda PageView y dejo de mandar Purchase se ve vivo desde Meta y deja la optimizacion ciega. Un pixel con event_name null es un pixel del que no tenemos ninguna estadistica",
+          data: pixels.data ?? [],
+        },
+        {
+          label:
+            "Conjuntos y fase de aprendizaje. last_significant_change es el ultimo cambio registrado sobre el conjunto: si un conjunto lleva semanas en aprendizaje y se toca cada pocos dias, el problema no es la creatividad",
+          data: learning.data ?? [],
+        },
+        {
+          label:
+            "Anuncios con problemas de revision. Un anuncio rechazado no gasta, y en las cifras se ve igual que uno que dejo de funcionar",
+          data: issues.data ?? [],
+        },
+        await loadOpenTasksBlock(supabase, organizationId),
+        await loadPlanPhasesBlock(supabase, organizationId),
+      ];
+    },
+    runOptions,
+  );
+}
+
+export async function getMedicionMetaDiagnostic(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  return getCachedDiagnostic(
+    env,
+    context,
+    organizationId,
+    "a24_medicion_meta",
+    null,
+    META_SPECIALIST_LOOKBACK_DAYS,
+    () =>
+      runMedicionMetaAgent(env, context, organizationId, {
+        trigger: "cron",
+        enforceManualRefreshCap: false,
+      }),
+  );
+}
+
+export async function runCambiosMetaAgent(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  runOptions?: DiagnosticRunOptions,
+) {
+  const { now, periodStart, window } = metaSpecialistWindow(organizationId);
+
+  return runGenericDiagnosticAgent(
+    env,
+    context,
+    organizationId,
+    "a25_cambios_meta",
+    "Decir que se toco en la cuenta durante el periodo y que paso despues, separando lo que coincidio en el tiempo de lo que se puede afirmar.",
+    { start: periodStart.toISOString(), end: now.toISOString() },
+    null,
+    META_SPECIALIST_LOOKBACK_DAYS,
+    async (supabase) => {
+      const [changes, audiences] = await Promise.all([
+        supabase.rpc("meta_change_impact", {
+          ...window,
+          window_days: META_CHANGE_WINDOW_DAYS,
+          min_spend: META_CHANGE_MIN_SPEND,
+        }),
+        supabase.rpc("meta_audience_overview", {
+          target_organization_id: organizationId,
+          target_store_id: null,
+        }),
+      ]);
+
+      return [
+        {
+          label: `Cambios de la cuenta con los ${META_CHANGE_WINDOW_DAYS} dias de antes y de despues sobre la MISMA entidad. El dia del cambio queda fuera de las dos ventanas. Esto es coincidencia temporal, NO causa demostrada`,
+          data: changes.data ?? [],
+        },
+        {
+          label:
+            "Publicos de la cuenta. ad_sets_using cuenta que el publico aparezca en la segmentacion, sin distinguir si es para incluir o para excluir: no propongas borrar uno por estar a cero sin avisar de eso",
+          data: audiences.data ?? [],
+        },
+        await loadOpenTasksBlock(supabase, organizationId),
+        await loadPlanPhasesBlock(supabase, organizationId),
+      ];
+    },
+    runOptions,
+  );
+}
+
+export async function getCambiosMetaDiagnostic(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  return getCachedDiagnostic(
+    env,
+    context,
+    organizationId,
+    "a25_cambios_meta",
+    null,
+    META_SPECIALIST_LOOKBACK_DAYS,
+    () =>
+      runCambiosMetaAgent(env, context, organizationId, {
+        trigger: "cron",
+        enforceManualRefreshCap: false,
+      }),
+  );
+}
+
+
 // ===========================================================================
 // Orquestador de diagnosticos de fondo (fase 3, decision de Rafa 2026-08-31)
 // ---------------------------------------------------------------------------
@@ -5120,6 +5700,15 @@ const ORCHESTRATED_DIAGNOSTIC_AGENT_CODES = [
   "a20_retencion_clientes",
   "a21_adquisicion_shopify",
   "a22_postventa_shopify",
+  // Especialistas del modulo de Meta. Van despues de a14 en la lista y no en
+  // su lugar: a14 sigue respondiendo por el dinero contra el break-even, que
+  // es otra pregunta.
+  "a23_creatividad_meta",
+  "a24_medicion_meta",
+  "a25_cambios_meta",
+  // Especialista de contenido del modulo de Klaviyo. A12 sigue respondiendo
+  // por como VA el email; este responde por que DICEN los emails.
+  "a26_contenido_email",
 ] as const;
 
 /**
@@ -5568,6 +6157,34 @@ export async function runDiagnosticOrchestratorTick(env: ApiEnv): Promise<
       );
     } else if (item.agentCode === "a22_postventa_shopify") {
       result = await runPostventaShopifyAgent(
+        env,
+        context,
+        item.organizationId,
+        { trigger: "cron", enforceManualRefreshCap: false },
+      );
+    } else if (item.agentCode === "a23_creatividad_meta") {
+      result = await runCreatividadMetaAgent(
+        env,
+        context,
+        item.organizationId,
+        { trigger: "cron", enforceManualRefreshCap: false },
+      );
+    } else if (item.agentCode === "a24_medicion_meta") {
+      result = await runMedicionMetaAgent(
+        env,
+        context,
+        item.organizationId,
+        { trigger: "cron", enforceManualRefreshCap: false },
+      );
+    } else if (item.agentCode === "a26_contenido_email") {
+      result = await runContenidoEmailAgent(
+        env,
+        context,
+        item.organizationId,
+        { trigger: "cron", enforceManualRefreshCap: false },
+      );
+    } else if (item.agentCode === "a25_cambios_meta") {
+      result = await runCambiosMetaAgent(
         env,
         context,
         item.organizationId,

@@ -5,6 +5,7 @@ import {
 } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { isErr } from "./result-guard.js";
+import { createSingleFlight } from "./single-flight.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -269,7 +270,7 @@ async function loadConsultantOrganizationIds(
   };
 }
 
-export async function resolveAuthContext(
+async function resolveAuthContextUncached(
   env: ApiEnv,
   authorization: string | undefined,
 ): Promise<AuthContextResult> {
@@ -301,12 +302,18 @@ export async function resolveAuthContext(
     };
   }
 
-  const profileResult = await loadProfile(supabase, user.id);
+  // Cada await de aqui abajo es un round-trip a Supabase, y esta funcion corre
+  // en TODA ruta autenticada. Perfil y memberships solo dependen de user.id,
+  // asi que van juntos: la cadena baja de 6 saltos secuenciales a 4.
+  const [profileResult, membershipsResult] = await Promise.all([
+    loadProfile(supabase, user.id),
+    loadMemberships(supabase, user.id),
+  ]);
+
   if (isErr(profileResult)) {
     return { ok: false, error: profileResult.error };
   }
 
-  const membershipsResult = await loadMemberships(supabase, user.id);
   if (isErr(membershipsResult)) {
     return { ok: false, error: membershipsResult.error };
   }
@@ -363,10 +370,20 @@ export async function resolveAuthContext(
     (membership) => membership.organization_id,
   );
 
-  const { data: organizations, error: organizationsError } = await supabase
-    .from("organizations")
-    .select("id, display_name, slug, status, timezone, currency_code")
-    .in("id", organizationIds);
+  // Mismo motivo: ninguna de las dos depende de la otra.
+  const [
+    { data: organizations, error: organizationsError },
+    { data: subscriptions, error: subscriptionsError },
+  ] = await Promise.all([
+    supabase
+      .from("organizations")
+      .select("id, display_name, slug, status, timezone, currency_code")
+      .in("id", organizationIds),
+    supabase
+      .from("service_subscriptions")
+      .select("id, organization_id, plan_code, status, starts_at, ends_at")
+      .in("organization_id", organizationIds),
+  ]);
 
   if (organizationsError) {
     return {
@@ -378,11 +395,6 @@ export async function resolveAuthContext(
       },
     };
   }
-
-  const { data: subscriptions, error: subscriptionsError } = await supabase
-    .from("service_subscriptions")
-    .select("id, organization_id, plan_code, status, starts_at, ends_at")
-    .in("organization_id", organizationIds);
 
   if (subscriptionsError) {
     return {
@@ -422,4 +434,103 @@ export async function resolveAuthContext(
       subscriptions: (subscriptions ?? []) as Subscription[],
     },
   };
+}
+
+// Toda ruta autenticada resuelve el contexto, y una sola pantalla del portal
+// dispara ~10 peticiones a la vez con el mismo token (bootstrap, acciones,
+// notificaciones, overview, metricas, insights...). Sin esto cada una repetia
+// la misma cadena de round-trips a Supabase -- getUser + perfil + memberships
+// + orgs + suscripciones -- y en local, con el navegador limitando a 6
+// conexiones por origen, la rafaga se encolaba hasta pasarse del timeout del
+// cliente. El single-flight colapsa la rafaga en una sola resolucion; el TTL
+// corto cubre las recargas inmediatas.
+//
+// Lo cacheado es solo el chequeo de membership a nivel API: toda query real
+// sigue yendo con el token del usuario y la RLS de Postgres decide igual, asi
+// que una revocacion queda cubierta aunque el contexto siga en cache.
+const AUTH_CONTEXT_TTL_MS = 30_000;
+
+const authContextCache = new Map<
+  string,
+  { expiresAt: number; context: AuthContext }
+>();
+const authContextSingleFlight = createSingleFlight<AuthContextResult>();
+
+/** `exp` del JWT en ms, sin verificar la firma: solo para no cachear de mas. */
+function tokenExpiryMs(token: string): number | null {
+  const payload = token.split(".")[1];
+
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const { exp } = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as { exp?: unknown };
+    return typeof exp === "number" ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Solo para tests: deja el proceso sin contextos cacheados. */
+export function clearAuthContextCache() {
+  authContextCache.clear();
+}
+
+export async function withAuthContextCache(
+  token: string,
+  resolve: () => Promise<AuthContextResult>,
+): Promise<AuthContextResult> {
+  const cached = authContextCache.get(token);
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return { ok: true, context: cached.context };
+  }
+
+  return authContextSingleFlight(token, async () => {
+    const result = await resolve();
+
+    // Un fallo puede ser transitorio (Supabase caido, red): cachearlo dejaria
+    // al usuario fuera durante todo el TTL.
+    if (!result.ok) {
+      return result;
+    }
+
+    const now = Date.now();
+    const expiresAt = Math.min(
+      now + AUTH_CONTEXT_TTL_MS,
+      tokenExpiryMs(token) ?? Number.POSITIVE_INFINITY,
+    );
+
+    if (expiresAt > now) {
+      // Un proceso vivo acumula un token por sesion y por hora; purgar lo
+      // caducado en cada miss basta para que el Map no crezca sin limite.
+      for (const [key, entry] of authContextCache) {
+        if (entry.expiresAt <= now) {
+          authContextCache.delete(key);
+        }
+      }
+      authContextCache.set(token, { expiresAt, context: result.context });
+    }
+
+    return result;
+  });
+}
+
+export function resolveAuthContext(
+  env: ApiEnv,
+  authorization: string | undefined,
+): Promise<AuthContextResult> {
+  if (!authorization?.startsWith("Bearer ")) {
+    return Promise.resolve({
+      ok: false,
+      error: { statusCode: 401, error: "missing_bearer_token" },
+    });
+  }
+
+  return withAuthContextCache(authorization.slice("Bearer ".length), () =>
+    resolveAuthContextUncached(env, authorization),
+  );
 }

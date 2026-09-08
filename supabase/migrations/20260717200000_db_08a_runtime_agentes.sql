@@ -5,7 +5,7 @@
 -- validan contra schema y las escrituras propuestas requieren aprobacion.
 -- Lectura via RLS; escritura solo via service role.
 
-create table public.agent_definitions (
+create table if not exists public.agent_definitions (
   id uuid primary key default gen_random_uuid(),
   code varchar(80) not null unique,
   name varchar(255) not null,
@@ -15,7 +15,7 @@ create table public.agent_definitions (
   updated_at timestamptz not null default now()
 );
 
-create table public.prompt_versions (
+create table if not exists public.prompt_versions (
   id uuid primary key default gen_random_uuid(),
   code varchar(120) not null,
   version varchar(50) not null,
@@ -25,7 +25,7 @@ create table public.prompt_versions (
   constraint prompt_versions_unique unique (code, version)
 );
 
-create table public.agent_versions (
+create table if not exists public.agent_versions (
   id uuid primary key default gen_random_uuid(),
   definition_id uuid not null references public.agent_definitions (id) on delete cascade,
   version varchar(50) not null,
@@ -44,7 +44,7 @@ create table public.agent_versions (
   )
 );
 
-create table public.agent_runs (
+create table if not exists public.agent_runs (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   agent_version_id uuid not null references public.agent_versions (id) on delete restrict,
@@ -69,7 +69,7 @@ create table public.agent_runs (
   constraint agent_runs_status check (status in ('running', 'succeeded', 'failed', 'rejected_output'))
 );
 
-create table public.agent_run_steps (
+create table if not exists public.agent_run_steps (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.agent_runs (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -82,7 +82,7 @@ create table public.agent_run_steps (
   constraint agent_run_steps_unique_position unique (run_id, position)
 );
 
-create table public.agent_tool_calls (
+create table if not exists public.agent_tool_calls (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.agent_runs (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -94,7 +94,7 @@ create table public.agent_tool_calls (
   created_at timestamptz not null default now()
 );
 
-create table public.agent_context_snapshots (
+create table if not exists public.agent_context_snapshots (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.agent_runs (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -104,7 +104,7 @@ create table public.agent_context_snapshots (
   constraint agent_context_snapshots_level check (context_level in ('C0', 'C1', 'C2', 'C3', 'C4'))
 );
 
-create table public.agent_outputs (
+create table if not exists public.agent_outputs (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.agent_runs (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -121,7 +121,7 @@ create table public.agent_outputs (
   constraint agent_outputs_unique_run unique (run_id)
 );
 
-create table public.agent_approvals (
+create table if not exists public.agent_approvals (
   id uuid primary key default gen_random_uuid(),
   output_id uuid not null references public.agent_outputs (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -134,7 +134,7 @@ create table public.agent_approvals (
 
 -- Auditoria de consultas del futuro SQL Gateway (AI-03): cada query queda
 -- registrada con tablas, filas y duracion desde el primer dia.
-create table public.agent_query_runs (
+create table if not exists public.agent_query_runs (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.agent_runs (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -147,28 +147,30 @@ create table public.agent_query_runs (
   created_at timestamptz not null default now()
 );
 
-create index agent_versions_definition_id_idx on public.agent_versions (definition_id);
-create index agent_runs_organization_id_idx on public.agent_runs (organization_id);
-create index agent_runs_agent_version_id_idx on public.agent_runs (agent_version_id);
-create index agent_runs_status_idx on public.agent_runs (status);
-create index agent_runs_started_at_idx on public.agent_runs (started_at);
-create index agent_run_steps_run_id_idx on public.agent_run_steps (run_id);
-create index agent_run_steps_organization_id_idx on public.agent_run_steps (organization_id);
-create index agent_tool_calls_run_id_idx on public.agent_tool_calls (run_id);
-create index agent_tool_calls_organization_id_idx on public.agent_tool_calls (organization_id);
-create index agent_context_snapshots_run_id_idx on public.agent_context_snapshots (run_id);
-create index agent_context_snapshots_organization_id_idx on public.agent_context_snapshots (organization_id);
-create index agent_outputs_organization_id_idx on public.agent_outputs (organization_id);
-create index agent_outputs_status_idx on public.agent_outputs (status);
-create index agent_approvals_output_id_idx on public.agent_approvals (output_id);
-create index agent_approvals_organization_id_idx on public.agent_approvals (organization_id);
-create index agent_query_runs_run_id_idx on public.agent_query_runs (run_id);
-create index agent_query_runs_organization_id_idx on public.agent_query_runs (organization_id);
+create index if not exists agent_versions_definition_id_idx on public.agent_versions (definition_id);
+create index if not exists agent_runs_organization_id_idx on public.agent_runs (organization_id);
+create index if not exists agent_runs_agent_version_id_idx on public.agent_runs (agent_version_id);
+create index if not exists agent_runs_status_idx on public.agent_runs (status);
+create index if not exists agent_runs_started_at_idx on public.agent_runs (started_at);
+create index if not exists agent_run_steps_run_id_idx on public.agent_run_steps (run_id);
+create index if not exists agent_run_steps_organization_id_idx on public.agent_run_steps (organization_id);
+create index if not exists agent_tool_calls_run_id_idx on public.agent_tool_calls (run_id);
+create index if not exists agent_tool_calls_organization_id_idx on public.agent_tool_calls (organization_id);
+create index if not exists agent_context_snapshots_run_id_idx on public.agent_context_snapshots (run_id);
+create index if not exists agent_context_snapshots_organization_id_idx on public.agent_context_snapshots (organization_id);
+create index if not exists agent_outputs_organization_id_idx on public.agent_outputs (organization_id);
+create index if not exists agent_outputs_status_idx on public.agent_outputs (status);
+create index if not exists agent_approvals_output_id_idx on public.agent_approvals (output_id);
+create index if not exists agent_approvals_organization_id_idx on public.agent_approvals (organization_id);
+create index if not exists agent_query_runs_run_id_idx on public.agent_query_runs (run_id);
+create index if not exists agent_query_runs_organization_id_idx on public.agent_query_runs (organization_id);
 
+drop trigger if exists set_agent_definitions_updated_at on public.agent_definitions;
 create trigger set_agent_definitions_updated_at
 before update on public.agent_definitions
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_agent_outputs_updated_at on public.agent_outputs;
 create trigger set_agent_outputs_updated_at
 before update on public.agent_outputs
 for each row execute function private.set_updated_at();
@@ -184,35 +186,35 @@ alter table public.agent_outputs enable row level security;
 alter table public.agent_approvals enable row level security;
 alter table public.agent_query_runs enable row level security;
 
-create policy "agent_definitions_select_all"
-on public.agent_definitions for select to authenticated using (true);
+drop policy if exists "agent_definitions_select_all" on public.agent_definitions;
+create policy "agent_definitions_select_all" on public.agent_definitions for select to authenticated using (true);
 
-create policy "prompt_versions_select_all"
-on public.prompt_versions for select to authenticated using (true);
+drop policy if exists "prompt_versions_select_all" on public.prompt_versions;
+create policy "prompt_versions_select_all" on public.prompt_versions for select to authenticated using (true);
 
-create policy "agent_versions_select_all"
-on public.agent_versions for select to authenticated using (true);
+drop policy if exists "agent_versions_select_all" on public.agent_versions;
+create policy "agent_versions_select_all" on public.agent_versions for select to authenticated using (true);
 
-create policy "agent_runs_select_authorized"
-on public.agent_runs for select to authenticated
+drop policy if exists "agent_runs_select_authorized" on public.agent_runs;
+create policy "agent_runs_select_authorized" on public.agent_runs for select to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "agent_run_steps_select_authorized"
-on public.agent_run_steps for select to authenticated
+drop policy if exists "agent_run_steps_select_authorized" on public.agent_run_steps;
+create policy "agent_run_steps_select_authorized" on public.agent_run_steps for select to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "agent_tool_calls_select_authorized"
-on public.agent_tool_calls for select to authenticated
+drop policy if exists "agent_tool_calls_select_authorized" on public.agent_tool_calls;
+create policy "agent_tool_calls_select_authorized" on public.agent_tool_calls for select to authenticated
 using (private.can_access_org(organization_id));
 
 -- Snapshots de contexto pueden contener datos amplios: solo consultores/admins.
-create policy "agent_context_snapshots_select_consultants"
-on public.agent_context_snapshots for select to authenticated
+drop policy if exists "agent_context_snapshots_select_consultants" on public.agent_context_snapshots;
+create policy "agent_context_snapshots_select_consultants" on public.agent_context_snapshots for select to authenticated
 using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
 
 -- El cliente solo ve salidas ya aprobadas/publicadas; consultores/admins ven todas.
-create policy "agent_outputs_select_authorized"
-on public.agent_outputs for select to authenticated
+drop policy if exists "agent_outputs_select_authorized" on public.agent_outputs;
+create policy "agent_outputs_select_authorized" on public.agent_outputs for select to authenticated
 using (
   private.can_access_org(organization_id)
   and (
@@ -222,12 +224,12 @@ using (
   )
 );
 
-create policy "agent_approvals_select_consultants"
-on public.agent_approvals for select to authenticated
+drop policy if exists "agent_approvals_select_consultants" on public.agent_approvals;
+create policy "agent_approvals_select_consultants" on public.agent_approvals for select to authenticated
 using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
 
-create policy "agent_query_runs_select_consultants"
-on public.agent_query_runs for select to authenticated
+drop policy if exists "agent_query_runs_select_consultants" on public.agent_query_runs;
+create policy "agent_query_runs_select_consultants" on public.agent_query_runs for select to authenticated
 using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
 
 grant select on public.agent_definitions to authenticated;
@@ -251,7 +253,8 @@ values (
   'a02_monitor_negocio',
   'Monitor del negocio',
   'Analiza las metricas sincronizadas y genera un diagnostico ejecutivo con hallazgos y recomendaciones.'
-);
+)
+on conflict (code) do nothing;
 
 insert into public.prompt_versions (code, version, content, checksum)
 values (
@@ -259,9 +262,11 @@ values (
   'v1',
   'Eres el consultor IA de EcomScaling para marcas de ecommerce. Analiza exclusivamente los datos que se te entregan en el contexto (metricas ya verificadas de la organizacion activa). Nunca inventes cifras ni hables de otras organizaciones. Cada hallazgo debe citar la metrica y el periodo del que sale. Se directo, cuantitativo y accionable; prioriza margen y beneficio neto sobre facturacion bruta. Si faltan datos (costes sin configurar, integraciones sin conectar), dilo como warning en vez de rellenar huecos.',
   encode(sha256('a02_monitor_negocio_system_v1'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v1', 'claude-opus-4-8', 'a02_monitor_negocio_system', 'v1', '[]'::jsonb, 'required_before_publish'
 from public.agent_definitions
-where code = 'a02_monitor_negocio';
+where code = 'a02_monitor_negocio'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

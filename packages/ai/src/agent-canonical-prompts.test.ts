@@ -9,6 +9,7 @@ const promptSources = [
   "supabase/migrations/20260826120000_ai_22_prepared_agent_prompts.sql",
   "supabase/migrations/20260905140000_ai_a19_arquitecto_camino.sql",
   "supabase/migrations/20260907180000_ai_agentes_shopify_especialistas.sql",
+  "supabase/migrations/20260908150000_ai_agentes_meta_especialistas.sql",
 ];
 
 const promptCodes = [
@@ -26,6 +27,9 @@ const promptCodes = [
   "a20_retencion_clientes_system",
   "a21_adquisicion_shopify_system",
   "a22_postventa_shopify_system",
+  "a23_creatividad_meta_system",
+  "a24_medicion_meta_system",
+  "a25_cambios_meta_system",
 ];
 
 const requiredSections = [

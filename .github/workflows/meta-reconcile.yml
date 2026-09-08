@@ -2,12 +2,18 @@ name: Meta Ads Reconcile
 
 on:
   workflow_dispatch:
-  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
-  # automaticos. Para reactivar, descomentar el bloque de abajo.
-  # schedule:
-  #   # Reconciliacion diaria: Meta reatribuye conversiones dias despues del clic,
-  #   # asi que el sync incremental reconsulta una ventana movil de 28 dias.
-  #   - cron: "17 3 * * *"
+  # Reactivado 2026-09-08 a peticion de Rafa, junto con klaviyo-reconcile.
+  # Estuvo apagado desde el 2026-08-03 y mientras tanto Meta no se refrescaba
+  # solo: lo que se ve en /meta era de la ultima pasada manual.
+  #
+  # Shopify NO se reactiva aqui a proposito: el worker del VPS ya corre
+  # shopify-reconcile a diario (02:00 Europe/Madrid, repeatable de BullMQ).
+  # Encender ademas shopify-reconcile.yml duplicaria el sync y el gasto de
+  # rate limit contra la Admin API.
+  schedule:
+    # Reconciliacion diaria: Meta reatribuye conversiones dias despues del clic,
+    # asi que el sync incremental reconsulta una ventana movil de 28 dias.
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read

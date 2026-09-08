@@ -12,6 +12,7 @@
 --
 -- Resto de la funcion identico a 20260829120000_klaviyo_email_report.
 
+drop function if exists public.klaviyo_email_report(uuid, date, date);
 create or replace function public.klaviyo_email_report(
   target_organization_id uuid,
   period_start date,

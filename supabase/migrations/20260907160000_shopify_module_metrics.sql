@@ -19,6 +19,7 @@
 -- exactamente el error que hacia que el 100% de los pedidos pareciera de
 -- clientes primerizos.
 
+drop function if exists public.shopify_customer_recurrence(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_customer_recurrence(
   target_organization_id uuid,
   period_start timestamptz,
@@ -70,6 +71,7 @@ $$;
 -- atribuir a nadie. Se excluyen del calculo y se devuelven aparte: si son
 -- muchos, la media por cliente esta describiendo solo a media tienda.
 
+drop function if exists public.shopify_customer_value(uuid, uuid);
 create or replace function public.shopify_customer_value(
   target_organization_id uuid,
   target_store_id uuid
@@ -121,6 +123,7 @@ $$;
 -- `cohort_customers` va repetido en cada fila para que la retencion se calcule
 -- en la UI sin una segunda consulta.
 
+drop function if exists public.shopify_cohorts(uuid, uuid, integer);
 create or replace function public.shopify_cohorts(
   target_organization_id uuid,
   target_store_id uuid,
@@ -194,6 +197,7 @@ $$;
 -- Los pedidos sin atribucion salen en su propia fila (source_type null) en vez
 -- de desaparecer: si son la mayoria, el reparto de los demas no vale nada.
 
+drop function if exists public.shopify_attribution_by_channel(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_attribution_by_channel(
   target_organization_id uuid,
   period_start timestamptz,
@@ -240,6 +244,7 @@ $$;
 -- El motivo es lo que separa un problema de talla de uno de calidad: sin el,
 -- las dos devoluciones se ven igual y piden arreglos opuestos.
 
+drop function if exists public.shopify_return_rate_by_product(uuid, timestamptz, timestamptz, uuid, integer);
 create or replace function public.shopify_return_rate_by_product(
   target_organization_id uuid,
   period_start timestamptz,
@@ -321,6 +326,7 @@ $$;
 -- columna, `late_deliveries = 0` se lee como "nada llego tarde" cuando en
 -- realidad puede ser "no habia con que compararlo".
 
+drop function if exists public.shopify_delivery_times(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_delivery_times(
   target_organization_id uuid,
   period_start timestamptz,
@@ -391,6 +397,7 @@ $$;
 -- `completed_at` es la mitad que importa: sin el, un carrito que acabo en
 -- compra se contaria como perdido y la recuperacion saldria siempre a cero.
 
+drop function if exists public.shopify_checkout_recovery(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_checkout_recovery(
   target_organization_id uuid,
   period_start timestamptz,
@@ -447,6 +454,7 @@ $$;
 -- `orders_with_multiple_codes`: es la unica forma de ver si la cifra de arriba
 -- esta inflada, en vez de tener que confiar en ella.
 
+drop function if exists public.shopify_discount_cost_by_code(uuid, timestamptz, timestamptz, uuid, integer);
 create or replace function public.shopify_discount_cost_by_code(
   target_organization_id uuid,
   period_start timestamptz,

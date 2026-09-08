@@ -4,7 +4,7 @@
 -- con memory_ingestion_queue.source_type para que un documento sea trazable
 -- a su origen sin ambiguedad.
 
-alter table public.knowledge_documents drop constraint knowledge_documents_source_type;
+alter table public.knowledge_documents drop constraint if exists knowledge_documents_source_type;
 alter table public.knowledge_documents
   add constraint knowledge_documents_source_type check (
     source_type in (

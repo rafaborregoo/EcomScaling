@@ -2,6 +2,25 @@
 
 Monorepo: `apps/api` (Fastify), `apps/web` (Next.js, ver `apps/web/CLAUDE.md`), `apps/worker` (BullMQ), `packages/*` (config, db, contracts, integrations, ui, ai, observability, domain), `supabase/migrations`.
 
+## Migraciones
+
+**Se aplican con `npm run db:push`, nunca con `apply_migration` del MCP de Supabase.** El MCP ejecuta el
+SQL pero **no lo anota** en `supabase_migrations.schema_migrations`: el esquema queda cambiado y el
+historial no se entera, sin ningun error. A partir de ahi, `db:push` cree que la migracion sigue
+pendiente y cualquiera que mire `schema_migrations` concluye que no se aplico.
+
+Consecuencia practica: **toda migracion se escribe idempotente** (`add column if not exists`,
+`create index if not exists`, `create or replace function`, `drop ... if exists` antes de crear,
+`update ... where <columna> is null` en los backfills). Asi, si el esquema se ha tocado por fuera,
+`db:push` la reaplica sin dano y deja el historial correcto — que es como se recupera la deriva.
+
+Antes de decir que una migracion esta pendiente, comprobar `schema_migrations` en produccion, no
+suponerlo por el listado de ficheros.
+
+Anadir un parametro con `default` a una funcion existente **no** basta con `create or replace`: crea
+una sobrecarga, y entonces la llamada antigua encaja en las dos firmas y Postgres la rechaza por
+ambigua. Hay que `drop function` la firma vieja en la misma migracion.
+
 ## Al construir o tocar un modulo de integracion (Shopify, Meta Ads, Klaviyo...)
 
 Sigue **[docs/decisions/ADR-0006-integration-module-pattern.md](docs/decisions/ADR-0006-integration-module-pattern.md)** desde el primer commit del modulo, no como limpieza posterior. Resumen:

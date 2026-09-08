@@ -151,7 +151,8 @@ set content = excluded.content, checksum = excluded.checksum;
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v1', 'claude-sonnet-5', 'a17_plan_semanal_system', 'v1', '["search_knowledge"]'::jsonb, 'required_before_publish'
 from public.agent_definitions
-where code = 'a17_plan_semanal';
+where code = 'a17_plan_semanal'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 -- ---------------------------------------------------------------------------
 -- A18: plan MENSUAL
@@ -212,4 +213,5 @@ set content = excluded.content, checksum = excluded.checksum;
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v1', 'claude-sonnet-5', 'a18_plan_mensual_system', 'v1', '["search_knowledge"]'::jsonb, 'required_before_publish'
 from public.agent_definitions
-where code = 'a18_plan_mensual';
+where code = 'a18_plan_mensual'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

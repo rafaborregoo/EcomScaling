@@ -9,8 +9,8 @@
 -- task_comments (is_internal).
 drop policy "task_status_history_select_authorized" on public.task_status_history;
 
-create policy "task_status_history_select_authorized"
-on public.task_status_history
+drop policy if exists "task_status_history_select_authorized" on public.task_status_history;
+create policy "task_status_history_select_authorized" on public.task_status_history
 for select
 to authenticated
 using (

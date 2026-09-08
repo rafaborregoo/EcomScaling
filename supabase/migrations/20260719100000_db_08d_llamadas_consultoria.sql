@@ -12,7 +12,7 @@
 create type public.call_status as enum ('scheduled', 'held', 'cancelled');
 create type public.call_summary_status as enum ('draft', 'pending_approval', 'published', 'rejected');
 
-create table public.consulting_calls (
+create table if not exists public.consulting_calls (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   consultant_user_id uuid references public.profiles (id) on delete set null,
@@ -37,7 +37,7 @@ create table public.consulting_calls (
   constraint consulting_calls_duration check (duration_minutes is null or duration_minutes > 0)
 );
 
-create table public.call_transcripts (
+create table if not exists public.call_transcripts (
   id uuid primary key default gen_random_uuid(),
   call_id uuid not null references public.consulting_calls (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -52,11 +52,10 @@ create table public.call_transcripts (
 );
 
 -- Criterio de cierre: solo una transcripcion actual por llamada.
-create unique index call_transcripts_unique_current
-on public.call_transcripts (call_id)
+create unique index if not exists call_transcripts_unique_current on public.call_transcripts (call_id)
 where is_current;
 
-create table public.call_ai_summaries (
+create table if not exists public.call_ai_summaries (
   id uuid primary key default gen_random_uuid(),
   call_id uuid not null references public.consulting_calls (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -76,7 +75,7 @@ create table public.call_ai_summaries (
 
 -- Notas internas en tabla separada (mismo patron que milestone_internal_notes):
 -- la RLS por filas no oculta columnas, asi que lo solo-consultor vive aparte.
-create table public.call_internal_notes (
+create table if not exists public.call_internal_notes (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   call_id uuid not null references public.consulting_calls (id) on delete cascade,
@@ -85,7 +84,7 @@ create table public.call_internal_notes (
   created_at timestamptz not null default now()
 );
 
-create table public.call_task_links (
+create table if not exists public.call_task_links (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   call_id uuid not null references public.consulting_calls (id) on delete cascade,
@@ -95,21 +94,23 @@ create table public.call_task_links (
   constraint call_task_links_unique unique (call_id, task_id)
 );
 
-create index consulting_calls_organization_id_idx on public.consulting_calls (organization_id);
-create index consulting_calls_held_at_idx on public.consulting_calls (organization_id, held_at);
-create index call_transcripts_call_id_idx on public.call_transcripts (call_id);
-create index call_transcripts_organization_id_idx on public.call_transcripts (organization_id);
-create index call_ai_summaries_call_id_idx on public.call_ai_summaries (call_id);
-create index call_ai_summaries_organization_id_idx on public.call_ai_summaries (organization_id);
-create index call_internal_notes_call_id_idx on public.call_internal_notes (call_id);
-create index call_internal_notes_organization_id_idx on public.call_internal_notes (organization_id);
-create index call_task_links_organization_id_idx on public.call_task_links (organization_id);
-create index call_task_links_task_id_idx on public.call_task_links (task_id);
+create index if not exists consulting_calls_organization_id_idx on public.consulting_calls (organization_id);
+create index if not exists consulting_calls_held_at_idx on public.consulting_calls (organization_id, held_at);
+create index if not exists call_transcripts_call_id_idx on public.call_transcripts (call_id);
+create index if not exists call_transcripts_organization_id_idx on public.call_transcripts (organization_id);
+create index if not exists call_ai_summaries_call_id_idx on public.call_ai_summaries (call_id);
+create index if not exists call_ai_summaries_organization_id_idx on public.call_ai_summaries (organization_id);
+create index if not exists call_internal_notes_call_id_idx on public.call_internal_notes (call_id);
+create index if not exists call_internal_notes_organization_id_idx on public.call_internal_notes (organization_id);
+create index if not exists call_task_links_organization_id_idx on public.call_task_links (organization_id);
+create index if not exists call_task_links_task_id_idx on public.call_task_links (task_id);
 
+drop trigger if exists set_consulting_calls_updated_at on public.consulting_calls;
 create trigger set_consulting_calls_updated_at
 before update on public.consulting_calls
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_call_ai_summaries_updated_at on public.call_ai_summaries;
 create trigger set_call_ai_summaries_updated_at
 before update on public.call_ai_summaries
 for each row execute function private.set_updated_at();
@@ -121,8 +122,8 @@ alter table public.call_internal_notes enable row level security;
 alter table public.call_task_links enable row level security;
 
 -- Cliente: solo llamadas marcadas visibles; consultor/admin: todas.
-create policy "consulting_calls_select_authorized"
-on public.consulting_calls for select to authenticated
+drop policy if exists "consulting_calls_select_authorized" on public.consulting_calls;
+create policy "consulting_calls_select_authorized" on public.consulting_calls for select to authenticated
 using (
   private.can_access_org(organization_id)
   and (
@@ -132,8 +133,8 @@ using (
   )
 );
 
-create policy "call_transcripts_select_authorized"
-on public.call_transcripts for select to authenticated
+drop policy if exists "call_transcripts_select_authorized" on public.call_transcripts;
+create policy "call_transcripts_select_authorized" on public.call_transcripts for select to authenticated
 using (
   private.can_access_org(organization_id)
   and exists (
@@ -148,8 +149,8 @@ using (
 );
 
 -- Criterio de cierre: el cliente no ve borradores; solo resumenes publicados.
-create policy "call_ai_summaries_select_authorized"
-on public.call_ai_summaries for select to authenticated
+drop policy if exists "call_ai_summaries_select_authorized" on public.call_ai_summaries;
+create policy "call_ai_summaries_select_authorized" on public.call_ai_summaries for select to authenticated
 using (
   private.can_access_org(organization_id)
   and (
@@ -160,12 +161,12 @@ using (
 );
 
 -- Notas internas: nunca para el cliente (FE-04).
-create policy "call_internal_notes_select_consultants"
-on public.call_internal_notes for select to authenticated
+drop policy if exists "call_internal_notes_select_consultants" on public.call_internal_notes;
+create policy "call_internal_notes_select_consultants" on public.call_internal_notes for select to authenticated
 using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
 
-create policy "call_task_links_select_authorized"
-on public.call_task_links for select to authenticated
+drop policy if exists "call_task_links_select_authorized" on public.call_task_links;
+create policy "call_task_links_select_authorized" on public.call_task_links for select to authenticated
 using (private.can_access_org(organization_id));
 
 grant select on public.consulting_calls to authenticated;

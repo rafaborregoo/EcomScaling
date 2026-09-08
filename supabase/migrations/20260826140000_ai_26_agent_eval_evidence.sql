@@ -3,7 +3,7 @@
 -- service role. La lectura queda restringida a plataforma/consultoria; no se
 -- expone a clientes ni se usa una fila de empresa ficticia.
 
-create table public.agent_version_evaluations (
+create table if not exists public.agent_version_evaluations (
   id uuid primary key default gen_random_uuid(),
   agent_version_id uuid not null references public.agent_versions (id) on delete cascade,
   dataset_version varchar(80) not null,
@@ -28,7 +28,7 @@ create table public.agent_version_evaluations (
   )
 );
 
-create table public.agent_version_eval_results (
+create table if not exists public.agent_version_eval_results (
   id uuid primary key default gen_random_uuid(),
   evaluation_id uuid not null references public.agent_version_evaluations (id) on delete cascade,
   agent_code varchar(80) not null,
@@ -41,20 +41,18 @@ create table public.agent_version_eval_results (
   constraint agent_version_eval_results_checks_nonnegative check (checks >= 0)
 );
 
-create index agent_version_evaluations_version_idx
-  on public.agent_version_evaluations (agent_version_id, evaluated_at desc);
-create index agent_version_eval_results_evaluation_idx
-  on public.agent_version_eval_results (evaluation_id);
+create index if not exists agent_version_evaluations_version_idx on public.agent_version_evaluations (agent_version_id, evaluated_at desc);
+create index if not exists agent_version_eval_results_evaluation_idx on public.agent_version_eval_results (evaluation_id);
 
 alter table public.agent_version_evaluations enable row level security;
 alter table public.agent_version_eval_results enable row level security;
 
-create policy "agent_version_evaluations_select_platform"
-on public.agent_version_evaluations for select to authenticated
+drop policy if exists "agent_version_evaluations_select_platform" on public.agent_version_evaluations;
+create policy "agent_version_evaluations_select_platform" on public.agent_version_evaluations for select to authenticated
 using (private.is_platform_admin());
 
-create policy "agent_version_eval_results_select_platform"
-on public.agent_version_eval_results for select to authenticated
+drop policy if exists "agent_version_eval_results_select_platform" on public.agent_version_eval_results;
+create policy "agent_version_eval_results_select_platform" on public.agent_version_eval_results for select to authenticated
 using (
   private.is_platform_admin()
 );

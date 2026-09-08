@@ -41,6 +41,12 @@ jobs:
       - name: Verify RLS coverage
         run: node scripts/assert-rls-coverage.mjs
 
+      # Una migracion que solo funciona la primera vez impide levantar un
+      # proyecto desde cero -- y eso dejo la suite de aislamiento entre
+      # inquilinos sin ejecutarse durante meses.
+      - name: Verify migrations are idempotent
+        run: node scripts/assert-migrations-idempotent.mjs
+
       - name: Verify SQL function search paths
         run: node scripts/assert-sql-function-hardening.mjs
 

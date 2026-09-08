@@ -3,6 +3,7 @@
 -- compatibility. The API calls these overloads when a connection/store is
 -- selected from the UI.
 
+drop function if exists public.shopify_sales_summary(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_sales_summary(
   target_organization_id uuid,
   period_start timestamptz,
@@ -40,6 +41,7 @@ $$;
 
 grant execute on function public.shopify_sales_summary(uuid, timestamptz, timestamptz, uuid) to authenticated;
 
+drop function if exists public.shopify_top_products(uuid, timestamptz, timestamptz, integer, uuid);
 create or replace function public.shopify_top_products(
   target_organization_id uuid,
   period_start timestamptz,
@@ -78,6 +80,7 @@ $$;
 
 grant execute on function public.shopify_top_products(uuid, timestamptz, timestamptz, integer, uuid) to authenticated;
 
+drop function if exists public.shopify_stock_summary(uuid, integer, uuid);
 create or replace function public.shopify_stock_summary(
   target_organization_id uuid,
   low_stock_threshold integer,
@@ -112,6 +115,7 @@ $$;
 
 grant execute on function public.shopify_stock_summary(uuid, integer, uuid) to authenticated;
 
+drop function if exists public.shopify_margin_summary(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_margin_summary(
   target_organization_id uuid,
   period_start timestamptz,

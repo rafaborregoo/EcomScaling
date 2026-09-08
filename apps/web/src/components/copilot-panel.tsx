@@ -44,6 +44,7 @@ const VIEW_PROMPTS: Array<{ prefix: string; prompts: string[] }> = [
   { prefix: "/llamadas", prompts: ["¿Qué debería llevar preparado a la próxima llamada con este cliente?", "¿Qué se comprometió en las últimas llamadas y sigue sin hacerse?"] },
   { prefix: "/camino", prompts: ["¿Qué bloquea el hito actual del plan?", "¿El siguiente hito es el correcto con los datos de ahora?"] },
   { prefix: "/shopify", prompts: ["¿Qué productos concentran la caída de ventas?", "¿Dónde se está perdiendo margen en esta tienda?"] },
+  { prefix: "/meta", prompts: ["¿Qué creatividad hay que retirar y cuál escalar?", "¿Algún cambio reciente en la cuenta explica la caída?"] },
   { prefix: "/integraciones", prompts: ["¿Qué datos me faltan para poder asesorar bien a este cliente?"] },
   { prefix: "/conocimiento", prompts: ["¿Qué dice la metodología sobre la fase en la que está este cliente?"] },
   { prefix: "/dashboard", prompts: ["¿Qué ha pasado con las ventas en este periodo y por qué?", "Si solo pudiera hacer una cosa esta semana con este cliente, ¿cuál sería?"] },

@@ -3,6 +3,7 @@
 -- compras/valor de compra desde meta_insight_action_metrics. security invoker:
 -- RLS limita filas a organizaciones accesibles.
 
+drop function if exists public.meta_spend_summary(uuid, date, date);
 create or replace function public.meta_spend_summary(
   target_organization_id uuid,
   period_start date,

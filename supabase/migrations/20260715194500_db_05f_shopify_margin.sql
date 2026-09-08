@@ -3,6 +3,7 @@
 -- the function also reports how many line items had a matching cost, since
 -- margin_pct is only meaningful once most items are priced.
 
+drop function if exists public.shopify_margin_summary(uuid, timestamptz, timestamptz);
 create or replace function public.shopify_margin_summary(
   target_organization_id uuid,
   period_start timestamptz,

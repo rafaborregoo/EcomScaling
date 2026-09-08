@@ -10,7 +10,7 @@
 
 -- --- Envios ----------------------------------------------------------------
 
-create table public.shopify_fulfillments (
+create table if not exists public.shopify_fulfillments (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -34,22 +34,18 @@ create table public.shopify_fulfillments (
   constraint shopify_fulfillments_unique_external unique (store_id, external_fulfillment_id)
 );
 
-create index shopify_fulfillments_organization_id_idx
-  on public.shopify_fulfillments (organization_id);
-create index shopify_fulfillments_order_id_idx
-  on public.shopify_fulfillments (order_id);
+create index if not exists shopify_fulfillments_organization_id_idx on public.shopify_fulfillments (organization_id);
+create index if not exists shopify_fulfillments_order_id_idx on public.shopify_fulfillments (order_id);
 -- Las metricas de plazo piden siempre una ventana sobre la fecha de envio.
-create index shopify_fulfillments_created_idx
-  on public.shopify_fulfillments (organization_id, external_created_at desc);
+create index if not exists shopify_fulfillments_created_idx on public.shopify_fulfillments (organization_id, external_created_at desc);
 -- Solo las entregadas tienen plazo real que medir; el indice parcial evita
 -- recorrer los envios en transito en cada calculo.
-create index shopify_fulfillments_delivered_idx
-  on public.shopify_fulfillments (organization_id, delivered_at desc)
+create index if not exists shopify_fulfillments_delivered_idx on public.shopify_fulfillments (organization_id, delivered_at desc)
   where delivered_at is not null;
 
 -- --- Cobros ----------------------------------------------------------------
 
-create table public.shopify_order_transactions (
+create table if not exists public.shopify_order_transactions (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -73,12 +69,9 @@ create table public.shopify_order_transactions (
   constraint shopify_order_transactions_unique_external unique (store_id, external_transaction_id)
 );
 
-create index shopify_order_transactions_organization_id_idx
-  on public.shopify_order_transactions (organization_id);
-create index shopify_order_transactions_order_id_idx
-  on public.shopify_order_transactions (order_id);
-create index shopify_order_transactions_processed_idx
-  on public.shopify_order_transactions (organization_id, processed_at desc);
+create index if not exists shopify_order_transactions_organization_id_idx on public.shopify_order_transactions (organization_id);
+create index if not exists shopify_order_transactions_order_id_idx on public.shopify_order_transactions (order_id);
+create index if not exists shopify_order_transactions_processed_idx on public.shopify_order_transactions (organization_id, processed_at desc);
 
 -- --- Devoluciones (el porque, no el dinero) --------------------------------
 --
@@ -86,7 +79,7 @@ create index shopify_order_transactions_processed_idx
 -- devolucion como proceso, con su motivo. Talla, defecto o expectativa piden
 -- arreglos completamente distintos, y sin el motivo las tres se ven igual.
 
-create table public.shopify_returns (
+create table if not exists public.shopify_returns (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -101,7 +94,7 @@ create table public.shopify_returns (
   constraint shopify_returns_unique_external unique (store_id, external_return_id)
 );
 
-create table public.shopify_return_line_items (
+create table if not exists public.shopify_return_line_items (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   return_id uuid not null references public.shopify_returns (id) on delete cascade,
@@ -115,35 +108,33 @@ create table public.shopify_return_line_items (
   constraint shopify_return_line_items_unique_external unique (return_id, external_return_line_item_id)
 );
 
-create index shopify_returns_organization_id_idx
-  on public.shopify_returns (organization_id);
-create index shopify_returns_order_id_idx
-  on public.shopify_returns (order_id);
-create index shopify_returns_created_idx
-  on public.shopify_returns (organization_id, external_created_at desc);
-create index shopify_return_line_items_organization_id_idx
-  on public.shopify_return_line_items (organization_id);
-create index shopify_return_line_items_return_id_idx
-  on public.shopify_return_line_items (return_id);
+create index if not exists shopify_returns_organization_id_idx on public.shopify_returns (organization_id);
+create index if not exists shopify_returns_order_id_idx on public.shopify_returns (order_id);
+create index if not exists shopify_returns_created_idx on public.shopify_returns (organization_id, external_created_at desc);
+create index if not exists shopify_return_line_items_organization_id_idx on public.shopify_return_line_items (organization_id);
+create index if not exists shopify_return_line_items_return_id_idx on public.shopify_return_line_items (return_id);
 -- "Que producto se devuelve y por que" agrupa por motivo dentro de una org.
-create index shopify_return_line_items_reason_idx
-  on public.shopify_return_line_items (organization_id, return_reason)
+create index if not exists shopify_return_line_items_reason_idx on public.shopify_return_line_items (organization_id, return_reason)
   where return_reason is not null;
 
 -- --- updated_at ------------------------------------------------------------
 
+drop trigger if exists set_shopify_fulfillments_updated_at on public.shopify_fulfillments;
 create trigger set_shopify_fulfillments_updated_at
 before update on public.shopify_fulfillments
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_order_transactions_updated_at on public.shopify_order_transactions;
 create trigger set_shopify_order_transactions_updated_at
 before update on public.shopify_order_transactions
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_returns_updated_at on public.shopify_returns;
 create trigger set_shopify_returns_updated_at
 before update on public.shopify_returns
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_return_line_items_updated_at on public.shopify_return_line_items;
 create trigger set_shopify_return_line_items_updated_at
 before update on public.shopify_return_line_items
 for each row execute function private.set_updated_at();
@@ -157,26 +148,26 @@ alter table public.shopify_order_transactions enable row level security;
 alter table public.shopify_returns enable row level security;
 alter table public.shopify_return_line_items enable row level security;
 
-create policy "shopify_fulfillments_select_authorized"
-on public.shopify_fulfillments
+drop policy if exists "shopify_fulfillments_select_authorized" on public.shopify_fulfillments;
+create policy "shopify_fulfillments_select_authorized" on public.shopify_fulfillments
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_order_transactions_select_authorized"
-on public.shopify_order_transactions
+drop policy if exists "shopify_order_transactions_select_authorized" on public.shopify_order_transactions;
+create policy "shopify_order_transactions_select_authorized" on public.shopify_order_transactions
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_returns_select_authorized"
-on public.shopify_returns
+drop policy if exists "shopify_returns_select_authorized" on public.shopify_returns;
+create policy "shopify_returns_select_authorized" on public.shopify_returns
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_return_line_items_select_authorized"
-on public.shopify_return_line_items
+drop policy if exists "shopify_return_line_items_select_authorized" on public.shopify_return_line_items;
+create policy "shopify_return_line_items_select_authorized" on public.shopify_return_line_items
 for select
 to authenticated
 using (private.can_access_org(organization_id));

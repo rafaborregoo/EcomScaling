@@ -6,5 +6,4 @@
 
 drop index if exists private.webhook_events_unique_fingerprint;
 
-create unique index webhook_events_unique_fingerprint
-on private.webhook_events (provider, connection_id, fingerprint);
+create unique index if not exists webhook_events_unique_fingerprint on private.webhook_events (provider, connection_id, fingerprint);

@@ -5,7 +5,7 @@
 -- professional account and an approved Meta/Instagram authorization.
 -- Writes remain service-role only, following the integration module pattern.
 
-create table public.instagram_accounts (
+create table if not exists public.instagram_accounts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   connection_id uuid not null references public.integration_connections (id) on delete cascade,
@@ -34,7 +34,7 @@ create table public.instagram_accounts (
   )
 );
 
-create table public.instagram_account_snapshots (
+create table if not exists public.instagram_account_snapshots (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.instagram_accounts (id) on delete cascade,
@@ -52,7 +52,7 @@ create table public.instagram_account_snapshots (
   )
 );
 
-create table public.instagram_account_insight_values (
+create table if not exists public.instagram_account_insight_values (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.instagram_accounts (id) on delete cascade,
@@ -69,7 +69,7 @@ create table public.instagram_account_insight_values (
   constraint instagram_account_insights_source_check check (source in ('api', 'manual'))
 );
 
-create table public.instagram_media (
+create table if not exists public.instagram_media (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.instagram_accounts (id) on delete cascade,
@@ -92,7 +92,7 @@ create table public.instagram_media (
   )
 );
 
-create table public.instagram_media_insight_values (
+create table if not exists public.instagram_media_insight_values (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.instagram_accounts (id) on delete cascade,
@@ -113,7 +113,7 @@ create table public.instagram_media_insight_values (
   constraint instagram_media_insights_source_check check (source in ('api', 'manual'))
 );
 
-create table public.instagram_follower_winners (
+create table if not exists public.instagram_follower_winners (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.instagram_accounts (id) on delete cascade,
@@ -142,29 +142,26 @@ create table public.instagram_follower_winners (
   )
 );
 
-create index instagram_accounts_organization_idx on public.instagram_accounts (organization_id);
-create index instagram_accounts_connection_idx on public.instagram_accounts (connection_id);
-create index instagram_account_snapshots_account_date_idx
-  on public.instagram_account_snapshots (account_id, snapshot_date desc);
-create index instagram_account_insights_account_period_idx
-  on public.instagram_account_insight_values (account_id, period_start desc);
-create index instagram_media_organization_published_idx
-  on public.instagram_media (organization_id, published_at desc);
-create index instagram_media_account_published_idx
-  on public.instagram_media (account_id, published_at desc);
-create index instagram_media_insights_media_captured_idx
-  on public.instagram_media_insight_values (media_id, captured_at desc);
-create index instagram_follower_winners_account_period_idx
-  on public.instagram_follower_winners (account_id, period_end desc, ranking);
+create index if not exists instagram_accounts_organization_idx on public.instagram_accounts (organization_id);
+create index if not exists instagram_accounts_connection_idx on public.instagram_accounts (connection_id);
+create index if not exists instagram_account_snapshots_account_date_idx on public.instagram_account_snapshots (account_id, snapshot_date desc);
+create index if not exists instagram_account_insights_account_period_idx on public.instagram_account_insight_values (account_id, period_start desc);
+create index if not exists instagram_media_organization_published_idx on public.instagram_media (organization_id, published_at desc);
+create index if not exists instagram_media_account_published_idx on public.instagram_media (account_id, published_at desc);
+create index if not exists instagram_media_insights_media_captured_idx on public.instagram_media_insight_values (media_id, captured_at desc);
+create index if not exists instagram_follower_winners_account_period_idx on public.instagram_follower_winners (account_id, period_end desc, ranking);
 
+drop trigger if exists set_instagram_accounts_updated_at on public.instagram_accounts;
 create trigger set_instagram_accounts_updated_at
 before update on public.instagram_accounts
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_instagram_media_updated_at on public.instagram_media;
 create trigger set_instagram_media_updated_at
 before update on public.instagram_media
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_instagram_follower_winners_updated_at on public.instagram_follower_winners;
 create trigger set_instagram_follower_winners_updated_at
 before update on public.instagram_follower_winners
 for each row execute function private.set_updated_at();
@@ -176,28 +173,28 @@ alter table public.instagram_media enable row level security;
 alter table public.instagram_media_insight_values enable row level security;
 alter table public.instagram_follower_winners enable row level security;
 
-create policy "instagram_accounts_select_authorized"
-on public.instagram_accounts for select to authenticated
+drop policy if exists "instagram_accounts_select_authorized" on public.instagram_accounts;
+create policy "instagram_accounts_select_authorized" on public.instagram_accounts for select to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "instagram_account_snapshots_select_authorized"
-on public.instagram_account_snapshots for select to authenticated
+drop policy if exists "instagram_account_snapshots_select_authorized" on public.instagram_account_snapshots;
+create policy "instagram_account_snapshots_select_authorized" on public.instagram_account_snapshots for select to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "instagram_account_insights_select_authorized"
-on public.instagram_account_insight_values for select to authenticated
+drop policy if exists "instagram_account_insights_select_authorized" on public.instagram_account_insight_values;
+create policy "instagram_account_insights_select_authorized" on public.instagram_account_insight_values for select to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "instagram_media_select_authorized"
-on public.instagram_media for select to authenticated
+drop policy if exists "instagram_media_select_authorized" on public.instagram_media;
+create policy "instagram_media_select_authorized" on public.instagram_media for select to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "instagram_media_insights_select_authorized"
-on public.instagram_media_insight_values for select to authenticated
+drop policy if exists "instagram_media_insights_select_authorized" on public.instagram_media_insight_values;
+create policy "instagram_media_insights_select_authorized" on public.instagram_media_insight_values for select to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "instagram_follower_winners_select_authorized"
-on public.instagram_follower_winners for select to authenticated
+drop policy if exists "instagram_follower_winners_select_authorized" on public.instagram_follower_winners;
+create policy "instagram_follower_winners_select_authorized" on public.instagram_follower_winners for select to authenticated
 using (private.can_access_org(organization_id));
 
 grant select on public.instagram_accounts to authenticated;

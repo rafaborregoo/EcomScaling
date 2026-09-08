@@ -1,6 +1,7 @@
 -- DB-05d: allow Shopify sales metrics to cover "all time" by treating a
 -- null period_start as no lower bound, instead of capping the UI at 365 days.
 
+drop function if exists public.shopify_sales_summary(uuid, timestamptz, timestamptz);
 create or replace function public.shopify_sales_summary(
   target_organization_id uuid,
   period_start timestamptz,
@@ -34,6 +35,7 @@ as $$
     and coalesce(processed_at, external_created_at) <= period_end;
 $$;
 
+drop function if exists public.shopify_top_products(uuid, timestamptz, timestamptz, integer);
 create or replace function public.shopify_top_products(
   target_organization_id uuid,
   period_start timestamptz,

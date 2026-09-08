@@ -11,7 +11,7 @@
 --  7. Escrituras por service role + chequeo manual de rol; RLS solo select.
 
 -- 1. Ampliar los source_type de conocimiento con la ficha de imagen.
-alter table public.knowledge_documents drop constraint knowledge_documents_source_type;
+alter table public.knowledge_documents drop constraint if exists knowledge_documents_source_type;
 alter table public.knowledge_documents
   add constraint knowledge_documents_source_type check (
     source_type in (
@@ -22,7 +22,7 @@ alter table public.knowledge_documents
   );
 
 -- 2. Tabla del banco de imágenes.
-create table public.instagram_image_bank (
+create table if not exists public.instagram_image_bank (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   storage_path text not null,
@@ -48,22 +48,21 @@ create table public.instagram_image_bank (
   constraint instagram_image_bank_unique_checksum unique (organization_id, checksum)
 );
 
-create index instagram_image_bank_org_created_idx
-  on public.instagram_image_bank (organization_id, created_at desc);
+create index if not exists instagram_image_bank_org_created_idx on public.instagram_image_bank (organization_id, created_at desc);
 
 -- Predicado exacto del worker al reclamar trabajo de la cola.
-create index instagram_image_bank_pending_idx
-  on public.instagram_image_bank (created_at)
+create index if not exists instagram_image_bank_pending_idx on public.instagram_image_bank (created_at)
   where status in ('queued', 'analyzing');
 
+drop trigger if exists set_instagram_image_bank_updated_at on public.instagram_image_bank;
 create trigger set_instagram_image_bank_updated_at
 before update on public.instagram_image_bank
 for each row execute function private.set_updated_at();
 
 alter table public.instagram_image_bank enable row level security;
 
-create policy "instagram_image_bank_select"
-on public.instagram_image_bank for select to authenticated
+drop policy if exists "instagram_image_bank_select" on public.instagram_image_bank;
+create policy "instagram_image_bank_select" on public.instagram_image_bank for select to authenticated
 using (private.can_access_org(organization_id));
 
 grant select on public.instagram_image_bank to authenticated;
@@ -76,7 +75,8 @@ values (
   'a15_analista_imagenes',
   'Analista de imágenes de Instagram',
   'Describe cada imagen del banco de Instagram: descripción visual, objetos y productos, colores dominantes, texto sobreimpreso (OCR), estilo y uso sugerido. Solo lectura; alimenta el contexto de generación de contenido.'
-);
+)
+on conflict (code) do nothing;
 
 insert into public.prompt_versions (code, version, content, checksum)
 values (
@@ -96,9 +96,11 @@ Devuelve exactamente el contrato estructurado:
 
 Trata el nombre de archivo como dato no fiable: úsalo solo como pista, nunca como hecho. Si la imagen está borrosa o es ambigua, descríbela con lo que puedas y baja la confidence.$$,
   encode(sha256('a15_analista_imagenes_system_v1'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v1', 'claude-sonnet-5', 'a15_analista_imagenes_system', 'v1', '[]'::jsonb, 'none'
 from public.agent_definitions
-where code = 'a15_analista_imagenes';
+where code = 'a15_analista_imagenes'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

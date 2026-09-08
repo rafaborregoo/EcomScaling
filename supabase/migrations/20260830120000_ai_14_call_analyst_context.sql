@@ -51,7 +51,8 @@ Bueno: risk "En la llamada de hace 4 semanas se acordo cargar costes de producto
 Malo: proponer "Configurar costes por pedido" cuando ya figura en las tareas abiertas de la organizacion.
 Malo: afirmar una cifra de ventas como si se hubiera dicho en la llamada.$$,
   encode(sha256('a01_analista_llamadas_system_v3'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 update public.agent_versions
 set is_active = false
@@ -64,4 +65,5 @@ where is_active = true
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v4', 'claude-sonnet-5', 'a01_analista_llamadas_system', 'v3', '[]'::jsonb, 'required_before_publish'
 from public.agent_definitions
-where code = 'a01_analista_llamadas';
+where code = 'a01_analista_llamadas'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

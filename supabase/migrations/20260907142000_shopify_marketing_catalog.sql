@@ -7,7 +7,7 @@
 
 -- --- Carritos abandonados --------------------------------------------------
 
-create table public.shopify_abandoned_checkouts (
+create table if not exists public.shopify_abandoned_checkouts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -32,7 +32,7 @@ create table public.shopify_abandoned_checkouts (
   constraint shopify_abandoned_checkouts_unique_external unique (store_id, external_checkout_id)
 );
 
-create table public.shopify_abandoned_checkout_items (
+create table if not exists public.shopify_abandoned_checkout_items (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   checkout_id uuid not null references public.shopify_abandoned_checkouts (id) on delete cascade,
@@ -47,22 +47,17 @@ create table public.shopify_abandoned_checkout_items (
   constraint shopify_abandoned_checkout_items_unique_external unique (checkout_id, external_line_item_id)
 );
 
-create index shopify_abandoned_checkouts_organization_id_idx
-  on public.shopify_abandoned_checkouts (organization_id);
-create index shopify_abandoned_checkouts_created_idx
-  on public.shopify_abandoned_checkouts (organization_id, external_created_at desc);
+create index if not exists shopify_abandoned_checkouts_organization_id_idx on public.shopify_abandoned_checkouts (organization_id);
+create index if not exists shopify_abandoned_checkouts_created_idx on public.shopify_abandoned_checkouts (organization_id, external_created_at desc);
 -- El listado util es siempre "los que siguen sin recuperar en esta ventana".
-create index shopify_abandoned_checkouts_pending_idx
-  on public.shopify_abandoned_checkouts (organization_id, external_created_at desc)
+create index if not exists shopify_abandoned_checkouts_pending_idx on public.shopify_abandoned_checkouts (organization_id, external_created_at desc)
   where completed_at is null;
-create index shopify_abandoned_checkout_items_organization_id_idx
-  on public.shopify_abandoned_checkout_items (organization_id);
-create index shopify_abandoned_checkout_items_checkout_id_idx
-  on public.shopify_abandoned_checkout_items (checkout_id);
+create index if not exists shopify_abandoned_checkout_items_organization_id_idx on public.shopify_abandoned_checkout_items (organization_id);
+create index if not exists shopify_abandoned_checkout_items_checkout_id_idx on public.shopify_abandoned_checkout_items (checkout_id);
 
 -- --- Promociones -----------------------------------------------------------
 
-create table public.shopify_discounts (
+create table if not exists public.shopify_discounts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -93,7 +88,7 @@ create table public.shopify_discounts (
 -- Que descuento se aplico en que pedido. Es la tabla que convierte "regalamos
 -- 13.576 €" en "este codigo concreto se llevo 4.000 y no trajo un cliente
 -- nuevo". Un pedido puede llevar varios.
-create table public.shopify_order_discount_applications (
+create table if not exists public.shopify_order_discount_applications (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   order_id uuid not null references public.shopify_order_facts (id) on delete cascade,
@@ -111,22 +106,17 @@ create table public.shopify_order_discount_applications (
   constraint shopify_order_discount_applications_unique unique (order_id, position)
 );
 
-create index shopify_discounts_organization_id_idx
-  on public.shopify_discounts (organization_id);
-create index shopify_discounts_code_idx
-  on public.shopify_discounts (organization_id, code)
+create index if not exists shopify_discounts_organization_id_idx on public.shopify_discounts (organization_id);
+create index if not exists shopify_discounts_code_idx on public.shopify_discounts (organization_id, code)
   where code is not null;
-create index shopify_order_discount_applications_organization_id_idx
-  on public.shopify_order_discount_applications (organization_id);
-create index shopify_order_discount_applications_order_id_idx
-  on public.shopify_order_discount_applications (order_id);
-create index shopify_order_discount_applications_code_idx
-  on public.shopify_order_discount_applications (organization_id, code)
+create index if not exists shopify_order_discount_applications_organization_id_idx on public.shopify_order_discount_applications (organization_id);
+create index if not exists shopify_order_discount_applications_order_id_idx on public.shopify_order_discount_applications (order_id);
+create index if not exists shopify_order_discount_applications_code_idx on public.shopify_order_discount_applications (organization_id, code)
   where code is not null;
 
 -- --- Campañas declaradas en Shopify ---------------------------------------
 
-create table public.shopify_marketing_events (
+create table if not exists public.shopify_marketing_events (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -148,12 +138,9 @@ create table public.shopify_marketing_events (
   constraint shopify_marketing_events_unique_external unique (store_id, external_event_id)
 );
 
-create index shopify_marketing_events_organization_id_idx
-  on public.shopify_marketing_events (organization_id);
-create index shopify_marketing_events_started_idx
-  on public.shopify_marketing_events (organization_id, started_at desc);
-create index shopify_marketing_events_utm_idx
-  on public.shopify_marketing_events (organization_id, utm_campaign)
+create index if not exists shopify_marketing_events_organization_id_idx on public.shopify_marketing_events (organization_id);
+create index if not exists shopify_marketing_events_started_idx on public.shopify_marketing_events (organization_id, started_at desc);
+create index if not exists shopify_marketing_events_utm_idx on public.shopify_marketing_events (organization_id, utm_campaign)
   where utm_campaign is not null;
 
 -- --- Colecciones -----------------------------------------------------------
@@ -161,7 +148,7 @@ create index shopify_marketing_events_utm_idx
 -- Para analizar por categoria como la tienda la organiza de verdad, en vez de
 -- por `product_type`, que casi nadie mantiene.
 
-create table public.shopify_collections (
+create table if not exists public.shopify_collections (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -176,7 +163,7 @@ create table public.shopify_collections (
   constraint shopify_collections_unique_external unique (store_id, external_collection_id)
 );
 
-create table public.shopify_product_collections (
+create table if not exists public.shopify_product_collections (
   organization_id uuid not null references public.organizations (id) on delete cascade,
   product_id uuid not null references public.shopify_products (id) on delete cascade,
   collection_id uuid not null references public.shopify_collections (id) on delete cascade,
@@ -184,37 +171,40 @@ create table public.shopify_product_collections (
   primary key (product_id, collection_id)
 );
 
-create index shopify_collections_organization_id_idx
-  on public.shopify_collections (organization_id);
-create index shopify_product_collections_organization_id_idx
-  on public.shopify_product_collections (organization_id);
+create index if not exists shopify_collections_organization_id_idx on public.shopify_collections (organization_id);
+create index if not exists shopify_product_collections_organization_id_idx on public.shopify_product_collections (organization_id);
 -- Un producto pertenece a varias colecciones y una coleccion tiene muchos
 -- productos: la clave primaria cubre un sentido, este indice el otro.
-create index shopify_product_collections_collection_id_idx
-  on public.shopify_product_collections (collection_id);
+create index if not exists shopify_product_collections_collection_id_idx on public.shopify_product_collections (collection_id);
 
 -- --- updated_at ------------------------------------------------------------
 
+drop trigger if exists set_shopify_abandoned_checkouts_updated_at on public.shopify_abandoned_checkouts;
 create trigger set_shopify_abandoned_checkouts_updated_at
 before update on public.shopify_abandoned_checkouts
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_abandoned_checkout_items_updated_at on public.shopify_abandoned_checkout_items;
 create trigger set_shopify_abandoned_checkout_items_updated_at
 before update on public.shopify_abandoned_checkout_items
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_discounts_updated_at on public.shopify_discounts;
 create trigger set_shopify_discounts_updated_at
 before update on public.shopify_discounts
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_order_discount_applications_updated_at on public.shopify_order_discount_applications;
 create trigger set_shopify_order_discount_applications_updated_at
 before update on public.shopify_order_discount_applications
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_marketing_events_updated_at on public.shopify_marketing_events;
 create trigger set_shopify_marketing_events_updated_at
 before update on public.shopify_marketing_events
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_collections_updated_at on public.shopify_collections;
 create trigger set_shopify_collections_updated_at
 before update on public.shopify_collections
 for each row execute function private.set_updated_at();
@@ -229,44 +219,44 @@ alter table public.shopify_marketing_events enable row level security;
 alter table public.shopify_collections enable row level security;
 alter table public.shopify_product_collections enable row level security;
 
-create policy "shopify_abandoned_checkouts_select_authorized"
-on public.shopify_abandoned_checkouts
+drop policy if exists "shopify_abandoned_checkouts_select_authorized" on public.shopify_abandoned_checkouts;
+create policy "shopify_abandoned_checkouts_select_authorized" on public.shopify_abandoned_checkouts
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_abandoned_checkout_items_select_authorized"
-on public.shopify_abandoned_checkout_items
+drop policy if exists "shopify_abandoned_checkout_items_select_authorized" on public.shopify_abandoned_checkout_items;
+create policy "shopify_abandoned_checkout_items_select_authorized" on public.shopify_abandoned_checkout_items
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_discounts_select_authorized"
-on public.shopify_discounts
+drop policy if exists "shopify_discounts_select_authorized" on public.shopify_discounts;
+create policy "shopify_discounts_select_authorized" on public.shopify_discounts
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_order_discount_applications_select_authorized"
-on public.shopify_order_discount_applications
+drop policy if exists "shopify_order_discount_applications_select_authorized" on public.shopify_order_discount_applications;
+create policy "shopify_order_discount_applications_select_authorized" on public.shopify_order_discount_applications
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_marketing_events_select_authorized"
-on public.shopify_marketing_events
+drop policy if exists "shopify_marketing_events_select_authorized" on public.shopify_marketing_events;
+create policy "shopify_marketing_events_select_authorized" on public.shopify_marketing_events
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_collections_select_authorized"
-on public.shopify_collections
+drop policy if exists "shopify_collections_select_authorized" on public.shopify_collections;
+create policy "shopify_collections_select_authorized" on public.shopify_collections
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_product_collections_select_authorized"
-on public.shopify_product_collections
+drop policy if exists "shopify_product_collections_select_authorized" on public.shopify_product_collections;
+create policy "shopify_product_collections_select_authorized" on public.shopify_product_collections
 for select
 to authenticated
 using (private.can_access_org(organization_id));

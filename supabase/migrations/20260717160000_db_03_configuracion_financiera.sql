@@ -4,7 +4,7 @@
 -- service role + chequeo manual de rol owner/manager, igual que product_costs.
 -- Cambios quedan auditados en audit_logs via trigger.
 
-create table public.organization_financial_settings (
+create table if not exists public.organization_financial_settings (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   currency_code varchar(3) not null default 'EUR',
@@ -25,7 +25,7 @@ create table public.organization_financial_settings (
   constraint organization_financial_settings_vat_pct_range check (vat_pct >= 0 and vat_pct <= 100)
 );
 
-create table public.fixed_expenses (
+create table if not exists public.fixed_expenses (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   name varchar(160) not null,
@@ -45,7 +45,7 @@ create table public.fixed_expenses (
   constraint fixed_expenses_valid_period check (valid_until is null or valid_until > valid_from)
 );
 
-create table public.shipping_cost_rules (
+create table if not exists public.shipping_cost_rules (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   name varchar(160) not null,
@@ -68,7 +68,7 @@ create table public.shipping_cost_rules (
   constraint shipping_cost_rules_valid_period check (valid_until is null or valid_until > valid_from)
 );
 
-create table public.organization_metric_targets (
+create table if not exists public.organization_metric_targets (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   metric_key varchar(80) not null,
@@ -84,26 +84,30 @@ create table public.organization_metric_targets (
   constraint organization_metric_targets_unique_active unique (organization_id, metric_key, period, valid_from)
 );
 
-create index organization_financial_settings_org_idx on public.organization_financial_settings (organization_id);
-create index fixed_expenses_org_idx on public.fixed_expenses (organization_id);
-create index fixed_expenses_org_active_idx on public.fixed_expenses (organization_id, valid_from, valid_until) where is_active;
-create index shipping_cost_rules_org_idx on public.shipping_cost_rules (organization_id);
-create index shipping_cost_rules_org_active_idx on public.shipping_cost_rules (organization_id, valid_from, valid_until) where is_active;
-create index organization_metric_targets_org_idx on public.organization_metric_targets (organization_id);
-create index organization_metric_targets_lookup_idx on public.organization_metric_targets (organization_id, metric_key, valid_from);
+create index if not exists organization_financial_settings_org_idx on public.organization_financial_settings (organization_id);
+create index if not exists fixed_expenses_org_idx on public.fixed_expenses (organization_id);
+create index if not exists fixed_expenses_org_active_idx on public.fixed_expenses (organization_id, valid_from, valid_until) where is_active;
+create index if not exists shipping_cost_rules_org_idx on public.shipping_cost_rules (organization_id);
+create index if not exists shipping_cost_rules_org_active_idx on public.shipping_cost_rules (organization_id, valid_from, valid_until) where is_active;
+create index if not exists organization_metric_targets_org_idx on public.organization_metric_targets (organization_id);
+create index if not exists organization_metric_targets_lookup_idx on public.organization_metric_targets (organization_id, metric_key, valid_from);
 
+drop trigger if exists set_organization_financial_settings_updated_at on public.organization_financial_settings;
 create trigger set_organization_financial_settings_updated_at
 before update on public.organization_financial_settings
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_fixed_expenses_updated_at on public.fixed_expenses;
 create trigger set_fixed_expenses_updated_at
 before update on public.fixed_expenses
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shipping_cost_rules_updated_at on public.shipping_cost_rules;
 create trigger set_shipping_cost_rules_updated_at
 before update on public.shipping_cost_rules
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_organization_metric_targets_updated_at on public.organization_metric_targets;
 create trigger set_organization_metric_targets_updated_at
 before update on public.organization_metric_targets
 for each row execute function private.set_updated_at();
@@ -135,18 +139,22 @@ $$;
 
 revoke all on function private.log_financial_change() from public;
 
+drop trigger if exists audit_organization_financial_settings on public.organization_financial_settings;
 create trigger audit_organization_financial_settings
 after insert or update or delete on public.organization_financial_settings
 for each row execute function private.log_financial_change();
 
+drop trigger if exists audit_fixed_expenses on public.fixed_expenses;
 create trigger audit_fixed_expenses
 after insert or update or delete on public.fixed_expenses
 for each row execute function private.log_financial_change();
 
+drop trigger if exists audit_shipping_cost_rules on public.shipping_cost_rules;
 create trigger audit_shipping_cost_rules
 after insert or update or delete on public.shipping_cost_rules
 for each row execute function private.log_financial_change();
 
+drop trigger if exists audit_organization_metric_targets on public.organization_metric_targets;
 create trigger audit_organization_metric_targets
 after insert or update or delete on public.organization_metric_targets
 for each row execute function private.log_financial_change();
@@ -156,26 +164,26 @@ alter table public.fixed_expenses enable row level security;
 alter table public.shipping_cost_rules enable row level security;
 alter table public.organization_metric_targets enable row level security;
 
-create policy "organization_financial_settings_select_authorized"
-on public.organization_financial_settings
+drop policy if exists "organization_financial_settings_select_authorized" on public.organization_financial_settings;
+create policy "organization_financial_settings_select_authorized" on public.organization_financial_settings
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "fixed_expenses_select_authorized"
-on public.fixed_expenses
+drop policy if exists "fixed_expenses_select_authorized" on public.fixed_expenses;
+create policy "fixed_expenses_select_authorized" on public.fixed_expenses
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shipping_cost_rules_select_authorized"
-on public.shipping_cost_rules
+drop policy if exists "shipping_cost_rules_select_authorized" on public.shipping_cost_rules;
+create policy "shipping_cost_rules_select_authorized" on public.shipping_cost_rules
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "organization_metric_targets_select_authorized"
-on public.organization_metric_targets
+drop policy if exists "organization_metric_targets_select_authorized" on public.organization_metric_targets;
+create policy "organization_metric_targets_select_authorized" on public.organization_metric_targets
 for select
 to authenticated
 using (private.can_access_org(organization_id));
@@ -194,6 +202,7 @@ comment on table public.organization_metric_targets is 'Objetivos de metricas po
 -- security invoker (default): las RLS de las tablas subyacentes limitan filas
 -- aunque target_organization_id venga falseado. Misma convencion de scope por
 -- tienda que db_05g.
+drop function if exists public.shopify_financial_summary(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_financial_summary(
   target_organization_id uuid,
   period_start timestamptz,

@@ -1,4 +1,4 @@
-create table public.shopify_stores (
+create table if not exists public.shopify_stores (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   connection_id uuid not null references public.integration_connections (id) on delete cascade,
@@ -21,7 +21,7 @@ create table public.shopify_stores (
   constraint shopify_stores_unique_domain unique (myshopify_domain)
 );
 
-create table public.shopify_locations (
+create table if not exists public.shopify_locations (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -37,7 +37,7 @@ create table public.shopify_locations (
   constraint shopify_locations_unique_external unique (store_id, external_location_id)
 );
 
-create table public.shopify_products (
+create table if not exists public.shopify_products (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -55,7 +55,7 @@ create table public.shopify_products (
   constraint shopify_products_unique_external unique (store_id, external_product_id)
 );
 
-create table public.shopify_variants (
+create table if not exists public.shopify_variants (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   product_id uuid not null references public.shopify_products (id) on delete cascade,
@@ -75,7 +75,7 @@ create table public.shopify_variants (
   constraint shopify_variants_unique_external unique (product_id, external_variant_id)
 );
 
-create table public.shopify_inventory_items (
+create table if not exists public.shopify_inventory_items (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   variant_id uuid not null unique references public.shopify_variants (id) on delete cascade,
@@ -95,7 +95,7 @@ create table public.shopify_inventory_items (
   updated_at timestamptz not null default now()
 );
 
-create table public.shopify_inventory_level_snapshots (
+create table if not exists public.shopify_inventory_level_snapshots (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   inventory_item_id uuid not null references public.shopify_inventory_items (id) on delete cascade,
@@ -112,7 +112,7 @@ create table public.shopify_inventory_level_snapshots (
   constraint shopify_inventory_levels_unique_capture unique (inventory_item_id, location_id, captured_at)
 );
 
-create table public.shopify_order_facts (
+create table if not exists public.shopify_order_facts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -145,7 +145,7 @@ create table public.shopify_order_facts (
   constraint shopify_orders_unique_external unique (store_id, external_order_id)
 );
 
-create table public.shopify_order_items (
+create table if not exists public.shopify_order_items (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   order_id uuid not null references public.shopify_order_facts (id) on delete cascade,
@@ -168,7 +168,7 @@ create table public.shopify_order_items (
   constraint shopify_order_items_unique_external unique (order_id, external_line_item_id)
 );
 
-create table public.shopify_refunds (
+create table if not exists public.shopify_refunds (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   order_id uuid not null references public.shopify_order_facts (id) on delete cascade,
@@ -181,7 +181,7 @@ create table public.shopify_refunds (
   constraint shopify_refunds_unique_external unique (order_id, external_refund_id)
 );
 
-create table public.shopify_refund_items (
+create table if not exists public.shopify_refund_items (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   refund_id uuid not null references public.shopify_refunds (id) on delete cascade,
@@ -196,7 +196,7 @@ create table public.shopify_refund_items (
   constraint shopify_refund_items_unique_external unique (refund_id, external_refund_line_item_id)
 );
 
-create table public.product_costs (
+create table if not exists public.product_costs (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   inventory_item_id uuid not null references public.shopify_inventory_items (id) on delete cascade,
@@ -212,68 +212,77 @@ create table public.product_costs (
   constraint product_costs_source_check check (source in ('shopify', 'manual', 'import'))
 );
 
-create index shopify_stores_organization_id_idx on public.shopify_stores (organization_id);
-create index shopify_stores_connection_id_idx on public.shopify_stores (connection_id);
-create index shopify_stores_domain_idx on public.shopify_stores (myshopify_domain);
-create index shopify_locations_organization_id_idx on public.shopify_locations (organization_id);
-create index shopify_locations_store_id_idx on public.shopify_locations (store_id);
-create index shopify_products_organization_id_idx on public.shopify_products (organization_id);
-create index shopify_products_store_id_idx on public.shopify_products (store_id);
-create index shopify_variants_organization_id_idx on public.shopify_variants (organization_id);
-create index shopify_variants_product_id_idx on public.shopify_variants (product_id);
-create index shopify_inventory_items_organization_id_idx on public.shopify_inventory_items (organization_id);
-create index shopify_inventory_items_sku_idx on public.shopify_inventory_items (sku);
-create index shopify_inventory_level_snapshots_organization_id_idx on public.shopify_inventory_level_snapshots (organization_id);
-create index shopify_inventory_level_snapshots_inventory_item_id_idx on public.shopify_inventory_level_snapshots (inventory_item_id);
-create index shopify_inventory_level_snapshots_location_id_idx on public.shopify_inventory_level_snapshots (location_id);
-create index shopify_inventory_level_snapshots_captured_at_idx on public.shopify_inventory_level_snapshots (captured_at);
-create index shopify_order_facts_organization_id_idx on public.shopify_order_facts (organization_id);
-create index shopify_order_facts_store_id_idx on public.shopify_order_facts (store_id);
-create index shopify_order_facts_processed_at_idx on public.shopify_order_facts (processed_at);
-create index shopify_order_items_organization_id_idx on public.shopify_order_items (organization_id);
-create index shopify_order_items_order_id_idx on public.shopify_order_items (order_id);
-create index shopify_order_items_product_id_idx on public.shopify_order_items (product_id);
-create index shopify_order_items_variant_id_idx on public.shopify_order_items (variant_id);
-create index shopify_refunds_organization_id_idx on public.shopify_refunds (organization_id);
-create index shopify_refunds_order_id_idx on public.shopify_refunds (order_id);
-create index shopify_refund_items_organization_id_idx on public.shopify_refund_items (organization_id);
-create index shopify_refund_items_refund_id_idx on public.shopify_refund_items (refund_id);
-create index shopify_refund_items_order_item_id_idx on public.shopify_refund_items (order_item_id);
-create index product_costs_organization_id_idx on public.product_costs (organization_id);
-create index product_costs_inventory_item_id_idx on public.product_costs (inventory_item_id);
+create index if not exists shopify_stores_organization_id_idx on public.shopify_stores (organization_id);
+create index if not exists shopify_stores_connection_id_idx on public.shopify_stores (connection_id);
+create index if not exists shopify_stores_domain_idx on public.shopify_stores (myshopify_domain);
+create index if not exists shopify_locations_organization_id_idx on public.shopify_locations (organization_id);
+create index if not exists shopify_locations_store_id_idx on public.shopify_locations (store_id);
+create index if not exists shopify_products_organization_id_idx on public.shopify_products (organization_id);
+create index if not exists shopify_products_store_id_idx on public.shopify_products (store_id);
+create index if not exists shopify_variants_organization_id_idx on public.shopify_variants (organization_id);
+create index if not exists shopify_variants_product_id_idx on public.shopify_variants (product_id);
+create index if not exists shopify_inventory_items_organization_id_idx on public.shopify_inventory_items (organization_id);
+create index if not exists shopify_inventory_items_sku_idx on public.shopify_inventory_items (sku);
+create index if not exists shopify_inventory_level_snapshots_organization_id_idx on public.shopify_inventory_level_snapshots (organization_id);
+create index if not exists shopify_inventory_level_snapshots_inventory_item_id_idx on public.shopify_inventory_level_snapshots (inventory_item_id);
+create index if not exists shopify_inventory_level_snapshots_location_id_idx on public.shopify_inventory_level_snapshots (location_id);
+create index if not exists shopify_inventory_level_snapshots_captured_at_idx on public.shopify_inventory_level_snapshots (captured_at);
+create index if not exists shopify_order_facts_organization_id_idx on public.shopify_order_facts (organization_id);
+create index if not exists shopify_order_facts_store_id_idx on public.shopify_order_facts (store_id);
+create index if not exists shopify_order_facts_processed_at_idx on public.shopify_order_facts (processed_at);
+create index if not exists shopify_order_items_organization_id_idx on public.shopify_order_items (organization_id);
+create index if not exists shopify_order_items_order_id_idx on public.shopify_order_items (order_id);
+create index if not exists shopify_order_items_product_id_idx on public.shopify_order_items (product_id);
+create index if not exists shopify_order_items_variant_id_idx on public.shopify_order_items (variant_id);
+create index if not exists shopify_refunds_organization_id_idx on public.shopify_refunds (organization_id);
+create index if not exists shopify_refunds_order_id_idx on public.shopify_refunds (order_id);
+create index if not exists shopify_refund_items_organization_id_idx on public.shopify_refund_items (organization_id);
+create index if not exists shopify_refund_items_refund_id_idx on public.shopify_refund_items (refund_id);
+create index if not exists shopify_refund_items_order_item_id_idx on public.shopify_refund_items (order_item_id);
+create index if not exists product_costs_organization_id_idx on public.product_costs (organization_id);
+create index if not exists product_costs_inventory_item_id_idx on public.product_costs (inventory_item_id);
 
+drop trigger if exists set_shopify_stores_updated_at on public.shopify_stores;
 create trigger set_shopify_stores_updated_at
 before update on public.shopify_stores
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_locations_updated_at on public.shopify_locations;
 create trigger set_shopify_locations_updated_at
 before update on public.shopify_locations
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_products_updated_at on public.shopify_products;
 create trigger set_shopify_products_updated_at
 before update on public.shopify_products
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_variants_updated_at on public.shopify_variants;
 create trigger set_shopify_variants_updated_at
 before update on public.shopify_variants
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_inventory_items_updated_at on public.shopify_inventory_items;
 create trigger set_shopify_inventory_items_updated_at
 before update on public.shopify_inventory_items
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_order_facts_updated_at on public.shopify_order_facts;
 create trigger set_shopify_order_facts_updated_at
 before update on public.shopify_order_facts
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_order_items_updated_at on public.shopify_order_items;
 create trigger set_shopify_order_items_updated_at
 before update on public.shopify_order_items
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_shopify_refunds_updated_at on public.shopify_refunds;
 create trigger set_shopify_refunds_updated_at
 before update on public.shopify_refunds
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_product_costs_updated_at on public.product_costs;
 create trigger set_product_costs_updated_at
 before update on public.product_costs
 for each row execute function private.set_updated_at();
@@ -290,68 +299,68 @@ alter table public.shopify_refunds enable row level security;
 alter table public.shopify_refund_items enable row level security;
 alter table public.product_costs enable row level security;
 
-create policy "shopify_stores_select_authorized"
-on public.shopify_stores
+drop policy if exists "shopify_stores_select_authorized" on public.shopify_stores;
+create policy "shopify_stores_select_authorized" on public.shopify_stores
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_locations_select_authorized"
-on public.shopify_locations
+drop policy if exists "shopify_locations_select_authorized" on public.shopify_locations;
+create policy "shopify_locations_select_authorized" on public.shopify_locations
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_products_select_authorized"
-on public.shopify_products
+drop policy if exists "shopify_products_select_authorized" on public.shopify_products;
+create policy "shopify_products_select_authorized" on public.shopify_products
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_variants_select_authorized"
-on public.shopify_variants
+drop policy if exists "shopify_variants_select_authorized" on public.shopify_variants;
+create policy "shopify_variants_select_authorized" on public.shopify_variants
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_inventory_items_select_authorized"
-on public.shopify_inventory_items
+drop policy if exists "shopify_inventory_items_select_authorized" on public.shopify_inventory_items;
+create policy "shopify_inventory_items_select_authorized" on public.shopify_inventory_items
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_inventory_level_snapshots_select_authorized"
-on public.shopify_inventory_level_snapshots
+drop policy if exists "shopify_inventory_level_snapshots_select_authorized" on public.shopify_inventory_level_snapshots;
+create policy "shopify_inventory_level_snapshots_select_authorized" on public.shopify_inventory_level_snapshots
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_order_facts_select_authorized"
-on public.shopify_order_facts
+drop policy if exists "shopify_order_facts_select_authorized" on public.shopify_order_facts;
+create policy "shopify_order_facts_select_authorized" on public.shopify_order_facts
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_order_items_select_authorized"
-on public.shopify_order_items
+drop policy if exists "shopify_order_items_select_authorized" on public.shopify_order_items;
+create policy "shopify_order_items_select_authorized" on public.shopify_order_items
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_refunds_select_authorized"
-on public.shopify_refunds
+drop policy if exists "shopify_refunds_select_authorized" on public.shopify_refunds;
+create policy "shopify_refunds_select_authorized" on public.shopify_refunds
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "shopify_refund_items_select_authorized"
-on public.shopify_refund_items
+drop policy if exists "shopify_refund_items_select_authorized" on public.shopify_refund_items;
+create policy "shopify_refund_items_select_authorized" on public.shopify_refund_items
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "product_costs_select_authorized"
-on public.product_costs
+drop policy if exists "product_costs_select_authorized" on public.product_costs;
+create policy "product_costs_select_authorized" on public.product_costs
 for select
 to authenticated
 using (private.can_access_org(organization_id));

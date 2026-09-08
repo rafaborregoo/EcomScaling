@@ -18,7 +18,7 @@
 -- diagnostico de la tienda A. El caso comun (1 tienda) no se ve afectado.
 
 alter table public.agent_runs
-  add column activity_digest text;
+  add column if not exists activity_digest text;
 
 comment on column public.agent_runs.activity_digest is
   'Huella (organization_activity_digest) del estado de actividad de la org cuando se genero el run. Si el digest actual coincide, no ha habido movimiento y el diagnostico en cache sigue vigente aunque supere las 24h.';
@@ -181,7 +181,8 @@ Bueno: SKU con 40 ventas y 2 unidades disponibles, citando periodo.
 Bueno: "Seguimiento: el SKU X sigue en riesgo; su reposicion propuesta el 12/08 quedo ignorada".
 Malo: recomendar reposicion urgente de un SKU con cero ventas, o re-proponer una reposicion ya pendiente de aprobacion.$$,
   encode(sha256('a06_planificador_stock_system_v7'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 update public.agent_versions
 set is_active = false
@@ -196,12 +197,15 @@ where is_active = true
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v7', 'claude-sonnet-5', 'a02_monitor_negocio_system', 'v6', '[]'::jsonb, 'required_before_publish'
-from public.agent_definitions where code = 'a02_monitor_negocio';
+from public.agent_definitions where code = 'a02_monitor_negocio'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v7', 'claude-sonnet-5', 'a04_generador_tareas_system', 'v6', '["sql_select", "search_knowledge"]'::jsonb, 'required_before_publish'
-from public.agent_definitions where code = 'a04_generador_tareas';
+from public.agent_definitions where code = 'a04_generador_tareas'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v8', 'claude-sonnet-5', 'a06_planificador_stock_system', 'v7', '["sql_select", "search_knowledge"]'::jsonb, 'required_before_publish'
-from public.agent_definitions where code = 'a06_planificador_stock';
+from public.agent_definitions where code = 'a06_planificador_stock'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

@@ -76,7 +76,8 @@ Si una tool falla o no hay datos, di exactamente que falta y que habria que cone
 Bueno: "Pedidos -22% (412 -> 321) frente a los 30 dias previos. El gasto en Meta cae 38% en el mismo periodo y el ROAS sube de 1.8x a 2.4x: no es un problema de conversion, es menos trafico pagado. Accion: recuperar presupuesto en los dos conjuntos con ROAS > 2.5x; crealo como tarea en Tareas."
 Malo: "Las ventas han bajado, revisa tus campanas" (sin cifra, sin periodo, sin causa), o recomendar sobre Klaviyo cuando data_coverage dice que no esta conectado.$$,
   encode(sha256('a09_copiloto_consultor_system_v3'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 update public.agent_versions
 set is_active = false
@@ -95,4 +96,5 @@ select
   '["data_coverage", "describe_schema", "sql_select", "search_knowledge", "get_organization_profile", "get_financial_settings", "get_strategic_plan", "get_current_milestone", "list_open_alerts", "list_open_tasks", "get_task_history", "get_call_history"]'::jsonb,
   'none'
 from public.agent_definitions
-where code = 'a09_copiloto_consultor';
+where code = 'a09_copiloto_consultor'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

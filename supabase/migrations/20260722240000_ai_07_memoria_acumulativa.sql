@@ -11,16 +11,16 @@
 -- top-k semantico).
 
 alter table public.knowledge_documents
-  add column store_id uuid references public.shopify_stores (id) on delete cascade,
-  add column audience varchar(20) not null default 'client_visible',
-  add column origin varchar(20) not null default 'human_authored',
-  add column authority varchar(20) not null default 'operational',
-  add column source_actor_id uuid references public.profiles (id) on delete set null,
-  add column ingested_by varchar(20) not null default 'human',
-  add column source_entity_type varchar(40),
-  add column source_entity_id uuid,
-  add column source_version integer,
-  add column source_event_id uuid;
+  add column if not exists store_id uuid references public.shopify_stores (id) on delete cascade,
+  add column if not exists audience varchar(20) not null default 'client_visible',
+  add column if not exists origin varchar(20) not null default 'human_authored',
+  add column if not exists authority varchar(20) not null default 'operational',
+  add column if not exists source_actor_id uuid references public.profiles (id) on delete set null,
+  add column if not exists ingested_by varchar(20) not null default 'human',
+  add column if not exists source_entity_type varchar(40),
+  add column if not exists source_entity_id uuid,
+  add column if not exists source_version integer,
+  add column if not exists source_event_id uuid;
 
 alter table public.knowledge_documents
   add constraint knowledge_documents_audience check (
@@ -38,7 +38,7 @@ alter table public.knowledge_documents
 -- mientras el outbox procesa, active en retrieval, superseded cuando una
 -- version mas nueva de la misma fuente la reemplaza, deleted cuando se borra
 -- la fuente, indexing_failed si el worker no pudo generar los embeddings.
-alter table public.knowledge_documents drop constraint knowledge_documents_status;
+alter table public.knowledge_documents drop constraint if exists knowledge_documents_status;
 alter table public.knowledge_documents
   add constraint knowledge_documents_status check (
     status in ('pending_indexing', 'active', 'archived', 'superseded', 'deleted', 'indexing_failed')
@@ -48,12 +48,11 @@ alter table public.knowledge_documents
 -- nunca genera dos documentos aunque el job se relance o el evento se
 -- dispare dos veces. Parcial porque source_entity_id es nullable (documentos
 -- subidos a mano en /conocimiento no tienen fuente ligada).
-create unique index knowledge_documents_source_idempotency_idx
-on public.knowledge_documents (organization_id, source_type, source_entity_id, source_version)
+create unique index if not exists knowledge_documents_source_idempotency_idx on public.knowledge_documents (organization_id, source_type, source_entity_id, source_version)
 where source_entity_id is not null;
 
-create index knowledge_documents_store_id_idx on public.knowledge_documents (store_id);
-create index knowledge_documents_audience_idx on public.knowledge_documents (audience);
+create index if not exists knowledge_documents_store_id_idx on public.knowledge_documents (store_id);
+create index if not exists knowledge_documents_audience_idx on public.knowledge_documents (audience);
 
 comment on column public.knowledge_documents.store_id is 'Scope de tienda (null = toda la organizacion cuando visibility=organization). Mismo patron que shopify_financial_summary/shopify_stock_summary.';
 comment on column public.knowledge_documents.audience is 'client_visible: cualquier miembro/agente. consultant_only: nunca expuesto via search_knowledge en V1 (ver AI-07). system_only: reservado, sin uso todavia.';
@@ -65,7 +64,7 @@ comment on column public.knowledge_documents.ingested_by is 'system para las 3 f
 -- Outbox: publicar un resumen, escribir una nota o decidir una salida de IA
 -- nunca debe fallar porque Voyage este caido o el embedding tarde. La accion
 -- humana solo inserta una fila aqui; un worker aparte la procesa.
-create table public.memory_ingestion_queue (
+create table if not exists public.memory_ingestion_queue (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid references public.shopify_stores (id) on delete cascade,
@@ -104,8 +103,8 @@ create table public.memory_ingestion_queue (
   )
 );
 
-create index memory_ingestion_queue_status_idx on public.memory_ingestion_queue (status, created_at);
-create index memory_ingestion_queue_organization_id_idx on public.memory_ingestion_queue (organization_id);
+create index if not exists memory_ingestion_queue_status_idx on public.memory_ingestion_queue (status, created_at);
+create index if not exists memory_ingestion_queue_organization_id_idx on public.memory_ingestion_queue (organization_id);
 
 alter table public.memory_ingestion_queue enable row level security;
 
@@ -118,7 +117,7 @@ comment on table public.memory_ingestion_queue is 'Outbox asincrono de AI-07: de
 -- Restricciones explicitas del cliente: no dependen del top-k semantico,
 -- se inyectan siempre en el contexto de A02/A04/A06/A09 cuando
 -- priority='critical' y status='active'.
-create table public.client_constraints (
+create table if not exists public.client_constraints (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid references public.shopify_stores (id) on delete cascade,
@@ -139,17 +138,18 @@ create table public.client_constraints (
   constraint client_constraints_valid_range check (valid_until is null or valid_until >= valid_from)
 );
 
-create index client_constraints_organization_id_idx on public.client_constraints (organization_id, status);
-create index client_constraints_store_id_idx on public.client_constraints (store_id);
+create index if not exists client_constraints_organization_id_idx on public.client_constraints (organization_id, status);
+create index if not exists client_constraints_store_id_idx on public.client_constraints (store_id);
 
+drop trigger if exists set_client_constraints_updated_at on public.client_constraints;
 create trigger set_client_constraints_updated_at
 before update on public.client_constraints
 for each row execute function private.set_updated_at();
 
 alter table public.client_constraints enable row level security;
 
-create policy "client_constraints_select_visible"
-on public.client_constraints for select to authenticated
+drop policy if exists "client_constraints_select_visible" on public.client_constraints;
+create policy "client_constraints_select_visible" on public.client_constraints for select to authenticated
 using (private.can_access_org(organization_id));
 
 grant select on public.client_constraints to authenticated;

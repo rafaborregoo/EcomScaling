@@ -2,10 +2,14 @@ name: Klaviyo Reconcile
 
 on:
   workflow_dispatch:
-  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
-  # automaticos. Para reactivar, descomentar el bloque de abajo.
-  # schedule:
-  #   - cron: "43 */6 * * *"
+  # Reactivado 2026-09-08 a peticion de Rafa. Estuvo apagado desde el
+  # 2026-08-03, y mientras tanto el modulo de Klaviyo no se refrescaba solo: lo
+  # que se ve en /klaviyo era de la ultima pasada manual.
+  #
+  # Meta y Shopify siguen apagados (mismos ficheros, misma fecha): esos son otra
+  # decision.
+  schedule:
+    - cron: "43 */6 * * *"
 
 permissions:
   contents: read

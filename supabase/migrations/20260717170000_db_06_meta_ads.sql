@@ -21,7 +21,7 @@ create type public.meta_creative_asset_type as enum (
 
 create type public.meta_report_status as enum ('pending', 'running', 'completed', 'failed', 'cancelled');
 
-create table public.meta_business_accounts (
+create table if not exists public.meta_business_accounts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   connection_id uuid not null references public.integration_connections (id) on delete cascade,
@@ -38,7 +38,7 @@ create table public.meta_business_accounts (
   constraint meta_business_accounts_unique_external unique (connection_id, external_business_id)
 );
 
-create table public.meta_pages (
+create table if not exists public.meta_pages (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   connection_id uuid not null references public.integration_connections (id) on delete cascade,
@@ -57,7 +57,7 @@ create table public.meta_pages (
   constraint meta_pages_unique_external unique (connection_id, external_page_id)
 );
 
-create table private.meta_asset_tokens (
+create table if not exists private.meta_asset_tokens (
   id uuid primary key default gen_random_uuid(),
   connection_id uuid not null references public.integration_connections (id) on delete cascade,
   asset_type varchar(80) not null,
@@ -71,7 +71,7 @@ create table private.meta_asset_tokens (
   constraint meta_asset_tokens_unique_asset unique (connection_id, asset_type, external_asset_id)
 );
 
-create table public.meta_ad_accounts (
+create table if not exists public.meta_ad_accounts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   connection_id uuid not null references public.integration_connections (id) on delete cascade,
@@ -98,7 +98,7 @@ create table public.meta_ad_accounts (
   constraint meta_ad_accounts_currency_format check (currency_code is null or currency_code ~ '^[A-Z]{3}$')
 );
 
-create table public.meta_campaigns (
+create table if not exists public.meta_campaigns (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   ad_account_id uuid not null references public.meta_ad_accounts (id) on delete cascade,
@@ -124,7 +124,7 @@ create table public.meta_campaigns (
   constraint meta_campaigns_unique_external unique (ad_account_id, external_campaign_id)
 );
 
-create table public.meta_ad_sets (
+create table if not exists public.meta_ad_sets (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   campaign_id uuid not null references public.meta_campaigns (id) on delete cascade,
@@ -155,7 +155,7 @@ create table public.meta_ad_sets (
   constraint meta_ad_sets_unique_external unique (campaign_id, external_ad_set_id)
 );
 
-create table public.meta_creatives (
+create table if not exists public.meta_creatives (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   ad_account_id uuid not null references public.meta_ad_accounts (id) on delete cascade,
@@ -184,7 +184,7 @@ create table public.meta_creatives (
   constraint meta_creatives_unique_external unique (ad_account_id, external_creative_id)
 );
 
-create table public.meta_creative_assets (
+create table if not exists public.meta_creative_assets (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   creative_id uuid not null references public.meta_creatives (id) on delete cascade,
@@ -203,7 +203,7 @@ create table public.meta_creative_assets (
   updated_at timestamptz not null default now()
 );
 
-create table public.meta_ads (
+create table if not exists public.meta_ads (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   ad_set_id uuid not null references public.meta_ad_sets (id) on delete cascade,
@@ -229,7 +229,7 @@ create table public.meta_ads (
   constraint meta_ads_unique_external unique (ad_set_id, external_ad_id)
 );
 
-create table public.meta_ad_creative_assignments (
+create table if not exists public.meta_ad_creative_assignments (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   ad_id uuid not null references public.meta_ads (id) on delete cascade,
@@ -241,7 +241,7 @@ create table public.meta_ad_creative_assignments (
   constraint meta_ad_creative_assignments_valid_period check (valid_until is null or valid_until > valid_from)
 );
 
-create table public.meta_insight_rows_daily (
+create table if not exists public.meta_insight_rows_daily (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   ad_account_id uuid not null references public.meta_ad_accounts (id) on delete cascade,
@@ -292,7 +292,7 @@ create table public.meta_insight_rows_daily (
   )
 );
 
-create table public.meta_insight_action_metrics (
+create table if not exists public.meta_insight_action_metrics (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   insight_row_id uuid not null references public.meta_insight_rows_daily (id) on delete cascade,
@@ -311,7 +311,7 @@ create table public.meta_insight_action_metrics (
   )
 );
 
-create table public.meta_calculated_metrics_daily (
+create table if not exists public.meta_calculated_metrics_daily (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   insight_row_id uuid not null references public.meta_insight_rows_daily (id) on delete cascade,
@@ -324,7 +324,7 @@ create table public.meta_calculated_metrics_daily (
   constraint meta_calculated_metrics_daily_unique_metric unique (insight_row_id, metric_code, formula_version)
 );
 
-create table public.meta_insight_report_runs (
+create table if not exists public.meta_insight_report_runs (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   connection_id uuid not null references public.integration_connections (id) on delete cascade,
@@ -346,108 +346,120 @@ create table public.meta_insight_report_runs (
   constraint meta_insight_report_runs_unique_external unique (external_report_run_id)
 );
 
-create index meta_business_accounts_organization_id_idx on public.meta_business_accounts (organization_id);
-create index meta_business_accounts_connection_id_idx on public.meta_business_accounts (connection_id);
-create index meta_pages_organization_id_idx on public.meta_pages (organization_id);
-create index meta_pages_business_account_id_idx on public.meta_pages (business_account_id);
-create index meta_asset_tokens_connection_id_idx on private.meta_asset_tokens (connection_id);
-create index meta_asset_tokens_token_expires_at_idx on private.meta_asset_tokens (token_expires_at);
-create index meta_ad_accounts_organization_id_idx on public.meta_ad_accounts (organization_id);
-create index meta_ad_accounts_business_account_id_idx on public.meta_ad_accounts (business_account_id);
-create index meta_ad_accounts_account_status_code_idx on public.meta_ad_accounts (account_status_code);
-create index meta_campaigns_organization_id_idx on public.meta_campaigns (organization_id);
-create index meta_campaigns_ad_account_id_idx on public.meta_campaigns (ad_account_id);
-create index meta_campaigns_effective_status_idx on public.meta_campaigns (effective_status);
-create index meta_campaigns_objective_idx on public.meta_campaigns (objective);
-create index meta_ad_sets_organization_id_idx on public.meta_ad_sets (organization_id);
-create index meta_ad_sets_campaign_id_idx on public.meta_ad_sets (campaign_id);
-create index meta_ad_sets_effective_status_idx on public.meta_ad_sets (effective_status);
-create index meta_ad_sets_optimization_goal_idx on public.meta_ad_sets (optimization_goal);
-create index meta_creatives_organization_id_idx on public.meta_creatives (organization_id);
-create index meta_creatives_ad_account_id_idx on public.meta_creatives (ad_account_id);
-create index meta_creatives_external_video_id_idx on public.meta_creatives (external_video_id);
-create index meta_creatives_image_hash_idx on public.meta_creatives (image_hash);
-create index meta_creative_assets_organization_id_idx on public.meta_creative_assets (organization_id);
-create index meta_creative_assets_creative_id_idx on public.meta_creative_assets (creative_id);
-create index meta_creative_assets_asset_type_idx on public.meta_creative_assets (asset_type);
-create index meta_creative_assets_external_asset_id_idx on public.meta_creative_assets (external_asset_id);
-create index meta_creative_assets_asset_hash_idx on public.meta_creative_assets (asset_hash);
-create index meta_ads_organization_id_idx on public.meta_ads (organization_id);
-create index meta_ads_ad_set_id_idx on public.meta_ads (ad_set_id);
-create index meta_ads_current_creative_id_idx on public.meta_ads (current_creative_id);
-create index meta_ads_effective_status_idx on public.meta_ads (effective_status);
-create index meta_ads_parsed_angle_idx on public.meta_ads (parsed_angle);
-create index meta_ads_parsed_format_idx on public.meta_ads (parsed_format);
-create index meta_ad_creative_assignments_organization_id_idx on public.meta_ad_creative_assignments (organization_id);
-create index meta_ad_creative_assignments_ad_id_idx on public.meta_ad_creative_assignments (ad_id);
-create index meta_ad_creative_assignments_creative_id_idx on public.meta_ad_creative_assignments (creative_id);
-create index meta_ad_creative_assignments_valid_from_idx on public.meta_ad_creative_assignments (valid_from);
-create index meta_insight_rows_daily_organization_id_idx on public.meta_insight_rows_daily (organization_id);
-create index meta_insight_rows_daily_ad_account_id_idx on public.meta_insight_rows_daily (ad_account_id);
-create index meta_insight_rows_daily_campaign_id_idx on public.meta_insight_rows_daily (campaign_id);
-create index meta_insight_rows_daily_ad_set_id_idx on public.meta_insight_rows_daily (ad_set_id);
-create index meta_insight_rows_daily_ad_id_idx on public.meta_insight_rows_daily (ad_id);
-create index meta_insight_rows_daily_level_idx on public.meta_insight_rows_daily (level);
-create index meta_insight_rows_daily_metric_date_idx on public.meta_insight_rows_daily (metric_date);
-create index meta_insight_rows_daily_publisher_platform_idx on public.meta_insight_rows_daily (publisher_platform);
-create index meta_insight_rows_daily_platform_position_idx on public.meta_insight_rows_daily (platform_position);
+create index if not exists meta_business_accounts_organization_id_idx on public.meta_business_accounts (organization_id);
+create index if not exists meta_business_accounts_connection_id_idx on public.meta_business_accounts (connection_id);
+create index if not exists meta_pages_organization_id_idx on public.meta_pages (organization_id);
+create index if not exists meta_pages_business_account_id_idx on public.meta_pages (business_account_id);
+create index if not exists meta_asset_tokens_connection_id_idx on private.meta_asset_tokens (connection_id);
+create index if not exists meta_asset_tokens_token_expires_at_idx on private.meta_asset_tokens (token_expires_at);
+create index if not exists meta_ad_accounts_organization_id_idx on public.meta_ad_accounts (organization_id);
+create index if not exists meta_ad_accounts_business_account_id_idx on public.meta_ad_accounts (business_account_id);
+create index if not exists meta_ad_accounts_account_status_code_idx on public.meta_ad_accounts (account_status_code);
+create index if not exists meta_campaigns_organization_id_idx on public.meta_campaigns (organization_id);
+create index if not exists meta_campaigns_ad_account_id_idx on public.meta_campaigns (ad_account_id);
+create index if not exists meta_campaigns_effective_status_idx on public.meta_campaigns (effective_status);
+create index if not exists meta_campaigns_objective_idx on public.meta_campaigns (objective);
+create index if not exists meta_ad_sets_organization_id_idx on public.meta_ad_sets (organization_id);
+create index if not exists meta_ad_sets_campaign_id_idx on public.meta_ad_sets (campaign_id);
+create index if not exists meta_ad_sets_effective_status_idx on public.meta_ad_sets (effective_status);
+create index if not exists meta_ad_sets_optimization_goal_idx on public.meta_ad_sets (optimization_goal);
+create index if not exists meta_creatives_organization_id_idx on public.meta_creatives (organization_id);
+create index if not exists meta_creatives_ad_account_id_idx on public.meta_creatives (ad_account_id);
+create index if not exists meta_creatives_external_video_id_idx on public.meta_creatives (external_video_id);
+create index if not exists meta_creatives_image_hash_idx on public.meta_creatives (image_hash);
+create index if not exists meta_creative_assets_organization_id_idx on public.meta_creative_assets (organization_id);
+create index if not exists meta_creative_assets_creative_id_idx on public.meta_creative_assets (creative_id);
+create index if not exists meta_creative_assets_asset_type_idx on public.meta_creative_assets (asset_type);
+create index if not exists meta_creative_assets_external_asset_id_idx on public.meta_creative_assets (external_asset_id);
+create index if not exists meta_creative_assets_asset_hash_idx on public.meta_creative_assets (asset_hash);
+create index if not exists meta_ads_organization_id_idx on public.meta_ads (organization_id);
+create index if not exists meta_ads_ad_set_id_idx on public.meta_ads (ad_set_id);
+create index if not exists meta_ads_current_creative_id_idx on public.meta_ads (current_creative_id);
+create index if not exists meta_ads_effective_status_idx on public.meta_ads (effective_status);
+create index if not exists meta_ads_parsed_angle_idx on public.meta_ads (parsed_angle);
+create index if not exists meta_ads_parsed_format_idx on public.meta_ads (parsed_format);
+create index if not exists meta_ad_creative_assignments_organization_id_idx on public.meta_ad_creative_assignments (organization_id);
+create index if not exists meta_ad_creative_assignments_ad_id_idx on public.meta_ad_creative_assignments (ad_id);
+create index if not exists meta_ad_creative_assignments_creative_id_idx on public.meta_ad_creative_assignments (creative_id);
+create index if not exists meta_ad_creative_assignments_valid_from_idx on public.meta_ad_creative_assignments (valid_from);
+create index if not exists meta_insight_rows_daily_organization_id_idx on public.meta_insight_rows_daily (organization_id);
+create index if not exists meta_insight_rows_daily_ad_account_id_idx on public.meta_insight_rows_daily (ad_account_id);
+create index if not exists meta_insight_rows_daily_campaign_id_idx on public.meta_insight_rows_daily (campaign_id);
+create index if not exists meta_insight_rows_daily_ad_set_id_idx on public.meta_insight_rows_daily (ad_set_id);
+create index if not exists meta_insight_rows_daily_ad_id_idx on public.meta_insight_rows_daily (ad_id);
+create index if not exists meta_insight_rows_daily_level_idx on public.meta_insight_rows_daily (level);
+create index if not exists meta_insight_rows_daily_metric_date_idx on public.meta_insight_rows_daily (metric_date);
+create index if not exists meta_insight_rows_daily_publisher_platform_idx on public.meta_insight_rows_daily (publisher_platform);
+create index if not exists meta_insight_rows_daily_platform_position_idx on public.meta_insight_rows_daily (platform_position);
 -- Indice que calza con el predicado tipico del dashboard: gasto por org y rango de fechas.
-create index meta_insight_rows_daily_org_date_idx on public.meta_insight_rows_daily (organization_id, metric_date);
-create index meta_insight_action_metrics_organization_id_idx on public.meta_insight_action_metrics (organization_id);
-create index meta_insight_action_metrics_insight_row_id_idx on public.meta_insight_action_metrics (insight_row_id);
-create index meta_insight_action_metrics_metric_name_idx on public.meta_insight_action_metrics (metric_name);
-create index meta_insight_action_metrics_action_type_idx on public.meta_insight_action_metrics (action_type);
-create index meta_calculated_metrics_daily_organization_id_idx on public.meta_calculated_metrics_daily (organization_id);
-create index meta_calculated_metrics_daily_insight_row_id_idx on public.meta_calculated_metrics_daily (insight_row_id);
-create index meta_calculated_metrics_daily_metric_code_idx on public.meta_calculated_metrics_daily (metric_code);
-create index meta_insight_report_runs_organization_id_idx on public.meta_insight_report_runs (organization_id);
-create index meta_insight_report_runs_ad_account_id_idx on public.meta_insight_report_runs (ad_account_id);
-create index meta_insight_report_runs_status_idx on public.meta_insight_report_runs (status);
+create index if not exists meta_insight_rows_daily_org_date_idx on public.meta_insight_rows_daily (organization_id, metric_date);
+create index if not exists meta_insight_action_metrics_organization_id_idx on public.meta_insight_action_metrics (organization_id);
+create index if not exists meta_insight_action_metrics_insight_row_id_idx on public.meta_insight_action_metrics (insight_row_id);
+create index if not exists meta_insight_action_metrics_metric_name_idx on public.meta_insight_action_metrics (metric_name);
+create index if not exists meta_insight_action_metrics_action_type_idx on public.meta_insight_action_metrics (action_type);
+create index if not exists meta_calculated_metrics_daily_organization_id_idx on public.meta_calculated_metrics_daily (organization_id);
+create index if not exists meta_calculated_metrics_daily_insight_row_id_idx on public.meta_calculated_metrics_daily (insight_row_id);
+create index if not exists meta_calculated_metrics_daily_metric_code_idx on public.meta_calculated_metrics_daily (metric_code);
+create index if not exists meta_insight_report_runs_organization_id_idx on public.meta_insight_report_runs (organization_id);
+create index if not exists meta_insight_report_runs_ad_account_id_idx on public.meta_insight_report_runs (ad_account_id);
+create index if not exists meta_insight_report_runs_status_idx on public.meta_insight_report_runs (status);
 
+drop trigger if exists set_meta_business_accounts_updated_at on public.meta_business_accounts;
 create trigger set_meta_business_accounts_updated_at
 before update on public.meta_business_accounts
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_pages_updated_at on public.meta_pages;
 create trigger set_meta_pages_updated_at
 before update on public.meta_pages
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_asset_tokens_updated_at on private.meta_asset_tokens;
 create trigger set_meta_asset_tokens_updated_at
 before update on private.meta_asset_tokens
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_ad_accounts_updated_at on public.meta_ad_accounts;
 create trigger set_meta_ad_accounts_updated_at
 before update on public.meta_ad_accounts
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_campaigns_updated_at on public.meta_campaigns;
 create trigger set_meta_campaigns_updated_at
 before update on public.meta_campaigns
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_ad_sets_updated_at on public.meta_ad_sets;
 create trigger set_meta_ad_sets_updated_at
 before update on public.meta_ad_sets
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_creatives_updated_at on public.meta_creatives;
 create trigger set_meta_creatives_updated_at
 before update on public.meta_creatives
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_creative_assets_updated_at on public.meta_creative_assets;
 create trigger set_meta_creative_assets_updated_at
 before update on public.meta_creative_assets
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_ads_updated_at on public.meta_ads;
 create trigger set_meta_ads_updated_at
 before update on public.meta_ads
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_insight_rows_daily_updated_at on public.meta_insight_rows_daily;
 create trigger set_meta_insight_rows_daily_updated_at
 before update on public.meta_insight_rows_daily
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_insight_action_metrics_updated_at on public.meta_insight_action_metrics;
 create trigger set_meta_insight_action_metrics_updated_at
 before update on public.meta_insight_action_metrics
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_meta_insight_report_runs_updated_at on public.meta_insight_report_runs;
 create trigger set_meta_insight_report_runs_updated_at
 before update on public.meta_insight_report_runs
 for each row execute function private.set_updated_at();
@@ -467,80 +479,80 @@ alter table public.meta_insight_action_metrics enable row level security;
 alter table public.meta_calculated_metrics_daily enable row level security;
 alter table public.meta_insight_report_runs enable row level security;
 
-create policy "meta_business_accounts_select_authorized"
-on public.meta_business_accounts
+drop policy if exists "meta_business_accounts_select_authorized" on public.meta_business_accounts;
+create policy "meta_business_accounts_select_authorized" on public.meta_business_accounts
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_pages_select_authorized"
-on public.meta_pages
+drop policy if exists "meta_pages_select_authorized" on public.meta_pages;
+create policy "meta_pages_select_authorized" on public.meta_pages
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_ad_accounts_select_authorized"
-on public.meta_ad_accounts
+drop policy if exists "meta_ad_accounts_select_authorized" on public.meta_ad_accounts;
+create policy "meta_ad_accounts_select_authorized" on public.meta_ad_accounts
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_campaigns_select_authorized"
-on public.meta_campaigns
+drop policy if exists "meta_campaigns_select_authorized" on public.meta_campaigns;
+create policy "meta_campaigns_select_authorized" on public.meta_campaigns
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_ad_sets_select_authorized"
-on public.meta_ad_sets
+drop policy if exists "meta_ad_sets_select_authorized" on public.meta_ad_sets;
+create policy "meta_ad_sets_select_authorized" on public.meta_ad_sets
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_creatives_select_authorized"
-on public.meta_creatives
+drop policy if exists "meta_creatives_select_authorized" on public.meta_creatives;
+create policy "meta_creatives_select_authorized" on public.meta_creatives
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_creative_assets_select_authorized"
-on public.meta_creative_assets
+drop policy if exists "meta_creative_assets_select_authorized" on public.meta_creative_assets;
+create policy "meta_creative_assets_select_authorized" on public.meta_creative_assets
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_ads_select_authorized"
-on public.meta_ads
+drop policy if exists "meta_ads_select_authorized" on public.meta_ads;
+create policy "meta_ads_select_authorized" on public.meta_ads
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_ad_creative_assignments_select_authorized"
-on public.meta_ad_creative_assignments
+drop policy if exists "meta_ad_creative_assignments_select_authorized" on public.meta_ad_creative_assignments;
+create policy "meta_ad_creative_assignments_select_authorized" on public.meta_ad_creative_assignments
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_insight_rows_daily_select_authorized"
-on public.meta_insight_rows_daily
+drop policy if exists "meta_insight_rows_daily_select_authorized" on public.meta_insight_rows_daily;
+create policy "meta_insight_rows_daily_select_authorized" on public.meta_insight_rows_daily
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_insight_action_metrics_select_authorized"
-on public.meta_insight_action_metrics
+drop policy if exists "meta_insight_action_metrics_select_authorized" on public.meta_insight_action_metrics;
+create policy "meta_insight_action_metrics_select_authorized" on public.meta_insight_action_metrics
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_calculated_metrics_daily_select_authorized"
-on public.meta_calculated_metrics_daily
+drop policy if exists "meta_calculated_metrics_daily_select_authorized" on public.meta_calculated_metrics_daily;
+create policy "meta_calculated_metrics_daily_select_authorized" on public.meta_calculated_metrics_daily
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "meta_insight_report_runs_select_authorized"
-on public.meta_insight_report_runs
+drop policy if exists "meta_insight_report_runs_select_authorized" on public.meta_insight_report_runs;
+create policy "meta_insight_report_runs_select_authorized" on public.meta_insight_report_runs
 for select
 to authenticated
 using (private.can_access_org(organization_id));

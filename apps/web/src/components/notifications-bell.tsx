@@ -107,9 +107,13 @@ export function NotificationsBell({ token }: { token: string }) {
   }, [hasLoaded]);
 
   // Cuenta de no leidas al montar (para el badge), sin abrir el panel.
+  // Depende solo del token, NO de `load`: `load` cambia de identidad al
+  // fijar `hasLoaded`, asi que tenerlo en las deps disparaba una segunda
+  // peticion identica justo despues de cada carga con exito.
   useEffect(() => {
     void load();
-  }, [load, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   function handleOpenChange(open: boolean) {
     setIsOpen(open);

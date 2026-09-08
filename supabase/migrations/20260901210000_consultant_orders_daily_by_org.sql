@@ -9,6 +9,7 @@
 -- fecha calza con shopify_order_facts_org_processed_idx (organization_id,
 -- coalesce(processed_at, external_created_at)); no hace falta indice nuevo.
 
+drop function if exists public.consultant_orders_daily_by_org(uuid[], timestamptz, timestamptz);
 create or replace function public.consultant_orders_daily_by_org(
   org_ids uuid[],
   period_start timestamptz,

@@ -9,7 +9,7 @@
 -- observabilidad; nadie mas. Las escrituras van con service_role (bypass RLS),
 -- igual que el resto del runtime de agentes (ADR-0006 pto. 7).
 
-create table public.ai_diagnostic_gate_log (
+create table if not exists public.ai_diagnostic_gate_log (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid references public.shopify_stores (id) on delete set null,
@@ -34,14 +34,12 @@ create table public.ai_diagnostic_gate_log (
 comment on table public.ai_diagnostic_gate_log is
   'Registro de decisiones del orquestador de diagnosticos IA (runDiagnosticOrchestratorTick): por que se ejecuto o se salto cada agente en cada pasada. Solo lectura platform_admin; escritura service_role.';
 
-create index ai_diagnostic_gate_log_org_created_idx
-  on public.ai_diagnostic_gate_log (organization_id, created_at desc);
+create index if not exists ai_diagnostic_gate_log_org_created_idx on public.ai_diagnostic_gate_log (organization_id, created_at desc);
 
-create index ai_diagnostic_gate_log_tick_idx
-  on public.ai_diagnostic_gate_log (tick_id);
+create index if not exists ai_diagnostic_gate_log_tick_idx on public.ai_diagnostic_gate_log (tick_id);
 
 alter table public.ai_diagnostic_gate_log enable row level security;
 
-create policy "ai_diagnostic_gate_log_select_admin"
-on public.ai_diagnostic_gate_log for select to authenticated
+drop policy if exists "ai_diagnostic_gate_log_select_admin" on public.ai_diagnostic_gate_log;
+create policy "ai_diagnostic_gate_log_select_admin" on public.ai_diagnostic_gate_log for select to authenticated
 using (private.is_platform_admin());

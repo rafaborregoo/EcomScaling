@@ -15,7 +15,7 @@
 --     con el índice que calza con el predicado de fecha creado aquí mismo.
 --  7. Escrituras por SUPABASE_SERVICE_ROLE_KEY; la RLS solo permite `select`.
 
-create table public.shopify_sessions_daily (
+create table if not exists public.shopify_sessions_daily (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid not null references public.shopify_stores (id) on delete cascade,
@@ -32,21 +32,20 @@ create table public.shopify_sessions_daily (
   constraint shopify_sessions_daily_unique unique (store_id, bucket_date)
 );
 
-create index shopify_sessions_daily_org_date_idx
-  on public.shopify_sessions_daily (organization_id, bucket_date);
-create index shopify_sessions_daily_store_date_idx
-  on public.shopify_sessions_daily (store_id, bucket_date);
+create index if not exists shopify_sessions_daily_org_date_idx on public.shopify_sessions_daily (organization_id, bucket_date);
+create index if not exists shopify_sessions_daily_store_date_idx on public.shopify_sessions_daily (store_id, bucket_date);
 
 alter table public.shopify_sessions_daily enable row level security;
 
-create policy "shopify_sessions_daily_select_authorized"
-on public.shopify_sessions_daily
+drop policy if exists "shopify_sessions_daily_select_authorized" on public.shopify_sessions_daily;
+create policy "shopify_sessions_daily_select_authorized" on public.shopify_sessions_daily
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
 grant select on public.shopify_sessions_daily to authenticated;
 
+drop trigger if exists set_shopify_sessions_daily_updated_at on public.shopify_sessions_daily;
 create trigger set_shopify_sessions_daily_updated_at
 before update on public.shopify_sessions_daily
 for each row execute function private.set_updated_at();
@@ -59,6 +58,7 @@ comment on table public.shopify_sessions_daily is
 --  - conversion_rate_shopify: la que reporta Shopify, ponderada por sesiones.
 --  - conversion_rate_own: pedidos propios / sesiones, mismo periodo.
 -- No se promedian ni se suman entre si (ADR-0021): cada cifra lleva su fuente.
+drop function if exists public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_funnel_summary(
   target_organization_id uuid,
   period_start timestamptz,
@@ -127,6 +127,7 @@ grant execute on function public.shopify_funnel_summary(uuid, timestamptz, times
 
 -- Serie diaria del embudo, para el grafico de evolucion. Rellena con 0 los
 -- dias sin datos igual que shopify_sales_daily.
+drop function if exists public.shopify_funnel_daily(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_funnel_daily(
   target_organization_id uuid,
   period_start timestamptz,

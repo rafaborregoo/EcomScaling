@@ -37,6 +37,8 @@ import {
   listConsultantKnowledge,
   listConsultantMarketing,
   listConsultantMetaPortfolio,
+  listConsultantMetaAccounts,
+  listConsultantKlaviyoAccounts,
   listConsultantKlaviyoPortfolio,
   listConsultantOperations,
   listConsultantWork,
@@ -88,6 +90,8 @@ import {
 } from "./shopify-overview.js";
 import { getShopifyMetrics } from "./shopify-metrics.js";
 import { getShopifyInsights } from "./shopify-insights.js";
+import { getMetaInsights } from "./meta-insights.js";
+import { getKlaviyoInsights } from "./klaviyo-insights.js";
 import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
 import { handleFathomWebhookRequest } from "./fathom-webhook-handler.js";
 import { processQueuedFathomWebhookEvents } from "./fathom-webhook-handler.js";
@@ -179,6 +183,14 @@ import {
   getRetencionClientesDiagnostic,
   getAdquisicionShopifyDiagnostic,
   getPostventaShopifyDiagnostic,
+  getCreatividadMetaDiagnostic,
+  runCreatividadMetaAgent,
+  getMedicionMetaDiagnostic,
+  runMedicionMetaAgent,
+  getCambiosMetaDiagnostic,
+  getContenidoEmailDiagnostic,
+  runContenidoEmailAgent,
+  runCambiosMetaAgent,
   runRetencionClientesAgent,
   runAdquisicionShopifyAgent,
   runPostventaShopifyAgent,
@@ -518,12 +530,30 @@ export async function buildApp(): Promise<FastifyInstance> {
     });
   }
 
+  // La clave por defecto de @fastify/rate-limit es la IP. Eso rompe en los dos
+  // entornos que importan: en local todo (navegador, worker, SSR) sale de
+  // 127.0.0.1 y comparte un unico cubo de 120/min -- una sesion normal del
+  // portal lo agotaba y a partir de ahi TODA la app respondia 429; en
+  // produccion, detras de Caddy y sin `trustProxy`, request.ip es la IP interna
+  // del proxy, o sea que todos los clientes compartirian ese mismo cubo. Se
+  // limita por usuario autenticado (sub del JWT, decodificado sin verificar --
+  // sirve para trocear el cubo, no para autorizar) y solo se cae a la IP en las
+  // rutas sin sesion (login, invitaciones, webhooks). El worker se salta el
+  // limite: no es trafico de usuario y ya va autenticado por secreto interno.
   await app.register(rateLimit, {
     global: true,
     max: 120,
     timeWindow: "1 minute",
     skipOnError: true,
     redis: rateLimitRedis,
+    keyGenerator: (request) =>
+      decodeJwtSubject(request.headers.authorization) ?? request.ip,
+    // `INTERNAL_API_SECRET` es opcional en la config: sin este `Boolean(...)`,
+    // cuando no esta puesto `undefined === undefined` seria true y el limite
+    // quedaria desactivado para todo el mundo.
+    allowList: (request) =>
+      Boolean(env.INTERNAL_API_SECRET) &&
+      request.headers["x-internal-secret"] === env.INTERNAL_API_SECRET,
   });
 
   const aiEndpointRateLimit = {
@@ -1425,6 +1455,61 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     const result = await listConsultantStores(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  // Cartera de Meta ordenada por urgencia. Distinta de /meta-portfolio, que
+  // compara rendimiento entre periodos: esta responde a que cuenta hay que
+  // mirar hoy.
+  app.get("/v1/consultant/meta-accounts", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantMetaAccounts(
+      env,
+      authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  // Cartera de email ordenada por urgencia: que cuenta de Klaviyo hay que
+  // mirar hoy. Determinista, igual que la de Meta.
+  app.get("/v1/consultant/klaviyo-accounts", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantKlaviyoAccounts(
+      env,
+      authorization,
+      auth.context,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
@@ -2422,6 +2507,79 @@ export async function buildApp(): Promise<FastifyInstance> {
       }
 
       const result = await getShopifyInsights(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.query.days,
+        request.query.connectionId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+  // Creatividades, veredictos de subasta, aprendizaje, pixel, publicos y el
+  // impacto de los cambios. Una sola llamada porque la pagina los pinta a la
+  // vez, y cada RPC falla por su cuenta dentro.
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { days?: string; connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/meta/insights",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getMetaInsights(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+        request.query.days,
+        request.query.connectionId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+  // Modulo de Klaviyo: inventario de emails, salud de la medicion y
+  // rendimiento mensual, en una llamada porque la pagina los pinta juntos.
+  app.get<{
+    Params: { organizationId: string };
+    Querystring: { days?: string; connectionId?: string };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/insights",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getKlaviyoInsights(
         env,
         authorization,
         auth.context,
@@ -4732,6 +4890,28 @@ export async function buildApp(): Promise<FastifyInstance> {
       slug: "postventa-shopify",
       get: getPostventaShopifyDiagnostic,
       run: runPostventaShopifyAgent,
+    },
+    // A23/A24/A25: especialistas del modulo de Meta, mismo contrato.
+    {
+      slug: "creatividad-meta",
+      get: getCreatividadMetaDiagnostic,
+      run: runCreatividadMetaAgent,
+    },
+    {
+      slug: "medicion-meta",
+      get: getMedicionMetaDiagnostic,
+      run: runMedicionMetaAgent,
+    },
+    {
+      slug: "cambios-meta",
+      get: getCambiosMetaDiagnostic,
+      run: runCambiosMetaAgent,
+    },
+    // A26: contenido del email. Mismo contrato que los especialistas de Meta.
+    {
+      slug: "contenido-email",
+      get: getContenidoEmailDiagnostic,
+      run: runContenidoEmailAgent,
     },
   ] as const) {
     app.get<{ Params: { organizationId: string } }>(

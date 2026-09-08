@@ -6,13 +6,13 @@
 -- consultor al crearla a mano), nunca algo que el LLM "adivina" en el texto.
 
 alter table public.tasks
-  add column category varchar(20) not null default 'general',
+  add column if not exists category varchar(20) not null default 'general',
   add constraint tasks_category check (category in ('shopify', 'meta', 'klaviyo', 'general'));
 
-create index tasks_organization_category_idx on public.tasks (organization_id, category);
+create index if not exists tasks_organization_category_idx on public.tasks (organization_id, category);
 
 alter table public.alert_rule_templates
-  add column category varchar(20) not null default 'general',
+  add column if not exists category varchar(20) not null default 'general',
   add constraint alert_rule_templates_category check (category in ('shopify', 'meta', 'klaviyo', 'general'));
 
 update public.alert_rule_templates set category = 'shopify' where code in ('shopify_stock_out', 'shopify_revenue_drop');

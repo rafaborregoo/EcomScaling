@@ -7,6 +7,6 @@
 -- agent_runs necesita saber con que tienda se genero cada run.
 
 alter table public.agent_runs
-  add column store_id uuid references public.shopify_stores (id) on delete set null;
+  add column if not exists store_id uuid references public.shopify_stores (id) on delete set null;
 
 comment on column public.agent_runs.store_id is 'Tienda Shopify activa cuando se genero el run (null = todas las tiendas de la organizacion).';

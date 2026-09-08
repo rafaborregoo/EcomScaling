@@ -8,6 +8,7 @@
 -- Solo cambia esa condicion; el resto del cuerpo es identico y los permisos
 -- sobreviven a `create or replace`.
 
+drop function if exists public.shopify_customer_recurrence(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_customer_recurrence(
   target_organization_id uuid,
   period_start timestamptz,
@@ -49,6 +50,7 @@ as $$
   from scoped;
 $$;
 
+drop function if exists public.shopify_attribution_by_channel(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_attribution_by_channel(
   target_organization_id uuid,
   period_start timestamptz,
@@ -86,6 +88,7 @@ as $$
   order by revenue desc;
 $$;
 
+drop function if exists public.shopify_return_rate_by_product(uuid, timestamptz, timestamptz, uuid, integer);
 create or replace function public.shopify_return_rate_by_product(
   target_organization_id uuid,
   period_start timestamptz,
@@ -154,6 +157,7 @@ as $$
   limit result_limit;
 $$;
 
+drop function if exists public.shopify_delivery_times(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_delivery_times(
   target_organization_id uuid,
   period_start timestamptz,
@@ -219,6 +223,7 @@ as $$
   from scoped;
 $$;
 
+drop function if exists public.shopify_checkout_recovery(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_checkout_recovery(
   target_organization_id uuid,
   period_start timestamptz,
@@ -263,6 +268,7 @@ as $$
   from scoped;
 $$;
 
+drop function if exists public.shopify_discount_cost_by_code(uuid, timestamptz, timestamptz, uuid, integer);
 create or replace function public.shopify_discount_cost_by_code(
   target_organization_id uuid,
   period_start timestamptz,

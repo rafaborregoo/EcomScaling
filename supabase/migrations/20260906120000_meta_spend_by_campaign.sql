@@ -20,6 +20,7 @@ create index if not exists meta_insight_rows_daily_org_level_date_idx
   on public.meta_insight_rows_daily (organization_id, level, metric_date)
   include (campaign_id);
 
+drop function if exists public.meta_spend_by_campaign(uuid, date, date);
 create or replace function public.meta_spend_by_campaign(
   target_organization_id uuid,
   period_start date,

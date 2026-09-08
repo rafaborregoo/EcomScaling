@@ -19,7 +19,7 @@ create index if not exists shopify_order_facts_org_processed_idx
 on public.shopify_order_facts (organization_id, coalesce(processed_at, external_created_at))
 where is_test_order = false and cancelled_at is null;
 
-create table public.shopify_inventory_current_state (
+create table if not exists public.shopify_inventory_current_state (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   inventory_item_id uuid not null references public.shopify_inventory_items (id) on delete cascade,
@@ -35,19 +35,19 @@ create table public.shopify_inventory_current_state (
   constraint shopify_inventory_current_state_unique unique (inventory_item_id, location_id)
 );
 
-create index shopify_inventory_current_state_organization_id_idx
-on public.shopify_inventory_current_state (organization_id);
+create index if not exists shopify_inventory_current_state_organization_id_idx on public.shopify_inventory_current_state (organization_id);
 
 alter table public.shopify_inventory_current_state enable row level security;
 
-create policy "shopify_inventory_current_state_select_authorized"
-on public.shopify_inventory_current_state
+drop policy if exists "shopify_inventory_current_state_select_authorized" on public.shopify_inventory_current_state;
+create policy "shopify_inventory_current_state_select_authorized" on public.shopify_inventory_current_state
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
 grant select on public.shopify_inventory_current_state to authenticated;
 
+drop trigger if exists set_shopify_inventory_current_state_updated_at on public.shopify_inventory_current_state;
 create trigger set_shopify_inventory_current_state_updated_at
 before update on public.shopify_inventory_current_state
 for each row execute function private.set_updated_at();
@@ -64,6 +64,7 @@ select
 from public.shopify_inventory_current_levels
 on conflict (inventory_item_id, location_id) do nothing;
 
+drop function if exists public.shopify_stock_summary(uuid, integer);
 create or replace function public.shopify_stock_summary(
   target_organization_id uuid,
   low_stock_threshold integer default 5

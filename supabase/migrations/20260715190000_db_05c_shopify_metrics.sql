@@ -23,6 +23,7 @@ order by inventory_item_id, location_id, captured_at desc;
 
 grant select on public.shopify_inventory_current_levels to authenticated;
 
+drop function if exists public.shopify_sales_summary(uuid, timestamptz, timestamptz);
 create or replace function public.shopify_sales_summary(
   target_organization_id uuid,
   period_start timestamptz,
@@ -57,6 +58,7 @@ $$;
 
 grant execute on function public.shopify_sales_summary(uuid, timestamptz, timestamptz) to authenticated;
 
+drop function if exists public.shopify_top_products(uuid, timestamptz, timestamptz, integer);
 create or replace function public.shopify_top_products(
   target_organization_id uuid,
   period_start timestamptz,
@@ -91,6 +93,7 @@ $$;
 
 grant execute on function public.shopify_top_products(uuid, timestamptz, timestamptz, integer) to authenticated;
 
+drop function if exists public.shopify_stock_summary(uuid, integer);
 create or replace function public.shopify_stock_summary(
   target_organization_id uuid,
   low_stock_threshold integer default 5

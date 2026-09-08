@@ -10,6 +10,7 @@ create index if not exists agent_runs_org_started_at_idx
   on public.agent_runs (organization_id, started_at);
 
 -- Estadisticas por organizacion (cliente).
+drop function if exists public.admin_organization_ai_stats(timestamptz);
 create or replace function public.admin_organization_ai_stats(since timestamptz)
 returns table (
   organization_id uuid,
@@ -70,6 +71,7 @@ grant execute on function public.admin_organization_ai_stats(timestamptz) to aut
 
 -- Estadisticas por consultor: agregadas sobre sus consultant_assignments
 -- activas.
+drop function if exists public.admin_consultant_ai_stats(timestamptz);
 create or replace function public.admin_consultant_ai_stats(since timestamptz)
 returns table (
   consultant_user_id uuid,

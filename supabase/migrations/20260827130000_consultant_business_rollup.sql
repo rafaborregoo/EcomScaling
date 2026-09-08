@@ -8,6 +8,7 @@
 -- Los indices de fecha ya existen: shopify_order_facts_org_processed_idx y los
 -- de meta_insight_rows_daily.
 
+drop function if exists public.consultant_business_rollup(uuid[], timestamptz, timestamptz);
 create or replace function public.consultant_business_rollup(
   org_ids uuid[],
   period_start timestamptz,

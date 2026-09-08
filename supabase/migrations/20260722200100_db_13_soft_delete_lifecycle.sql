@@ -8,23 +8,21 @@
 -- scheduled_purge_at, o restaurado antes por consultant.restoreOrganization.
 
 alter table public.organizations
-  add column deletion_requested_at timestamptz,
-  add column deletion_requested_by uuid references public.profiles (id) on delete set null,
-  add column scheduled_purge_at timestamptz;
+  add column if not exists deletion_requested_at timestamptz,
+  add column if not exists deletion_requested_by uuid references public.profiles (id) on delete set null,
+  add column if not exists scheduled_purge_at timestamptz;
 
 alter table public.integration_connections
-  drop constraint integration_connections_status_check,
+  drop constraint if exists integration_connections_status_check,
   add constraint integration_connections_status_check check (
     status in ('pending', 'connected', 'syncing', 'error', 'disconnected', 'revoked', 'pending_deletion')
   ),
-  add column deletion_requested_at timestamptz,
-  add column deletion_requested_by uuid references public.profiles (id) on delete set null,
-  add column scheduled_purge_at timestamptz;
+  add column if not exists deletion_requested_at timestamptz,
+  add column if not exists deletion_requested_by uuid references public.profiles (id) on delete set null,
+  add column if not exists scheduled_purge_at timestamptz;
 
-create index organizations_pending_purge_idx
-on public.organizations (scheduled_purge_at)
+create index if not exists organizations_pending_purge_idx on public.organizations (scheduled_purge_at)
 where status = 'pending_deletion';
 
-create index integration_connections_pending_purge_idx
-on public.integration_connections (scheduled_purge_at)
+create index if not exists integration_connections_pending_purge_idx on public.integration_connections (scheduled_purge_at)
 where status = 'pending_deletion';

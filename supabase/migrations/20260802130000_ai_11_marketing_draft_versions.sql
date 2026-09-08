@@ -2,14 +2,14 @@
 -- Editar cualquier campo reinicia la aprobación; no existe publicación/envío aquí.
 
 alter table public.marketing_content_drafts
-  add column version integer not null default 1,
-  add column last_edited_by uuid references public.profiles (id) on delete set null,
-  add column last_edited_at timestamptz;
+  add column if not exists version integer not null default 1,
+  add column if not exists last_edited_by uuid references public.profiles (id) on delete set null,
+  add column if not exists last_edited_at timestamptz;
 
 alter table public.marketing_content_drafts
   add constraint marketing_content_drafts_version_positive check (version > 0);
 
-create table public.marketing_content_draft_versions (
+create table if not exists public.marketing_content_draft_versions (
   id uuid primary key default gen_random_uuid(),
   draft_id uuid not null references public.marketing_content_drafts (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -23,15 +23,13 @@ create table public.marketing_content_draft_versions (
   constraint marketing_content_draft_versions_unique_version unique (draft_id, version)
 );
 
-create index marketing_content_draft_versions_org_created_idx
-  on public.marketing_content_draft_versions (organization_id, created_at desc);
-create index marketing_content_draft_versions_draft_version_idx
-  on public.marketing_content_draft_versions (draft_id, version desc);
+create index if not exists marketing_content_draft_versions_org_created_idx on public.marketing_content_draft_versions (organization_id, created_at desc);
+create index if not exists marketing_content_draft_versions_draft_version_idx on public.marketing_content_draft_versions (draft_id, version desc);
 
 alter table public.marketing_content_draft_versions enable row level security;
 
-create policy "marketing_content_draft_versions_select_consultants"
-on public.marketing_content_draft_versions for select to authenticated
+drop policy if exists "marketing_content_draft_versions_select_consultants" on public.marketing_content_draft_versions;
+create policy "marketing_content_draft_versions_select_consultants" on public.marketing_content_draft_versions for select to authenticated
 using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
 
 grant select on public.marketing_content_draft_versions to authenticated;

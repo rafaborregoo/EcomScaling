@@ -10,6 +10,7 @@
 -- sparkline no tenga huecos. period_start es obligatorio (el dashboard solo
 -- pide sparkline para 7/30/90 dias, nunca "Todo").
 
+drop function if exists public.shopify_sales_daily(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_sales_daily(
   target_organization_id uuid,
   period_start timestamptz,

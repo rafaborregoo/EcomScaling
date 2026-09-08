@@ -301,11 +301,15 @@ const OWNER_ONLY_ROUTES: Array<{
     label: "POST consultant/organizations/:organizationId/restore",
   },
   {
+    // Solo el `status` -- suspender, cancelar -- sigue siendo owner-only. La
+    // identidad (nombre, zona horaria, moneda) se abrio a quien opera el
+    // cliente a proposito: ver `updateOrganization` en consultant.ts. Ese caso
+    // tiene sus dos tests justo debajo.
     method: "PATCH",
     path: (id) => `/v1/consultant/organizations/${id}`,
-    body: { display_name: "Intento de elevacion de privilegios" },
+    body: { status: "suspended" },
     expectedError: "platform_admin_or_owner_required",
-    label: "PATCH consultant/organizations/:organizationId",
+    label: "PATCH consultant/organizations/:organizationId (status)",
   },
 ];
 
@@ -328,6 +332,30 @@ for (const route of OWNER_ONLY_ROUTES) {
     assert.equal(parsedBody.error, route.expectedError);
   });
 }
+
+// La otra mitad de la decision: la identidad de la tienda SI la puede corregir
+// quien la opera. Estaba en el codigo con su motivo escrito (un consultor tenia
+// que pedirle a Rafa algo tan basico como arreglar la moneda) pero el test se
+// habia quedado en la version vieja, cuando todo el PATCH era owner-only. Nadie
+// lo noto porque esta suite no llegaba a ejecutarse.
+test("PATCH consultant/organizations/:organizationId: un manager SI puede corregir la identidad", async () => {
+  const response = await app.inject({
+    method: "PATCH",
+    url: `/v1/consultant/organizations/${orgId}`,
+    headers: { authorization: `Bearer ${managerAccessToken}` },
+    payload: { display_name: "Nombre corregido por el manager" },
+  });
+
+  assert.equal(
+    response.statusCode,
+    200,
+    `la identidad no es owner-only, se obtuvo ${response.statusCode}: ${response.body}`,
+  );
+  assert.equal(
+    JSON.parse(response.body).organization.display_name,
+    "Nombre corregido por el manager",
+  );
+});
 
 // Borrar/restaurar una tienda dejo de ser exclusivo de platform_admin: el
 // consultor asignado tambien puede. Un owner sin rol consultor/platform_admin

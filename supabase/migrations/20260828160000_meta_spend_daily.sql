@@ -10,6 +10,7 @@
 -- con 0 para que la linea del sparkline no tenga huecos. period_start es
 -- obligatorio (el dashboard solo pide sparkline para 7/30/90 dias).
 
+drop function if exists public.meta_spend_daily(uuid, date, date);
 create or replace function public.meta_spend_daily(
   target_organization_id uuid,
   period_start date,

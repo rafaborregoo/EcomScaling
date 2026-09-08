@@ -21,7 +21,8 @@ values
     'Rendimiento de contenido',
     'Analiza rendimiento de contenido e Instagram cuando exista una fuente conectada y autorizada.',
     false
-  );
+  )
+on conflict (code) do nothing;
 
 insert into public.prompt_versions (code, version, content, checksum)
 values
@@ -132,25 +133,29 @@ Si Instagram no está conectado o la muestra es incompleta, abstente de ordenar 
 Bueno: decir que no puede compararse el engagement entre formatos si falta el periodo o la cobertura de publicaciones.
 Malo: afirmar que un reel es el mejor porque parece popular sin una métrica verificable.$$,
   encode(sha256('a07_rendimiento_contenido_system_v1'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 insert into public.agent_versions
   (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode, is_active)
 select id, 'v1', 'claude-sonnet-5', 'a03_analista_adquisicion_system', 'v1',
   '["meta_read_ad_accounts", "meta_read_campaign_insights"]'::jsonb,
   'required_before_publish', false
-from public.agent_definitions where code = 'a03_analista_adquisicion';
+from public.agent_definitions where code = 'a03_analista_adquisicion'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions
   (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode, is_active)
 select id, 'v1', 'claude-sonnet-5', 'a05_estrategia_campanas_system', 'v1',
   '["meta_read_ad_accounts", "meta_read_campaign_insights", "get_organization_profile"]'::jsonb,
   'required_before_publish', false
-from public.agent_definitions where code = 'a05_estrategia_campanas';
+from public.agent_definitions where code = 'a05_estrategia_campanas'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions
   (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode, is_active)
 select id, 'v1', 'claude-sonnet-5', 'a07_rendimiento_contenido_system', 'v1',
   '["instagram_read_media", "instagram_read_insights"]'::jsonb,
   'required_before_publish', false
-from public.agent_definitions where code = 'a07_rendimiento_contenido';
+from public.agent_definitions where code = 'a07_rendimiento_contenido'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

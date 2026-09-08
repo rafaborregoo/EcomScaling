@@ -103,6 +103,8 @@ const consultantNavGroups: NavGroup[] = [
       // Los dos modulos de cifras, juntos y en este orden: primero la tienda,
       // luego lo que la alimenta.
       { href: "/shopify", label: "Shopify" },
+      { href: "/meta", label: "Meta Ads" },
+      { href: "/klaviyo", label: "Klaviyo" },
       { href: "/marketing", label: "Marketing" },
       { href: "/planificacion", label: "Planificación" },
       { href: "/integraciones", label: "Integraciones" },
@@ -147,6 +149,8 @@ const clientNavGroups: NavGroup[] = [
       { href: "/mensajes", label: "Chats" },
       { href: "/llamadas", label: "Llamadas" },
       { href: "/shopify", label: "Shopify" },
+      { href: "/meta", label: "Meta Ads" },
+      { href: "/klaviyo", label: "Klaviyo" },
       { href: "/marketing", label: "Marketing" },
       { href: "/planificacion", label: "Planificación" },
       { href: "/integraciones", label: "Integraciones" },
@@ -345,6 +349,21 @@ let bootstrapCache: {
   actions: AccountAction[];
   token: string;
 } | null = null;
+
+// `bootstrapCache` y la cache de paginas son variables de modulo, y el login
+// entra al portal con navegacion de cliente (router.push, sin recarga): sin
+// limpiarlas, la siguiente cuenta que entra en la misma pestana monta el
+// portal con el bootstrap, la organizacion activa y la tienda de la anterior
+// -- ve datos que no son suyos hasta que llega su propio bootstrap, y
+// entonces la vista salta sola a su tienda. Se limpia al cerrar sesion y
+// tambien si el bootstrap que llega es de otro usuario (sesion expirada,
+// login desde otra pestana), que es el caso que cerrar sesion no cubre.
+function clearPortalSession() {
+  bootstrapCache = null;
+  invalidateCachedQueries();
+  window.localStorage.removeItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
+  window.localStorage.removeItem(ACTIVE_CONNECTION_STORAGE_KEY);
+}
 
 function PortalShellContent({
   title,
@@ -615,6 +634,16 @@ function PortalShellContent({
           return;
         }
 
+        // El bootstrap cacheado es de otra cuenta: no vale nada de lo que se
+        // monto con el (organizacion activa, tienda, datos de paginas).
+        if (
+          bootstrapCache &&
+          bootstrapCache.bootstrap.user.id !== payload.user.id
+        ) {
+          clearPortalSession();
+          setActiveConnectionId("");
+        }
+
         // Gate de onboarding: hasta terminar contraseña + perfil, el usuario
         // invitado va a /onboarding y no ve el portal.
         if (!payload.profile.onboarding_completed_at) {
@@ -716,6 +745,7 @@ function PortalShellContent({
 
   async function signOut() {
     await getSupabaseClient().auth.signOut();
+    clearPortalSession();
     router.replace("/login");
   }
 

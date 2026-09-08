@@ -7,7 +7,7 @@
 -- select sigue el patron workspace (owner/manager tambien las ven, para poder
 -- actuar sobre ellas).
 
-create table public.marketing_content_draft_notes (
+create table if not exists public.marketing_content_draft_notes (
   id uuid primary key default gen_random_uuid(),
   draft_id uuid not null
     references public.marketing_content_drafts (id) on delete cascade,
@@ -18,15 +18,13 @@ create table public.marketing_content_draft_notes (
   created_at timestamptz not null default now()
 );
 
-create index marketing_content_draft_notes_draft_idx
-  on public.marketing_content_draft_notes (draft_id, created_at);
-create index marketing_content_draft_notes_org_idx
-  on public.marketing_content_draft_notes (organization_id, created_at desc);
+create index if not exists marketing_content_draft_notes_draft_idx on public.marketing_content_draft_notes (draft_id, created_at);
+create index if not exists marketing_content_draft_notes_org_idx on public.marketing_content_draft_notes (organization_id, created_at desc);
 
 alter table public.marketing_content_draft_notes enable row level security;
 
-create policy "marketing_content_draft_notes_select_workspace"
-on public.marketing_content_draft_notes for select to authenticated
+drop policy if exists "marketing_content_draft_notes_select_workspace" on public.marketing_content_draft_notes;
+create policy "marketing_content_draft_notes_select_workspace" on public.marketing_content_draft_notes for select to authenticated
 using (
   private.is_platform_admin()
   or private.is_assigned_consultant(organization_id)

@@ -2,7 +2,7 @@
 -- Los tokens y las escrituras viven en el backend; estas tablas solo exponen
 -- lectura multi-tenant a usuarios autorizados y a los agentes mediante RPC.
 
-create table public.klaviyo_tracking_profiles (
+create table if not exists public.klaviyo_tracking_profiles (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -27,17 +27,14 @@ create table public.klaviyo_tracking_profiles (
   )
 );
 
-create unique index klaviyo_tracking_profiles_external_idx
-  on public.klaviyo_tracking_profiles (account_id, external_profile_id)
+create unique index if not exists klaviyo_tracking_profiles_external_idx on public.klaviyo_tracking_profiles (account_id, external_profile_id)
   where external_profile_id is not null;
-create unique index klaviyo_tracking_profiles_email_idx
-  on public.klaviyo_tracking_profiles (account_id, email_normalized)
+create unique index if not exists klaviyo_tracking_profiles_email_idx on public.klaviyo_tracking_profiles (account_id, email_normalized)
   where email_normalized is not null;
-create unique index klaviyo_tracking_profiles_shopify_idx
-  on public.klaviyo_tracking_profiles (account_id, shopify_customer_id)
+create unique index if not exists klaviyo_tracking_profiles_shopify_idx on public.klaviyo_tracking_profiles (account_id, shopify_customer_id)
   where shopify_customer_id is not null;
 
-create table public.klaviyo_tracking_events (
+create table if not exists public.klaviyo_tracking_events (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -57,14 +54,11 @@ create table public.klaviyo_tracking_events (
   constraint klaviyo_tracking_events_dedupe_unique unique (account_id, dedupe_key)
 );
 
-create index klaviyo_tracking_events_org_time_idx
-  on public.klaviyo_tracking_events (organization_id, occurred_at desc);
-create index klaviyo_tracking_events_profile_time_idx
-  on public.klaviyo_tracking_events (profile_id, occurred_at desc);
-create index klaviyo_tracking_events_name_time_idx
-  on public.klaviyo_tracking_events (organization_id, event_name, occurred_at desc);
+create index if not exists klaviyo_tracking_events_org_time_idx on public.klaviyo_tracking_events (organization_id, occurred_at desc);
+create index if not exists klaviyo_tracking_events_profile_time_idx on public.klaviyo_tracking_events (profile_id, occurred_at desc);
+create index if not exists klaviyo_tracking_events_name_time_idx on public.klaviyo_tracking_events (organization_id, event_name, occurred_at desc);
 
-create table public.klaviyo_tracking_consents (
+create table if not exists public.klaviyo_tracking_consents (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -80,27 +74,27 @@ create table public.klaviyo_tracking_consents (
   constraint klaviyo_tracking_consents_unique unique (profile_id, channel, occurred_at, source)
 );
 
-create index klaviyo_tracking_consents_org_idx
-  on public.klaviyo_tracking_consents (organization_id, occurred_at desc);
+create index if not exists klaviyo_tracking_consents_org_idx on public.klaviyo_tracking_consents (organization_id, occurred_at desc);
 
 alter table public.klaviyo_tracking_profiles enable row level security;
 alter table public.klaviyo_tracking_events enable row level security;
 alter table public.klaviyo_tracking_consents enable row level security;
 
-create policy "klaviyo_tracking_profiles_select_authorized"
-  on public.klaviyo_tracking_profiles for select to authenticated
+drop policy if exists "klaviyo_tracking_profiles_select_authorized" on public.klaviyo_tracking_profiles;
+create policy "klaviyo_tracking_profiles_select_authorized" on public.klaviyo_tracking_profiles for select to authenticated
   using (private.can_access_org(organization_id));
-create policy "klaviyo_tracking_events_select_authorized"
-  on public.klaviyo_tracking_events for select to authenticated
+drop policy if exists "klaviyo_tracking_events_select_authorized" on public.klaviyo_tracking_events;
+create policy "klaviyo_tracking_events_select_authorized" on public.klaviyo_tracking_events for select to authenticated
   using (private.can_access_org(organization_id));
-create policy "klaviyo_tracking_consents_select_authorized"
-  on public.klaviyo_tracking_consents for select to authenticated
+drop policy if exists "klaviyo_tracking_consents_select_authorized" on public.klaviyo_tracking_consents;
+create policy "klaviyo_tracking_consents_select_authorized" on public.klaviyo_tracking_consents for select to authenticated
   using (private.can_access_org(organization_id));
 
 grant select on public.klaviyo_tracking_profiles,
   public.klaviyo_tracking_events,
   public.klaviyo_tracking_consents to authenticated;
 
+drop function if exists public.klaviyo_tracking_summary(uuid, timestamptz, timestamptz);
 create or replace function public.klaviyo_tracking_summary(
   target_organization_id uuid,
   period_start timestamptz,

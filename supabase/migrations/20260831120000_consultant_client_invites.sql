@@ -4,7 +4,7 @@
 -- sesión y hace su onboarding de cliente. La organización queda ligada al
 -- consultor vía consultant_assignment (is_primary).
 
-create table public.client_invites (
+create table if not exists public.client_invites (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   invited_user_id uuid references auth.users (id) on delete set null,
@@ -17,8 +17,8 @@ create table public.client_invites (
   created_at timestamptz not null default now()
 );
 
-create index client_invites_organization_id_idx on public.client_invites (organization_id);
-create index client_invites_consultant_user_id_idx on public.client_invites (consultant_user_id);
+create index if not exists client_invites_organization_id_idx on public.client_invites (organization_id);
+create index if not exists client_invites_consultant_user_id_idx on public.client_invites (consultant_user_id);
 
 -- ADR-0006 p.7: escrituras y lecturas van por SUPABASE_SERVICE_ROLE_KEY desde
 -- la API con chequeo manual de rol. RLS activo sin políticas => `authenticated`

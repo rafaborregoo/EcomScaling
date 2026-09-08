@@ -16,7 +16,7 @@
 -- `where a = X or b = X` en todas las lecturas, que es la clase de detalle que
 -- alguien olvida en la siguiente consulta y produce un socio "a medias".
 
-create table public.consultant_partners (
+create table if not exists public.consultant_partners (
   consultant_user_id uuid not null references public.profiles (id) on delete cascade,
   partner_user_id uuid not null references public.profiles (id) on delete cascade,
   created_by uuid references public.profiles (id) on delete set null,
@@ -30,16 +30,15 @@ comment on table public.consultant_partners is
   'Consultores que comparten cartera: cada pareja se guarda en las dos direcciones. Leida por createClientForConsultant para asignar al socio en cada alta.';
 
 -- La lectura habitual es "los socios de X".
-create index consultant_partners_consultant_idx
-  on public.consultant_partners (consultant_user_id);
+create index if not exists consultant_partners_consultant_idx on public.consultant_partners (consultant_user_id);
 
 alter table public.consultant_partners enable row level security;
 
 -- Un consultor ve sus propias parejas; platform admin las ve todas. Las
 -- escrituras van por service role con chequeo manual en Node (ADR-0006 #7):
 -- crear una pareja asigna tiendas, y eso no se decide desde el cliente.
-create policy "consultant_partners_select_own"
-on public.consultant_partners for select to authenticated
+drop policy if exists "consultant_partners_select_own" on public.consultant_partners;
+create policy "consultant_partners_select_own" on public.consultant_partners for select to authenticated
 using (
   private.is_platform_admin()
   or consultant_user_id = (select auth.uid())

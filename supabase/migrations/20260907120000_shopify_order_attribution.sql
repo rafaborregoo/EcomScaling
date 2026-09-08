@@ -18,26 +18,25 @@
 -- de atribucion cruza con importe y fecha del pedido, y una tabla aparte
 -- obligaria a un join en cada una.
 alter table public.shopify_order_facts
-  add column customer_order_index integer,
-  add column days_to_conversion integer,
+  add column if not exists customer_order_index integer,
+  add column if not exists days_to_conversion integer,
   -- Adquisicion: la primera visita de la que hay constancia.
-  add column first_visit_source varchar(120),
-  add column first_visit_source_type varchar(60),
-  add column first_visit_landing_page text,
-  add column first_visit_referrer_url text,
-  add column first_visit_utm_source varchar(120),
-  add column first_visit_utm_medium varchar(120),
-  add column first_visit_utm_campaign varchar(200),
-  add column first_visit_at timestamptz,
+  add column if not exists first_visit_source varchar(120),
+  add column if not exists first_visit_source_type varchar(60),
+  add column if not exists first_visit_landing_page text,
+  add column if not exists first_visit_referrer_url text,
+  add column if not exists first_visit_utm_source varchar(120),
+  add column if not exists first_visit_utm_medium varchar(120),
+  add column if not exists first_visit_utm_campaign varchar(200),
+  add column if not exists first_visit_at timestamptz,
   -- Cierre: la ultima visita antes de comprar.
-  add column last_visit_source varchar(120),
-  add column last_visit_source_type varchar(60);
+  add column if not exists last_visit_source varchar(120),
+  add column if not exists last_visit_source_type varchar(60);
 
 -- El indice lleva `organization_id` delante porque toda consulta va acotada al
 -- tenant antes que nada, y la fecha detras porque las metricas siempre piden
 -- una ventana.
-create index shopify_order_facts_attribution_idx
-  on public.shopify_order_facts (organization_id, external_created_at desc)
+create index if not exists shopify_order_facts_attribution_idx on public.shopify_order_facts (organization_id, external_created_at desc)
   where customer_order_index is not null;
 
 comment on column public.shopify_order_facts.customer_order_index is

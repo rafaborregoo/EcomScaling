@@ -6,8 +6,8 @@
 drop policy if exists "marketing_content_drafts_select_consultants"
   on public.marketing_content_drafts;
 
-create policy "marketing_content_drafts_select_workspace"
-on public.marketing_content_drafts for select to authenticated
+drop policy if exists "marketing_content_drafts_select_workspace" on public.marketing_content_drafts;
+create policy "marketing_content_drafts_select_workspace" on public.marketing_content_drafts for select to authenticated
 using (
   private.is_platform_admin()
   or private.is_assigned_consultant(organization_id)
@@ -17,8 +17,8 @@ using (
 drop policy if exists "marketing_content_draft_versions_select_consultants"
   on public.marketing_content_draft_versions;
 
-create policy "marketing_content_draft_versions_select_workspace"
-on public.marketing_content_draft_versions for select to authenticated
+drop policy if exists "marketing_content_draft_versions_select_workspace" on public.marketing_content_draft_versions;
+create policy "marketing_content_draft_versions_select_workspace" on public.marketing_content_draft_versions for select to authenticated
 using (
   private.is_platform_admin()
   or private.is_assigned_consultant(organization_id)

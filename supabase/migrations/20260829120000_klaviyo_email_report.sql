@@ -26,6 +26,7 @@
 create index if not exists klaviyo_report_values_org_period_idx
   on public.klaviyo_report_values (organization_id, period_start);
 
+drop function if exists public.klaviyo_email_report(uuid, date, date);
 create or replace function public.klaviyo_email_report(
   target_organization_id uuid,
   period_start date,

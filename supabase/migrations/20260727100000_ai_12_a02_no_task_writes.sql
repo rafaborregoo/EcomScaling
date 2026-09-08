@@ -45,4 +45,4 @@ from public.agent_definitions
 where code = 'a02_monitor_negocio'
 -- Mismo caso que el insert de prompt_versions de arriba: ai_08 ya habia creado
 -- la a02 v4, asi que en produccion esta fila tampoco llego a insertarse.
-on conflict (definition_id, version) do nothing;
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

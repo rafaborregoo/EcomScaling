@@ -7,6 +7,7 @@
 -- debe llegar ya resuelto (criterio ADR-0006 punto 6), no algo que el modelo
 -- reconstruya por su cuenta turno a turno.
 
+drop function if exists public.shopify_stock_risk_products(uuid, timestamptz, timestamptz, uuid);
 create or replace function public.shopify_stock_risk_products(
   target_organization_id uuid,
   period_start timestamptz,

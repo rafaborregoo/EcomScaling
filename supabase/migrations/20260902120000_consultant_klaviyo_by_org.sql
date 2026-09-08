@@ -16,6 +16,7 @@
 create index if not exists klaviyo_campaigns_org_send_idx
   on public.klaviyo_campaigns (organization_id, send_time);
 
+drop function if exists public.consultant_klaviyo_by_org(uuid[], timestamptz, timestamptz);
 create or replace function public.consultant_klaviyo_by_org(
   org_ids uuid[],
   period_start timestamptz,

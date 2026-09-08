@@ -7,6 +7,7 @@
 -- las orgs via private.is_platform_admin()), llamada via .rpc(); nunca sumar en
 -- Node. El indice agent_runs_started_at_idx (db_08a) ya calza con el predicado.
 
+drop function if exists public.admin_agent_runtime_stats(timestamptz);
 create or replace function public.admin_agent_runtime_stats(since timestamptz)
 returns table (
   agent_code varchar,

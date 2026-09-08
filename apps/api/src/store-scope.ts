@@ -108,11 +108,15 @@ export async function listStoreScope(
       .select("id, account_name, external_ad_account_id, store_id, is_selected")
       .eq("organization_id", organizationId)
       .eq("is_active", true),
+    // klaviyo_accounts no tiene ni `account_name` ni `is_active` (a
+    // diferencia de meta_ad_accounts): la columna se llama `name` y no hay
+    // borrado logico -- pedirlas devolvia 42703 y toda la llamada acababa en
+    // 500 store_scope_load_failed. Se renombra en el select para que la
+    // respuesta siga teniendo la misma forma para las dos tablas.
     supabase
       .from("klaviyo_accounts")
-      .select("id, account_name, external_account_id, store_id")
-      .eq("organization_id", organizationId)
-      .eq("is_active", true),
+      .select("id, account_name:name, external_account_id, store_id")
+      .eq("organization_id", organizationId),
   ]);
 
   const loadError = metaResult.error ?? klaviyoResult.error;

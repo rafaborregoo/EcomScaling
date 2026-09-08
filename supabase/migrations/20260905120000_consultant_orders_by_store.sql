@@ -12,6 +12,7 @@
 -- (organization_id, coalesce(processed_at, external_created_at)); el group by
 -- adicional por store_id no necesita indice nuevo.
 
+drop function if exists public.consultant_orders_by_store(uuid[], timestamptz, timestamptz);
 create or replace function public.consultant_orders_by_store(
   org_ids uuid[],
   period_start timestamptz,

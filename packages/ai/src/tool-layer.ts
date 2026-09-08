@@ -144,6 +144,18 @@ const readTools = [
   "shopify_customer_health",
   "shopify_demand_sources",
   "shopify_fulfillment_health",
+  // Metricas del modulo de Meta. Mismo criterio que las de Shopify: tres
+  // tools y no nueve funciones sueltas, cada una responde una pregunta
+  // entera. Las dos viejas (meta_read_ad_accounts,
+  // meta_read_campaign_insights) siguen siendo el acceso crudo a la
+  // estructura; estas son las que ya vienen con el juicio calculado.
+  "meta_creative_health",
+  "meta_delivery_health",
+  "meta_change_log",
+  // Klaviyo: el contenido (asuntos y cuerpos) y si se puede medir. El cuerpo
+  // llega ya convertido a texto -- el HTML de un email son 25 KB de tablas.
+  "klaviyo_email_content",
+  "klaviyo_measurement_health",
 ] as const;
 
 const proposedTools = [
@@ -236,6 +248,11 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "shopify_customer_health",
         "shopify_demand_sources",
         "shopify_fulfillment_health",
+        "meta_creative_health",
+        "meta_delivery_health",
+        "meta_change_log",
+        "klaviyo_email_content",
+        "klaviyo_measurement_health",
       ].includes(name)
         ? "implemented_partial"
         : "planned",
@@ -497,6 +514,31 @@ export const TOOL_CONTRACTS: Readonly<Record<string, ToolContract>> = {
   },
   shopify_demand_sources: {
     definition: getDefinition("shopify_demand_sources"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  meta_creative_health: {
+    definition: getDefinition("meta_creative_health"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  meta_delivery_health: {
+    definition: getDefinition("meta_delivery_health"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  meta_change_log: {
+    definition: getDefinition("meta_change_log"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  klaviyo_email_content: {
+    definition: getDefinition("klaviyo_email_content"),
+    inputSchema: emptyInputSchema,
+    outputSchema: domainReadOutputSchema,
+  },
+  klaviyo_measurement_health: {
+    definition: getDefinition("klaviyo_measurement_health"),
     inputSchema: emptyInputSchema,
     outputSchema: domainReadOutputSchema,
   },

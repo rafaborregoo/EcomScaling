@@ -24,8 +24,11 @@ if (
   missing.push("foundation must not mutate public business rows");
 }
 
+// Las migraciones se hicieron idempotentes (`create table if not exists`) y las
+// policies pasaron a una sola linea, asi que estos patrones toleran ambas
+// formas: lo que se exige es que la tabla y su policy existan, no su sintaxis.
 for (const table of tables) {
-  if (!new RegExp(`create table public\\.${table}\\b`, "i").test(migration)) {
+  if (!new RegExp(`create table (?:if not exists )?public\\.${table}\\b`, "i").test(migration)) {
     missing.push(`${table}: create table`);
   }
   if (
@@ -37,7 +40,7 @@ for (const table of tables) {
     missing.push(`${table}: RLS`);
   }
   if (
-    !new RegExp(`create policy [^\\n]+\\non public\\.${table}\\b`, "i").test(
+    !new RegExp(`create policy [^\\n]+\\s+on public\\.${table}\\b`, "i").test(
       migration,
     )
   ) {

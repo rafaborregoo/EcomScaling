@@ -214,7 +214,8 @@ Si falta una fuente o el brief es ambiguo, genera un borrador conservador con pl
 Bueno: usar {{first_name}} como token declarado y marcar una URL ausente.
 Malo: afirmar que el email se envio o introducir un descuento no incluido en el brief.$$,
   encode(sha256('a11_generador_marketing_system_v2'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 update public.agent_versions
 set is_active = false
@@ -228,24 +229,30 @@ where is_active = true
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v3', 'claude-sonnet-5', 'a01_analista_llamadas_system', 'v2', '[]'::jsonb, 'required_before_publish'
-from public.agent_definitions where code = 'a01_analista_llamadas';
+from public.agent_definitions where code = 'a01_analista_llamadas'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v6', 'claude-sonnet-5', 'a02_monitor_negocio_system', 'v5', '[]'::jsonb, 'required_before_publish'
-from public.agent_definitions where code = 'a02_monitor_negocio';
+from public.agent_definitions where code = 'a02_monitor_negocio'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v6', 'claude-sonnet-5', 'a04_generador_tareas_system', 'v5', '["sql_select", "search_knowledge"]'::jsonb, 'required_before_publish'
-from public.agent_definitions where code = 'a04_generador_tareas';
+from public.agent_definitions where code = 'a04_generador_tareas'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v7', 'claude-sonnet-5', 'a06_planificador_stock_system', 'v6', '["sql_select", "search_knowledge"]'::jsonb, 'required_before_publish'
-from public.agent_definitions where code = 'a06_planificador_stock';
+from public.agent_definitions where code = 'a06_planificador_stock'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v3', 'claude-sonnet-5', 'a09_copiloto_consultor_system', 'v2', '["sql_select", "search_knowledge"]'::jsonb, 'none'
-from public.agent_definitions where code = 'a09_copiloto_consultor';
+from public.agent_definitions where code = 'a09_copiloto_consultor'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v2', 'claude-opus-4-8', 'a11_generador_marketing_system', 'v2', '["data_coverage", "search_knowledge", "get_organization_profile", "get_strategic_plan", "list_open_tasks", "list_open_alerts", "get_call_history", "get_financial_settings"]'::jsonb, 'required_before_publish'
-from public.agent_definitions where code = 'a11_generador_marketing';
+from public.agent_definitions where code = 'a11_generador_marketing'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

@@ -18,6 +18,14 @@ type SyncMode = "initial" | "incremental";
 
 export const KLAVIYO_INCREMENTAL_BUCKET_HOURS = 6;
 
+// Ventana de clicks que se re-pide en cada pasada. Lo anterior ya esta
+// guardado: cada click es un evento y traerlo todo crece sin limite.
+const KLAVIYO_CLICK_WINDOW_DAYS = 30;
+// Tope duro de paginas. Una tienda con mucho volumen no debe poder alargar
+// el sync indefinidamente: se trae lo mas reciente y el resto entra en la
+// siguiente pasada.
+const KLAVIYO_CLICK_MAX_PAGES = 20;
+
 /** El reconciliador corre cada 6 horas; la idempotencia debe usar esa misma ventana. */
 export function buildKlaviyoSyncIdempotencyKey(
   connectionId: string,
@@ -90,6 +98,99 @@ const KLAVIYO_SUBJECT_PATHS: ReadonlyArray<readonly string[]> = [
 export function extractKlaviyoSubject(rawData: unknown): string | null {
   for (const path of KLAVIYO_SUBJECT_PATHS) {
     const found = nested(rawData, path);
+    if (typeof found === "string" && found.trim()) return found;
+  }
+  return null;
+}
+
+/** Igual que el asunto, una ruta por revision de la API. */
+export function extractKlaviyoPreviewText(rawData: unknown): string | null {
+  for (const path of [
+    ["definition", "content", "preview_text"],
+    ["content", "preview_text"],
+  ]) {
+    const found = nested(rawData, path);
+    if (typeof found === "string" && found.trim()) return found;
+  }
+  return null;
+}
+
+/**
+ * Id de la plantilla de un campaign-message. Vive en `relationships`, NO en
+ * `attributes`, asi que hay que mirar el recurso entero: guardar solo los
+ * atributos (lo que se venia haciendo) pierde el enlace con el cuerpo del
+ * email. Se prueban tambien dos rutas dentro de attributes por si una revision
+ * lo devuelve ahi.
+ */
+export function extractKlaviyoTemplateId(
+  resource: Pick<KlaviyoResource, "attributes" | "relationships">,
+): string | null {
+  const candidates: unknown[] = [
+    nested(resource.relationships, ["template", "data", "id"]),
+    nested(resource.attributes, ["definition", "template_id"]),
+    nested(resource.attributes, ["template_id"]),
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Tipo de una accion de flujo. Comprobado contra la API real: viaja en
+ * `definition.type` con valores en minusculas y guion (`send-email`,
+ * `time-delay`), NO en `attributes.action_type` como sugiere la documentacion.
+ */
+export function extractKlaviyoActionType(rawData: unknown): string | null {
+  for (const path of [["definition", "type"], ["action_type"]]) {
+    const found = nested(rawData, path);
+    if (typeof found === "string" && found.trim()) return found;
+  }
+  return null;
+}
+
+/**
+ * El mensaje de una accion de envio viene INCRUSTADO en la propia accion, en
+ * `definition.data.message`, con asunto, preheader, remitente y template_id.
+ * Es decir: no hace falta pedir `/flow-actions/{id}/flow-messages`, que ademas
+ * gastaria una llamada por accion. Que devuelva null es tambien la forma de
+ * saber que la accion no envia nada (un retardo, un split).
+ */
+export function extractKlaviyoFlowMessage(
+  rawData: unknown,
+): Record<string, unknown> | null {
+  const message = nested(rawData, ["definition", "data", "message"]);
+  return message && typeof message === "object" && !Array.isArray(message)
+    ? (message as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * En las revisiones recientes el canal viaja en `definition.channel`; en las
+ * anteriores estaba suelto en `attributes`. Devolver null cuando no se
+ * encuentra es deliberado: aguas abajo, null se trata como email (que es lo que
+ * el modulo mide) en vez de descartar el mensaje.
+ */
+export function extractKlaviyoChannel(rawData: unknown): string | null {
+  for (const path of [["channel"], ["definition", "channel"]]) {
+    const found = nested(rawData, path);
+    if (typeof found === "string" && found.trim()) return found;
+  }
+  return null;
+}
+
+/**
+ * URL de un evento "Clicked Email". Klaviyo la pone en `event_properties`
+ * (comprobado: las propiedades NO estan en `properties`), pero la clave exacta
+ * varia entre integraciones -- se han visto `URL`, `url` y `$url`. Se prueban
+ * las tres y, si ninguna casa, el sync deja un log con las claves reales para
+ * poder ampliar esta lista (ADR-0006 punto 8).
+ */
+export function extractKlaviyoClickUrl(
+  eventProperties: unknown,
+): string | null {
+  for (const key of ["URL", "url", "$url", "Link", "link"]) {
+    const found = nested(eventProperties, [key]);
     if (typeof found === "string" && found.trim()) return found;
   }
   return null;
@@ -209,16 +310,23 @@ export async function runKlaviyoSync(
         `klaviyo_account_load_failed:${accountLoadError?.message ?? "missing_account"}`,
       );
 
-    // Klaviyo exige un filtro de canal para listar campañas (si no, 400
-    // "A channel filter is required to list campaigns"). Se piden email y sms.
-    const CAMPAIGNS_PATH =
+    // Klaviyo exige un filtro de canal para listar campañas (si no, 400 "A
+    // channel filter is required to list campaigns") y el único operador que
+    // admite para messages.channel es `equals` -- con `any` responde 400. Así
+    // que es una petición por canal, cada una con su propio guardarraíl: una
+    // cuenta sin SMS no puede tumbar la lista de campañas de email.
+    const campaignsPath = (channel: string) =>
       "/campaigns?filter=" +
-      encodeURIComponent("any(messages.channel,['email','sms'])");
+      encodeURIComponent(`equals(messages.channel,'${channel}')`);
 
     // ADR-0006 punto 2 y 8: cada recurso del catálogo se pide por separado y con
     // su try/catch. Si Klaviyo cambia el contrato de un endpoint (revisión,
     // filtro obligatorio, forma de respuesta) ese bloque queda vacío esta pasada
     // y se registra, pero el resto del sync (y la cuenta) siguen.
+    // Los recursos que esta pasada no ha podido traer. Van al ledger: un run
+    // que se anota `succeeded` con `records_failed: 0` mientras tres recursos
+    // fallan hace que A12 lea "0 flujos" como "esta tienda no tiene flujos".
+    const skipped: string[] = [];
     const fetchResource = async (
       label: string,
       fetcher: () => Promise<KlaviyoResource[]>,
@@ -226,6 +334,7 @@ export async function runKlaviyoSync(
       try {
         return await fetcher();
       } catch (error) {
+        skipped.push(label);
         console.warn(
           `klaviyo_resource_skipped:${label}:${
             error instanceof Error ? error.message : "unknown_error"
@@ -235,22 +344,33 @@ export async function runKlaviyoSync(
       }
     };
 
-    // profile_count no viene por defecto en /lists ni /segments desde hace
-    // varias revisiones: hay que pedirlo con additional-fields o los snapshots
-    // diarios de audiencia quedan a 0.
+    // ponytail: sin profile_count. La revisión 2026-07-15 rechaza
+    // `additional-fields[list]` en /lists y /segments ("additional-fields must
+    // be in []"), así que las listas llegan sin tamaño de audiencia y
+    // `profile_count` queda null. Nada lo lee todavía (los *_daily_snapshots
+    // están vacíos); cuando haga falta, se pide por lista con su propio
+    // endpoint, vigilando la cuota.
     const resources = await Promise.all([
-      fetchResource("lists", () =>
-        api.listAll("/lists?additional-fields[list]=profile_count"),
-      ),
-      fetchResource("segments", () =>
-        api.listAll("/segments?additional-fields[segment]=profile_count"),
-      ),
+      fetchResource("lists", () => api.listResources("lists")),
+      fetchResource("segments", () => api.listResources("segments")),
       fetchResource("flows", () => api.listResources("flows")),
-      fetchResource("campaigns", () => api.listAll(CAMPAIGNS_PATH)),
+      fetchResource("campaigns_email", () =>
+        api.listAll(campaignsPath("email")),
+      ),
+      fetchResource("campaigns_sms", () => api.listAll(campaignsPath("sms"))),
       fetchResource("forms", () => api.listResources("forms")),
       fetchResource("metrics", () => api.listResources("metrics")),
     ]);
-    const [lists, segments, flows, campaigns, forms, metrics] = resources;
+    const [
+      lists,
+      segments,
+      flows,
+      campaignsEmail,
+      campaignsSms,
+      forms,
+      metrics,
+    ] = resources;
+    const campaigns = [...campaignsEmail, ...campaignsSms];
     await upsertRows(
       client,
       "klaviyo_lists",
@@ -342,6 +462,19 @@ export async function runKlaviyoSync(
       })),
       "account_id,external_metric_id",
     );
+    // Para clasificar las audiencias de una campana hace falta saber si un
+    // id externo es lista o segmento, y como se llama.
+    const listIdsExternos = new Set(lists.map((row) => row.id));
+    const segmentIdsExternos = new Set(segments.map((row) => row.id));
+    const nombresAudiencia = new Map<string, string>();
+    for (const row of [...lists, ...segments]) {
+      const nombre = text(attrs(row).name);
+      if (nombre) nombresAudiencia.set(row.id, nombre);
+    }
+
+    // Ids de plantilla que citan los mensajes de campana y de flujo. Se
+    // resuelven al final, de una vez y sin repetir.
+    const templateIds = new Set<string>();
 
     // Mensajes de campana: traen el ASUNTO real (dentro de raw_data), que el
     // panel de email y el agente A12 usan para el ranking de asuntos. El
@@ -374,7 +507,14 @@ export async function runKlaviyoSync(
             organization_id: connection.organization_id,
             campaign_id: campaign.id,
             external_message_id: message.id,
-            channel: text(attrs(message).channel),
+            // Las columnas existian desde el principio y nadie las rellenaba:
+            // el asunto se leia de raw_data en SQL y la plantilla no se leia en
+            // ningun sitio. Con external_template_id puesto, el mensaje ya
+            // enlaza con su cuerpo en klaviyo_templates.
+            external_template_id: extractKlaviyoTemplateId(message),
+            subject: extractKlaviyoSubject(attrs(message)),
+            preview_text: extractKlaviyoPreviewText(attrs(message)),
+            channel: extractKlaviyoChannel(attrs(message)),
             status: text(attrs(message).status),
             raw_data: attrs(message),
           }));
@@ -388,6 +528,9 @@ export async function runKlaviyoSync(
         "campaign_id,external_message_id",
       );
       campaignMessagesWritten = campaignMessageRows.length;
+      for (const row of campaignMessageRows) {
+        if (row.external_template_id) templateIds.add(row.external_template_id);
+      }
       if (campaignsWithMessageError > 0) {
         console.warn(
           `klaviyo_campaign_messages_partial:${campaignsWithMessageError}/${
@@ -404,6 +547,19 @@ export async function runKlaviyoSync(
       const emailMessages = campaignMessageRows.filter(
         (row) => row.channel === "email" || row.channel === null,
       );
+
+      // Mismo control para la plantilla: sin external_template_id el mensaje se
+      // queda sin cuerpo, y eso hay que verlo en los logs y no descubrirlo
+      // cuando un agente escriba sobre emails que no ha podido leer.
+      const withoutTemplate = emailMessages.filter(
+        (row) => row.external_template_id === null,
+      );
+      if (emailMessages.length > 0 && withoutTemplate.length > 0) {
+        console.warn(
+          `klaviyo_template_id_unresolved:${withoutTemplate.length}/${emailMessages.length}`,
+        );
+      }
+
       const unresolved = emailMessages.filter(
         (row) => extractKlaviyoSubject(row.raw_data) === null,
       );
@@ -436,10 +592,463 @@ export async function runKlaviyoSync(
       );
     }
 
+    // Acciones y mensajes de los flujos. En ecommerce la mayor parte del
+    // ingreso por email sale de los flujos (bienvenida, carrito abandonado,
+    // postcompra), no de las campanas, y hasta ahora klaviyo_flow_actions y
+    // klaviyo_flow_messages estaban creadas y vacias: del lado del flujo no
+    // teniamos ni el asunto ni el cuerpo, solo el nombre.
+    //
+    // Mismo patron que los mensajes de campana: best-effort, un fallo aqui no
+    // tumba el resto de la pasada.
+    let flowMessagesWritten = 0;
+    try {
+      const { data: storedFlows } = await client
+        .from("klaviyo_flows")
+        .select("id, external_flow_id")
+        .eq("account_id", accountRowStored.id);
+
+      let flowsWithActionError = 0;
+      const actionRows = (
+        await mapWithConcurrency(storedFlows ?? [], 3, async (flow) => {
+          let actions: KlaviyoResource[];
+          try {
+            actions = await api.listAll(
+              `/flows/${flow.external_flow_id}/flow-actions`,
+            );
+          } catch {
+            flowsWithActionError += 1;
+            return [];
+          }
+          return actions.map((action) => ({
+            organization_id: connection.organization_id,
+            flow_id: flow.id,
+            external_action_id: action.id,
+            // Un tipo desconocido se guarda como tal en vez de perder la
+            // accion entera.
+            action_type: extractKlaviyoActionType(attrs(action)) ?? "unknown",
+            status: text(nested(attrs(action), ["definition", "data", "status"])),
+            settings_data: nested(attrs(action), ["definition", "data"]) ?? null,
+            external_created_at: date(attrs(action).created),
+            external_updated_at: date(attrs(action).updated),
+            raw_data: attrs(action),
+            last_synced_at: now,
+          }));
+        })
+      ).flat();
+
+      if (actionRows.length > 0) {
+        await upsertRows(
+          client,
+          "klaviyo_flow_actions",
+          actionRows,
+          "flow_id,external_action_id",
+        );
+
+        // El mensaje ya venia dentro de la accion, asi que no hay ninguna
+        // llamada mas que hacer: se lee del raw_data que acabamos de guardar.
+        // klaviyo_flow_messages cuelga del FLUJO (unique flow_id +
+        // external_message_id) y guarda la accion como puntero opcional, para
+        // que el mensaje sobreviva si la accion desaparece.
+        const { data: storedActions } = await client
+          .from("klaviyo_flow_actions")
+          .select("id, flow_id, external_action_id, raw_data")
+          .in(
+            "flow_id",
+            (storedFlows ?? []).map((flow) => flow.id),
+          );
+
+        const flowMessageRows = (storedActions ?? []).flatMap((action) => {
+          const message = extractKlaviyoFlowMessage(action.raw_data);
+          const externalMessageId = message?.id;
+          if (!message || typeof externalMessageId !== "string") return [];
+          return [
+            {
+              organization_id: connection.organization_id,
+              flow_id: action.flow_id,
+              action_id: action.id,
+              external_message_id: externalMessageId,
+              external_template_id: text(message.template_id),
+              // El canal se deduce del tipo de accion ("send-email"): el
+              // mensaje incrustado no lo lleva.
+              channel:
+                extractKlaviyoActionType(action.raw_data)?.replace(
+                  /^send-/,
+                  "",
+                ) ?? "email",
+              name: text(message.name),
+              // Aqui el asunto se llama `subject_line`, no `subject`.
+              subject: text(message.subject_line),
+              preview_text: text(message.preview_text),
+              from_email: text(message.from_email),
+              from_label: text(message.from_label),
+              reply_to_email: text(message.reply_to_email),
+              raw_data: message,
+              last_synced_at: now,
+            },
+          ];
+        });
+
+        if (flowMessageRows.length > 0) {
+          await upsertRows(
+            client,
+            "klaviyo_flow_messages",
+            flowMessageRows,
+            "flow_id,external_message_id",
+          );
+          flowMessagesWritten = flowMessageRows.length;
+          for (const row of flowMessageRows) {
+            if (row.external_template_id)
+              templateIds.add(row.external_template_id);
+          }
+        }
+      }
+
+      if (flowsWithActionError > 0) {
+        console.warn(
+          `klaviyo_flow_actions_partial:${flowsWithActionError}/${
+            storedFlows?.length ?? 0
+          } flujos sin acciones esta pasada`,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `klaviyo_flow_messages_sync_skipped:${
+          error instanceof Error ? error.message : "unknown_error"
+        }`,
+      );
+    }
+
+    // Audiencias de cada campana: a quien se le mando y a quien se excluyo.
+    // No hace falta ninguna llamada -- vienen dentro de la campana que ya
+    // tenemos (raw_data.audiences), y la tabla llevaba vacia desde agosto
+    // simplemente porque nadie la escribia.
+    try {
+      const { data: campanasGuardadas } = await client
+        .from("klaviyo_campaigns")
+        .select("id, raw_data")
+        .eq("account_id", accountRowStored.id);
+
+      const audienceRows = ((campanasGuardadas ?? []) as Array<{
+        id: string;
+        raw_data: unknown;
+      }>).flatMap((campana) => {
+        const incluidas = nested(campana.raw_data, ["audiences", "included"]);
+        const excluidas = nested(campana.raw_data, ["audiences", "excluded"]);
+        const filas: Array<Record<string, unknown>> = [];
+
+        // Klaviyo no dice si un id incluido es lista o segmento, asi que se
+        // resuelve contra lo que ya hemos sincronizado. Lo excluido va como
+        // "excluded" sea lo que sea: para el consultor lo que importa es que
+        // no lo recibe.
+        const clasificar = (externalId: string): string =>
+          listIdsExternos.has(externalId)
+            ? "list"
+            : segmentIdsExternos.has(externalId)
+              ? "segment"
+              : "list";
+
+        if (Array.isArray(incluidas)) {
+          for (const externalId of incluidas) {
+            if (typeof externalId !== "string") continue;
+            filas.push({
+              organization_id: connection.organization_id,
+              campaign_id: campana.id,
+              audience_type: clasificar(externalId),
+              external_audience_id: externalId,
+              name: nombresAudiencia.get(externalId) ?? null,
+              raw_data: { included: true },
+            });
+          }
+        }
+        if (Array.isArray(excluidas)) {
+          for (const externalId of excluidas) {
+            if (typeof externalId !== "string") continue;
+            filas.push({
+              organization_id: connection.organization_id,
+              campaign_id: campana.id,
+              audience_type: "excluded",
+              external_audience_id: externalId,
+              name: nombresAudiencia.get(externalId) ?? null,
+              raw_data: { included: false },
+            });
+          }
+        }
+        return filas;
+      });
+
+      await upsertRows(
+        client,
+        "klaviyo_campaign_audiences",
+        audienceRows,
+        "campaign_id,audience_type,external_audience_id",
+      );
+    } catch (error) {
+      console.warn(
+        `klaviyo_campaign_audiences_sync_skipped:${
+          error instanceof Error ? error.message : "unknown_error"
+        }`,
+      );
+    }
+
+    // Tamano de listas y segmentos, un snapshot por dia.
+    //
+    // `profile_count` NO se puede pedir en el listado -- la revision
+    // 2026-07-15 responde "additional-fields must be in []" -- pero SI en el
+    // recurso suelto. Comprobado contra la cuenta real. Por eso es una
+    // peticion por lista y por segmento en vez de dos en total: con un puñado
+    // de cada uno es asumible, y es la unica forma de tener el dato.
+    try {
+      const snapshotDate = now.slice(0, 10);
+
+      const contar = async (
+        recurso: string,
+        externalId: string,
+      ): Promise<number | null> => {
+        try {
+          const response = await api.request<{
+            data?: { attributes?: Record<string, unknown> };
+          }>(
+            `/${recurso}s/${externalId}?additional-fields[${recurso}]=profile_count`,
+          );
+          return integer(response.data?.attributes?.profile_count);
+        } catch {
+          return null;
+        }
+      };
+
+      const { data: listasGuardadas } = await client
+        .from("klaviyo_lists")
+        .select("id, external_list_id")
+        .eq("account_id", accountRowStored.id);
+      const listSnapshots = (
+        await mapWithConcurrency(
+          (listasGuardadas ?? []) as Array<{
+            id: string;
+            external_list_id: string;
+          }>,
+          3,
+          async (lista) => {
+            const count = await contar("list", lista.external_list_id);
+            // Sin cuenta no se escribe fila: un snapshot con 0 inventado
+            // pareceria una lista que se vacio de golpe.
+            return count === null
+              ? []
+              : [
+                  {
+                    organization_id: connection.organization_id,
+                    list_id: lista.id,
+                    snapshot_date: snapshotDate,
+                    profile_count: count,
+                    source: "live",
+                  },
+                ];
+          },
+        )
+      ).flat();
+      await upsertRows(
+        client,
+        "klaviyo_list_daily_snapshots",
+        listSnapshots,
+        "list_id,snapshot_date",
+      );
+
+      const { data: segmentosGuardados } = await client
+        .from("klaviyo_segments")
+        .select("id, external_segment_id")
+        .eq("account_id", accountRowStored.id);
+      const segmentSnapshots = (
+        await mapWithConcurrency(
+          (segmentosGuardados ?? []) as Array<{
+            id: string;
+            external_segment_id: string;
+          }>,
+          3,
+          async (segmento) => {
+            const count = await contar(
+              "segment",
+              segmento.external_segment_id,
+            );
+            return count === null
+              ? []
+              : [
+                  {
+                    organization_id: connection.organization_id,
+                    segment_id: segmento.id,
+                    snapshot_date: snapshotDate,
+                    profile_count: count,
+                    source: "live",
+                  },
+                ];
+          },
+        )
+      ).flat();
+      await upsertRows(
+        client,
+        "klaviyo_segment_daily_snapshots",
+        segmentSnapshots,
+        "segment_id,snapshot_date",
+      );
+    } catch (error) {
+      console.warn(
+        `klaviyo_audience_snapshots_skipped:${
+          error instanceof Error ? error.message : "unknown_error"
+        }`,
+      );
+    }
+
+    let clicksWritten = 0;
+    // Clicks en enlaces: que CTA se pulsa, no solo cuanta gente pulsa algo.
+    //
+    // Los eventos "Clicked Email" son los unicos que llevan la URL. Se piden
+    // por el id de la metrica de la propia cuenta y solo de la ventana
+    // reciente: cada click es un evento, asi que traerlo todo cada pasada
+    // crece sin limite y no aporta -- lo viejo ya esta guardado.
+    try {
+      const clickMetric = metrics.find(
+        (row) => text(attrs(row).name) === "Clicked Email",
+      );
+
+      if (clickMetric) {
+        const desde = new Date(
+          Date.now() - KLAVIYO_CLICK_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const eventos = await api.listAll(
+          "/events?filter=" +
+            encodeURIComponent(
+              `and(equals(metric_id,'${clickMetric.id}'),greater-than(datetime,${desde}))`,
+            ) +
+            "&sort=-datetime",
+          { maxPages: KLAVIYO_CLICK_MAX_PAGES },
+        );
+
+        const clickRows = eventos.map((evento) => {
+          const propiedades = attrs(evento).event_properties;
+          return {
+            organization_id: connection.organization_id,
+            account_id: accountRowStored.id,
+            external_event_id: evento.id,
+            occurred_at:
+              date(attrs(evento).datetime) ?? new Date().toISOString(),
+            url: extractKlaviyoClickUrl(propiedades),
+            external_message_id: text(nested(propiedades, ["$message"])),
+            external_profile_id: text(
+              nested(evento.relationships, ["profile", "data", "id"]),
+            ),
+            raw_data: propiedades ?? {},
+          };
+        });
+
+        await upsertRows(
+          client,
+          "klaviyo_email_click_events",
+          clickRows,
+          "account_id,external_event_id",
+        );
+        clicksWritten = clickRows.length;
+
+        // Sin URL el click no sirve para nada de lo que existe esta tabla.
+        // Si pasa, hay que ver la clave real antes de suponerla.
+        const sinUrl = clickRows.filter((row) => row.url === null);
+        if (sinUrl.length > 0) {
+          const muestra = sinUrl[0]?.raw_data;
+          console.warn(
+            `klaviyo_click_url_unresolved:${sinUrl.length}/${clickRows.length}:` +
+              `keys=${
+                muestra && typeof muestra === "object"
+                  ? Object.keys(muestra as Record<string, unknown>).join(",")
+                  : typeof muestra
+              }`,
+          );
+        }
+      } else {
+        console.warn(
+          "klaviyo_click_metric_missing: la cuenta no expone la metrica Clicked Email",
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `klaviyo_click_events_skipped:${
+          error instanceof Error ? error.message : "unknown_error"
+        }`,
+      );
+    }
+
+    // Plantillas (el cuerpo del email), resueltas UNA A UNA por id.
+    //
+    // Comprobado contra la API real: `/templates` devuelve una lista VACIA
+    // aunque las plantillas existan -- ahi solo aparece la biblioteca guardada,
+    // no las que se crean dentro de una campana o un flujo, que son
+    // precisamente las que nos interesan. Por id (`/templates/{id}`) se
+    // recuperan sin problema. Ademas asi solo se pide lo que algun mensaje
+    // referencia, que es mas barato en cuota que listar.
+    let templatesWritten = 0;
+    if (templateIds.size > 0) {
+      try {
+        const templateRows = (
+          await mapWithConcurrency([...templateIds], 3, async (templateId) => {
+            try {
+              const response = await api.request<{ data?: KlaviyoResource }>(
+                `/templates/${templateId}`,
+              );
+              const template = response.data;
+              if (!template) return [];
+              const { html, text: plain, ...rest } = attrs(template);
+              return [
+                {
+                  organization_id: connection.organization_id,
+                  account_id: accountRowStored.id,
+                  external_template_id: template.id,
+                  name: text(attrs(template).name),
+                  editor_type: text(attrs(template).editor_type),
+                  html_content: text(html),
+                  // ponytail: Klaviyo devuelve `text` vacio en las plantillas
+                  // del editor visual (genera el texto al enviar). Los agentes
+                  // necesitaran el HTML convertido a texto; se hace al
+                  // construir su contexto, no aqui, para no reprocesar en cada
+                  // sync.
+                  text_content: text(plain),
+                  external_created_at: date(attrs(template).created),
+                  external_updated_at: date(attrs(template).updated),
+                  raw_data: rest,
+                  last_synced_at: now,
+                },
+              ];
+            } catch {
+              // Una plantilla borrada en Klaviyo no debe costar las demas.
+              return [];
+            }
+          })
+        ).flat();
+
+        await upsertRows(
+          client,
+          "klaviyo_templates",
+          templateRows,
+          "account_id,external_template_id",
+        );
+        templatesWritten = templateRows.length;
+
+        if (templateRows.length < templateIds.size) {
+          console.warn(
+            `klaviyo_templates_partial:${templateRows.length}/${templateIds.size} plantillas resueltas`,
+          );
+        }
+      } catch (error) {
+        console.warn(
+          `klaviyo_templates_sync_skipped:${
+            error instanceof Error ? error.message : "unknown_error"
+          }`,
+        );
+      }
+    }
+
     const recordsRead =
       resources.reduce((sum, rows) => sum + rows.length, 0) +
       1 +
-      campaignMessagesWritten;
+      campaignMessagesWritten +
+      flowMessagesWritten +
+      templatesWritten +
+      clicksWritten;
     await client
       .from("integration_sync_runs")
       .update({
@@ -448,9 +1057,13 @@ export async function runKlaviyoSync(
         records_written: recordsRead,
         // Limpia el rastro de un intento fallido anterior sobre la misma fila
         // (mismo idempotency_key): si esta pasada completó, no debe seguir
-        // mostrando el error de la anterior en la UI.
-        records_failed: 0,
-        error_message: null,
+        // mostrando el error de la anterior en la UI. Pero si algún recurso se
+        // quedó fuera, se dice: el catálogo está incompleto y quien lo lea
+        // tiene que saberlo antes de concluir que algo no existe.
+        records_failed: skipped.length,
+        error_message: skipped.length
+          ? `klaviyo_recursos_no_traidos:${skipped.join(",")}`
+          : null,
         finished_at: now,
       })
       .eq("id", syncRun.id);
@@ -718,7 +1331,7 @@ export async function listKlaviyoReports(
   const { data: values, error: valuesError } = await client
     .from("klaviyo_report_values")
     .select(
-      "report_run_id, entity_type, external_entity_id, entity_name, metric_id, period_start, period_end, conversions, revenue, currency_code, raw_data",
+      "id, report_run_id, entity_type, external_entity_id, entity_name, metric_id, period_start, period_end, conversions, revenue, currency_code, raw_data",
     )
     .eq("organization_id", connection.organization_id)
     .in("report_run_id", runIds)
@@ -773,8 +1386,23 @@ const KLAVIYO_REPORT_TYPES = [
   "flow-values-report",
 ] as const;
 
+/**
+ * La Reporting API EXIGE agrupar por el id del mensaje ("Grouping by
+ * campaign_message_id is required" / "Group by flow_message_id is required"),
+ * no solo por el de la campana o el flujo. Se piden los dos: el del mensaje
+ * porque es obligatorio, y el de la campana/flujo porque es por donde
+ * klaviyo_email_report enlaza con klaviyo_campaigns / klaviyo_flows.
+ *
+ * ponytail: `external_entity_id` sigue guardando el id de la campana/flujo, asi
+ * que dos mensajes de la misma campana (un A/B) colisionan en el upsert y gana
+ * el ultimo. El id del mensaje queda en raw_data.groupings. Se resuelve al
+ * modelar el rendimiento por mensaje, que es lo que esta granularidad permite y
+ * lo que necesita el analisis de asuntos.
+ */
 function groupByForType(type: KlaviyoReportType): string[] {
-  return [type.startsWith("campaign") ? "campaign_id" : "flow_id"];
+  return type.startsWith("campaign")
+    ? ["campaign_id", "campaign_message_id"]
+    : ["flow_id", "flow_message_id"];
 }
 
 function monthPeriod(reference: Date, monthsAgo: number) {

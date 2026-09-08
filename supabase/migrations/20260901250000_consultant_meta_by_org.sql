@@ -8,6 +8,7 @@
 -- action_types de compra) pero agrupada por organizacion. Los indices de fecha
 -- de meta_insight_rows_daily ya existen (ver consultant_business_rollup).
 
+drop function if exists public.consultant_meta_by_org(uuid[], date, date);
 create or replace function public.consultant_meta_by_org(
   org_ids uuid[],
   period_start date,

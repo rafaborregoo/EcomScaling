@@ -12,7 +12,7 @@
 
 create extension if not exists vector with schema extensions;
 
-create table public.knowledge_documents (
+create table if not exists public.knowledge_documents (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid references public.organizations (id) on delete cascade,
   title varchar(255) not null,
@@ -38,7 +38,7 @@ create table public.knowledge_documents (
   )
 );
 
-create table public.knowledge_chunks (
+create table if not exists public.knowledge_chunks (
   id uuid primary key default gen_random_uuid(),
   document_id uuid not null references public.knowledge_documents (id) on delete cascade,
   organization_id uuid references public.organizations (id) on delete cascade,
@@ -50,7 +50,7 @@ create table public.knowledge_chunks (
   constraint knowledge_chunks_unique_index unique (document_id, chunk_index)
 );
 
-create table public.ai_conversations (
+create table if not exists public.ai_conversations (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   user_id uuid not null references public.profiles (id) on delete cascade,
@@ -60,7 +60,7 @@ create table public.ai_conversations (
   updated_at timestamptz not null default now()
 );
 
-create table public.ai_messages (
+create table if not exists public.ai_messages (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null references public.ai_conversations (id) on delete cascade,
   organization_id uuid not null references public.organizations (id) on delete cascade,
@@ -71,21 +71,23 @@ create table public.ai_messages (
   constraint ai_messages_role check (role in ('user', 'assistant'))
 );
 
-create index knowledge_documents_organization_id_idx on public.knowledge_documents (organization_id);
-create index knowledge_documents_visibility_idx on public.knowledge_documents (visibility, status);
-create index knowledge_chunks_document_id_idx on public.knowledge_chunks (document_id);
-create index knowledge_chunks_organization_id_idx on public.knowledge_chunks (organization_id);
-create index knowledge_chunks_embedding_idx on public.knowledge_chunks
+create index if not exists knowledge_documents_organization_id_idx on public.knowledge_documents (organization_id);
+create index if not exists knowledge_documents_visibility_idx on public.knowledge_documents (visibility, status);
+create index if not exists knowledge_chunks_document_id_idx on public.knowledge_chunks (document_id);
+create index if not exists knowledge_chunks_organization_id_idx on public.knowledge_chunks (organization_id);
+create index if not exists knowledge_chunks_embedding_idx on public.knowledge_chunks
   using hnsw (embedding extensions.vector_cosine_ops);
-create index ai_conversations_organization_id_idx on public.ai_conversations (organization_id);
-create index ai_conversations_user_id_idx on public.ai_conversations (user_id);
-create index ai_messages_conversation_id_idx on public.ai_messages (conversation_id);
-create index ai_messages_organization_id_idx on public.ai_messages (organization_id);
+create index if not exists ai_conversations_organization_id_idx on public.ai_conversations (organization_id);
+create index if not exists ai_conversations_user_id_idx on public.ai_conversations (user_id);
+create index if not exists ai_messages_conversation_id_idx on public.ai_messages (conversation_id);
+create index if not exists ai_messages_organization_id_idx on public.ai_messages (organization_id);
 
+drop trigger if exists set_knowledge_documents_updated_at on public.knowledge_documents;
 create trigger set_knowledge_documents_updated_at
 before update on public.knowledge_documents
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_ai_conversations_updated_at on public.ai_conversations;
 create trigger set_ai_conversations_updated_at
 before update on public.ai_conversations
 for each row execute function private.set_updated_at();
@@ -97,26 +99,26 @@ alter table public.ai_messages enable row level security;
 
 -- Global: visible a cualquier usuario autenticado (es la metodologia que se
 -- entrega a los clientes). Por organizacion: solo quien accede a ese tenant.
-create policy "knowledge_documents_select_visible"
-on public.knowledge_documents for select to authenticated
+drop policy if exists "knowledge_documents_select_visible" on public.knowledge_documents;
+create policy "knowledge_documents_select_visible" on public.knowledge_documents for select to authenticated
 using (
   (visibility = 'global')
   or (organization_id is not null and private.can_access_org(organization_id))
 );
 
-create policy "knowledge_chunks_select_visible"
-on public.knowledge_chunks for select to authenticated
+drop policy if exists "knowledge_chunks_select_visible" on public.knowledge_chunks;
+create policy "knowledge_chunks_select_visible" on public.knowledge_chunks for select to authenticated
 using (
   (organization_id is null)
   or private.can_access_org(organization_id)
 );
 
-create policy "ai_conversations_select_own"
-on public.ai_conversations for select to authenticated
+drop policy if exists "ai_conversations_select_own" on public.ai_conversations;
+create policy "ai_conversations_select_own" on public.ai_conversations for select to authenticated
 using (user_id = (select auth.uid()) and private.can_access_org(organization_id));
 
-create policy "ai_messages_select_own"
-on public.ai_messages for select to authenticated
+drop policy if exists "ai_messages_select_own" on public.ai_messages;
+create policy "ai_messages_select_own" on public.ai_messages for select to authenticated
 using (
   exists (
     select 1 from public.ai_conversations c
@@ -135,6 +137,7 @@ grant select on public.ai_messages to authenticated;
 -- stable sin security definer (patron ADR-0006): llamada por el API con
 -- service role; si la llama un usuario autenticado, la RLS de las tablas
 -- base sigue aplicando.
+drop function if exists public.knowledge_search(uuid, extensions.vector(1024), integer);
 create or replace function public.knowledge_search(
   target_organization_id uuid,
   query_embedding extensions.vector(1024),

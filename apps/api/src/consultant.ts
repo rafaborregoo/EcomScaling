@@ -6,6 +6,11 @@ import { recordAuditLog } from "./audit-log.js";
 import { assignPartnersToOrganization } from "./consultant-partners.js";
 import { isErr } from "./result-guard.js";
 import { rankStores, type AgentSignal } from "./store-triage.js";
+import { rankMetaAccounts, type MetaSignalRow } from "./meta-triage.js";
+import {
+  rankKlaviyoAccounts,
+  type KlaviyoSignalRow,
+} from "./klaviyo-triage.js";
 import { createLogger } from "@ecomscaling/observability";
 
 const logger = createLogger("consultant");
@@ -2120,6 +2125,168 @@ export async function listConsultantStores(
         display_name: organization.display_name,
       })),
       stores,
+      ranking,
+    },
+  };
+}
+
+/**
+ * Cartera de Meta ordenada por urgencia de revision, para la vista general de
+ * /meta cuando el consultor no ha elegido cliente.
+ *
+ * Es hermana de listConsultantStores pero no pasa por los agentes: las
+ * señales de una cuenta publicitaria rota son contables (ver meta-triage.ts).
+ */
+export async function listConsultantMetaAccounts(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+
+  if (organizations.length === 0) {
+    return {
+      ok: true as const,
+      data: { organizations: [], ranking: [] },
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase.rpc("consultant_meta_signals", {
+    target_organization_ids: organizations.map((organization) => organization.id),
+  });
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_meta_signals_failed",
+      detail: error.message,
+    };
+  }
+
+  const nameByOrg = new Map(
+    organizations.map((organization) => [
+      organization.id,
+      organization.display_name,
+    ]),
+  );
+
+  const ranking = rankMetaAccounts(
+    ((data ?? []) as MetaSignalRow[]).map((row) => ({
+      ...row,
+      ad_accounts: Number(row.ad_accounts ?? 0),
+      spend: Number(row.spend ?? 0),
+      days_with_spend: Number(row.days_with_spend ?? 0),
+      pixels: Number(row.pixels ?? 0),
+      pixels_silent: Number(row.pixels_silent ?? 0),
+      ads_with_issues: Number(row.ads_with_issues ?? 0),
+      ad_sets_learning: Number(row.ad_sets_learning ?? 0),
+      spend_below_average: Number(row.spend_below_average ?? 0),
+      spend_with_verdict: Number(row.spend_with_verdict ?? 0),
+      recent_changes: Number(row.recent_changes ?? 0),
+      organization_name:
+        nameByOrg.get(row.organization_id) ?? "Cliente sin nombre",
+    })),
+    new Date(),
+  );
+
+  return {
+    ok: true as const,
+    data: {
+      organizations: organizations.map((organization) => ({
+        id: organization.id,
+        display_name: organization.display_name,
+      })),
+      ranking,
+    },
+  };
+}
+
+/**
+ * Cartera de email ordenada por urgencia. Mismo contrato que
+ * listConsultantMetaAccounts: las señales salen de una funcion SQL y el orden
+ * se calcula en Node, sin agentes.
+ */
+export async function listConsultantKlaviyoAccounts(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+
+  if (organizations.length === 0) {
+    return {
+      ok: true as const,
+      data: { organizations: [], ranking: [] },
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase.rpc("consultant_klaviyo_signals", {
+    target_organization_ids: organizations.map(
+      (organization) => organization.id,
+    ),
+  });
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_klaviyo_signals_failed",
+      detail: error.message,
+    };
+  }
+
+  const nameByOrg = new Map(
+    organizations.map((organization) => [
+      organization.id,
+      organization.display_name,
+    ]),
+  );
+
+  const ranking = rankKlaviyoAccounts(
+    ((data ?? []) as KlaviyoSignalRow[]).map((row) => ({
+      ...row,
+      sync_incomplete: Boolean(row.sync_incomplete),
+      emails_total: Number(row.emails_total ?? 0),
+      emails_sin_utm: Number(row.emails_sin_utm ?? 0),
+      emails_sin_cuerpo: Number(row.emails_sin_cuerpo ?? 0),
+      flows_active: Number(row.flows_active ?? 0),
+      campaigns_in_window: Number(row.campaigns_in_window ?? 0),
+      lists: Number(row.lists ?? 0),
+      segments: Number(row.segments ?? 0),
+      organization_name:
+        nameByOrg.get(row.organization_id) ?? "Cliente sin nombre",
+    })),
+    new Date(),
+  );
+
+  return {
+    ok: true as const,
+    data: {
+      organizations: organizations.map((organization) => ({
+        id: organization.id,
+        display_name: organization.display_name,
+      })),
       ranking,
     },
   };

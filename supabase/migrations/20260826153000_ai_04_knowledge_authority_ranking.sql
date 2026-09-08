@@ -2,6 +2,7 @@
 -- Migración posterior separada: no se modifica la migración original para que
 -- instalaciones que ya la aplicaron reciban este cambio de forma incremental.
 
+drop function if exists public.knowledge_search_hybrid(uuid, extensions.vector(1024), text, text[], uuid, integer);
 create or replace function public.knowledge_search_hybrid(
   target_organization_id uuid,
   query_embedding extensions.vector(1024),

@@ -7,7 +7,7 @@
 -- Los adjuntos viven en un bucket PRIVADO (`consultant-messages`): las lecturas
 -- se sirven con URL firmada generada por la API, no hay URL pública.
 
-create table public.consultant_client_messages (
+create table if not exists public.consultant_client_messages (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   author_user_id uuid references public.profiles (id) on delete set null,
@@ -20,10 +20,9 @@ create table public.consultant_client_messages (
     check (length(btrim(body)) > 0 or jsonb_array_length(attachments) > 0)
 );
 
-create index consultant_client_messages_org_created_idx
-  on public.consultant_client_messages (organization_id, created_at desc);
+create index if not exists consultant_client_messages_org_created_idx on public.consultant_client_messages (organization_id, created_at desc);
 
-create table public.consultant_client_message_reads (
+create table if not exists public.consultant_client_message_reads (
   organization_id uuid not null references public.organizations (id) on delete cascade,
   user_id uuid not null references public.profiles (id) on delete cascade,
   last_read_at timestamptz not null default now(),
@@ -36,16 +35,16 @@ alter table public.consultant_client_message_reads enable row level security;
 -- Ven el hilo: admin de plataforma, consultor asignado, o miembro
 -- owner/manager de la organización. Mismo criterio que el hilo de notas de
 -- marketing (marketing_content_draft_notes).
-create policy "consultant_client_messages_select_workspace"
-on public.consultant_client_messages for select to authenticated
+drop policy if exists "consultant_client_messages_select_workspace" on public.consultant_client_messages;
+create policy "consultant_client_messages_select_workspace" on public.consultant_client_messages for select to authenticated
 using (
   private.is_platform_admin()
   or private.is_assigned_consultant(organization_id)
   or private.current_member_role(organization_id) in ('owner', 'manager')
 );
 
-create policy "consultant_client_message_reads_select_own"
-on public.consultant_client_message_reads for select to authenticated
+drop policy if exists "consultant_client_message_reads_select_own" on public.consultant_client_message_reads;
+create policy "consultant_client_message_reads_select_own" on public.consultant_client_message_reads for select to authenticated
 using (user_id = (select auth.uid()));
 
 grant select on public.consultant_client_messages to authenticated;

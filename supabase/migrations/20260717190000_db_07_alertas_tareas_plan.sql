@@ -13,7 +13,7 @@ create type public.plan_status as enum ('draft', 'active', 'completed', 'archive
 create type public.plan_phase_status as enum ('locked', 'pending', 'active', 'completed');
 create type public.milestone_status as enum ('locked', 'pending', 'in_progress', 'completed', 'skipped');
 
-create table public.alert_rule_templates (
+create table if not exists public.alert_rule_templates (
   id uuid primary key default gen_random_uuid(),
   code varchar(120) not null unique,
   name varchar(255) not null,
@@ -32,7 +32,7 @@ create table public.alert_rule_templates (
   updated_at timestamptz not null default now()
 );
 
-create table public.organization_alert_rules (
+create table if not exists public.organization_alert_rules (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   template_id uuid not null references public.alert_rule_templates (id) on delete cascade,
@@ -45,7 +45,7 @@ create table public.organization_alert_rules (
   constraint organization_alert_rules_unique unique (organization_id, template_id)
 );
 
-create table public.alerts (
+create table if not exists public.alerts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   rule_template_id uuid references public.alert_rule_templates (id) on delete set null,
@@ -71,7 +71,7 @@ create table public.alerts (
   updated_at timestamptz not null default now()
 );
 
-create table public.tasks (
+create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   alert_id uuid references public.alerts (id) on delete set null,
@@ -93,7 +93,7 @@ create table public.tasks (
   updated_at timestamptz not null default now()
 );
 
-create table public.task_status_history (
+create table if not exists public.task_status_history (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   task_id uuid not null references public.tasks (id) on delete cascade,
@@ -104,7 +104,7 @@ create table public.task_status_history (
   changed_at timestamptz not null default now()
 );
 
-create table public.task_comments (
+create table if not exists public.task_comments (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   task_id uuid not null references public.tasks (id) on delete cascade,
@@ -115,7 +115,7 @@ create table public.task_comments (
   updated_at timestamptz not null default now()
 );
 
-create table public.strategic_plans (
+create table if not exists public.strategic_plans (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   name varchar(255) not null,
@@ -131,7 +131,7 @@ create table public.strategic_plans (
   updated_at timestamptz not null default now()
 );
 
-create table public.strategic_plan_phases (
+create table if not exists public.strategic_plan_phases (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   plan_id uuid not null references public.strategic_plans (id) on delete cascade,
@@ -147,7 +147,7 @@ create table public.strategic_plan_phases (
   constraint strategic_plan_phases_unique_position unique (plan_id, position)
 );
 
-create table public.strategic_plan_milestones (
+create table if not exists public.strategic_plan_milestones (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   phase_id uuid not null references public.strategic_plan_phases (id) on delete cascade,
@@ -164,7 +164,7 @@ create table public.strategic_plan_milestones (
   constraint strategic_plan_milestones_unique_position unique (phase_id, position)
 );
 
-create table public.milestone_task_links (
+create table if not exists public.milestone_task_links (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   milestone_id uuid not null references public.strategic_plan_milestones (id) on delete cascade,
@@ -173,7 +173,7 @@ create table public.milestone_task_links (
   constraint milestone_task_links_unique unique (milestone_id, task_id)
 );
 
-create table public.milestone_internal_notes (
+create table if not exists public.milestone_internal_notes (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   milestone_id uuid not null references public.strategic_plan_milestones (id) on delete cascade,
@@ -183,68 +183,76 @@ create table public.milestone_internal_notes (
   updated_at timestamptz not null default now()
 );
 
-create index organization_alert_rules_organization_id_idx on public.organization_alert_rules (organization_id);
-create index alerts_organization_id_idx on public.alerts (organization_id);
-create index alerts_status_idx on public.alerts (status);
-create index alerts_severity_idx on public.alerts (severity);
-create index alerts_fingerprint_idx on public.alerts (fingerprint);
-create index alerts_org_status_severity_idx on public.alerts (organization_id, status, severity);
+create index if not exists organization_alert_rules_organization_id_idx on public.organization_alert_rules (organization_id);
+create index if not exists alerts_organization_id_idx on public.alerts (organization_id);
+create index if not exists alerts_status_idx on public.alerts (status);
+create index if not exists alerts_severity_idx on public.alerts (severity);
+create index if not exists alerts_fingerprint_idx on public.alerts (fingerprint);
+create index if not exists alerts_org_status_severity_idx on public.alerts (organization_id, status, severity);
 -- Idempotencia del motor de reglas: una alerta viva por fingerprint y organizacion.
-create unique index alerts_unique_live_fingerprint
-on public.alerts (organization_id, fingerprint)
+create unique index if not exists alerts_unique_live_fingerprint on public.alerts (organization_id, fingerprint)
 where fingerprint is not null and status in ('open', 'acknowledged');
-create index tasks_organization_id_idx on public.tasks (organization_id);
-create index tasks_assigned_to_idx on public.tasks (assigned_to);
-create index tasks_status_idx on public.tasks (status);
-create index tasks_priority_idx on public.tasks (priority);
-create index tasks_due_at_idx on public.tasks (due_at);
-create index tasks_org_status_priority_idx on public.tasks (organization_id, status, priority);
+create index if not exists tasks_organization_id_idx on public.tasks (organization_id);
+create index if not exists tasks_assigned_to_idx on public.tasks (assigned_to);
+create index if not exists tasks_status_idx on public.tasks (status);
+create index if not exists tasks_priority_idx on public.tasks (priority);
+create index if not exists tasks_due_at_idx on public.tasks (due_at);
+create index if not exists tasks_org_status_priority_idx on public.tasks (organization_id, status, priority);
 -- Una alerta genera como maximo una tarea (criterio de cierre DB-07/BE-05).
-create unique index tasks_unique_alert on public.tasks (alert_id) where alert_id is not null;
-create index task_status_history_task_id_idx on public.task_status_history (task_id);
-create index task_status_history_organization_id_idx on public.task_status_history (organization_id);
-create index task_comments_task_id_idx on public.task_comments (task_id);
-create index task_comments_organization_id_idx on public.task_comments (organization_id);
-create index strategic_plans_organization_id_idx on public.strategic_plans (organization_id);
-create index strategic_plans_status_idx on public.strategic_plans (status);
-create index strategic_plan_phases_organization_id_idx on public.strategic_plan_phases (organization_id);
-create index strategic_plan_milestones_organization_id_idx on public.strategic_plan_milestones (organization_id);
-create index milestone_task_links_organization_id_idx on public.milestone_task_links (organization_id);
-create index milestone_internal_notes_milestone_id_idx on public.milestone_internal_notes (milestone_id);
-create index milestone_internal_notes_organization_id_idx on public.milestone_internal_notes (organization_id);
+create unique index if not exists tasks_unique_alert on public.tasks (alert_id) where alert_id is not null;
+create index if not exists task_status_history_task_id_idx on public.task_status_history (task_id);
+create index if not exists task_status_history_organization_id_idx on public.task_status_history (organization_id);
+create index if not exists task_comments_task_id_idx on public.task_comments (task_id);
+create index if not exists task_comments_organization_id_idx on public.task_comments (organization_id);
+create index if not exists strategic_plans_organization_id_idx on public.strategic_plans (organization_id);
+create index if not exists strategic_plans_status_idx on public.strategic_plans (status);
+create index if not exists strategic_plan_phases_organization_id_idx on public.strategic_plan_phases (organization_id);
+create index if not exists strategic_plan_milestones_organization_id_idx on public.strategic_plan_milestones (organization_id);
+create index if not exists milestone_task_links_organization_id_idx on public.milestone_task_links (organization_id);
+create index if not exists milestone_internal_notes_milestone_id_idx on public.milestone_internal_notes (milestone_id);
+create index if not exists milestone_internal_notes_organization_id_idx on public.milestone_internal_notes (organization_id);
 
+drop trigger if exists set_alert_rule_templates_updated_at on public.alert_rule_templates;
 create trigger set_alert_rule_templates_updated_at
 before update on public.alert_rule_templates
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_organization_alert_rules_updated_at on public.organization_alert_rules;
 create trigger set_organization_alert_rules_updated_at
 before update on public.organization_alert_rules
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_alerts_updated_at on public.alerts;
 create trigger set_alerts_updated_at
 before update on public.alerts
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_tasks_updated_at on public.tasks;
 create trigger set_tasks_updated_at
 before update on public.tasks
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_task_comments_updated_at on public.task_comments;
 create trigger set_task_comments_updated_at
 before update on public.task_comments
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_strategic_plans_updated_at on public.strategic_plans;
 create trigger set_strategic_plans_updated_at
 before update on public.strategic_plans
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_strategic_plan_phases_updated_at on public.strategic_plan_phases;
 create trigger set_strategic_plan_phases_updated_at
 before update on public.strategic_plan_phases
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_strategic_plan_milestones_updated_at on public.strategic_plan_milestones;
 create trigger set_strategic_plan_milestones_updated_at
 before update on public.strategic_plan_milestones
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_milestone_internal_notes_updated_at on public.milestone_internal_notes;
 create trigger set_milestone_internal_notes_updated_at
 before update on public.milestone_internal_notes
 for each row execute function private.set_updated_at();
@@ -271,6 +279,7 @@ $$;
 
 revoke all on function private.enforce_task_alert_same_org() from public;
 
+drop trigger if exists enforce_task_alert_same_org on public.tasks;
 create trigger enforce_task_alert_same_org
 before insert or update of alert_id on public.tasks
 for each row execute function private.enforce_task_alert_same_org();
@@ -301,6 +310,7 @@ $$;
 
 revoke all on function private.enforce_milestone_task_link_same_org() from public;
 
+drop trigger if exists enforce_milestone_task_link_same_org on public.milestone_task_links;
 create trigger enforce_milestone_task_link_same_org
 before insert or update on public.milestone_task_links
 for each row execute function private.enforce_milestone_task_link_same_org();
@@ -328,6 +338,7 @@ $$;
 
 revoke all on function private.record_task_status_change() from public;
 
+drop trigger if exists record_task_status_change on public.tasks;
 create trigger record_task_status_change
 after insert or update of status on public.tasks
 for each row execute function private.record_task_status_change();
@@ -344,27 +355,27 @@ alter table public.strategic_plan_milestones enable row level security;
 alter table public.milestone_task_links enable row level security;
 alter table public.milestone_internal_notes enable row level security;
 
-create policy "alert_rule_templates_select_all"
-on public.alert_rule_templates
+drop policy if exists "alert_rule_templates_select_all" on public.alert_rule_templates;
+create policy "alert_rule_templates_select_all" on public.alert_rule_templates
 for select
 to authenticated
 using (true);
 
-create policy "organization_alert_rules_select_authorized"
-on public.organization_alert_rules
+drop policy if exists "organization_alert_rules_select_authorized" on public.organization_alert_rules;
+create policy "organization_alert_rules_select_authorized" on public.organization_alert_rules
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "alerts_select_authorized"
-on public.alerts
+drop policy if exists "alerts_select_authorized" on public.alerts;
+create policy "alerts_select_authorized" on public.alerts
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
 -- Tareas internas del consultor no se exponen al cliente (criterio FE-03).
-create policy "tasks_select_authorized"
-on public.tasks
+drop policy if exists "tasks_select_authorized" on public.tasks;
+create policy "tasks_select_authorized" on public.tasks
 for select
 to authenticated
 using (
@@ -376,14 +387,14 @@ using (
   )
 );
 
-create policy "task_status_history_select_authorized"
-on public.task_status_history
+drop policy if exists "task_status_history_select_authorized" on public.task_status_history;
+create policy "task_status_history_select_authorized" on public.task_status_history
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "task_comments_select_authorized"
-on public.task_comments
+drop policy if exists "task_comments_select_authorized" on public.task_comments;
+create policy "task_comments_select_authorized" on public.task_comments
 for select
 to authenticated
 using (
@@ -395,33 +406,33 @@ using (
   )
 );
 
-create policy "strategic_plans_select_authorized"
-on public.strategic_plans
+drop policy if exists "strategic_plans_select_authorized" on public.strategic_plans;
+create policy "strategic_plans_select_authorized" on public.strategic_plans
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "strategic_plan_phases_select_authorized"
-on public.strategic_plan_phases
+drop policy if exists "strategic_plan_phases_select_authorized" on public.strategic_plan_phases;
+create policy "strategic_plan_phases_select_authorized" on public.strategic_plan_phases
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "strategic_plan_milestones_select_authorized"
-on public.strategic_plan_milestones
+drop policy if exists "strategic_plan_milestones_select_authorized" on public.strategic_plan_milestones;
+create policy "strategic_plan_milestones_select_authorized" on public.strategic_plan_milestones
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
-create policy "milestone_task_links_select_authorized"
-on public.milestone_task_links
+drop policy if exists "milestone_task_links_select_authorized" on public.milestone_task_links;
+create policy "milestone_task_links_select_authorized" on public.milestone_task_links
 for select
 to authenticated
 using (private.can_access_org(organization_id));
 
 -- Notas internas de hitos: solo consultores asignados y platform admins.
-create policy "milestone_internal_notes_select_consultants"
-on public.milestone_internal_notes
+drop policy if exists "milestone_internal_notes_select_consultants" on public.milestone_internal_notes;
+create policy "milestone_internal_notes_select_consultants" on public.milestone_internal_notes
 for select
 to authenticated
 using (

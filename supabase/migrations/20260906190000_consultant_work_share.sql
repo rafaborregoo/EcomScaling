@@ -10,5 +10,5 @@
 -- Default 100 para las filas existentes: una tienda con un solo consultor le
 -- sigue asignando todo, que es lo que ya pasaba de hecho.
 alter table public.consultant_assignments
-  add column work_share smallint not null default 100
+  add column if not exists work_share smallint not null default 100
   check (work_share >= 0 and work_share <= 100);

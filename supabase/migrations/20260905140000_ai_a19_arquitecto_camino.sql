@@ -20,7 +20,8 @@ values (
   'a19_arquitecto_camino',
   'Arquitecto del camino',
   'Propone el plan estrategico de una tienda para un horizonte dado (1 mes, 3 meses, 6 meses o 1 ano): fases ordenadas, hitos con fecha objetivo y criterio de exito, anclados en los datos reales de la tienda y en la metodologia EcomScaling. No activa nada: el plan nace en borrador.'
-);
+)
+on conflict (code) do nothing;
 
 insert into public.prompt_versions (code, version, content, checksum)
 values (
@@ -67,7 +68,8 @@ Si no hay datos suficientes para disenar el horizonte pedido, entrega un plan ma
 Bueno: una fase "Recuperar margen" con evidence "margen bruto 18% (ultimos 90 dias, shopify)" y "42 productos sin coste cargado (interno)", cuyo primer hito es "cargar el coste de los 20 productos que concentran el 80% de las ventas", con success_metric "menos de 5 productos sin coste entre el top 80% de facturacion".
 Malo: cinco fases genericas de manual (Auditoria, Optimizacion, Escalado, Fidelizacion, Internacionalizacion) sin una sola cifra de la tienda, con hitos repartidos cada 30 dias exactos.$$,
   encode(sha256('a19_arquitecto_camino_system_v1'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select
@@ -79,4 +81,5 @@ select
   '["data_coverage", "describe_schema", "sql_select", "search_knowledge", "get_organization_profile", "get_financial_settings", "get_strategic_plan", "list_open_alerts", "list_open_tasks"]'::jsonb,
   'required_before_publish'
 from public.agent_definitions
-where code = 'a19_arquitecto_camino';
+where code = 'a19_arquitecto_camino'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

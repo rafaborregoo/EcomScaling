@@ -15,7 +15,7 @@
 -- añade un bloque.
 
 alter table public.integration_sync_runs
-  drop constraint integration_sync_runs_sync_scope_check;
+  drop constraint if exists integration_sync_runs_sync_scope_check;
 
 -- `backfill:2026-01:act_<17 digitos>` se come 38 de los 40 antiguos: el limite
 -- estaba a dos caracteres de convertirse en el siguiente fallo silencioso.

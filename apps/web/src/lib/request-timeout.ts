@@ -1,4 +1,9 @@
-const API_REQUEST_TIMEOUT_MS = 15_000;
+// 15s dejaba sin margen a cualquier pantalla que dispare varias peticiones a
+// la vez: el navegador solo abre 6 conexiones por origen, asi que la septima
+// empieza a contar ya encolada y abortaba antes de llegar al API. El limite
+// esta para que una pantalla no cuelgue indefinidamente, no para vigilar el
+// rendimiento -- eso es trabajo de las metricas del API.
+const API_REQUEST_TIMEOUT_MS = 30_000;
 
 /** Evita que una pantalla quede esperando indefinidamente al API. */
 export async function fetchApiWithTimeout(

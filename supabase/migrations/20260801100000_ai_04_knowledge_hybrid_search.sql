@@ -7,6 +7,7 @@ create index if not exists knowledge_chunks_content_fts_idx
 on public.knowledge_chunks
 using gin (to_tsvector('simple', content));
 
+drop function if exists public.knowledge_search_hybrid(uuid, extensions.vector(1024), text, text[], uuid, integer);
 create or replace function public.knowledge_search_hybrid(
   target_organization_id uuid,
   query_embedding extensions.vector(1024),

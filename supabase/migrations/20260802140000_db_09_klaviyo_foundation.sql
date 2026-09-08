@@ -11,7 +11,7 @@ create type public.klaviyo_report_entity_type as enum (
 create type public.klaviyo_report_type as enum ('values', 'series', 'metric_aggregate');
 create type public.klaviyo_report_status as enum ('pending', 'running', 'completed', 'failed');
 
-create table public.klaviyo_accounts (
+create table if not exists public.klaviyo_accounts (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   connection_id uuid not null references public.integration_connections (id) on delete cascade,
@@ -30,7 +30,7 @@ create table public.klaviyo_accounts (
   constraint klaviyo_accounts_unique_connection unique (connection_id)
 );
 
-create table public.klaviyo_lists (
+create table if not exists public.klaviyo_lists (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -47,7 +47,7 @@ create table public.klaviyo_lists (
   constraint klaviyo_lists_unique_external unique (account_id, external_list_id)
 );
 
-create table public.klaviyo_list_daily_snapshots (
+create table if not exists public.klaviyo_list_daily_snapshots (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   list_id uuid not null references public.klaviyo_lists (id) on delete cascade,
@@ -58,7 +58,7 @@ create table public.klaviyo_list_daily_snapshots (
   constraint klaviyo_list_snapshots_profile_count_check check (profile_count >= 0)
 );
 
-create table public.klaviyo_segments (
+create table if not exists public.klaviyo_segments (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -75,7 +75,7 @@ create table public.klaviyo_segments (
   constraint klaviyo_segments_unique_external unique (account_id, external_segment_id)
 );
 
-create table public.klaviyo_segment_daily_snapshots (
+create table if not exists public.klaviyo_segment_daily_snapshots (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   segment_id uuid not null references public.klaviyo_segments (id) on delete cascade,
@@ -86,7 +86,7 @@ create table public.klaviyo_segment_daily_snapshots (
   constraint klaviyo_segment_snapshots_profile_count_check check (profile_count >= 0)
 );
 
-create table public.klaviyo_flows (
+create table if not exists public.klaviyo_flows (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -105,7 +105,7 @@ create table public.klaviyo_flows (
   constraint klaviyo_flows_unique_external unique (account_id, external_flow_id)
 );
 
-create table public.klaviyo_flow_actions (
+create table if not exists public.klaviyo_flow_actions (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   flow_id uuid not null references public.klaviyo_flows (id) on delete cascade,
@@ -123,7 +123,7 @@ create table public.klaviyo_flow_actions (
   constraint klaviyo_flow_actions_unique_external unique (flow_id, external_action_id)
 );
 
-create table public.klaviyo_flow_messages (
+create table if not exists public.klaviyo_flow_messages (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   flow_action_id uuid not null references public.klaviyo_flow_actions (id) on delete cascade,
@@ -146,7 +146,7 @@ create table public.klaviyo_flow_messages (
   constraint klaviyo_flow_messages_unique_external unique (flow_action_id, external_message_id)
 );
 
-create table public.klaviyo_campaigns (
+create table if not exists public.klaviyo_campaigns (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -169,7 +169,7 @@ create table public.klaviyo_campaigns (
   constraint klaviyo_campaigns_unique_external unique (account_id, external_campaign_id)
 );
 
-create table public.klaviyo_campaign_messages (
+create table if not exists public.klaviyo_campaign_messages (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   campaign_id uuid not null references public.klaviyo_campaigns (id) on delete cascade,
@@ -192,7 +192,7 @@ create table public.klaviyo_campaign_messages (
   constraint klaviyo_campaign_messages_unique_external unique (campaign_id, external_message_id)
 );
 
-create table public.klaviyo_campaign_audiences (
+create table if not exists public.klaviyo_campaign_audiences (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   campaign_id uuid not null references public.klaviyo_campaigns (id) on delete cascade,
@@ -211,7 +211,7 @@ create table public.klaviyo_campaign_audiences (
   )
 );
 
-create table public.klaviyo_forms (
+create table if not exists public.klaviyo_forms (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -228,7 +228,7 @@ create table public.klaviyo_forms (
   constraint klaviyo_forms_unique_external unique (account_id, external_form_id)
 );
 
-create table public.klaviyo_metrics (
+create table if not exists public.klaviyo_metrics (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -247,11 +247,10 @@ create table public.klaviyo_metrics (
   constraint klaviyo_metrics_unique_external unique (account_id, external_metric_id)
 );
 
-create unique index klaviyo_metrics_one_primary_conversion
-on public.klaviyo_metrics (account_id)
+create unique index if not exists klaviyo_metrics_one_primary_conversion on public.klaviyo_metrics (account_id)
 where is_primary_conversion_metric;
 
-create table public.klaviyo_report_runs (
+create table if not exists public.klaviyo_report_runs (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -277,7 +276,7 @@ create table public.klaviyo_report_runs (
   constraint klaviyo_report_runs_timeframe_check check (timeframe_end > timeframe_start)
 );
 
-create table public.klaviyo_report_values (
+create table if not exists public.klaviyo_report_values (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   report_run_id uuid not null references public.klaviyo_report_runs (id) on delete cascade,
@@ -315,7 +314,7 @@ create table public.klaviyo_report_values (
   )
 );
 
-create table public.klaviyo_daily_account_metrics (
+create table if not exists public.klaviyo_daily_account_metrics (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   account_id uuid not null references public.klaviyo_accounts (id) on delete cascade,
@@ -338,50 +337,61 @@ create table public.klaviyo_daily_account_metrics (
   constraint klaviyo_daily_metrics_counts_check check (recipients >= 0 and delivered >= 0 and opens >= 0 and clicks >= 0)
 );
 
-create index klaviyo_accounts_organization_id_idx on public.klaviyo_accounts (organization_id);
-create index klaviyo_lists_organization_id_idx on public.klaviyo_lists (organization_id);
-create index klaviyo_lists_account_id_idx on public.klaviyo_lists (account_id);
-create index klaviyo_list_snapshots_organization_id_idx on public.klaviyo_list_daily_snapshots (organization_id);
-create index klaviyo_list_snapshots_date_idx on public.klaviyo_list_daily_snapshots (snapshot_date);
-create index klaviyo_segments_organization_id_idx on public.klaviyo_segments (organization_id);
-create index klaviyo_segments_account_id_idx on public.klaviyo_segments (account_id);
-create index klaviyo_segment_snapshots_organization_id_idx on public.klaviyo_segment_daily_snapshots (organization_id);
-create index klaviyo_segment_snapshots_date_idx on public.klaviyo_segment_daily_snapshots (snapshot_date);
-create index klaviyo_flows_organization_id_idx on public.klaviyo_flows (organization_id);
-create index klaviyo_flows_account_id_idx on public.klaviyo_flows (account_id);
-create index klaviyo_flow_actions_organization_id_idx on public.klaviyo_flow_actions (organization_id);
-create index klaviyo_flow_actions_flow_id_idx on public.klaviyo_flow_actions (flow_id);
-create index klaviyo_flow_messages_organization_id_idx on public.klaviyo_flow_messages (organization_id);
-create index klaviyo_flow_messages_flow_action_id_idx on public.klaviyo_flow_messages (flow_action_id);
-create index klaviyo_campaigns_organization_id_idx on public.klaviyo_campaigns (organization_id);
-create index klaviyo_campaigns_account_id_idx on public.klaviyo_campaigns (account_id);
-create index klaviyo_campaign_messages_organization_id_idx on public.klaviyo_campaign_messages (organization_id);
-create index klaviyo_campaign_messages_campaign_id_idx on public.klaviyo_campaign_messages (campaign_id);
-create index klaviyo_campaign_audiences_organization_id_idx on public.klaviyo_campaign_audiences (organization_id);
-create index klaviyo_campaign_audiences_campaign_id_idx on public.klaviyo_campaign_audiences (campaign_id);
-create index klaviyo_forms_organization_id_idx on public.klaviyo_forms (organization_id);
-create index klaviyo_forms_account_id_idx on public.klaviyo_forms (account_id);
-create index klaviyo_report_runs_organization_id_idx on public.klaviyo_report_runs (organization_id);
-create index klaviyo_report_runs_account_id_idx on public.klaviyo_report_runs (account_id);
-create index klaviyo_report_runs_sync_run_id_idx on public.klaviyo_report_runs (sync_run_id);
-create index klaviyo_report_values_organization_id_idx on public.klaviyo_report_values (organization_id);
-create index klaviyo_report_values_report_run_id_idx on public.klaviyo_report_values (report_run_id);
-create index klaviyo_report_values_entity_idx on public.klaviyo_report_values (entity_type, external_entity_id);
-create index klaviyo_metrics_organization_id_idx on public.klaviyo_metrics (organization_id);
-create index klaviyo_metrics_account_id_idx on public.klaviyo_metrics (account_id);
-create index klaviyo_daily_metrics_organization_id_idx on public.klaviyo_daily_account_metrics (organization_id);
-create index klaviyo_daily_metrics_account_date_idx on public.klaviyo_daily_account_metrics (account_id, metric_date);
+create index if not exists klaviyo_accounts_organization_id_idx on public.klaviyo_accounts (organization_id);
+create index if not exists klaviyo_lists_organization_id_idx on public.klaviyo_lists (organization_id);
+create index if not exists klaviyo_lists_account_id_idx on public.klaviyo_lists (account_id);
+create index if not exists klaviyo_list_snapshots_organization_id_idx on public.klaviyo_list_daily_snapshots (organization_id);
+create index if not exists klaviyo_list_snapshots_date_idx on public.klaviyo_list_daily_snapshots (snapshot_date);
+create index if not exists klaviyo_segments_organization_id_idx on public.klaviyo_segments (organization_id);
+create index if not exists klaviyo_segments_account_id_idx on public.klaviyo_segments (account_id);
+create index if not exists klaviyo_segment_snapshots_organization_id_idx on public.klaviyo_segment_daily_snapshots (organization_id);
+create index if not exists klaviyo_segment_snapshots_date_idx on public.klaviyo_segment_daily_snapshots (snapshot_date);
+create index if not exists klaviyo_flows_organization_id_idx on public.klaviyo_flows (organization_id);
+create index if not exists klaviyo_flows_account_id_idx on public.klaviyo_flows (account_id);
+create index if not exists klaviyo_flow_actions_organization_id_idx on public.klaviyo_flow_actions (organization_id);
+create index if not exists klaviyo_flow_actions_flow_id_idx on public.klaviyo_flow_actions (flow_id);
+create index if not exists klaviyo_flow_messages_organization_id_idx on public.klaviyo_flow_messages (organization_id);
+create index if not exists klaviyo_flow_messages_flow_action_id_idx on public.klaviyo_flow_messages (flow_action_id);
+create index if not exists klaviyo_campaigns_organization_id_idx on public.klaviyo_campaigns (organization_id);
+create index if not exists klaviyo_campaigns_account_id_idx on public.klaviyo_campaigns (account_id);
+create index if not exists klaviyo_campaign_messages_organization_id_idx on public.klaviyo_campaign_messages (organization_id);
+create index if not exists klaviyo_campaign_messages_campaign_id_idx on public.klaviyo_campaign_messages (campaign_id);
+create index if not exists klaviyo_campaign_audiences_organization_id_idx on public.klaviyo_campaign_audiences (organization_id);
+create index if not exists klaviyo_campaign_audiences_campaign_id_idx on public.klaviyo_campaign_audiences (campaign_id);
+create index if not exists klaviyo_forms_organization_id_idx on public.klaviyo_forms (organization_id);
+create index if not exists klaviyo_forms_account_id_idx on public.klaviyo_forms (account_id);
+create index if not exists klaviyo_report_runs_organization_id_idx on public.klaviyo_report_runs (organization_id);
+create index if not exists klaviyo_report_runs_account_id_idx on public.klaviyo_report_runs (account_id);
+create index if not exists klaviyo_report_runs_sync_run_id_idx on public.klaviyo_report_runs (sync_run_id);
+create index if not exists klaviyo_report_values_organization_id_idx on public.klaviyo_report_values (organization_id);
+create index if not exists klaviyo_report_values_report_run_id_idx on public.klaviyo_report_values (report_run_id);
+create index if not exists klaviyo_report_values_entity_idx on public.klaviyo_report_values (entity_type, external_entity_id);
+create index if not exists klaviyo_metrics_organization_id_idx on public.klaviyo_metrics (organization_id);
+create index if not exists klaviyo_metrics_account_id_idx on public.klaviyo_metrics (account_id);
+create index if not exists klaviyo_daily_metrics_organization_id_idx on public.klaviyo_daily_account_metrics (organization_id);
+create index if not exists klaviyo_daily_metrics_account_date_idx on public.klaviyo_daily_account_metrics (account_id, metric_date);
 
+drop trigger if exists set_klaviyo_accounts_updated_at on public.klaviyo_accounts;
 create trigger set_klaviyo_accounts_updated_at before update on public.klaviyo_accounts for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_lists_updated_at on public.klaviyo_lists;
 create trigger set_klaviyo_lists_updated_at before update on public.klaviyo_lists for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_segments_updated_at on public.klaviyo_segments;
 create trigger set_klaviyo_segments_updated_at before update on public.klaviyo_segments for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_flows_updated_at on public.klaviyo_flows;
 create trigger set_klaviyo_flows_updated_at before update on public.klaviyo_flows for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_flow_actions_updated_at on public.klaviyo_flow_actions;
 create trigger set_klaviyo_flow_actions_updated_at before update on public.klaviyo_flow_actions for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_flow_messages_updated_at on public.klaviyo_flow_messages;
 create trigger set_klaviyo_flow_messages_updated_at before update on public.klaviyo_flow_messages for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_campaigns_updated_at on public.klaviyo_campaigns;
 create trigger set_klaviyo_campaigns_updated_at before update on public.klaviyo_campaigns for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_campaign_messages_updated_at on public.klaviyo_campaign_messages;
 create trigger set_klaviyo_campaign_messages_updated_at before update on public.klaviyo_campaign_messages for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_campaign_audiences_updated_at on public.klaviyo_campaign_audiences;
 create trigger set_klaviyo_campaign_audiences_updated_at before update on public.klaviyo_campaign_audiences for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_forms_updated_at on public.klaviyo_forms;
 create trigger set_klaviyo_forms_updated_at before update on public.klaviyo_forms for each row execute function private.set_updated_at();
+drop trigger if exists set_klaviyo_metrics_updated_at on public.klaviyo_metrics;
 create trigger set_klaviyo_metrics_updated_at before update on public.klaviyo_metrics for each row execute function private.set_updated_at();
 
 alter table public.klaviyo_accounts enable row level security;
@@ -401,21 +411,37 @@ alter table public.klaviyo_report_values enable row level security;
 alter table public.klaviyo_metrics enable row level security;
 alter table public.klaviyo_daily_account_metrics enable row level security;
 
+drop policy if exists "klaviyo_accounts_select_authorized" on public.klaviyo_accounts;
 create policy "klaviyo_accounts_select_authorized" on public.klaviyo_accounts for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_lists_select_authorized" on public.klaviyo_lists;
 create policy "klaviyo_lists_select_authorized" on public.klaviyo_lists for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_list_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots;
 create policy "klaviyo_list_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_segments_select_authorized" on public.klaviyo_segments;
 create policy "klaviyo_segments_select_authorized" on public.klaviyo_segments for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_segment_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots;
 create policy "klaviyo_segment_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_flows_select_authorized" on public.klaviyo_flows;
 create policy "klaviyo_flows_select_authorized" on public.klaviyo_flows for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_flow_actions_select_authorized" on public.klaviyo_flow_actions;
 create policy "klaviyo_flow_actions_select_authorized" on public.klaviyo_flow_actions for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_flow_messages_select_authorized" on public.klaviyo_flow_messages;
 create policy "klaviyo_flow_messages_select_authorized" on public.klaviyo_flow_messages for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_campaigns_select_authorized" on public.klaviyo_campaigns;
 create policy "klaviyo_campaigns_select_authorized" on public.klaviyo_campaigns for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_campaign_messages_select_authorized" on public.klaviyo_campaign_messages;
 create policy "klaviyo_campaign_messages_select_authorized" on public.klaviyo_campaign_messages for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_campaign_audiences_select_authorized" on public.klaviyo_campaign_audiences;
 create policy "klaviyo_campaign_audiences_select_authorized" on public.klaviyo_campaign_audiences for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_forms_select_authorized" on public.klaviyo_forms;
 create policy "klaviyo_forms_select_authorized" on public.klaviyo_forms for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_report_runs_select_authorized" on public.klaviyo_report_runs;
 create policy "klaviyo_report_runs_select_authorized" on public.klaviyo_report_runs for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_report_values_select_authorized" on public.klaviyo_report_values;
 create policy "klaviyo_report_values_select_authorized" on public.klaviyo_report_values for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_metrics_select_authorized" on public.klaviyo_metrics;
 create policy "klaviyo_metrics_select_authorized" on public.klaviyo_metrics for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_daily_metrics_select_authorized" on public.klaviyo_daily_account_metrics;
 create policy "klaviyo_daily_metrics_select_authorized" on public.klaviyo_daily_account_metrics for select to authenticated using (private.can_access_org(organization_id));
 
 grant select on public.klaviyo_accounts, public.klaviyo_lists, public.klaviyo_list_daily_snapshots,
@@ -434,7 +460,7 @@ comment on table public.klaviyo_report_runs is 'Auditoría de consultas de Repor
 comment on table public.klaviyo_report_values is 'Valores normalizados de reporting con una entidad objetivo inequívoca.';
 comment on table public.klaviyo_daily_account_metrics is 'Métricas agregadas diarias calculadas con Klaviyo y revenue de Shopify.';
 
-create table public.marketing_campaigns (
+create table if not exists public.marketing_campaigns (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   klaviyo_campaign_id uuid references public.klaviyo_campaigns (id) on delete set null,
@@ -455,7 +481,7 @@ create table public.marketing_campaigns (
   constraint marketing_campaigns_status_check check (status in ('draft', 'planned', 'approved', 'published', 'cancelled'))
 );
 
-create table public.marketing_campaign_products (
+create table if not exists public.marketing_campaign_products (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   campaign_id uuid not null references public.marketing_campaigns (id) on delete cascade,
@@ -467,19 +493,24 @@ create table public.marketing_campaign_products (
   constraint marketing_campaign_products_units_check check (expected_units is null or expected_units >= 0)
 );
 
-create index marketing_campaigns_organization_id_idx on public.marketing_campaigns (organization_id);
-create index marketing_campaigns_campaign_month_idx on public.marketing_campaigns (campaign_month);
-create index marketing_campaign_products_organization_id_idx on public.marketing_campaign_products (organization_id);
-create index marketing_campaign_products_campaign_id_idx on public.marketing_campaign_products (campaign_id);
+create index if not exists marketing_campaigns_organization_id_idx on public.marketing_campaigns (organization_id);
+create index if not exists marketing_campaigns_campaign_month_idx on public.marketing_campaigns (campaign_month);
+create index if not exists marketing_campaign_products_organization_id_idx on public.marketing_campaign_products (organization_id);
+create index if not exists marketing_campaign_products_campaign_id_idx on public.marketing_campaign_products (campaign_id);
 
+drop trigger if exists set_marketing_campaigns_updated_at on public.marketing_campaigns;
 create trigger set_marketing_campaigns_updated_at before update on public.marketing_campaigns for each row execute function private.set_updated_at();
 
 alter table public.marketing_campaigns enable row level security;
 alter table public.marketing_campaign_products enable row level security;
 
+drop policy if exists "marketing_campaigns_select_authorized" on public.marketing_campaigns;
 create policy "marketing_campaigns_select_authorized" on public.marketing_campaigns for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "marketing_campaigns_write_managers" on public.marketing_campaigns;
 create policy "marketing_campaigns_write_managers" on public.marketing_campaigns for all to authenticated using (private.can_manage_org(organization_id)) with check (private.can_manage_org(organization_id));
+drop policy if exists "marketing_campaign_products_select_authorized" on public.marketing_campaign_products;
 create policy "marketing_campaign_products_select_authorized" on public.marketing_campaign_products for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "marketing_campaign_products_write_managers" on public.marketing_campaign_products;
 create policy "marketing_campaign_products_write_managers" on public.marketing_campaign_products for all to authenticated using (private.can_manage_org(organization_id)) with check (private.can_manage_org(organization_id));
 
 grant select on public.marketing_campaigns, public.marketing_campaign_products to authenticated;

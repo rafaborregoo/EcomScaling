@@ -12,6 +12,7 @@
 -- organizaciones a las que ya tiene acceso; el array de entrada es un filtro,
 -- no la autorizacion.
 
+drop function if exists public.consultant_store_signals(uuid[], text[]);
 create or replace function public.consultant_store_signals(
   target_organization_ids uuid[],
   agent_codes text[]

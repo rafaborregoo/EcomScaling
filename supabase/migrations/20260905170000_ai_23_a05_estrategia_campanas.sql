@@ -69,7 +69,8 @@ Malo: proponer empujar el producto mas vendido cuando el bloque de stock lo marc
 Malo: "Campana de branding para mejorar notoriedad" sin cifra que la respalde ni forma de verificarla.
 Malo: sumar los EUR atribuidos por Klaviyo y los de Meta como si fueran ingresos distintos.$$,
   encode(sha256('a05_estrategia_campanas_system_v2'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 update public.agent_versions
 set is_active = false
@@ -82,4 +83,5 @@ where is_active = true
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v2', 'claude-sonnet-5', 'a05_estrategia_campanas_system', 'v2', '[]'::jsonb, 'required_before_publish'
 from public.agent_definitions
-where code = 'a05_estrategia_campanas';
+where code = 'a05_estrategia_campanas'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;

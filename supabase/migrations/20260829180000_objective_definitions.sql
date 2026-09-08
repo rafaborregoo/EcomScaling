@@ -15,7 +15,7 @@
 -- panel de /consultor). Mi Camino resuelve que tipos aplican a un cliente
 -- server-side con service client, tras comprobar membership.
 
-create table public.objective_definitions (
+create table if not exists public.objective_definitions (
   id uuid primary key default gen_random_uuid(),
   owner_user_id uuid not null references public.profiles (id) on delete cascade,
   organization_id uuid references public.organizations (id) on delete cascade,
@@ -45,21 +45,20 @@ create table public.objective_definitions (
     unique (owner_user_id, organization_id, slug)
 );
 
-create index objective_definitions_owner_idx
-  on public.objective_definitions (owner_user_id)
+create index if not exists objective_definitions_owner_idx on public.objective_definitions (owner_user_id)
   where archived_at is null;
-create index objective_definitions_org_idx
-  on public.objective_definitions (organization_id)
+create index if not exists objective_definitions_org_idx on public.objective_definitions (organization_id)
   where archived_at is null;
 
+drop trigger if exists set_objective_definitions_updated_at on public.objective_definitions;
 create trigger set_objective_definitions_updated_at
 before update on public.objective_definitions
 for each row execute function private.set_updated_at();
 
 alter table public.objective_definitions enable row level security;
 
-create policy "objective_definitions_select_owner_or_admin"
-on public.objective_definitions for select to authenticated
+drop policy if exists "objective_definitions_select_owner_or_admin" on public.objective_definitions;
+create policy "objective_definitions_select_owner_or_admin" on public.objective_definitions for select to authenticated
 using (
   owner_user_id = (select auth.uid())
   or private.is_platform_admin()
@@ -74,8 +73,8 @@ comment on table public.objective_definitions is
 -- card del objetivo en Mi Camino. Una sola lectura vigente por objetivo
 -- (ponytail: sin historico, anadir tabla de lecturas si se pide seguimiento).
 alter table public.organization_metric_targets
-  add column manual_actual_value numeric(14, 2),
-  add column manual_actual_at timestamptz;
+  add column if not exists manual_actual_value numeric(14, 2),
+  add column if not exists manual_actual_at timestamptz;
 
 comment on column public.organization_metric_targets.manual_actual_value is
   'Ultimo valor real introducido a mano para objetivos de tipo manual (objective_definitions.source = manual). Null para objetivos medidos por metrica de plataforma.';

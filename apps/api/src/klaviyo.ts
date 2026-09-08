@@ -10,6 +10,7 @@ import {
 } from "./auth-context.js";
 import { createKlaviyoClient } from "./klaviyo-client.js";
 import { recordAuditLog } from "./audit-log.js";
+import { emailHtmlToPlainText } from "./email-body-text.js";
 import {
   buildKlaviyoAuthorizeUrl,
   createKlaviyoCodeChallenge,
@@ -1246,10 +1247,7 @@ export async function importKlaviyoTemplate(
   const plainText =
     typeof attributes.text === "string" && attributes.text.trim()
       ? attributes.text
-      : html
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim() || name;
+      : emailHtmlToPlainText(html) || name;
 
   const { data: draft, error } = await supabase
     .from("marketing_content_drafts")

@@ -2,7 +2,7 @@
 -- El calendario es tenant-scoped: organization_id obligatorio y store_id
 -- opcional (null = todas las tiendas de esa organizacion).
 
-create table public.campaign_calendars (
+create table if not exists public.campaign_calendars (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid references public.shopify_stores (id) on delete cascade,
@@ -18,7 +18,7 @@ create table public.campaign_calendars (
   constraint campaign_calendars_status_valid check (status in ('draft', 'active', 'completed', 'archived'))
 );
 
-create table public.campaign_calendar_items (
+create table if not exists public.campaign_calendar_items (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   calendar_id uuid not null references public.campaign_calendars (id) on delete cascade,
@@ -41,7 +41,7 @@ create table public.campaign_calendar_items (
   constraint campaign_calendar_items_dates_valid check (ends_at is null or ends_at >= starts_at)
 );
 
-create table public.kpi_snapshots (
+create table if not exists public.kpi_snapshots (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id) on delete cascade,
   store_id uuid references public.shopify_stores (id) on delete cascade,
@@ -65,23 +65,26 @@ create table public.kpi_snapshots (
   constraint kpi_snapshots_unique_period unique (organization_id, store_id, period, period_start, period_end)
 );
 
-create index campaign_calendars_org_year_idx on public.campaign_calendars (organization_id, year);
-create index campaign_calendars_store_idx on public.campaign_calendars (store_id);
-create index campaign_calendar_items_org_dates_idx on public.campaign_calendar_items (organization_id, starts_at, ends_at);
-create index campaign_calendar_items_calendar_idx on public.campaign_calendar_items (calendar_id, starts_at);
-create index campaign_calendar_items_store_idx on public.campaign_calendar_items (store_id);
-create index campaign_calendar_items_task_idx on public.campaign_calendar_items (task_id);
-create index kpi_snapshots_org_period_idx on public.kpi_snapshots (organization_id, period, period_start desc);
-create index kpi_snapshots_store_idx on public.kpi_snapshots (store_id, period_start desc);
+create index if not exists campaign_calendars_org_year_idx on public.campaign_calendars (organization_id, year);
+create index if not exists campaign_calendars_store_idx on public.campaign_calendars (store_id);
+create index if not exists campaign_calendar_items_org_dates_idx on public.campaign_calendar_items (organization_id, starts_at, ends_at);
+create index if not exists campaign_calendar_items_calendar_idx on public.campaign_calendar_items (calendar_id, starts_at);
+create index if not exists campaign_calendar_items_store_idx on public.campaign_calendar_items (store_id);
+create index if not exists campaign_calendar_items_task_idx on public.campaign_calendar_items (task_id);
+create index if not exists kpi_snapshots_org_period_idx on public.kpi_snapshots (organization_id, period, period_start desc);
+create index if not exists kpi_snapshots_store_idx on public.kpi_snapshots (store_id, period_start desc);
 
+drop trigger if exists set_campaign_calendars_updated_at on public.campaign_calendars;
 create trigger set_campaign_calendars_updated_at
 before update on public.campaign_calendars
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_campaign_calendar_items_updated_at on public.campaign_calendar_items;
 create trigger set_campaign_calendar_items_updated_at
 before update on public.campaign_calendar_items
 for each row execute function private.set_updated_at();
 
+drop trigger if exists set_kpi_snapshots_updated_at on public.kpi_snapshots;
 create trigger set_kpi_snapshots_updated_at
 before update on public.kpi_snapshots
 for each row execute function private.set_updated_at();
@@ -131,14 +134,17 @@ $$;
 
 revoke all on function private.enforce_campaign_calendar_scope() from public;
 
+drop trigger if exists enforce_campaign_calendars_scope on public.campaign_calendars;
 create trigger enforce_campaign_calendars_scope
 before insert or update on public.campaign_calendars
 for each row execute function private.enforce_campaign_calendar_scope();
 
+drop trigger if exists enforce_campaign_calendar_items_scope on public.campaign_calendar_items;
 create trigger enforce_campaign_calendar_items_scope
 before insert or update on public.campaign_calendar_items
 for each row execute function private.enforce_campaign_calendar_scope();
 
+drop trigger if exists enforce_kpi_snapshots_scope on public.kpi_snapshots;
 create trigger enforce_kpi_snapshots_scope
 before insert or update on public.kpi_snapshots
 for each row execute function private.enforce_campaign_calendar_scope();
@@ -147,15 +153,15 @@ alter table public.campaign_calendars enable row level security;
 alter table public.campaign_calendar_items enable row level security;
 alter table public.kpi_snapshots enable row level security;
 
-create policy "campaign_calendars_select_authorized"
-on public.campaign_calendars for select to authenticated
+drop policy if exists "campaign_calendars_select_authorized" on public.campaign_calendars;
+create policy "campaign_calendars_select_authorized" on public.campaign_calendars for select to authenticated
 using (
   private.can_access_org(organization_id)
   and (is_visible_to_client or private.is_platform_admin() or private.is_assigned_consultant(organization_id))
 );
 
-create policy "campaign_calendar_items_select_authorized"
-on public.campaign_calendar_items for select to authenticated
+drop policy if exists "campaign_calendar_items_select_authorized" on public.campaign_calendar_items;
+create policy "campaign_calendar_items_select_authorized" on public.campaign_calendar_items for select to authenticated
 using (
   private.can_access_org(organization_id)
   and (is_visible_to_client or private.is_platform_admin() or private.is_assigned_consultant(organization_id))
@@ -167,8 +173,8 @@ using (
   )
 );
 
-create policy "kpi_snapshots_select_authorized"
-on public.kpi_snapshots for select to authenticated
+drop policy if exists "kpi_snapshots_select_authorized" on public.kpi_snapshots;
+create policy "kpi_snapshots_select_authorized" on public.kpi_snapshots for select to authenticated
 using (private.can_access_org(organization_id));
 
 grant select on public.campaign_calendars to authenticated;

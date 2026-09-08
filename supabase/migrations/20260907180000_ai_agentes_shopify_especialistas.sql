@@ -30,7 +30,8 @@ values (
   'a20_retencion_clientes',
   'Retencion de clientes',
   'Analiza si los clientes de la tienda vuelven a comprar: tasa de recompra, valor por cliente y cohortes mes a mes. Propone las tareas concretas para que repitan mas, o dice con todas las letras que todavia no hay dato para saberlo.'
-);
+)
+on conflict (code) do nothing;
 
 insert into public.prompt_versions (code, version, content, checksum)
 values (
@@ -69,12 +70,14 @@ Si la recurrencia no se puede calcular, el analisis de este agente es exactament
 Bueno: "De los 167 clientes que compraron por primera vez en junio, volvieron 3. La tienda capta bien y no retiene." con una tarea "Montar el flujo de segunda compra a 21 dias" justificada en esa cifra.
 Malo: "La retencion es mejorable, recomendamos fidelizar a los clientes" sin una sola cifra, o dar por buena una tasa de recompra calculada sobre pedidos sin clasificar.$$,
   encode(sha256('a20_retencion_clientes_system_v1'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v1', 'claude-sonnet-5', 'a20_retencion_clientes_system', 'v1', '["search_knowledge"]'::jsonb, 'required_before_publish'
 from public.agent_definitions
-where code = 'a20_retencion_clientes';
+where code = 'a20_retencion_clientes'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 -- --- A21: adquisicion y conversion ----------------------------------------
 
@@ -83,7 +86,8 @@ values (
   'a21_adquisicion_shopify',
   'Adquisicion y conversion (Shopify)',
   'Analiza de donde vienen los compradores segun Shopify, cuanto dinero se queda en carritos abandonados y que esta costando cada codigo de descuento. Propone las tareas para traer mejor trafico y cerrar mas de lo que ya llega.'
-);
+)
+on conflict (code) do nothing;
 
 insert into public.prompt_versions (code, version, content, checksum)
 values (
@@ -122,12 +126,14 @@ Si no hay atribucion ni carritos sincronizados, dilo en `answer` y en `warnings`
 Bueno: "El codigo BIENVENIDA10 se llevo 1.240 EUR de descuento en 96 pedidos y ni uno era de un cliente nuevo." con la tarea de acotarlo a primera compra.
 Malo: "Recomendamos optimizar los canales de adquisicion" sin cifras, o sumar los ingresos atribuidos por Shopify con los que reporta Meta.$$,
   encode(sha256('a21_adquisicion_shopify_system_v1'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v1', 'claude-sonnet-5', 'a21_adquisicion_shopify_system', 'v1', '["search_knowledge"]'::jsonb, 'required_before_publish'
 from public.agent_definitions
-where code = 'a21_adquisicion_shopify';
+where code = 'a21_adquisicion_shopify'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 -- --- A22: entrega y devoluciones ------------------------------------------
 
@@ -136,7 +142,8 @@ values (
   'a22_postventa_shopify',
   'Entrega y devoluciones',
   'Vigila lo que pasa despues de la venta: cuanto se tarda en enviar y en entregar, cuantos pedidos llegan tarde y que productos vuelven y por que motivo. Es donde primero se nota que la tienda ha crecido por encima de su operativa.'
-);
+)
+on conflict (code) do nothing;
 
 insert into public.prompt_versions (code, version, content, checksum)
 values (
@@ -175,12 +182,14 @@ Si no hay envios ni devoluciones sincronizados, dilo en `answer` y en `warnings`
 Bueno: "Los pedidos tardan 38 horas en salir del almacen, el doble que el mes pasado, y ningun envio lleva fecha prometida al cliente." con la tarea de activar la fecha estimada en el checkout.
 Malo: "No hay entregas tarde, la operativa va bien" cuando ningun envio tenia fecha estimada con la que comparar.$$,
   encode(sha256('a22_postventa_shopify_system_v1'::bytea), 'hex')
-);
+)
+on conflict (code, version) do nothing;
 
 insert into public.agent_versions (definition_id, version, model, prompt_code, prompt_version, allowed_tools, approval_mode)
 select id, 'v1', 'claude-sonnet-5', 'a22_postventa_shopify_system', 'v1', '["search_knowledge"]'::jsonb, 'required_before_publish'
 from public.agent_definitions
-where code = 'a22_postventa_shopify';
+where code = 'a22_postventa_shopify'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
 
 -- --- Tools de metricas para el chat ---------------------------------------
 --
@@ -205,4 +214,5 @@ select
   '["data_coverage", "describe_schema", "sql_select", "search_knowledge", "get_organization_profile", "get_financial_settings", "get_strategic_plan", "get_current_milestone", "list_open_alerts", "list_open_tasks", "get_task_history", "get_call_history", "shopify_customer_health", "shopify_demand_sources", "shopify_fulfillment_health"]'::jsonb,
   'none'
 from public.agent_definitions
-where code = 'a09_copiloto_consultor';
+where code = 'a09_copiloto_consultor'
+on conflict (definition_id, version) do update set is_active = excluded.is_active;
