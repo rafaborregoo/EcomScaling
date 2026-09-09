@@ -565,6 +565,10 @@ export async function listMetaAssets(
     .select("id, status, provider_account_name, last_sync_at")
     .eq("organization_id", organizationId)
     .eq("provider", PROVIDER)
+    // Una conexion viva manda sobre un OAuth abandonado: cada pulsacion de
+    // "Conectar" deja una fila pending, y ordenar solo por updated_at deja
+    // que una fila muerta gane por milisegundos si algo toca todas a la vez.
+    .order("connected_at", { ascending: false, nullsFirst: false })
     .order("updated_at", { ascending: false });
 
   if (connectionError) {
@@ -1423,6 +1427,7 @@ export async function triggerMetaSync(
     .select("id, organization_id, status, updated_at")
     .eq("organization_id", organizationId)
     .eq("provider", PROVIDER)
+    .order("connected_at", { ascending: false, nullsFirst: false })
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
