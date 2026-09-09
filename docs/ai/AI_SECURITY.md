@@ -67,14 +67,14 @@ Hasta AI-30 las defensas funcionaban pero **no dejaban rastro**: los patrones ne
 se contaban y se descartaban. Ahora todo lo detectado se registra en
 `public.ai_security_events`.
 
-| Evento                          | Severidad   | Cuándo                                                  |
-| ------------------------------- | ----------- | ------------------------------------------------------- |
-| `prompt_injection_detected`     | medium      | Contenido instruccional dentro de un bloque de contexto |
-| `tool_poisoning_suspected`      | high        | El resultado de una herramienta traía instrucciones     |
-| `unauthorized_tool_attempt`     | high        | El modelo pidió una herramienta fuera de su catálogo    |
-| `permission_denied`             | info/high   | `authorizeTool` deniega una tool al declararla          |
-| `sensitive_data_access_attempt` | —           | Reservado                                               |
-| `policy_violation`              | info/medium | Contexto truncado; desbordamiento del colector          |
+| Evento                          | Severidad   | Cuándo                                                        |
+| ------------------------------- | ----------- | ------------------------------------------------------------- |
+| `prompt_injection_detected`     | medium      | Contenido instruccional dentro de un bloque de contexto       |
+| `tool_poisoning_suspected`      | high        | El resultado de una herramienta traía instrucciones           |
+| `unauthorized_tool_attempt`     | high        | El modelo pidió una herramienta fuera de su catálogo          |
+| `permission_denied`             | info/high   | `authorizeTool` deniega una tool al declararla o al invocarla |
+| `sensitive_data_access_attempt` | —           | Reservado                                                     |
+| `policy_violation`              | info/medium | Contexto truncado; desbordamiento del colector                |
 
 ### Reglas del registro
 
@@ -158,11 +158,8 @@ No son opcionales y no dependen de que el modelo las respete: se revisan en el d
 
 ## 8. Pendiente
 
-| Qué | Por qué importa |
-| --- | --- |
-| Escalada de permiso en la **invocación** | `authorizeTool` se llama al **declarar** la tool (con permiso `read`). La comprobación `permission_escalation_denied` sólo tiene sentido al invocarla pidiendo un permiso mayor, y hoy los executors no la hacen. Irrelevante mientras el catálogo activo sea de solo lectura; obligatorio antes de la primera tool de escritura |
-| Sin límite de tasa de eventos por organización | El colector acota por turno (100), pero un atacante persistente puede generar mucho ruido acumulado en la tabla |
-| Panel de seguridad | Los datos ya se recogen y el endpoint de traza los devuelve; la UI no los pinta |
+Nada bloqueante conocido en esta capa. Lo que queda de AI-30 es de arquitectura y está en
+[AI_ARCHITECTURE.md](AI_ARCHITECTURE.md).
 
 ### Resuelto en esta fase
 
@@ -175,3 +172,27 @@ No son opcionales y no dependen de que el modelo las respete: se revisan en el d
   exige aprobación en un agente con `approval_mode: 'none'`).
 - **Retención propia**: `private.purge_expired_ai_security_events`, 400 días frente a los 180
   del contexto, con una guarda que impide configurarla por debajo del horizonte del contexto.
+- **Segunda puerta, en la invocación.** `buildAgentTools` envuelve cada executor con
+  `authorizeTool(name, context, definition.permission)` — el permiso que la tool va a ejercer
+  de verdad, no el `read` con el que se declara. Una denegación devuelve el `ToolError` al
+  modelo y deja fila en `agent_tool_calls` y en `ai_security_events` (`tool_invocation`).
+
+  Para toda tool que pasó la primera puerta el veredicto es hoy idéntico — mismas entradas
+  estáticas — y hay un test sobre el registro real que lo fija, porque una segunda puerta
+  que denegase lo que la primera declaró le daría al modelo un catálogo que revienta al
+  usarlo. Su valor está en lo que la primera puerta no cubre: un `tools.push` añadido sin el
+  guard de `allowedToolNames`. Ése fue exactamente el fallo del audit, y ahora no depende de
+  que nadie recuerde el guard: no hay camino al executor que no pase por el envoltorio.
+
+- **El panel pinta los eventos.** El detalle de traza los muestra antes de la cronología.
+- **Tope por organización.** El colector acotaba un turno (100 eventos); nada acotaba el
+  acumulado. `capSecurityEvents` corta en 1.000 por organización y ventana de 24 h.
+
+  Dos decisiones que el test fija: por encima del tope se escribe **una** fila por ejecución
+  declarando cuántos eventos se descartaron y de qué tipos — nunca cero, porque "hubo eventos
+  y dejamos de detallarlos" y "no hubo eventos" tienen que seguir siendo distinguibles en el
+  panel. Y si el conteo falla, **se escribe todo**: el tope existe para que la tabla no crezca
+  sin freno, no para descartar evidencia cuando dudamos.
+
+  El conteo sólo se paga en turnos que ya detectaron algo, y lo cubre el índice
+  `(organization_id, created_at desc)` que la tabla ya tenía.

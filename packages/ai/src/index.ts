@@ -377,13 +377,7 @@ export const agentOutputJsonSchema = {
                 },
                 source: {
                   type: "string",
-                  enum: [
-                    "shopify",
-                    "klaviyo",
-                    "meta",
-                    "instagram",
-                    "interno",
-                  ],
+                  enum: ["shopify", "klaviyo", "meta", "instagram", "interno"],
                 },
               },
             },
@@ -472,7 +466,14 @@ const caminoEvidenceJsonSchema = {
 export const caminoPlanJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["plan_name", "diagnosis", "phases", "sources", "confidence", "warnings"],
+  required: [
+    "plan_name",
+    "diagnosis",
+    "phases",
+    "sources",
+    "confidence",
+    "warnings",
+  ],
   properties: {
     plan_name: {
       type: "string",
@@ -486,11 +487,18 @@ export const caminoPlanJsonSchema = {
     },
     phases: {
       type: "array",
-      description: "Fases en orden de ejecucion. La primera es la que se activa.",
+      description:
+        "Fases en orden de ejecucion. La primera es la que se activa.",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "description", "rationale", "evidence", "milestones"],
+        required: [
+          "name",
+          "description",
+          "rationale",
+          "evidence",
+          "milestones",
+        ],
         properties: {
           name: { type: "string" },
           description: {
@@ -689,7 +697,10 @@ export const campaignPlanJsonSchema = {
         additionalProperties: false,
         required: ["kind", "reference", "period"],
         properties: {
-          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          kind: {
+            type: "string",
+            enum: ["metric", "table", "tool", "document"],
+          },
           reference: { type: "string" },
           period: { type: ["string", "null"] },
         },
@@ -992,7 +1003,10 @@ export const metaAdsJsonSchema = {
         additionalProperties: false,
         required: ["kind", "reference", "period"],
         properties: {
-          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          kind: {
+            type: "string",
+            enum: ["metric", "table", "tool", "document"],
+          },
           reference: { type: "string" },
           period: { type: ["string", "null"] },
         },
@@ -1069,7 +1083,10 @@ export const instagramPostJsonSchema = {
         additionalProperties: false,
         required: ["kind", "reference", "period"],
         properties: {
-          kind: { type: "string", enum: ["metric", "table", "tool", "document"] },
+          kind: {
+            type: "string",
+            enum: ["metric", "table", "tool", "document"],
+          },
           reference: { type: "string" },
           period: { type: ["string", "null"] },
         },
@@ -1665,9 +1682,7 @@ function describeProposals(count: number): string {
 export function buildLeanOutputContract(
   omit: readonly OmittableOutputField[],
 ): OutputContract<AgentOutput> {
-  const jsonSchema = structuredClone(
-    agentOutputJsonSchema,
-  ) as unknown as {
+  const jsonSchema = structuredClone(agentOutputJsonSchema) as unknown as {
     required: string[];
     properties: Record<string, unknown>;
   };
@@ -2076,6 +2091,245 @@ export function checkOutputSanity(output: unknown): OutputSanityResult {
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// AI-30: lo que los dos bucles de turno comparten.
+//
+// `runAgentTurn` (Anthropic) y `runAgentTurnOpenAI` eran ~285 y ~267 lineas casi
+// identicas. Lo que de verdad diverge es poco: como se construye la peticion,
+// de donde se lee el uso, y la forma de los mensajes de herramienta. Todo lo
+// demas -- contabilidad, freno de presupuesto, ejecucion de una tool,
+// validacion de la salida, tarifa -- eran dos copias de la misma regla.
+//
+// Se extrae eso y solo eso. No hay interfaz de "driver de proveedor": seria una
+// abstraccion de seis metodos con dos implementaciones para esconder las pocas
+// diferencias que si son reales, y esas diferencias es mejor verlas.
+//
+// El motivo no es la longitud, es que una regla en dos copias se arregla en una
+// sola. Ya paso: el audit encontro el `?? 0` del coste corregido en un camino y
+// no en el otro.
+// ---------------------------------------------------------------------------
+
+/**
+ * Texto del mensaje de usuario de un turno.
+ *
+ * Compartido a proposito: la primera linea declara que el tenant lo resuelve el
+ * backend, y eso es aislamiento entre organizaciones. Si cada proveedor lo
+ * redactase por su cuenta, un dia dejarian de decir lo mismo.
+ */
+function buildTurnUserText(
+  input: AgentInput,
+  contextText: string,
+  extraLines: Array<string | null> = [],
+): string {
+  return [
+    `Organizacion activa: ${input.organization_id} (resuelta por el backend; analiza solo estos datos).`,
+    `Objetivo de la ejecucion: ${input.objective}`,
+    input.time_range
+      ? `Periodo: ${input.time_range.start} a ${input.time_range.end}`
+      : null,
+    ...extraLines,
+    "",
+    "Contexto verificado:",
+    contextText,
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+}
+
+/**
+ * La peticion sin herramientas declaradas. Sirve la ultima llamada del turno:
+ * sin `tools` el modelo no puede volver a pedir una y esta obligado a responder.
+ */
+function requestWithoutTools<T extends object>(base: T): Omit<T, "tools"> {
+  const rest = { ...base };
+  delete (rest as { tools?: unknown }).tools;
+  return rest;
+}
+
+/**
+ * Contabilidad de un turno y el freno de presupuesto que la usa.
+ *
+ * Los acumuladores de cache empiezan en `null` y siguen en `null` si el
+ * proveedor nunca reporta el campo -- `addReported`. `null` es "no lo sabemos";
+ * `0` seria una afirmacion que no podemos hacer.
+ */
+function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
+  const usage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: null as number | null,
+    cacheCreationTokens: null as number | null,
+    modelCalls: 0,
+    toolCallCount: 0,
+  };
+
+  // Con un modelo sin precio conocido el coste es `null` y el tope en dolares
+  // no puede evaluarse: cortar por "0 > max" seria falso, y no frenar nada
+  // seria peligroso. Se degrada al unico freno que sigue siendo cierto -- el
+  // numero de tool calls -- y el turno se marca `unknown_model` para que quede
+  // visible en el panel en vez de pasar por gratis.
+  const costSoFarOrZero = () =>
+    estimateCostUsd(model, usage.inputTokens, usage.outputTokens) ?? 0;
+
+  const enforceBudget = () => {
+    const costSoFar = costSoFarOrZero();
+    const verdict = evaluateAgentBudget(budget, costSoFar, usage.toolCallCount);
+
+    if (verdict.exceeded) {
+      throw new AgentBudgetExceededError(
+        verdict.message,
+        costSoFar,
+        usage.toolCallCount,
+      );
+    }
+  };
+
+  return {
+    usage,
+    enforceBudget,
+    /** Suma el uso de una llamada al modelo y comprueba el presupuesto. */
+    recordModelCall(reported: {
+      inputTokens: number | null | undefined;
+      outputTokens: number | null | undefined;
+      cacheReadTokens?: number | null | undefined;
+      cacheCreationTokens?: number | null | undefined;
+    }) {
+      usage.modelCalls += 1;
+      usage.inputTokens += reported.inputTokens ?? 0;
+      usage.outputTokens += reported.outputTokens ?? 0;
+      usage.cacheReadTokens = addReported(
+        usage.cacheReadTokens,
+        reported.cacheReadTokens,
+      );
+      usage.cacheCreationTokens = addReported(
+        usage.cacheCreationTokens,
+        reported.cacheCreationTokens,
+      );
+      enforceBudget();
+    },
+    /** Contabiliza una invocacion de herramienta y comprueba el presupuesto. */
+    recordToolCall() {
+      usage.toolCallCount += 1;
+      enforceBudget();
+    },
+    /**
+     * Ultima ronda disponible. Antes se tiraba el run entero aqui y se perdian
+     * todas las consultas ya hechas (a04 moria asi la mitad de las veces, con 9
+     * queries correctas en la mano). Ahora se ejecutan estas herramientas, se
+     * avisa al modelo de que se ha quedado sin presupuesto y se le pide la
+     * respuesta final sin herramientas: un run con menos evidencia es util, un
+     * run cortado a media investigacion no.
+     */
+    isFinalRound: () =>
+      usage.modelCalls >= MAX_MODEL_CALLS_PER_TURN - 1 ||
+      isBudgetNearlyExhausted(budget, costSoFarOrZero(), usage.toolCallCount),
+  };
+}
+
+/**
+ * Ejecuta una herramienta pedida por el modelo y devuelve lo que se le manda de
+ * vuelta.
+ *
+ * Unico sitio donde se decide que pasa con una tool desconocida y que se hace
+ * con una que revienta -- las dos son emisiones de evento de seguridad, y
+ * tenerlas duplicadas era tener dos politicas de seguridad que podian divergir.
+ *
+ * `readInput` es una funcion y no un valor porque OpenAI entrega los argumentos
+ * como texto JSON: parsearlos dentro del `try` convierte un JSON malformado en
+ * un error de herramienta que el modelo puede corregir, no en un turno caido.
+ */
+async function executeModelToolCall(
+  tools: AgentToolDefinition[],
+  toolName: string,
+  readInput: () => Record<string, unknown>,
+  onSecurityEvent: AgentSecurityEventSink | undefined,
+): Promise<{ content: string; isError: boolean }> {
+  const tool = tools.find((candidate) => candidate.name === toolName);
+
+  if (!tool) {
+    return {
+      content: unknownToolResult(toolName, onSecurityEvent),
+      isError: true,
+    };
+  }
+
+  try {
+    const result = await tool.execute(readInput());
+    return {
+      content: serializeToolResultWithSecurityEvents(
+        result,
+        tool.name,
+        onSecurityEvent,
+      ),
+      isError: false,
+    };
+  } catch (error) {
+    return {
+      content: serializeToolResultWithSecurityEvents(
+        {
+          error:
+            error instanceof Error ? error.message : "tool_execution_failed",
+        },
+        tool.name,
+        onSecurityEvent,
+      ),
+      isError: true,
+    };
+  }
+}
+
+/**
+ * Valida el texto final del turno contra el contrato de salida: JSON -> Zod ->
+ * sanidad. Ninguna respuesta llega al dominio sin pasar por aqui.
+ */
+function parseTurnOutput<TOutput>(
+  text: string,
+  outputContract: OutputContract<TOutput>,
+): TOutput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new AgentOutputValidationError("agent_output_invalid_json", text);
+  }
+
+  const validated = outputContract.schema.safeParse(parsed);
+
+  if (!validated.success) {
+    throw new AgentOutputValidationError(
+      `agent_output_schema_mismatch: ${validated.error.message}`,
+      text,
+    );
+  }
+
+  const sanity = checkOutputSanity(validated.data);
+
+  if (!sanity.ok) {
+    throw new AgentOutputValidationError(
+      `agent_output_sanity_check_failed: ${sanity.reason}`,
+      text,
+    );
+  }
+
+  return validated.data;
+}
+
+/**
+ * Los tres campos de coste van juntos siempre: la cifra, por que vale eso, y
+ * con que tarifa se calculo. Un coste sin su base no es auditable.
+ */
+function turnPricingFields(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+) {
+  return {
+    estimatedCostUsd: estimateCostUsd(model, inputTokens, outputTokens),
+    costBasis: costBasisFor(model),
+    pricingVersion: PRICING_VERSION,
+  };
+}
+
 /**
  * Ejecuta una vuelta del agente contra la API de Anthropic. El contexto llega
  * ya construido y acotado por el backend (el modelo no puede ampliar
@@ -2121,10 +2375,12 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   );
 
   const attachedImages = (params.images ?? []).slice(0, 8);
-  const imageBlocks: Anthropic.ImageBlockParam[] = attachedImages.map((img) => ({
-    type: "image",
-    source: { type: "url", url: img.url },
-  }));
+  const imageBlocks: Anthropic.ImageBlockParam[] = attachedImages.map(
+    (img) => ({
+      type: "image",
+      source: { type: "url", url: img.url },
+    }),
+  );
 
   const messages: Anthropic.MessageParam[] = [
     {
@@ -2132,12 +2388,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
       content: [
         {
           type: "text",
-          text: [
-            `Organizacion activa: ${input.organization_id} (resuelta por el backend; analiza solo estos datos).`,
-            `Objetivo de la ejecucion: ${input.objective}`,
-            input.time_range
-              ? `Periodo: ${input.time_range.start} a ${input.time_range.end}`
-              : null,
+          text: buildTurnUserText(input, contextText, [
             attachedImages.length > 0
               ? "\nImagenes adjuntas (en el mismo orden que abajo). Usa la URL EXACTA al referenciar una imagen de contenido; las de rol 'referencia' son solo guia visual, no las incrustes:\n" +
                 attachedImages
@@ -2147,12 +2398,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
                   )
                   .join("\n")
               : null,
-            "",
-            "Contexto verificado:",
-            contextText,
-          ]
-            .filter((line) => line !== null)
-            .join("\n"),
+          ]),
         },
         ...imageBlocks,
       ],
@@ -2186,80 +2432,42 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
       : {}),
   };
 
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheReadTokens: number | null = null;
-  let cacheCreationTokens: number | null = null;
-  let modelCalls = 0;
-  let toolCallCount = 0;
-
-  // Con un modelo sin precio conocido el coste es `null` y el tope en dolares
-  // no puede evaluarse: cortar por "0 > max" seria falso, y no frenar nada
-  // seria peligroso. Se degrada al unico freno que sigue siendo cierto -- el
-  // numero de tool calls -- y el turno se marca `unknown_model` para que quede
-  // visible en el panel en vez de pasar por gratis.
-  const costSoFarOrZero = () =>
-    estimateCostUsd(params.model, inputTokens, outputTokens) ?? 0;
-
-  const enforceBudget = () => {
-    const costSoFar = costSoFarOrZero();
-    const verdict = evaluateAgentBudget(budget, costSoFar, toolCallCount);
-
-    if (verdict.exceeded) {
-      throw new AgentBudgetExceededError(
-        verdict.message,
-        costSoFar,
-        toolCallCount,
-      );
-    }
-  };
+  const accounting = createTurnAccounting(params.model, budget);
+  const { usage } = accounting;
 
   const resiliencePolicy = {
     ...DEFAULT_AGENT_RESILIENCE_POLICY,
     ...(params.resilience ?? {}),
   };
-  // `withoutTools` sirve la ultima llamada del turno: sin herramientas en la
-  // request el modelo no puede volver a pedir una y esta obligado a responder.
   const createMessage = (
     requestMessages: Anthropic.MessageParam[],
     withoutTools = false,
   ) => {
-    const { tools: declaredTools, ...toolless } = requestBase as typeof requestBase & {
-      tools?: unknown;
-    };
-    void declaredTools;
-    const base = withoutTools ? toolless : requestBase;
+    const base = withoutTools ? requestWithoutTools(requestBase) : requestBase;
     return withAgentResilience(
       (signal) =>
-        client.messages.create({ ...base, messages: requestMessages }, { signal }),
+        client.messages.create(
+          { ...base, messages: requestMessages },
+          { signal },
+        ),
       resiliencePolicy,
     );
   };
 
+  const recordResponse = (message: Anthropic.Message) => {
+    accounting.recordModelCall({
+      inputTokens: message.usage.input_tokens,
+      outputTokens: message.usage.output_tokens,
+      cacheReadTokens: message.usage.cache_read_input_tokens,
+      cacheCreationTokens: message.usage.cache_creation_input_tokens,
+    });
+  };
+
   let response = await createMessage(messages);
-  modelCalls += 1;
-  inputTokens += response.usage.input_tokens;
-  outputTokens += response.usage.output_tokens;
-  cacheReadTokens = addReported(
-    cacheReadTokens,
-    response.usage.cache_read_input_tokens,
-  );
-  cacheCreationTokens = addReported(
-    cacheCreationTokens,
-    response.usage.cache_creation_input_tokens,
-  );
-  enforceBudget();
+  recordResponse(response);
 
   while (response.stop_reason === "tool_use") {
-    // Ultima ronda disponible. Antes se tiraba el run entero aqui y se perdian
-    // todas las consultas ya hechas (a04 moria asi la mitad de las veces, con
-    // 9 queries correctas en la mano). Ahora se ejecutan estas herramientas, se
-    // avisa al modelo de que se ha quedado sin presupuesto y se le pide la
-    // respuesta final sin herramientas: un run con menos evidencia es util, un
-    // run cortado a media investigacion no.
-    const isFinalRound =
-      modelCalls >= MAX_MODEL_CALLS_PER_TURN - 1 ||
-      isBudgetNearlyExhausted(budget, costSoFarOrZero(), toolCallCount);
+    const isFinalRound = accounting.isFinalRound();
 
     const toolUses = response.content.filter(
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
@@ -2268,44 +2476,20 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const toolUse of toolUses) {
-      const tool = tools.find((candidate) => candidate.name === toolUse.name);
-      toolCallCount += 1;
-      enforceBudget();
+      accounting.recordToolCall();
 
-      let resultContent: string;
-      let isError = false;
-
-      if (!tool) {
-        resultContent = unknownToolResult(toolUse.name, params.onSecurityEvent);
-        isError = true;
-      } else {
-        try {
-          const result = await tool.execute(
-            (toolUse.input ?? {}) as Record<string, unknown>,
-          );
-          resultContent = serializeToolResultWithSecurityEvents(
-            result,
-            tool.name,
-            params.onSecurityEvent,
-          );
-        } catch (error) {
-          resultContent = serializeToolResultWithSecurityEvents(
-            {
-              error:
-                error instanceof Error ? error.message : "tool_execution_failed",
-            },
-            tool.name,
-            params.onSecurityEvent,
-          );
-          isError = true;
-        }
-      }
+      const executed = await executeModelToolCall(
+        tools,
+        toolUse.name,
+        () => (toolUse.input ?? {}) as Record<string, unknown>,
+        params.onSecurityEvent,
+      );
 
       toolResults.push({
         type: "tool_result",
         tool_use_id: toolUse.id,
-        content: resultContent,
-        is_error: isError,
+        content: executed.content,
+        is_error: executed.isError,
       });
     }
 
@@ -2318,18 +2502,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     });
 
     response = await createMessage(messages, isFinalRound);
-    modelCalls += 1;
-    inputTokens += response.usage.input_tokens;
-    outputTokens += response.usage.output_tokens;
-    cacheReadTokens = addReported(
-      cacheReadTokens,
-      response.usage.cache_read_input_tokens,
-    );
-    cacheCreationTokens = addReported(
-      cacheCreationTokens,
-      response.usage.cache_creation_input_tokens,
-    );
-    enforceBudget();
+    recordResponse(response);
 
     if (isFinalRound) {
       break;
@@ -2360,52 +2533,22 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     throw new AgentOutputValidationError("agent_output_missing_text", "");
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(textBlock.text);
-  } catch {
-    throw new AgentOutputValidationError(
-      "agent_output_invalid_json",
-      textBlock.text,
-    );
-  }
-
-  const validated = outputContract.schema.safeParse(parsed);
-
-  if (!validated.success) {
-    throw new AgentOutputValidationError(
-      `agent_output_schema_mismatch: ${validated.error.message}`,
-      textBlock.text,
-    );
-  }
-
-  const sanity = checkOutputSanity(validated.data);
-
-  if (!sanity.ok) {
-    throw new AgentOutputValidationError(
-      `agent_output_sanity_check_failed: ${sanity.reason}`,
-      textBlock.text,
-    );
-  }
-
   return {
-    output: validated.data,
+    output: parseTurnOutput(textBlock.text, outputContract),
     provider: "anthropic",
     model: params.model,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheCreationTokens,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheCreationTokens: usage.cacheCreationTokens,
     // Anthropic no expone tokens de razonamiento en `usage` para estos
     // modelos: `null` (desconocido), nunca 0.
     reasoningTokens: null,
-    estimatedCostUsd: estimateCostUsd(params.model, inputTokens, outputTokens),
-    costBasis: costBasisFor(params.model),
-    pricingVersion: PRICING_VERSION,
+    ...turnPricingFields(params.model, usage.inputTokens, usage.outputTokens),
     latencyMs,
     stopReason: response.stop_reason,
-    modelCalls,
-    toolCallCount,
+    modelCalls: usage.modelCalls,
+    toolCallCount: usage.toolCallCount,
   };
 }
 
@@ -2448,22 +2591,9 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     params.onSecurityEvent,
   );
 
-  const userText = [
-    `Organizacion activa: ${input.organization_id} (resuelta por el backend; analiza solo estos datos).`,
-    `Objetivo de la ejecucion: ${input.objective}`,
-    input.time_range
-      ? `Periodo: ${input.time_range.start} a ${input.time_range.end}`
-      : null,
-    "",
-    "Contexto verificado:",
-    contextText,
-  ]
-    .filter((line) => line !== null)
-    .join("\n");
-
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: buildAgentSystemPrompt(params.systemPrompt) },
-    { role: "user", content: userText },
+    { role: "user", content: buildTurnUserText(input, contextText) },
   ];
 
   const requestBase = {
@@ -2493,33 +2623,8 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
       : {}),
   };
 
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheReadTokens: number | null = null;
-  let cacheCreationTokens: number | null = null;
-  let modelCalls = 0;
-  let toolCallCount = 0;
-
-  // Con un modelo sin precio conocido el coste es `null` y el tope en dolares
-  // no puede evaluarse: cortar por "0 > max" seria falso, y no frenar nada
-  // seria peligroso. Se degrada al unico freno que sigue siendo cierto -- el
-  // numero de tool calls -- y el turno se marca `unknown_model` para que quede
-  // visible en el panel en vez de pasar por gratis.
-  const costSoFarOrZero = () =>
-    estimateCostUsd(params.model, inputTokens, outputTokens) ?? 0;
-
-  const enforceBudget = () => {
-    const costSoFar = costSoFarOrZero();
-    const verdict = evaluateAgentBudget(budget, costSoFar, toolCallCount);
-
-    if (verdict.exceeded) {
-      throw new AgentBudgetExceededError(
-        verdict.message,
-        costSoFar,
-        toolCallCount,
-      );
-    }
-  };
+  const accounting = createTurnAccounting(params.model, budget);
+  const { usage } = accounting;
 
   const resiliencePolicy = {
     ...DEFAULT_AGENT_RESILIENCE_POLICY,
@@ -2529,11 +2634,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     requestMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     withoutTools = false,
   ) => {
-    const { tools: declaredTools, ...toolless } = requestBase as typeof requestBase & {
-      tools?: unknown;
-    };
-    void declaredTools;
-    const base = withoutTools ? toolless : requestBase;
+    const base = withoutTools ? requestWithoutTools(requestBase) : requestBase;
     return withAgentResilience(
       (signal) =>
         client.chat.completions.create(
@@ -2544,15 +2645,20 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     );
   };
 
+  const recordResponse = (
+    completion: OpenAI.Chat.Completions.ChatCompletion,
+  ) => {
+    accounting.recordModelCall({
+      inputTokens: completion.usage?.prompt_tokens,
+      outputTokens: completion.usage?.completion_tokens,
+      cacheReadTokens: completion.usage?.prompt_tokens_details?.cached_tokens,
+      // OpenAI no informa de lo escrito en cache: se deja sin tocar para que
+      // el acumulador termine en `null`, no en 0.
+    });
+  };
+
   let response = await createCompletion(messages);
-  modelCalls += 1;
-  inputTokens += response.usage?.prompt_tokens ?? 0;
-  outputTokens += response.usage?.completion_tokens ?? 0;
-  cacheReadTokens = addReported(
-    cacheReadTokens,
-    response.usage?.prompt_tokens_details?.cached_tokens,
-  );
-  enforceBudget();
+  recordResponse(response);
 
   let choice = response.choices[0];
 
@@ -2561,11 +2667,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   }
 
   while (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
-    // Misma regla que en la ruta Anthropic: la ultima ronda se avisa y se
-    // responde sin herramientas, en vez de tirar el run.
-    const isFinalRound =
-      modelCalls >= MAX_MODEL_CALLS_PER_TURN - 1 ||
-      isBudgetNearlyExhausted(budget, costSoFarOrZero(), toolCallCount);
+    const isFinalRound = accounting.isFinalRound();
 
     const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] =
       [];
@@ -2575,46 +2677,25 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
         continue;
       }
 
-      const tool = tools.find(
-        (candidate) => candidate.name === toolCall.function.name,
+      accounting.recordToolCall();
+
+      const executed = await executeModelToolCall(
+        tools,
+        toolCall.function.name,
+        () =>
+          toolCall.function.arguments
+            ? (JSON.parse(toolCall.function.arguments) as Record<
+                string,
+                unknown
+              >)
+            : {},
+        params.onSecurityEvent,
       );
-      toolCallCount += 1;
-      enforceBudget();
-
-      let resultContent: string;
-
-      if (!tool) {
-        resultContent = unknownToolResult(
-          toolCall.function.name,
-          params.onSecurityEvent,
-        );
-      } else {
-        try {
-          const args = toolCall.function.arguments
-            ? JSON.parse(toolCall.function.arguments)
-            : {};
-          const result = await tool.execute(args as Record<string, unknown>);
-          resultContent = serializeToolResultWithSecurityEvents(
-            result,
-            tool.name,
-            params.onSecurityEvent,
-          );
-        } catch (error) {
-          resultContent = serializeToolResultWithSecurityEvents(
-            {
-              error:
-                error instanceof Error ? error.message : "tool_execution_failed",
-            },
-            tool.name,
-            params.onSecurityEvent,
-          );
-        }
-      }
 
       toolResults.push({
         role: "tool",
         tool_call_id: toolCall.id,
-        content: resultContent,
+        content: executed.content,
       });
     }
 
@@ -2625,14 +2706,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     }
 
     response = await createCompletion(messages, isFinalRound);
-    modelCalls += 1;
-    inputTokens += response.usage?.prompt_tokens ?? 0;
-    outputTokens += response.usage?.completion_tokens ?? 0;
-    cacheReadTokens = addReported(
-      cacheReadTokens,
-      response.usage?.prompt_tokens_details?.cached_tokens,
-    );
-    enforceBudget();
+    recordResponse(response);
 
     const nextChoice = response.choices[0];
     if (!nextChoice) {
@@ -2664,52 +2738,25 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     throw new AgentOutputValidationError("agent_output_missing_text", "");
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new AgentOutputValidationError("agent_output_invalid_json", text);
-  }
-
-  const validated = outputContract.schema.safeParse(parsed);
-
-  if (!validated.success) {
-    throw new AgentOutputValidationError(
-      `agent_output_schema_mismatch: ${validated.error.message}`,
-      text,
-    );
-  }
-
-  const sanity = checkOutputSanity(validated.data);
-
-  if (!sanity.ok) {
-    throw new AgentOutputValidationError(
-      `agent_output_sanity_check_failed: ${sanity.reason}`,
-      text,
-    );
-  }
-
   return {
-    output: validated.data,
+    output: parseTurnOutput(text, outputContract),
     provider: "openai",
     model: params.model,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
     // El caching de OpenAI es automatico: la API informa de lo leido de cache
     // (`cached_tokens`) pero no de lo escrito, asi que este acumulador nunca
     // se toca y termina en `null` = el proveedor no lo reporta.
-    cacheCreationTokens,
+    cacheCreationTokens: usage.cacheCreationTokens,
     // `usage.completion_tokens_details.reasoning_tokens` solo existe en los
     // modelos de razonamiento, que hoy no usamos. No se inventa un 0.
     reasoningTokens: null,
-    estimatedCostUsd: estimateCostUsd(params.model, inputTokens, outputTokens),
-    costBasis: costBasisFor(params.model),
-    pricingVersion: PRICING_VERSION,
+    ...turnPricingFields(params.model, usage.inputTokens, usage.outputTokens),
     latencyMs,
     stopReason: choice.finish_reason,
-    modelCalls,
-    toolCallCount,
+    modelCalls: usage.modelCalls,
+    toolCallCount: usage.toolCallCount,
   };
 }
 
@@ -2848,8 +2895,10 @@ export function chunkText(
     }
 
     const lines = block.split("\n");
-    const heading = lines.find((line) => /^#{1,6}\s+\S/.test(line))?.trim() ?? "";
-    const tableHeader = lines.find((line) => /^\s*\|.*\|\s*$/.test(line))?.trim() ?? "";
+    const heading =
+      lines.find((line) => /^#{1,6}\s+\S/.test(line))?.trim() ?? "";
+    const tableHeader =
+      lines.find((line) => /^\s*\|.*\|\s*$/.test(line))?.trim() ?? "";
     const prefix = heading || tableHeader;
     const pieces: string[] = [];
     let piece = prefix;

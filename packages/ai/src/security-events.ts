@@ -99,3 +99,63 @@ export function createSecurityEventCollector(limit = 100) {
 
   return { emit, drain };
 }
+
+/**
+ * Tope de eventos por organizacion y ventana, aguas arriba del colector.
+ *
+ * El colector acota un turno (100 eventos). Lo que no acotaba nada era el
+ * acumulado: un contexto hostil que dispare el tope en cada ejecucion escribe
+ * 100 filas por run, y el freno de mas arriba -- el presupuesto diario de IA --
+ * limita el gasto, no las filas.
+ *
+ * 1.000 es holgado para incidentes reales. Alcanzado el tope la senal ya esta
+ * dada; las filas siguientes no anaden informacion, solo tabla.
+ */
+export const SECURITY_EVENTS_DAILY_CAP_PER_ORG = 1000;
+
+/**
+ * Que se escribe de verdad, dado lo que la organizacion lleva acumulado.
+ *
+ * Por encima del tope se escribe **una** fila por ejecucion en vez de N, nunca
+ * cero. "Hubo eventos y dejamos de detallarlos" y "no hubo eventos" son hechos
+ * distintos, y el panel tiene que poder distinguirlos -- confundirlos seria el
+ * mismo defecto que arregla toda esta fase.
+ *
+ * `eventsInWindow` a `null` significa que no se pudo contar, y entonces se
+ * escribe todo: un fallo del limitador no puede convertirse en perdida de
+ * evidencia. El tope existe para que la tabla no crezca sin freno, no para
+ * descartar eventos cuando dudamos.
+ */
+export function capSecurityEvents(
+  events: readonly AgentSecurityEvent[],
+  eventsInWindow: number | null,
+  cap: number = SECURITY_EVENTS_DAILY_CAP_PER_ORG,
+  windowHours = 24,
+): { rows: readonly AgentSecurityEvent[]; rateLimited: boolean } {
+  if (events.length === 0) {
+    return { rows: events, rateLimited: false };
+  }
+
+  if (eventsInWindow === null || eventsInWindow < cap) {
+    return { rows: events, rateLimited: false };
+  }
+
+  return {
+    rateLimited: true,
+    rows: [
+      {
+        type: "policy_violation",
+        severity: "medium",
+        source: "security_event_rate_limit",
+        detail: {
+          reason: "organization_daily_cap_reached",
+          cap,
+          window_hours: windowHours,
+          events_in_window: eventsInWindow,
+          dropped_events: events.length,
+          dropped_types: [...new Set(events.map((event) => event.type))],
+        },
+      },
+    ],
+  };
+}

@@ -635,7 +635,11 @@ async function runBulkWithSchemaFallback(
       error instanceof ShopifyGraphError
         ? !error.retryable && error.externalStatus === undefined
         : error instanceof Error &&
-          error.message.includes("bulk_operation_start_failed");
+          // Rechazo al enviar la query, o bulk que arranca y Shopify falla
+          // despues por datos protegidos del cliente: en los dos casos el
+          // reintento sin los campos extra es lo que salva el bloque.
+          (error.message.includes("bulk_operation_start_failed") ||
+            error.message.includes("bulk_operation_failed: ACCESS_DENIED"));
 
     if (!isQueryRejection) throw error;
 

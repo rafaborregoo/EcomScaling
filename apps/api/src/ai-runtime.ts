@@ -7,7 +7,9 @@ import {
   AgentBudgetExceededError,
   AgentRequestTimeoutError,
   authorizeTool,
+  capSecurityEvents,
   createSecurityEventCollector,
+  SECURITY_EVENTS_DAILY_CAP_PER_ORG,
   type AgentSecurityEvent,
   type AgentSecurityEventSink,
   type ToolContext,
@@ -69,10 +71,7 @@ import type {
   AgentSourceReference,
 } from "@ecomscaling/contracts";
 import { INTEGRATION_CATALOG } from "@ecomscaling/integrations";
-import {
-  createLogger,
-  sanitizeForTelemetry,
-} from "@ecomscaling/observability";
+import { createLogger, sanitizeForTelemetry } from "@ecomscaling/observability";
 import {
   currentParallelGroupId,
   currentRequestId,
@@ -878,6 +877,39 @@ async function runAgentTurnWithFallbackCore<TOutput>(
  * que por lo demas fue bien -- pero se registra en el log, porque perder
  * eventos de seguridad en silencio seria repetir el defecto que esto arregla.
  */
+const SECURITY_EVENTS_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Cuantos eventos lleva la organizacion en la ventana. `null` = no se pudo
+ * contar.
+ *
+ * Solo se llama en turnos que ya detectaron algo, que son los menos: la mayoria
+ * de las ejecuciones salen de `persistSecurityEvents` por el retorno temprano
+ * sin tocar la base de datos. El indice `(organization_id, created_at desc)` de
+ * la tabla cubre exactamente este predicado.
+ */
+async function countRecentSecurityEvents(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<number | null> {
+  const since = new Date(Date.now() - SECURITY_EVENTS_CAP_WINDOW_MS);
+  const { count, error } = await supabase
+    .from("ai_security_events")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .gte("created_at", since.toISOString());
+
+  if (error) {
+    logger.error("ai_security_events_count_failed", {
+      organization_id: organizationId,
+      error: error.message,
+    });
+    return null;
+  }
+
+  return count ?? null;
+}
+
 async function persistSecurityEvents(
   supabase: SupabaseClient,
   organizationId: string,
@@ -890,8 +922,24 @@ async function persistSecurityEvents(
   }
 
   try {
+    const { rows, rateLimited } = capSecurityEvents(
+      events,
+      await countRecentSecurityEvents(supabase, organizationId),
+      SECURITY_EVENTS_DAILY_CAP_PER_ORG,
+      SECURITY_EVENTS_CAP_WINDOW_MS / 3_600_000,
+    );
+
+    if (rateLimited) {
+      logger.error("ai_security_events_rate_limited", {
+        organization_id: organizationId,
+        run_id: runId,
+        dropped_events: events.length,
+      });
+      apiMetrics.increment("ai_security_events_rate_limited_total", {});
+    }
+
     const { error } = await supabase.from("ai_security_events").insert(
-      events.map((event) => ({
+      rows.map((event) => ({
         organization_id: organizationId,
         run_id: runId,
         trace_id: traceId,
@@ -908,13 +956,13 @@ async function persistSecurityEvents(
     if (error) {
       logger.error("ai_security_events_insert_failed", {
         run_id: runId,
-        event_count: events.length,
+        event_count: rows.length,
         error: error.message,
       });
       return;
     }
 
-    for (const event of events) {
+    for (const event of rows) {
       apiMetrics.increment("ai_security_events_total", {
         event_type: event.type,
         severity: event.severity,
@@ -1647,7 +1695,6 @@ function buildAgentTools(
       target_store_id: storeId,
     };
   };
-
 
   registerScopedReadTool(
     "shopify_customer_health",
@@ -2576,7 +2623,59 @@ function buildAgentTools(
     }),
   );
 
-  return { tools, systemPrompt, securityEvents };
+  // AI-30: segunda puerta, en la invocacion.
+  //
+  // La de arriba decide QUE tools se declaran, y lo hace con permiso `read`:
+  // declarar una tool no es pedir escalada. Esta comprueba, justo antes de
+  // ejecutar, que la tool sigue autorizada con el permiso que su propio
+  // registro declara -- el que su executor va a ejercer de verdad.
+  //
+  // Para toda tool que paso la primera puerta el veredicto es hoy el mismo: son
+  // las mismas entradas estaticas. Existe por lo que la primera NO cubre: un
+  // `tools.push` anadido sin el guard de `allowedToolNames`. Ese es exactamente
+  // el fallo que encontro el audit -- filtrado a mano divergiendo del motor de
+  // permisos, y produccion corriendo mas laxa que los tests -- y aqui deja de
+  // depender de que nadie olvide el guard: no hay camino al executor que no
+  // pase por esta funcion.
+  const guardedTools = tools.map((tool) => ({
+    ...tool,
+    execute: async (toolInput: Record<string, unknown>) => {
+      const verdict = authorizeTool(
+        tool.name,
+        toolContext,
+        getToolDefinition(tool.name)?.permission ?? "read",
+      );
+      if (verdict.allowed) {
+        return tool.execute(toolInput);
+      }
+
+      // Se registra por las dos vias a proposito: el evento de seguridad es el
+      // rastro de auditoria, y la fila de tool call es donde mira el consultor
+      // cuando pregunta "que intento hacer esta ejecucion".
+      await recordToolCall(tool.name, toolInput, verdict.reason, true, 0);
+      await persistSecurityEvents(
+        supabase,
+        organizationId,
+        runId,
+        currentRequestId() ?? runId,
+        [
+          {
+            type: "permission_denied",
+            severity: "high",
+            source: "tool_invocation",
+            detail: {
+              tool_name: tool.name,
+              error: verdict.reason.error,
+              why: verdict.reason.why,
+            },
+          },
+        ],
+      );
+      return verdict.reason;
+    },
+  }));
+
+  return { tools: guardedTools, systemPrompt, securityEvents };
 }
 
 /**
@@ -3016,7 +3115,11 @@ async function runGenericDiagnosticAgent(
     organizationId,
   );
 
-  const { tools, systemPrompt, securityEvents: toolAuthEvents } = buildAgentTools(
+  const {
+    tools,
+    systemPrompt,
+    securityEvents: toolAuthEvents,
+  } = buildAgentTools(
     env,
     supabase,
     runId,
@@ -3116,16 +3219,21 @@ async function runGenericDiagnosticAgent(
       contextDuration,
     );
 
-    const leanContract = outputContractOverride ?? leanOutputContractFor(agentCode);
-    const turn = await runAgentTurnWithFallback(env, {
-      model: agentVersion.model,
-      systemPrompt,
-      input,
-      contextBlocks,
-      tools,
-      ...(leanContract ? { outputContract: leanContract } : {}),
-      budget: agentBudget,
-    }, toolAuthEvents);
+    const leanContract =
+      outputContractOverride ?? leanOutputContractFor(agentCode);
+    const turn = await runAgentTurnWithFallback(
+      env,
+      {
+        model: agentVersion.model,
+        systemPrompt,
+        input,
+        contextBlocks,
+        tools,
+        ...(leanContract ? { outputContract: leanContract } : {}),
+        budget: agentBudget,
+      },
+      toolAuthEvents,
+    );
 
     await recordStep(
       supabase,
@@ -3935,8 +4043,7 @@ export async function runPlanAgent(
             ? supabase.rpc("shopify_sales_summary", {
                 target_organization_id: organizationId,
                 period_start: new Date(
-                  periodStart.getTime() -
-                    lookbackDays * 24 * 60 * 60 * 1000,
+                  periodStart.getTime() - lookbackDays * 24 * 60 * 60 * 1000,
                 ).toISOString(),
                 period_end: periodStart.toISOString(),
                 target_store_id: storeId,
@@ -3970,9 +4077,7 @@ export async function runPlanAgent(
         seenSibling.add(code);
 
         const rawOutput = run.agent_outputs as
-          | { output?: unknown }
-          | { output?: unknown }[]
-          | null;
+          { output?: unknown } | { output?: unknown }[] | null;
         const output = Array.isArray(rawOutput) ? rawOutput[0] : rawOutput;
         const content = (output?.output ?? {}) as Record<string, unknown>;
         const writes = Array.isArray(content.proposed_writes)
@@ -4080,57 +4185,64 @@ export async function runCaminoArchitectAgent(
     storeId,
     lookbackDays,
     async (supabase) => {
-      const [sales, previousSales, financial, stock, currentPlan, tasks, alerts] =
-        await Promise.all([
-          supabase.rpc("shopify_sales_summary", {
-            target_organization_id: organizationId,
-            period_start: periodStart.toISOString(),
-            period_end: now.toISOString(),
-            target_store_id: storeId,
-          }),
-          // Un camino se disena sobre tendencia, no sobre una foto: sin el
-          // periodo anterior no se distingue "va bien" de "venia mejor".
-          supabase.rpc("shopify_sales_summary", {
-            target_organization_id: organizationId,
-            period_start: new Date(
-              periodStart.getTime() - lookbackDays * 24 * 60 * 60 * 1000,
-            ).toISOString(),
-            period_end: periodStart.toISOString(),
-            target_store_id: storeId,
-          }),
-          supabase.rpc("shopify_financial_summary", {
-            target_organization_id: organizationId,
-            period_start: periodStart.toISOString(),
-            period_end: now.toISOString(),
-            target_store_id: storeId,
-          }),
-          supabase.rpc("shopify_stock_summary", {
-            target_organization_id: organizationId,
-            target_store_id: storeId,
-          }),
-          supabase
-            .from("strategic_plans")
-            .select(
-              "name, description, status, version, starts_on, completed_on, strategic_plan_phases(name, description, status, position, strategic_plan_milestones(name, status, target_date, completed_at))",
-            )
-            .eq("organization_id", organizationId)
-            .neq("status", "archived")
-            .order("version", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          supabase
-            .from("tasks")
-            .select("title, priority, status, due_at")
-            .eq("organization_id", organizationId)
-            .in("status", ["pending", "in_progress"])
-            .limit(40),
-          supabase
-            .from("alerts")
-            .select("title, severity, status, metric_value, first_detected_at")
-            .eq("organization_id", organizationId)
-            .in("status", ["open", "acknowledged"])
-            .limit(20),
-        ]);
+      const [
+        sales,
+        previousSales,
+        financial,
+        stock,
+        currentPlan,
+        tasks,
+        alerts,
+      ] = await Promise.all([
+        supabase.rpc("shopify_sales_summary", {
+          target_organization_id: organizationId,
+          period_start: periodStart.toISOString(),
+          period_end: now.toISOString(),
+          target_store_id: storeId,
+        }),
+        // Un camino se disena sobre tendencia, no sobre una foto: sin el
+        // periodo anterior no se distingue "va bien" de "venia mejor".
+        supabase.rpc("shopify_sales_summary", {
+          target_organization_id: organizationId,
+          period_start: new Date(
+            periodStart.getTime() - lookbackDays * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+          period_end: periodStart.toISOString(),
+          target_store_id: storeId,
+        }),
+        supabase.rpc("shopify_financial_summary", {
+          target_organization_id: organizationId,
+          period_start: periodStart.toISOString(),
+          period_end: now.toISOString(),
+          target_store_id: storeId,
+        }),
+        supabase.rpc("shopify_stock_summary", {
+          target_organization_id: organizationId,
+          target_store_id: storeId,
+        }),
+        supabase
+          .from("strategic_plans")
+          .select(
+            "name, description, status, version, starts_on, completed_on, strategic_plan_phases(name, description, status, position, strategic_plan_milestones(name, status, target_date, completed_at))",
+          )
+          .eq("organization_id", organizationId)
+          .neq("status", "archived")
+          .order("version", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("tasks")
+          .select("title, priority, status, due_at")
+          .eq("organization_id", organizationId)
+          .in("status", ["pending", "in_progress"])
+          .limit(40),
+        supabase
+          .from("alerts")
+          .select("title, severity, status, metric_value, first_detected_at")
+          .eq("organization_id", organizationId)
+          .in("status", ["open", "acknowledged"])
+          .limit(20),
+      ]);
 
       return [
         {
@@ -4490,7 +4602,6 @@ export async function getCampaignPlanProposal(
     },
   };
 }
-
 
 /** Plan diario (A04). Se mantiene el nombre: lo llaman el orquestador y las rutas. */
 export async function runTaskPlannerAgent(
@@ -4965,7 +5076,8 @@ export async function runEmailAnalystAgent(
         (lastSync.data?.records_failed ?? 0) === 0;
       const flowsKnown = (flowCount.count ?? 0) > 0;
       blocks.push({
-        label: "Cobertura del dato (leelo antes de concluir que algo NO existe)",
+        label:
+          "Cobertura del dato (leelo antes de concluir que algo NO existe)",
         data: {
           flujos_que_conocemos: flowCount.count ?? 0,
           ultimo_sync_klaviyo: lastSync.data
@@ -5138,7 +5250,10 @@ export async function runOperativaShopifyAgent(
           label: `Resumen financiero (${OPERATIVA_LOOKBACK_DAYS} dias)`,
           data: financial.data?.[0] ?? "sin_datos",
         },
-        { label: "Stock actual (agregado)", data: stock.data?.[0] ?? "sin_datos" },
+        {
+          label: "Stock actual (agregado)",
+          data: stock.data?.[0] ?? "sin_datos",
+        },
         {
           label:
             "Productos con mayor riesgo de quiebre (venta reciente vs. stock, cruce ya calculado)",
@@ -5233,8 +5348,7 @@ export async function runRetencionClientesAgent(
           data: recurrence.data?.[0] ?? "sin_datos",
         },
         {
-          label:
-            "Valor por cliente (TODO el historico, no el periodo)",
+          label: "Valor por cliente (TODO el historico, no el periodo)",
           data: value.data?.[0] ?? "sin_datos",
         },
         {
@@ -5934,7 +6048,6 @@ export async function getCambiosMetaDiagnostic(
   );
 }
 
-
 // ===========================================================================
 // Orquestador de diagnosticos de fondo (fase 3, decision de Rafa 2026-08-31)
 // ---------------------------------------------------------------------------
@@ -6464,26 +6577,20 @@ async function runDiagnosticOrchestratorTickInner(
         { trigger: "cron", enforceManualRefreshCap: false },
       );
     } else if (item.agentCode === "a24_medicion_meta") {
-      result = await runMedicionMetaAgent(
-        env,
-        context,
-        item.organizationId,
-        { trigger: "cron", enforceManualRefreshCap: false },
-      );
+      result = await runMedicionMetaAgent(env, context, item.organizationId, {
+        trigger: "cron",
+        enforceManualRefreshCap: false,
+      });
     } else if (item.agentCode === "a26_contenido_email") {
-      result = await runContenidoEmailAgent(
-        env,
-        context,
-        item.organizationId,
-        { trigger: "cron", enforceManualRefreshCap: false },
-      );
+      result = await runContenidoEmailAgent(env, context, item.organizationId, {
+        trigger: "cron",
+        enforceManualRefreshCap: false,
+      });
     } else if (item.agentCode === "a25_cambios_meta") {
-      result = await runCambiosMetaAgent(
-        env,
-        context,
-        item.organizationId,
-        { trigger: "cron", enforceManualRefreshCap: false },
-      );
+      result = await runCambiosMetaAgent(env, context, item.organizationId, {
+        trigger: "cron",
+        enforceManualRefreshCap: false,
+      });
     } else {
       result = await runStockPlannerAgent(
         env,
@@ -7328,7 +7435,9 @@ function boundedText(value: unknown, maxLength: number): string | null {
   return trimmed ? trimmed.slice(0, maxLength) : null;
 }
 
-export function sanitizeChatViewContext(raw: ConsultantChatViewContext | undefined) {
+export function sanitizeChatViewContext(
+  raw: ConsultantChatViewContext | undefined,
+) {
   if (!raw || typeof raw !== "object") return null;
 
   // Descartar primero y recortar despues: al reves, un par de metricas a
@@ -7557,9 +7666,7 @@ export async function runMarketingContentDraft(
   if (!briefBase) {
     return { ok: false as const, statusCode: 400, error: "brief_requerido" };
   }
-  if (
-    !["email_klaviyo", "meta_ads", "instagram_organic"].includes(channel)
-  ) {
+  if (!["email_klaviyo", "meta_ads", "instagram_organic"].includes(channel)) {
     return { ok: false as const, statusCode: 400, error: "canal_invalido" };
   }
   if (
@@ -7639,7 +7746,11 @@ export async function runMarketingContentDraft(
     supabase,
     organizationId,
   );
-  const { tools, systemPrompt, securityEvents: toolAuthEvents } = buildAgentTools(
+  const {
+    tools,
+    systemPrompt,
+    securityEvents: toolAuthEvents,
+  } = buildAgentTools(
     env,
     supabase,
     runId,
@@ -7732,35 +7843,42 @@ export async function runMarketingContentDraft(
     const isInstagram = channel === "instagram_organic";
     const turn = await runAgentTurnWithFallback<
       KlaviyoEmailOutput | MetaAdsOutput | InstagramPostOutput
-    >(env, {
-      model: agentVersion.model,
-      systemPrompt,
-      input,
-      contextBlocks: [{ label: "Brief del consultor", data: request }],
-      ...(attachedImages.length > 0 ? { images: attachedImages } : {}),
-      tools,
-      outputContract: isMetaAds
-        ? {
-            jsonSchema: metaAdsJsonSchema as unknown as Record<string, unknown>,
-            schema: metaAdsOutputSchema,
-          }
-        : isInstagram
+    >(
+      env,
+      {
+        model: agentVersion.model,
+        systemPrompt,
+        input,
+        contextBlocks: [{ label: "Brief del consultor", data: request }],
+        ...(attachedImages.length > 0 ? { images: attachedImages } : {}),
+        tools,
+        outputContract: isMetaAds
           ? {
-              jsonSchema: instagramPostJsonSchema as unknown as Record<
+              jsonSchema: metaAdsJsonSchema as unknown as Record<
                 string,
                 unknown
               >,
-              schema: instagramPostOutputSchema,
+              schema: metaAdsOutputSchema,
             }
-          : {
-              jsonSchema: klaviyoEmailJsonSchema as unknown as Record<
-                string,
-                unknown
-              >,
-              schema: klaviyoEmailOutputSchema,
-            },
-      budget: agentBudget,
-    }, toolAuthEvents);
+          : isInstagram
+            ? {
+                jsonSchema: instagramPostJsonSchema as unknown as Record<
+                  string,
+                  unknown
+                >,
+                schema: instagramPostOutputSchema,
+              }
+            : {
+                jsonSchema: klaviyoEmailJsonSchema as unknown as Record<
+                  string,
+                  unknown
+                >,
+                schema: klaviyoEmailOutputSchema,
+              },
+        budget: agentBudget,
+      },
+      toolAuthEvents,
+    );
 
     const metaOutput = isMetaAds
       ? metaAdsOutputSchema.parse({
@@ -7774,15 +7892,16 @@ export async function runMarketingContentDraft(
           approval_required: true,
         })
       : null;
-    const emailOutput = !isMetaAds && !isInstagram
-      ? klaviyoEmailOutputSchema.parse({
-          ...turn.output,
-          html: sanitizeGeneratedEmailHtml(
-            (turn.output as KlaviyoEmailOutput).html,
-          ),
-          approval_required: true,
-        })
-      : null;
+    const emailOutput =
+      !isMetaAds && !isInstagram
+        ? klaviyoEmailOutputSchema.parse({
+            ...turn.output,
+            html: sanitizeGeneratedEmailHtml(
+              (turn.output as KlaviyoEmailOutput).html,
+            ),
+            approval_required: true,
+          })
+        : null;
     const sanitizedOutput = (metaOutput ?? instagramOutput ?? emailOutput)!;
 
     const igHashtags = instagramOutput
@@ -7835,62 +7954,62 @@ export async function runMarketingContentDraft(
           warnings: instagramOutput.warnings,
         }
       : metaOutput
-      ? {
-          schemaVersion: "meta-ads-v1",
-          templateName: metaOutput.campaign_name,
-          subject: metaOutput.headline,
-          preheader: metaOutput.description,
-          fromName: metaOutput.campaign_name,
-          replyTo: null,
-          purpose: metaOutput.summary,
-          audience: metaOutput.audience,
-          locale: metaOutput.locale,
-          tone: metaOutput.tone,
-          plainText: metaOutput.primary_text,
-          html: `<p>${escapeHtml(metaOutput.primary_text)}</p>`,
-          blocks: [
-            {
-              type: "text",
-              content: metaOutput.primary_text,
-              href: null,
-              alt: null,
-            },
-            {
-              type: "button",
-              content: metaOutput.call_to_action,
-              href: metaOutput.destination_url,
-              alt: null,
-            },
-          ],
-          personalizationTokens: [],
-          complianceNotes: [
-            ...metaOutput.compliance_notes,
-            ...metaOutput.creative_notes,
-          ],
-          sources: metaOutput.sources,
-          confidence: metaOutput.confidence,
-          warnings: metaOutput.warnings,
-        }
-      : {
-          schemaVersion: "klaviyo-email-v1",
-          templateName: emailOutput!.template_name,
-          subject: emailOutput!.subject,
-          preheader: emailOutput!.preheader,
-          fromName: emailOutput!.from_name,
-          replyTo: emailOutput!.reply_to,
-          purpose: emailOutput!.purpose,
-          audience: emailOutput!.audience,
-          locale: emailOutput!.locale,
-          tone: emailOutput!.tone,
-          plainText: emailOutput!.plain_text,
-          html: emailOutput!.html,
-          blocks: emailOutput!.blocks,
-          personalizationTokens: emailOutput!.personalization_tokens,
-          complianceNotes: emailOutput!.compliance_notes,
-          sources: emailOutput!.sources,
-          confidence: emailOutput!.confidence,
-          warnings: emailOutput!.warnings,
-        };
+        ? {
+            schemaVersion: "meta-ads-v1",
+            templateName: metaOutput.campaign_name,
+            subject: metaOutput.headline,
+            preheader: metaOutput.description,
+            fromName: metaOutput.campaign_name,
+            replyTo: null,
+            purpose: metaOutput.summary,
+            audience: metaOutput.audience,
+            locale: metaOutput.locale,
+            tone: metaOutput.tone,
+            plainText: metaOutput.primary_text,
+            html: `<p>${escapeHtml(metaOutput.primary_text)}</p>`,
+            blocks: [
+              {
+                type: "text",
+                content: metaOutput.primary_text,
+                href: null,
+                alt: null,
+              },
+              {
+                type: "button",
+                content: metaOutput.call_to_action,
+                href: metaOutput.destination_url,
+                alt: null,
+              },
+            ],
+            personalizationTokens: [],
+            complianceNotes: [
+              ...metaOutput.compliance_notes,
+              ...metaOutput.creative_notes,
+            ],
+            sources: metaOutput.sources,
+            confidence: metaOutput.confidence,
+            warnings: metaOutput.warnings,
+          }
+        : {
+            schemaVersion: "klaviyo-email-v1",
+            templateName: emailOutput!.template_name,
+            subject: emailOutput!.subject,
+            preheader: emailOutput!.preheader,
+            fromName: emailOutput!.from_name,
+            replyTo: emailOutput!.reply_to,
+            purpose: emailOutput!.purpose,
+            audience: emailOutput!.audience,
+            locale: emailOutput!.locale,
+            tone: emailOutput!.tone,
+            plainText: emailOutput!.plain_text,
+            html: emailOutput!.html,
+            blocks: emailOutput!.blocks,
+            personalizationTokens: emailOutput!.personalization_tokens,
+            complianceNotes: emailOutput!.compliance_notes,
+            sources: emailOutput!.sources,
+            confidence: emailOutput!.confidence,
+            warnings: emailOutput!.warnings,
+          };
 
     await recordStep(
       supabase,
@@ -8357,7 +8476,10 @@ export async function analyzeInstagramImage(
       systemPrompt: prompt.content,
       input,
       contextBlocks: [
-        { label: "Archivo (dato no fiable)", data: { filename: params.filename } },
+        {
+          label: "Archivo (dato no fiable)",
+          data: { filename: params.filename },
+        },
       ],
       images: [{ url: params.imageUrl, role: "contenido" }],
       outputContract: {
@@ -8391,7 +8513,11 @@ export async function analyzeInstagramImage(
       .update(agentRunCompletionFields(turn))
       .eq("id", runId);
 
-    recordAiRunMetrics("a15_analista_imagenes", "succeeded", turn.estimatedCostUsd);
+    recordAiRunMetrics(
+      "a15_analista_imagenes",
+      "succeeded",
+      turn.estimatedCostUsd,
+    );
 
     return {
       ok: true,
@@ -8684,7 +8810,10 @@ export async function listMarketingContentDrafts(
   // Si el calendario falla, la campaña no se muestra pero los borradores si:
   // es informacion añadida, no puede tumbar la lista entera del modulo.
   const itemByDraft = new Map(
-    (linkedItems ?? []).map((item) => [item.marketing_draft_id as string, item]),
+    (linkedItems ?? []).map((item) => [
+      item.marketing_draft_id as string,
+      item,
+    ]),
   );
 
   return {
@@ -9310,7 +9439,11 @@ export async function runConsultantChatTurn(
     context.profile.platform_role,
   );
 
-  const { tools, systemPrompt, securityEvents: toolAuthEvents } = buildAgentTools(
+  const {
+    tools,
+    systemPrompt,
+    securityEvents: toolAuthEvents,
+  } = buildAgentTools(
     env,
     supabase,
     runId,
@@ -9402,18 +9535,22 @@ export async function runConsultantChatTurn(
       ...constraintBlocks,
     ];
 
-    const turn = await runAgentTurnWithFallback<ChatOutput>(env, {
-      model: agentVersion.model,
-      systemPrompt,
-      input,
-      contextBlocks,
-      tools,
-      outputContract: {
-        jsonSchema: chatJsonSchema as unknown as Record<string, unknown>,
-        schema: chatOutputSchema,
+    const turn = await runAgentTurnWithFallback<ChatOutput>(
+      env,
+      {
+        model: agentVersion.model,
+        systemPrompt,
+        input,
+        contextBlocks,
+        tools,
+        outputContract: {
+          jsonSchema: chatJsonSchema as unknown as Record<string, unknown>,
+          schema: chatOutputSchema,
+        },
+        budget: agentBudget,
       },
-      budget: agentBudget,
-    }, toolAuthEvents);
+      toolAuthEvents,
+    );
 
     await recordStep(
       supabase,
@@ -10117,37 +10254,39 @@ export async function getAgentRunTrace(
 
   const [steps, toolCalls, contextSnapshots, queryRuns, securityEvents] =
     await Promise.all([
-    supabase
-      .from("agent_run_steps")
-      .select("id, position, step_type, summary, duration_ms, created_at")
-      .eq("run_id", runId)
-      .order("position", { ascending: true }),
-    supabase
-      .from("agent_tool_calls")
-      .select("id, tool_name, input, output, is_error, duration_ms, created_at")
-      .eq("run_id", runId)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("agent_context_snapshots")
-      .select("id, context_level, created_at")
-      .eq("run_id", runId)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("agent_query_runs")
-      .select(
-        "id, sql_text, tables_used, rows_returned, duration_ms, was_rejected, rejection_reason, created_at",
-      )
-      .eq("run_id", runId)
-      .order("created_at", { ascending: true }),
-    // AI-30: los eventos de seguridad de la ejecucion. Hasta ahora las
-    // detecciones se neutralizaban y se descartaban, asi que la traza no podia
-    // responder "que controles saltaron en este run".
-    supabase
-      .from("ai_security_events")
-      .select("id, event_type, severity, source, detail, created_at")
-      .eq("run_id", runId)
-      .order("created_at", { ascending: true }),
-  ]);
+      supabase
+        .from("agent_run_steps")
+        .select("id, position, step_type, summary, duration_ms, created_at")
+        .eq("run_id", runId)
+        .order("position", { ascending: true }),
+      supabase
+        .from("agent_tool_calls")
+        .select(
+          "id, tool_name, input, output, is_error, duration_ms, created_at",
+        )
+        .eq("run_id", runId)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("agent_context_snapshots")
+        .select("id, context_level, created_at")
+        .eq("run_id", runId)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("agent_query_runs")
+        .select(
+          "id, sql_text, tables_used, rows_returned, duration_ms, was_rejected, rejection_reason, created_at",
+        )
+        .eq("run_id", runId)
+        .order("created_at", { ascending: true }),
+      // AI-30: los eventos de seguridad de la ejecucion. Hasta ahora las
+      // detecciones se neutralizaban y se descartaban, asi que la traza no podia
+      // responder "que controles saltaron en este run".
+      supabase
+        .from("ai_security_events")
+        .select("id, event_type, severity, source, detail, created_at")
+        .eq("run_id", runId)
+        .order("created_at", { ascending: true }),
+    ]);
 
   const replayFixture = createToolReplayFixture(toolCalls.data ?? []);
 

@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Anthropic from "@anthropic-ai/sdk";
 import {
+  capSecurityEvents,
   createSecurityEventCollector,
   runAgentTurn,
   type AgentSecurityEvent,
@@ -177,4 +178,61 @@ test("pedir una tool fuera del catalogo queda registrado", async () => {
   assert.ok(attempt, "el modelo pidio una tool no declarada y no constaba");
   assert.equal(attempt.severity, "high");
   assert.equal(attempt.detail.tool_name, "tool_que_no_existe");
+});
+
+// AI-30: tope por organizacion. El colector acota un turno; esto acota el
+// acumulado. La regla con consecuencias es la de "una fila, no cero": si por
+// encima del tope no se escribiera nada, el panel diria "sin eventos" en una
+// ejecucion que si los tuvo -- exactamente la clase de mentira que esta fase
+// quito de la base de datos.
+const someEvents: AgentSecurityEvent[] = [
+  {
+    type: "prompt_injection_detected",
+    severity: "medium",
+    source: "context_block",
+    detail: { blocked_patterns: 3 },
+  },
+  {
+    type: "unauthorized_tool_attempt",
+    severity: "high",
+    source: "tool_registry",
+    detail: { tool_name: "borrar_todo" },
+  },
+];
+
+test("por debajo del tope se escriben todos los eventos", () => {
+  const { rows, rateLimited } = capSecurityEvents(someEvents, 10, 1000);
+
+  assert.equal(rateLimited, false);
+  assert.equal(rows.length, 2);
+});
+
+test("alcanzado el tope se escribe una fila que declara lo descartado, no cero", () => {
+  const { rows, rateLimited } = capSecurityEvents(someEvents, 1000, 1000);
+
+  assert.equal(rateLimited, true);
+  assert.equal(rows.length, 1);
+
+  const marker = rows[0]!;
+  assert.equal(marker.type, "policy_violation");
+  assert.equal(marker.source, "security_event_rate_limit");
+  assert.equal(marker.detail.dropped_events, 2);
+  assert.deepEqual(marker.detail.dropped_types, [
+    "prompt_injection_detected",
+    "unauthorized_tool_attempt",
+  ]);
+});
+
+test("si no se pudo contar se escribe todo: el limitador no pierde evidencia", () => {
+  const { rows, rateLimited } = capSecurityEvents(someEvents, null, 1000);
+
+  assert.equal(rateLimited, false);
+  assert.equal(rows.length, 2);
+});
+
+test("sin eventos no se inventa una fila de tope", () => {
+  const { rows, rateLimited } = capSecurityEvents([], 99_999, 1000);
+
+  assert.equal(rateLimited, false);
+  assert.equal(rows.length, 0);
 });

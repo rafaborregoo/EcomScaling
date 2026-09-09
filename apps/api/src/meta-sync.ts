@@ -452,7 +452,7 @@ export function buildMetaActionMetricPayloads(
 }
 
 const META_INSIGHT_BASE_FIELDS =
-  "ad_id,adset_id,campaign_id,date_start,publisher_platform,platform_position,device_platform,spend,impressions,reach,frequency,clicks,unique_clicks,inline_link_clicks,cpm,cpc,ctr,cpp,actions,action_values,purchase_roas";
+  "ad_id,adset_id,campaign_id,date_start,spend,impressions,reach,frequency,clicks,unique_clicks,inline_link_clicks,cpm,cpc,ctr,cpp,actions,action_values,purchase_roas";
 
 // Video, rankings de subasta, clics reales y recuerdo. Van en un bloque
 // separado porque son los que pueden hacer que Meta rechace la peticion:

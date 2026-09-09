@@ -193,7 +193,7 @@ otro dejaba el panel igual de poco fiable.
 | 0     | Audit real                                                              | ✅ [AI_INFRASTRUCTURE_AUDIT.md](AI_INFRASTRUCTURE_AUDIT.md) |
 | 1 + 2 | Adaptadores + fundamentos de run/trace + tokens/costes/latencia/errores | ✅ ver abajo                                                |
 | 3     | Prompt / skill / context tracking                                       | ⬜ pendiente                                                |
-| 4     | Tools + permisos + eventos de seguridad                                 | ✅ los dos P0; `permission_denied` pendiente                |
+| 4     | Tools + permisos + eventos de seguridad                                 | ✅ ver abajo                                                |
 | 5     | Subagentes, paralelo, background/headless                               | ⬜ base de datos lista, sin uso                             |
 | 6     | Memoria: consolidación y procedencia                                    | ⬜ parcial ya existente                                     |
 | 7     | Evals + feedback humano                                                 | ⬜ parcial ya existente                                     |
@@ -264,15 +264,31 @@ no menos.
    consultas SQL. Sin endpoint nuevo: `platform_admin` tiene membresía sintética a todas las
    organizaciones, así que la ruta por organización sirve tal cual.
 
-### Lo que sigue abierto, en orden
+### Qué queda compartido entre los dos bucles de turno
 
-1. **Escalada de permiso en la invocación.** `authorizeTool` ya corre al **declarar** las
-   tools; falta comprobarlo también al **invocarlas** con un permiso mayor. Irrelevante
-   mientras el catálogo activo sea de solo lectura, obligatorio antes de la primera tool de
-   escritura.
-2. **Unificar los dos bucles de turno.** `runAgentTurn` y `runAgentTurnOpenAI` siguen siendo
-   ~285 y ~267 líneas casi idénticas. El contrato de salida ya está unificado, que era el
-   requisito de arquitectura; la deduplicación es calidad de código.
-3. **Árbol de subagentes en el panel.** Las columnas existen y el detalle ya sabría pintarlo,
+`runAgentTurn` (Anthropic) y `runAgentTurnOpenAI` eran ~285 y ~267 líneas casi idénticas. Lo
+que de verdad diverge entre proveedores resultó ser poco: cómo se construye la petición, de
+dónde se lee el uso, y la forma de los mensajes de herramienta. Todo lo demás eran **dos
+copias de la misma regla**, y una regla en dos copias se arregla en una sola — ya pasó: el
+`?? 0` del coste estaba corregido en un camino y no en el otro.
+
+| Compartido             | Qué regla concentra                                                                       |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `buildTurnUserText`    | La declaración de que el tenant lo resuelve el backend — aislamiento entre organizaciones |
+| `createTurnAccounting` | Tokens, `null` vs `0` en caché, freno de presupuesto, última ronda                        |
+| `executeModelToolCall` | Qué se hace con una tool desconocida y con una que revienta: las dos emiten evento        |
+| `parseTurnOutput`      | JSON → Zod → sanidad, antes de que nada llegue al dominio                                 |
+| `turnPricingFields`    | Coste, base del coste y versión de tarifa van siempre juntos                              |
+| `requestWithoutTools`  | La última llamada del turno se sirve sin herramientas                                     |
+
+**No hay interfaz de "driver de proveedor"**: sería una abstracción de seis métodos con dos
+implementaciones para esconder las pocas diferencias que sí son reales, y esas diferencias es
+mejor verlas.
+
+### Lo que sigue abierto
+
+1. **Árbol de subagentes en el panel.** Las columnas existen y el detalle ya sabría pintarlo,
    pero no hay subagentes que mostrar: hasta que exista el primero, la vista se degrada a la
-   plana.
+   plana. Con datos reales hoy sí existe una relación parecida — los runs que comparten
+   `parallel_group_id` en una pasada del orquestador —, pero enseñarla es una vista distinta,
+   no ésta.

@@ -57,7 +57,9 @@ test("chunking conserva contexto de secciones y estructura de tablas", () => {
 
   assert.ok(chunks.length >= 2);
   assert.ok(chunks.every((chunk) => chunk.includes("# Playbook ROAS")));
-  assert.ok(chunks.some((chunk) => chunk.includes("| Canal | ROAS | Acción |")));
+  assert.ok(
+    chunks.some((chunk) => chunk.includes("| Canal | ROAS | Acción |")),
+  );
   assert.ok(chunks.some((chunk) => chunk.includes("La decisión")));
 });
 
@@ -986,7 +988,8 @@ test("el patch de draft Meta mantiene separados los campos de email", () => {
     true,
   );
   assert.equal(
-    metaAdsDraftPatchSchema.safeParse({ subject: "No es un campo Meta" }).success,
+    metaAdsDraftPatchSchema.safeParse({ subject: "No es un campo Meta" })
+      .success,
     false,
   );
   assert.equal(metaAdsDraftPatchSchema.safeParse({}).success, false);
@@ -1053,6 +1056,38 @@ test("una tool que exige aprobacion no se declara con approval_mode 'none'", () 
     approval_mode: "required_before_write",
   });
   assert.equal(withApproval.allowed, true);
+});
+
+// AI-30: `buildAgentTools` autoriza dos veces -- al declarar la tool con
+// permiso `read`, y al invocarla con el permiso que su registro declara. Ese
+// segundo paso solo es seguro si nunca deniega lo que el primero concedio: si
+// lo hiciera, el modelo recibiria un catalogo de tools que revientan al
+// llamarlas. Este test lo fija sobre el registro real, no sobre un caso.
+test("autorizar con el permiso declarado no deniega lo que se declaro como lectura", () => {
+  const base = {
+    organization_id: "00000000-0000-0000-0000-000000000001",
+    actor_user_id: "00000000-0000-0000-0000-000000000002",
+    approval_mode: "required_before_write",
+    connected_connectors: ["core", "shopify", "meta", "klaviyo", "instagram"],
+  } satisfies Omit<Parameters<typeof authorizeTool>[1], "allowed_tools">;
+
+  for (const definition of TOOL_REGISTRY) {
+    const context = { ...base, allowed_tools: [definition.name] };
+    if (!authorizeTool(definition.name, context, "read").allowed) continue;
+
+    const atInvocation = authorizeTool(
+      definition.name,
+      context,
+      definition.permission,
+    );
+    assert.equal(
+      atInvocation.allowed,
+      true,
+      `${definition.name} se declara pero se denegaria al invocarla: ${
+        atInvocation.allowed ? "" : atInvocation.reason.error
+      }`,
+    );
+  }
 });
 
 test("una tool que no esta en el registro nunca se autoriza", () => {
