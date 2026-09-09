@@ -530,8 +530,12 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             />
           </div>
 
+          {/* Siete columnas fijas: en movil la semana no cabe (celdas de ~42px)
+              y aplanarla a una columna deja un mes de 42 filas. Scroll
+              horizontal con ancho minimo: la forma de calendario se conserva. */}
           {GRID_VIEWS.includes(view) ? (
-            <div className="mt-4 grid grid-cols-7 gap-px overflow-hidden border border-separator bg-separator">
+            <div className="mt-4 overflow-x-auto">
+              <div className="grid min-w-[44rem] grid-cols-7 gap-px overflow-hidden border border-separator bg-separator sm:min-w-0">
               {gridDays.map((date) => {
                 const key = localDayKey(date);
                 const dayItems = itemsByDay.get(key) ?? [];
@@ -574,6 +578,7 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </div>
                 );
               })}
+              </div>
             </div>
           ) : (
             <div className="mt-4 space-y-5">

@@ -120,6 +120,17 @@ export type MetaInsights = {
   currency: string | null;
   min_impressions_for_rates: number;
   change_window_days: number;
+  summary: {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    purchases: number;
+    purchase_value: number;
+    roas: number | null;
+    cac: number | null;
+    days_with_data: number;
+    purchase_action_types: string[];
+  } | null;
   creatives: MetaCreative[];
   ranking_distribution: Array<{
     dimension: string;
@@ -233,6 +244,132 @@ function PendingSync({ what }: { what: string }) {
 // --- 1. Lo que rompe la medicion --------------------------------------------
 
 type PixelEventRow = MetaPixelRow & { id: string };
+
+/**
+ * La vista general del modulo: como va Meta antes de entrar en que anuncio
+ * falla. Cuatro cifras y nada mas.
+ *
+ * Va encima de Medicion, que hasta ahora abria la pagina. El motivo de que
+ * Medicion fuera primera sigue siendo valido -- con el pixel apagado el ROAS
+ * describe otra cosa -- asi que en vez de mover el aviso mas abajo, la vista
+ * general **declara su propia fiabilidad**: si el pixel esta callado o el
+ * periodo tiene huecos, lo dice aqui y lleva al bloque donde se arregla.
+ *
+ * Lo que NO va aqui: ninguna cifra que mezcle Meta con Shopify o Klaviyo. El
+ * valor de compra es lo que Meta se atribuye en su ventana, no facturacion
+ * (ADR-0021).
+ */
+function OverviewSection({ insights }: { insights: MetaInsights }) {
+  const summary = insights.summary;
+
+  if (!summary) {
+    return (
+      <Card
+        title="Vista general"
+        description="Lo que Meta se lleva y lo que devuelve."
+      >
+        <PendingSync what="ningun dato de gasto" />
+      </Card>
+    );
+  }
+
+  // Un pixel callado no invalida el gasto (ese es dinero que salio igual),
+  // pero si las compras y el ROAS, que salen de eventos que no estan llegando.
+  const silentPixels = [
+    ...new Map(
+      insights.pixels.map((row) => [
+        row.pixel_id,
+        {
+          unavailable: Boolean(row.is_unavailable),
+          hoursSince: row.hours_since_last_fire,
+        },
+      ]),
+    ).values(),
+  ].filter(
+    (pixel) =>
+      pixel.unavailable ||
+      pixel.hoursSince == null ||
+      pixel.hoursSince > PIXEL_SILENT_HOURS,
+  ).length;
+
+  // `days_with_data` cuenta dias con insights, no dias del calendario. Con
+  // "todo el historico" no hay ventana contra la que comparar.
+  const expectedDays =
+    insights.period.days === "all" ? null : Number(insights.period.days);
+  const missingDays =
+    expectedDays != null
+      ? Math.max(0, expectedDays - summary.days_with_data)
+      : 0;
+
+  const mixedPurchaseActions = summary.purchase_action_types.length > 1;
+
+  return (
+    <Card
+      title="Vista general"
+      description="Lo que Meta se lleva y lo que devuelve."
+    >
+      <div className="grid gap-4">
+        {silentPixels > 0 ? (
+          <Banner tone="warn" className="text-sm">
+            {silentPixels === 1
+              ? "El pixel lleva mas de un dia sin disparar"
+              : `${silentPixels} pixeles llevan mas de un dia sin disparar`}
+            : el gasto es real, pero las compras y el ROAS de aqui abajo
+            describen menos de lo que ocurrio.{" "}
+            <a href="#meta-medicion" className="underline">
+              Ver medicion
+            </a>
+          </Banner>
+        ) : null}
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric
+            card
+            label="Inversion"
+            value={money(summary.spend, insights.currency)}
+            hint={
+              missingDays > 0
+                ? `${summary.days_with_data} de ${expectedDays} dias con datos`
+                : undefined
+            }
+          />
+          <Metric
+            card
+            label="Compras atribuidas"
+            value={count(summary.purchases)}
+            hint={
+              mixedPurchaseActions
+                ? "Las cuentas de este ambito no cuentan la compra igual"
+                : undefined
+            }
+          />
+          <Metric
+            card
+            // Sin compras no hay ROAS, y un 0 se leeria como "no vende".
+            tone={summary.roas != null && summary.roas < 1 ? "warn" : "default"}
+            label="ROAS"
+            value={multiple(summary.roas)}
+            hint={
+              summary.roas == null
+                ? "Sin compras atribuidas en el periodo"
+                : "Valor atribuido por Meta / inversion"
+            }
+          />
+          <Metric
+            card
+            label="Coste por compra"
+            value={money(summary.cac, insights.currency)}
+          />
+        </div>
+
+        <p className="text-xs text-muted">
+          Cifras atribuidas por Meta en su propia ventana de conversion. No son
+          ventas de Shopify y no se suman a las de ningun otro canal.
+        </p>
+      </div>
+    </Card>
+  );
+}
 
 function MeasurementSection({ insights }: { insights: MetaInsights }) {
   if (!insights.pixels.length) {
@@ -1016,14 +1153,34 @@ export function MetaInsightsSections({
         </Banner>
       ) : null}
 
-      {/* La medición va primero: si el píxel está apagado, las cifras de abajo
-          describen otra cosa. */}
-      <MeasurementSection insights={insights} />
-      <CreativesSection insights={insights} />
-      <RankingSection insights={insights} />
-      <LearningSection insights={insights} />
-      <ChangesSection insights={insights} showActor={showInternals} />
-      {showInternals ? <AudiencesSection insights={insights} /> : null}
+      {/* Las anclas no son decoración: son el destino de los hallazgos de los
+          agentes de abajo. Un hallazgo que no lleva a ningún sitio se lee, se
+          asiente y no se arregla. El mapa área->ancla vive en meta/page.tsx. */}
+      <section id="meta-general">
+        <OverviewSection insights={insights} />
+      </section>
+      {/* La medición va justo detrás: si el píxel está apagado, las cifras de
+          arriba y las de abajo describen otra cosa. */}
+      <section id="meta-medicion">
+        <MeasurementSection insights={insights} />
+      </section>
+      <section id="meta-creatividades">
+        <CreativesSection insights={insights} />
+      </section>
+      <section id="meta-reparto">
+        <RankingSection insights={insights} />
+      </section>
+      <section id="meta-aprendizaje">
+        <LearningSection insights={insights} />
+      </section>
+      <section id="meta-cambios">
+        <ChangesSection insights={insights} showActor={showInternals} />
+      </section>
+      {showInternals ? (
+        <section id="meta-publicos">
+          <AudiencesSection insights={insights} />
+        </section>
+      ) : null}
     </>
   );
 }

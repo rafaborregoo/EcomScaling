@@ -5,6 +5,7 @@ import {
   createMetricsRegistry,
   evaluateHttpSlo,
   redactSensitive,
+  sanitizeForTelemetry,
   redactSensitiveText,
 } from "./index.js";
 
@@ -159,4 +160,57 @@ test("devuelve no_traffic y no inventa una latencia", () => {
   assert.equal(report.status, "no_traffic");
   assert.equal(report.p95LatencyMs, null);
   assert.equal(report.requestCount, 0);
+});
+
+// ---------------------------------------------------------------------------
+// AI-30: sanitizeForTelemetry. Unica puerta por la que un payload llega a una
+// tabla de telemetria (agent_tool_calls.input/output, que iban en crudo).
+// ---------------------------------------------------------------------------
+
+test("sanitizeForTelemetry redacta credenciales anidadas", () => {
+  const sanitized = sanitizeForTelemetry({
+    query: "select 1",
+    headers: { authorization: "Bearer secreto", "x-api-key": "abc123" },
+    nested: [{ refresh_token: "rt_123" }],
+  }) as Record<string, unknown>;
+
+  assert.equal(JSON.stringify(sanitized).includes("secreto"), false);
+  assert.equal(JSON.stringify(sanitized).includes("abc123"), false);
+  assert.equal(JSON.stringify(sanitized).includes("rt_123"), false);
+  // Lo que no es credencial sigue siendo util para depurar.
+  assert.equal(sanitized.query, "select 1");
+});
+
+test("sanitizeForTelemetry recorta cadenas largas y declara cuanto quito", () => {
+  const sanitized = sanitizeForTelemetry(
+    { nota: "x".repeat(2_000) },
+    { maxStringChars: 50 },
+  ) as { nota: string };
+
+  assert.ok(sanitized.nota.length < 100);
+  assert.match(sanitized.nota, /\+1950 chars/);
+});
+
+test("sanitizeForTelemetry acota arrays largos sin perder la forma", () => {
+  const rows = Array.from({ length: 400 }, (_, i) => ({ pedido: i }));
+  const sanitized = sanitizeForTelemetry({ rows }) as { rows: unknown[] };
+
+  // 20 filas + la nota de omision: basta para saber que devolvio la tool.
+  assert.equal(sanitized.rows.length, 21);
+  assert.deepEqual(sanitized.rows[0], { pedido: 0 });
+  assert.match(String(sanitized.rows[20]), /380 elementos omitidos/);
+});
+
+test("sanitizeForTelemetry corta la profundidad en vez de reventar", () => {
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+
+  const sanitized = sanitizeForTelemetry(cyclic);
+  assert.match(JSON.stringify(sanitized), /TRUNCATED_DEPTH/);
+});
+
+test("sanitizeForTelemetry deja pasar los escalares tal cual", () => {
+  assert.equal(sanitizeForTelemetry(42), 42);
+  assert.equal(sanitizeForTelemetry(null), null);
+  assert.equal(sanitizeForTelemetry(true), true);
 });

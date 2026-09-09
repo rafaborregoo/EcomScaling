@@ -36,6 +36,7 @@
  * Ejecutar manualmente con `npm run eval:a02 -w @ecomscaling/api`.
  */
 import { randomUUID } from "node:crypto";
+import { evaluateCostGate } from "./eval-cost-gate.js";
 import { createClient } from "@supabase/supabase-js";
 import { loadApiEnv } from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
@@ -562,11 +563,15 @@ async function main() {
       }
 
       if (result.usage) {
-        totalCostUsd += result.usage.estimated_cost_usd;
         console.log(`usage: ${JSON.stringify(result.usage)}`);
 
-        if (result.usage.estimated_cost_usd > MAX_COST_PER_SCENARIO_USD) {
-          const violation = `[GATE FAIL] ${scenario.name}: coste $${result.usage.estimated_cost_usd} supera el umbral $${MAX_COST_PER_SCENARIO_USD}`;
+        const costGate = evaluateCostGate(
+          scenario.name,
+          result.usage.estimated_cost_usd,
+          MAX_COST_PER_SCENARIO_USD,
+        );
+        totalCostUsd += costGate.addToTotalUsd;
+        for (const violation of costGate.violations) {
           console.log(violation);
           gateViolations.push(violation);
           hardFailures += 1;

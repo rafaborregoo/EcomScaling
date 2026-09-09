@@ -78,6 +78,7 @@ import {
   resolveAuthContext,
   type AuthContextError,
 } from "./auth-context.js";
+import { runWithRequestCorrelation } from "./request-context.js";
 import { listIntegrations } from "./integrations.js";
 import {
   createShopifyConnectionAuthUrl,
@@ -588,6 +589,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   // incluya, sin tocar cada handler uno a uno. `user_id` (2026-07-23) se
   // extrae del JWT sin verificar -- solo para poder filtrar logs por usuario,
   // no como decision de autorizacion.
+  // AI-30: mete el resto de la peticion dentro del AsyncLocalStorage de
+  // correlacion, para que el runtime de IA pueda poner el mismo request id en
+  // `agent_runs.trace_id` sin que haya que pasarlo por la firma de cada agente.
+  // Tiene que ser el hook de estilo callback: con `async` el contexto se
+  // cerraria al volver del hook y no cubriria al handler.
+  app.addHook("onRequest", (request, _reply, done) => {
+    runWithRequestCorrelation({ requestId: String(request.id) }, done);
+  });
+
   app.addHook("onRequest", async (request, reply) => {
     // SQO-02: permite correlacionar el error que ve el cliente con los logs
     // JSON de Fastify sin incluir datos de negocio en la respuesta.

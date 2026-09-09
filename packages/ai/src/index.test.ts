@@ -11,6 +11,8 @@ import {
   buildAgentSystemPrompt,
   renderAgentPromptSections,
   estimateCostUsd,
+  costBasisFor,
+  getModelCapabilities,
   evaluateAgentBudget,
   klaviyoEmailDraftPatchSchema,
   klaviyoEmailOutputSchema,
@@ -411,14 +413,48 @@ test("el limite de coste corta incluso con pocas tool calls (glitch de exploraci
 });
 
 test("estimateCostUsd calcula coste real por modelo conocido", () => {
-  // claude-opus-4-8: $5/1M input, $25/1M output (packages/ai/src/index.ts MODEL_PRICING)
+  // claude-opus-4-8: $5/1M input, $25/1M output
+  // (packages/ai/src/provider-capabilities.ts MODEL_PRICING)
   const cost = estimateCostUsd("claude-opus-4-8", 1_000_000, 1_000_000);
   assert.equal(cost, 30);
+  assert.equal(costBasisFor("claude-opus-4-8"), "priced");
 });
 
-test("estimateCostUsd devuelve 0 para un modelo desconocido en vez de reventar", () => {
+// AI-30: este test afirmaba lo contrario (que un modelo desconocido costaba 0)
+// y esa era precisamente la regresion silenciosa: con coste 0 los topes de
+// presupuesto dejan de morder y el panel de costes factura de menos sin avisar.
+// `null` obliga a quien llame a decidir que hace con el desconocimiento.
+test("estimateCostUsd devuelve null para un modelo sin precio conocido, no 0", () => {
   const cost = estimateCostUsd("modelo-inexistente", 1_000_000, 1_000_000);
-  assert.equal(cost, 0);
+  assert.equal(cost, null);
+  assert.equal(costBasisFor("modelo-inexistente"), "unknown_model");
+});
+
+test("las capacidades de un modelo desconocido son unknown, nunca false", () => {
+  const caps = getModelCapabilities("modelo-inexistente", "anthropic");
+  assert.equal(caps.reportsCacheReadTokens, "unknown");
+  assert.equal(caps.reportsReasoningTokens, "unknown");
+  assert.equal(caps.contextWindowMax, null);
+});
+
+test("cuantizacion y KV cache se declaran provider_managed, no controlados", () => {
+  for (const model of ["claude-sonnet-5", "gpt-4.1"]) {
+    const caps = getModelCapabilities(model, "anthropic");
+    assert.equal(caps.quantizationControl, "provider_managed");
+    assert.equal(caps.kvCacheControl, "provider_managed");
+  }
+});
+
+test("prompt caching y KV cache son capacidades distintas", () => {
+  // Anthropic: controlamos el prompt caching (cache_control) pero no el KV cache.
+  const anthropic = getModelCapabilities("claude-sonnet-5", "anthropic");
+  assert.equal(anthropic.promptCachingControl, "supported");
+  assert.equal(anthropic.kvCacheControl, "provider_managed");
+  // OpenAI: el prompt caching tambien lo gestiona el proveedor (es automatico),
+  // pero si reporta lo leido de cache.
+  const openai = getModelCapabilities("gpt-4.1", "openai");
+  assert.equal(openai.promptCachingControl, "provider_managed");
+  assert.equal(openai.reportsCacheReadTokens, "supported");
 });
 
 test("el contrato de email Klaviyo exige aprobación y estructura reutilizable", () => {
@@ -971,6 +1007,67 @@ test("el presupuesto del runtime no depende de Meta ni de otro conector", () => 
   });
 
   assert.equal(result.allowed, true);
+});
+
+// AI-30: esta comprobacion existia y estaba probada, pero NO corria en
+// produccion -- `buildAgentTools` filtraba las tools a mano y solo replicaba
+// dos de las seis reglas de `authorizeTool`, dejandose justo esta. Ahora la
+// ruta de produccion llama a `authorizeTool`, asi que el test cubre lo que de
+// verdad pasa.
+test("una tool que exige aprobacion no se declara con approval_mode 'none'", () => {
+  // Tiene que ser una tool IMPLEMENTADA: el motor comprueba el estado antes que
+  // la aprobacion, asi que una `planned` fallaria por otro motivo y el test no
+  // estaria probando lo que dice. Hoy son cuatro: dry_run_write,
+  // escalate_to_human, request_missing_data y flag_data_quality_issue.
+  const needsApproval = TOOL_REGISTRY.find(
+    (candidate) =>
+      candidate.requires_approval &&
+      candidate.status === "implemented_partial" &&
+      (candidate.connector === "core" || candidate.connector === null),
+  );
+  assert.ok(
+    needsApproval,
+    "deberia haber una tool implementada que exija aprobacion",
+  );
+
+  const base = {
+    organization_id: "00000000-0000-0000-0000-000000000001",
+    actor_user_id: "00000000-0000-0000-0000-000000000002",
+    allowed_tools: [needsApproval.name],
+    connected_connectors: ["core", "shopify", "meta", "klaviyo", "instagram"],
+  } satisfies Omit<Parameters<typeof authorizeTool>[1], "approval_mode">;
+
+  const denied = authorizeTool(needsApproval.name, {
+    ...base,
+    approval_mode: "none",
+  });
+  assert.equal(denied.allowed, false);
+  if (!denied.allowed) {
+    assert.equal(denied.reason.error, "approval_required");
+  }
+
+  // Con un modo de aprobacion real la misma tool pasa: la regla es sobre la
+  // aprobacion, no un veto general sobre la tool.
+  const withApproval = authorizeTool(needsApproval.name, {
+    ...base,
+    approval_mode: "required_before_write",
+  });
+  assert.equal(withApproval.allowed, true);
+});
+
+test("una tool que no esta en el registro nunca se autoriza", () => {
+  const result = authorizeTool("tool_inventada", {
+    organization_id: "00000000-0000-0000-0000-000000000001",
+    actor_user_id: "00000000-0000-0000-0000-000000000002",
+    allowed_tools: ["tool_inventada"],
+    approval_mode: "required_before_write",
+    connected_connectors: ["core"],
+  });
+
+  assert.equal(result.allowed, false);
+  if (!result.allowed) {
+    assert.equal(result.reason.error, "tool_not_registered");
+  }
 });
 
 // El consultor decide sobre la cifra, no sobre la prosa del agente: una tarea

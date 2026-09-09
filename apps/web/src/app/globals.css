@@ -162,6 +162,22 @@ body {
   caret-color: var(--foreground) !important;
 }
 
+/* iOS Safari hace zoom al enfocar un campo con font-size < 16px y no lo
+   deshace al salir: deja la pagina desplazada y recortada. Es el fallo que
+   mas delata que esto no es una app nativa. Solo en punteros gruesos, asi
+   que la escala de campos en escritorio no cambia. Con !important por lo
+   mismo que las reglas de foco de arriba: el preset de HeroUI va sin capa
+   y ganaria por especificidad de clase. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select,
+  [data-slot="input"] {
+    font-size: 16px !important;
+  }
+}
+
+
 /* Ritmo SaaS compartido: el contenido respira en desktop y sigue siendo
    compacto en movil, sin que cada pagina invente su propia escala. */
 @layer components {

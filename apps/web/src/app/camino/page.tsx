@@ -11,7 +11,8 @@ import {
 import {
   DndContext,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors,
@@ -323,7 +324,7 @@ function RowMenu({
         variant="ghost"
         size="sm"
         aria-label={ariaLabel}
-        className="min-h-8 min-w-8 shrink-0 px-2"
+        className="min-h-8 min-w-8 shrink-0 px-2 pointer-coarse:min-w-11"
       >
         <MoreIcon aria-hidden />
       </Button>
@@ -403,7 +404,7 @@ function DragHandle({
     <button
       type="button"
       aria-label={label}
-      className="shrink-0 cursor-grab touch-none px-1 text-muted/60 transition-colors hover:text-accent active:cursor-grabbing"
+      className="shrink-0 cursor-grab touch-none px-1 text-muted/60 transition-colors hover:text-accent active:cursor-grabbing pointer-coarse:min-h-11 pointer-coarse:px-2.5"
       {...handleProps}
     >
       <GripVerticalIcon aria-hidden />
@@ -1160,7 +1161,7 @@ function ObjectiveCard({
             <Button
               size="sm"
               variant="ghost"
-              className="ml-auto min-h-8 min-w-8 px-2"
+              className="ml-auto min-h-8 min-w-8 px-2 pointer-coarse:min-w-11"
               aria-label={
                 objective.actual_value !== null
                   ? "Editar valor actual"
@@ -1619,9 +1620,16 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
   const organizationId = organization?.id ?? null;
 
-  // distance:6 -> un clic normal no dispara arrastre, solo si mueves el puntero.
+  // Raton: `distance` para que un clic normal no arrastre. Tactil: NO vale
+  // `distance` -- el asa lleva `touch-none`, asi que apoyar el pulgar encima
+  // para hacer scroll y moverlo 6px iniciaba un arrastre y la pagina no se
+  // movia. `delay` es el gesto de reordenar de una lista movil nativa:
+  // mantener pulsado. Por eso van dos sensores y no un PointerSensor.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 8 },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),

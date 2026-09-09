@@ -99,8 +99,10 @@ export function ModuleSummary({
       {period ? <p className="text-sm text-muted">{period}</p> : null}
       {/* auto-fit en vez de un número fijo de columnas: cada módulo publica
           las cifras que le importan (4, 5, 6...) y la tira nunca deja un
-          hueco suelto al final de la fila. */}
-      <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
+          hueco suelto al final de la fila. El minimo baja a 9.5rem para que
+          en movil entren DOS por fila: con 13rem caia a una sola columna y
+          seis KPIs eran 600px de scroll antes de llegar a nada accionable. */}
+      <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] sm:gap-4">
         {metrics.map((metric) => (
           <Metric
             card

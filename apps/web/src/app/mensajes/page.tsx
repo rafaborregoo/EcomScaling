@@ -221,7 +221,7 @@ function MensajesContent({ isClient }: { isClient: boolean }) {
           {active ? (
             <MessageThread
               organizationId={active.organization_id}
-              className="h-[32rem]"
+              className="h-[60svh] min-h-72 lg:h-[32rem]"
               viewerIsClient={isClient}
             />
           ) : (

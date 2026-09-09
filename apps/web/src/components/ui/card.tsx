@@ -17,6 +17,7 @@ export function Card({
   actions,
   children,
   className,
+  id,
 }: {
   title?: ReactNode;
   kicker?: ReactNode;
@@ -24,6 +25,9 @@ export function Card({
   actions?: ReactNode;
   children?: ReactNode;
   className?: string;
+  // Ancla de la seccion. Los hallazgos de los agentes enlazan al bloque de
+  // datos que los prueba, y ese bloque casi siempre es una Card.
+  id?: string;
 }) {
   // `cn` es un join simple, no tailwind-merge: si el caller ya pinta su propio
   // color de borde (border-accent, border-warn...) no añadimos el por defecto,
@@ -32,6 +36,7 @@ export function Card({
 
   return (
     <HeroCard
+      id={id}
       className={cn("w-full", !hasOwnBorder && "border border-edge", className)}
     >
       {title || kicker || actions ? (

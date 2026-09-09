@@ -31,7 +31,7 @@ export default function Home() {
   }, [router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-6 text-foreground">
+    <main className="flex min-h-dvh items-center justify-center bg-white px-6 text-foreground">
       <LoadingBlock label="Preparando tu espacio de trabajo…" />
     </main>
   );

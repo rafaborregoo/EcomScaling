@@ -1379,7 +1379,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <div className="space-y-6">
                   <Select
                     aria-label="Filtrar por estado"
-                    className="w-56"
+                    className="w-full sm:w-56"
                     value={draftStatusFilter}
                     onChange={setDraftStatusFilter}
                     options={[

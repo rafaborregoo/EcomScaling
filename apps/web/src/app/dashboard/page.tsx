@@ -439,18 +439,21 @@ function AdaptiveFocus({
               className="group rounded-md border border-separator p-4 transition-colors hover:border-foreground"
             >
               <div className="flex items-start justify-between gap-3">
-                <div>
+                {/* min-w-0 + break-words: `title` es texto del usuario (una
+                    alerta o una tarea). Sin esto, un titulo largo sin espacios
+                    ensancha la tarjeta y empuja el Badge fuera de pantalla. */}
+                <div className="min-w-0">
                   <p className={EYEBROW}>
                     {item.eyebrow}
                   </p>
-                  <p className="mt-1 font-medium group-hover:underline">
+                  <p className="mt-1 break-words font-medium group-hover:underline">
                     {item.title}
                   </p>
                   <p className="mt-1 text-sm leading-6 text-muted">
                     {item.detail}
                   </p>
                 </div>
-                <Badge tone={item.tone}>
+                <Badge tone={item.tone} className="shrink-0">
                   {item.tone === "danger"
                     ? "Alta"
                     : item.tone === "warn"

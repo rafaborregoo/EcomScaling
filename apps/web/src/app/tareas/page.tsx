@@ -497,7 +497,7 @@ function TabBar({
             aria-current={active ? "page" : undefined}
             onClick={() => onChange(tab.value)}
             className={[
-              "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors",
+              "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors pointer-coarse:py-3",
               active
                 ? "border-accent font-medium text-foreground"
                 : "border-transparent text-muted hover:text-foreground",
@@ -589,7 +589,10 @@ function TaskRow({
           tarde" se lee en vertical sin entrar en cada meta. */}
       <span
         className={[
-          "w-28 shrink-0 pt-0.5 text-right text-xs tabular-nums",
+          // El ancho fijo solo tiene sentido cuando las filas se alinean.
+          // En movil la columna cae a la segunda linea y 112px alineados a
+          // la derecha dejaban un hueco suelto: ahi va a ancho natural.
+          "shrink-0 pt-0.5 text-xs tabular-nums sm:w-28 sm:text-right",
           DUE_TONE[due.tone],
         ].join(" ")}
       >
@@ -650,6 +653,9 @@ function TaskFilters({
   onCategoryChange?: (value: string) => void;
   actions?: ReactNode;
 }) {
+  // gap-2 = 0.5rem, asi que dos controles al 50% menos 0.25rem llenan la fila
+  // justa: en movil los filtros caen de dos en dos, en vez de tres selects
+  // sueltos de ~190px dejando 100px muertos a la derecha de cada uno.
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Input
@@ -662,7 +668,7 @@ function TaskFilters({
       />
       {clientOptions && onClientChange ? (
         <Select
-          className="w-48"
+          className="w-[calc(50%-0.25rem)] sm:w-48"
           aria-label="Filtrar por cliente"
           value={client ?? "all"}
           onChange={onClientChange}
@@ -672,7 +678,7 @@ function TaskFilters({
       {onStatusChange && onCategoryChange ? (
         <>
           <Select
-            className="w-44"
+            className="w-[calc(50%-0.25rem)] sm:w-44"
             aria-label="Filtrar por estado"
             value={status ?? "open"}
             onChange={onStatusChange}
@@ -686,7 +692,7 @@ function TaskFilters({
             ]}
           />
           <Select
-            className="w-40"
+            className="w-[calc(50%-0.25rem)] sm:w-40"
             aria-label="Filtrar por módulo"
             value={category ?? "all"}
             onChange={onCategoryChange}

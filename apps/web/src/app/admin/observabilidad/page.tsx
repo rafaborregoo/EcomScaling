@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
+import { RunTraceDetail } from "./run-trace";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
@@ -56,7 +57,12 @@ type ObservabilityRun = {
   execution_mode: string | null;
   trigger_type: string;
   objective: string;
-  cost_usd: number;
+  /** AI-30: null = modelo sin tarifa conocida. No es gratis. */
+  cost_usd: number | null;
+  cost_basis: string | null;
+  provider: string | null;
+  model: string | null;
+  trace_id: string | null;
   latency_ms: number | null;
   input_tokens: number;
   output_tokens: number;
@@ -329,19 +335,29 @@ function OrchestratorPanel() {
   );
 }
 
+// AI-30: el encargo pide diferenciar ERROR / SECURITY BLOCK / TIMEOUT /
+// BUDGET. Un timeout y un fallo real no se arreglan igual, y antes los dos se
+// pintaban "Fallo".
 const STATUS_META: Record<string, { label: string; tone: Tone }> = {
   succeeded: { label: "OK", tone: "success" },
   failed: { label: "Fallo", tone: "danger" },
   rejected_output: { label: "Salida rechazada", tone: "danger" },
   running: { label: "En curso", tone: "warn" },
+  budget_exceeded: { label: "Presupuesto", tone: "warn" },
+  timeout: { label: "Timeout", tone: "warn" },
+  cancelled: { label: "Cancelado", tone: "neutral" },
 };
 
 function statusMeta(status: string) {
   return STATUS_META[status] ?? { label: status, tone: "neutral" as Tone };
 }
 
-function formatCost(usd: number) {
-  return `$${usd.toFixed(usd > 0 && usd < 1 ? 4 : 2)}`;
+// AI-30: null no es cero. Un modelo sin tarifa conocida produce un coste que
+// no sabemos calcular; pintarlo "$0.00" es la misma mentira que la fase 1 quito
+// de la base de datos.
+function formatCost(usd: number | null) {
+  if (usd == null) return "n/d";
+  return `${usd.toFixed(usd > 0 && usd < 1 ? 4 : 2)}`;
 }
 
 function formatLatency(ms: number | null) {
@@ -574,7 +590,16 @@ function ObservabilidadPanel() {
       label: "Latencia",
       render: (row) => formatLatency(row.latency_ms),
     },
-    { key: "cost_usd", label: "Coste", render: (row) => formatCost(row.cost_usd) },
+    {
+      key: "cost_usd",
+      label: "Coste",
+      render: (row) =>
+        row.cost_usd == null ? (
+          <Badge tone="warn">n/d</Badge>
+        ) : (
+          formatCost(row.cost_usd)
+        ),
+    },
     {
       key: "actions",
       label: "",
@@ -788,7 +813,20 @@ function ObservabilidadPanel() {
               </div>
               <div className="flex justify-between gap-4 sm:block">
                 <dt className="text-muted">Coste</dt>
-                <dd>{formatCost(expandedRun.cost_usd)}</dd>
+                <dd>
+                  {formatCost(expandedRun.cost_usd)}
+                  {expandedRun.cost_basis === "unknown_model" ? (
+                    <span className="text-muted"> · modelo sin tarifa</span>
+                  ) : null}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4 sm:block">
+                <dt className="text-muted">Proveedor / modelo</dt>
+                <dd>
+                  {expandedRun.provider && expandedRun.model
+                    ? `${expandedRun.provider} · ${expandedRun.model}`
+                    : "Sin registrar"}
+                </dd>
               </div>
             </dl>
 
@@ -807,6 +845,17 @@ function ObservabilidadPanel() {
                 </p>
               </div>
             ) : null}
+
+            {/* La traza se pide solo al abrir el detalle: son cuatro consultas
+                mas por ejecucion y no tiene sentido pagarlas por las 120 filas
+                de la tabla. La clave fuerza el remontaje al cambiar de run. */}
+            <div className="border-t border-separator pt-4">
+              <RunTraceDetail
+                key={expandedRun.id}
+                organizationId={expandedRun.organization_id}
+                runId={expandedRun.id}
+              />
+            </div>
           </div>
         ) : null}
       </Card>

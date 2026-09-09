@@ -170,6 +170,7 @@ function CustomersSection({
 
   return (
     <Card
+      id="shopify-clientes"
       title="Clientes"
       description="Cuántos vuelven y cuánto vale cada uno."
     >
@@ -285,7 +286,7 @@ function CustomersSection({
 function CohortsSection({ insights }: { insights: ShopifyInsights }) {
   if (!insights.cohorts.length) {
     return (
-      <Card title="Cohortes" description="Quién vuelve, mes a mes.">
+      <Card id="shopify-cohortes" title="Cohortes" description="Quién vuelve, mes a mes.">
         <PendingSync what="suficientes pedidos con cliente" />
       </Card>
     );
@@ -331,6 +332,7 @@ function CohortsSection({ insights }: { insights: ShopifyInsights }) {
 
   return (
     <Card
+      id="shopify-cohortes"
       title="Cohortes"
       description="De los clientes que compraron por primera vez cada mes, cuántos volvieron después."
     >
@@ -414,6 +416,7 @@ function AttributionSection({
 
   return (
     <Card
+      id="shopify-origen"
       title="De dónde vienen"
       description="Primera visita del comprador, según Shopify."
     >
@@ -513,6 +516,7 @@ function DiscountsSection({
 
   return (
     <Card
+      id="shopify-promociones"
       title="Promociones"
       description="Qué código se usó y qué trajo a cambio."
     >
@@ -609,6 +613,7 @@ function OperationsSection({
 
   return (
     <Card
+      id="shopify-operativa"
       title="Operativa"
       description="Cuánto se tarda en entregar y qué vuelve."
     >
@@ -701,6 +706,7 @@ function RecoverySection({
 
   return (
     <Card
+      id="shopify-carritos"
       title="Carritos abandonados"
       description="Gente que llegó al pago y se fue."
     >

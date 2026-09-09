@@ -20,7 +20,15 @@ type Finding = {
   title: string;
   severity: "info" | "low" | "medium" | "high" | "critical";
   evidence: string;
+  /** Clave de la lista cerrada del prompt; se traduce con `areas`. */
+  area?: string;
 };
+
+/**
+ * Mapa area->donde se arregla, que aporta cada pantalla. Un area que no este
+ * aqui se ignora: el hallazgo se dibuja igual, solo que sin enlace.
+ */
+export type FindingAreas = Record<string, { label: string; href: string }>;
 type Recommendation = {
   action: string;
   priority: "low" | "medium" | "high" | "urgent";
@@ -52,7 +60,6 @@ type Diagnostic = {
   /** No se ha vuelto a analizar porque no ha habido actividad en la tienda. */
   no_activity_since?: boolean;
   runtime?: {
-    orchestration_mode: "direct" | "langgraph";
     langsmith_tracing: boolean;
   };
   envelope?: {
@@ -334,27 +341,46 @@ const severityBorder: Record<Finding["severity"], string> = {
 // Los hallazgos son titulo corto + evidencia larga en prosa: una tabla de 3
 // columnas los aplasta. Cada uno como bloque apilado -> se escanean los
 // titulos, la evidencia queda debajo sin competir por el ancho.
-function FindingsList({ rows }: { rows: Finding[] }) {
+function FindingsList({
+  rows,
+  areas,
+}: {
+  rows: Finding[];
+  areas?: FindingAreas;
+}) {
   return (
     <ul className="mt-2 space-y-3">
-      {rows.map((finding, index) => (
-        <li
-          key={index}
-          className={`border-l-2 pl-3 ${severityBorder[finding.severity]}`}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={severityTone[finding.severity]}>
-              {severityLabelsEs[finding.severity] ?? finding.severity}
-            </Badge>
-            <span className="text-sm font-medium text-foreground">
-              {finding.title}
-            </span>
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            {humanizeAgentText(finding.evidence)}
-          </p>
-        </li>
-      ))}
+      {rows.map((finding, index) => {
+        // Un area que el agente se invente, o de una version de prompt mas
+        // nueva que esta pantalla, simplemente no encuentra destino.
+        const target = finding.area ? areas?.[finding.area] : undefined;
+        return (
+          <li
+            key={index}
+            className={`border-l-2 pl-3 ${severityBorder[finding.severity]}`}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={severityTone[finding.severity]}>
+                {severityLabelsEs[finding.severity] ?? finding.severity}
+              </Badge>
+              <span className="text-sm font-medium text-foreground">
+                {finding.title}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              {humanizeAgentText(finding.evidence)}
+            </p>
+            {target ? (
+              <a
+                href={target.href}
+                className="mt-1 inline-block text-xs underline text-muted hover:text-foreground"
+              >
+                {target.label}
+              </a>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -402,12 +428,8 @@ function TrustStrip({
           </span>
         </>
       ) : null}
-      {showInternals && diagnostic.runtime
-        ? ` · runtime ${
-            diagnostic.runtime.orchestration_mode === "direct"
-              ? "directo"
-              : "LangGraph"
-          }${diagnostic.runtime.langsmith_tracing ? " · trazas on" : ""}`
+      {showInternals && diagnostic.runtime?.langsmith_tracing
+        ? " · trazas on"
         : ""}
     </p>
   );
@@ -431,6 +453,7 @@ export function AiDiagnosticSection({
   variant = "full",
   bare = false,
   showInternals = false,
+  areas,
 }: {
   organizationId: string;
   title: string;
@@ -452,6 +475,10 @@ export function AiDiagnosticSection({
   // cuadran) y solo son accionables para platform_admin. El consultor ve el
   // analisis; si algo no es fiable, el agente ya lo dice en el propio texto.
   showInternals?: boolean;
+  // Adonde lleva cada hallazgo. Lo aporta la pantalla que monta la seccion,
+  // porque es la unica que sabe que bloques tiene y con que ancla. Sin esto,
+  // un hallazgo se lee y no se arregla.
+  areas?: FindingAreas;
 }) {
   const { connectionId } = useActiveConnection();
   const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
@@ -771,7 +798,7 @@ export function AiDiagnosticSection({
               {variant === "full" && riskFindings.length ? (
                 <div>
                   <p className={EYEBROW}>Riesgos ({riskFindings.length})</p>
-                  <FindingsList rows={riskFindings} />
+                  <FindingsList rows={riskFindings} areas={areas} />
                 </div>
               ) : null}
 
@@ -792,7 +819,7 @@ export function AiDiagnosticSection({
                         } sin riesgo`}
                   </Button>
                   {observationsExpanded ? (
-                    <FindingsList rows={observationFindings} />
+                    <FindingsList rows={observationFindings} areas={areas} />
                   ) : null}
                 </div>
               ) : null}

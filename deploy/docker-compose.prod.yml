@@ -25,6 +25,12 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: "4000"
       REDIS_URL: redis://redis:6379
+      # AI-30: se guarda en agent_runs.deployment_version para poder atar un
+      # comportamiento de produccion al codigo exacto que lo produjo. IMAGE_TAG
+      # ya es el SHA del commit (lo escribe .github/workflows/deploy.yml), asi
+      # que el default coincide con la etiqueta de la imagen de arriba: lo que
+      # se registra es siempre lo que de verdad esta corriendo.
+      GIT_SHA: ${IMAGE_TAG:-latest}
     depends_on:
       redis:
         condition: service_healthy
@@ -37,6 +43,7 @@ services:
     env_file: [.env.production]
     environment:
       REDIS_URL: redis://redis:6379
+      GIT_SHA: ${IMAGE_TAG:-latest}
       # El worker llama a la API por la red interna. Sin esto el schema de
       # @ecomscaling/config cae al default http://localhost:4000, que dentro
       # del contenedor no es la API -> todos los jobs fallan con fetch failed.

@@ -9,7 +9,7 @@
     "start": "dotenv -e ../../.env.local -- next start --port 3001",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test --test-force-exit src/lib/api-error.test.ts src/components/ui/color-hex.test.ts src/lib/bootstrap-timeout.test.ts src/app/configuracion/alert-threshold.test.ts src/app/configuracion/work-split.test.ts src/app/camino/next-step.test.ts src/app/tareas/assignee-label.test.ts src/app/admin/logs/audit-entry.test.ts src/app/dashboard/store-pulse.test.ts src/portal-state-contract.test.ts src/app/marketing/template-design.test.ts src/app/marketing/meta-ad-plan.test.ts src/app/marketing/campaign-thread-rows.test.ts src/app/marketing/campaign-result.test.ts src/app/planificacion/agenda-signal.test.ts src/app/planificacion/portfolio-triage.test.ts src/app/planificacion/calendar-days.test.ts src/app/planificacion/tracking/snapshot-period.test.ts src/app/llamadas/summary-visibility.test.ts src/app/llamadas/call-stage.test.ts src/app/shopify/cohort-pivot.test.ts"
+    "test": "tsx --test --test-force-exit src/lib/api-error.test.ts src/components/ui/color-hex.test.ts src/lib/bootstrap-timeout.test.ts src/app/configuracion/alert-threshold.test.ts src/app/configuracion/work-split.test.ts src/app/camino/next-step.test.ts src/app/tareas/assignee-label.test.ts src/app/admin/logs/audit-entry.test.ts src/app/dashboard/store-pulse.test.ts src/portal-state-contract.test.ts src/app/marketing/template-design.test.ts src/app/marketing/meta-ad-plan.test.ts src/app/marketing/campaign-thread-rows.test.ts src/app/marketing/campaign-result.test.ts src/app/planificacion/agenda-signal.test.ts src/app/planificacion/portfolio-triage.test.ts src/app/planificacion/calendar-days.test.ts src/app/planificacion/tracking/snapshot-period.test.ts src/app/llamadas/summary-visibility.test.ts src/app/llamadas/call-stage.test.ts src/app/shopify/cohort-pivot.test.ts src/app/admin/observabilidad/run-trace-format.test.ts"
   },
   "engines": {
     "node": "24.x"
@@ -23,7 +23,7 @@
     "@fortawesome/react-fontawesome": "^3.5.0",
     "@heroui/react": "^3.2.2",
     "@supabase/supabase-js": "^2.109.0",
-    "next": "16.3.1",
+    "next": "16.3.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.10.1"
@@ -34,7 +34,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.1",
+    "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"

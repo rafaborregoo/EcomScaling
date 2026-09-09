@@ -5,6 +5,13 @@ import { hasAssignedConsultant } from "./client-autonomy.js";
 import {
   AGENT_OUTPUT_SCHEMA_VERSION,
   AgentBudgetExceededError,
+  AgentRequestTimeoutError,
+  authorizeTool,
+  createSecurityEventCollector,
+  type AgentSecurityEvent,
+  type AgentSecurityEventSink,
+  type ToolContext,
+  type ToolError,
   AgentOutputValidationError,
   callSummaryJsonSchema,
   callSummaryOutputSchema,
@@ -37,12 +44,11 @@ import {
   createToolReplayFixture,
   createOptionalLangSmithTraceable,
   resolveLangSmithRuntimeConfig,
-  resolveAgentOrchestrationMode,
-  runOperationThroughLangGraph,
   getToolContract,
   getToolDefinition,
   normalizeToolConnectorId,
   type AgentInput,
+  type AgentTurnResult,
   type CallSummaryOutput,
   type ChatOutput,
   type KlaviyoEmailOutput,
@@ -63,7 +69,15 @@ import type {
   AgentSourceReference,
 } from "@ecomscaling/contracts";
 import { INTEGRATION_CATALOG } from "@ecomscaling/integrations";
-import { createLogger } from "@ecomscaling/observability";
+import {
+  createLogger,
+  sanitizeForTelemetry,
+} from "@ecomscaling/observability";
+import {
+  currentParallelGroupId,
+  currentRequestId,
+  runWithRequestCorrelation,
+} from "./request-context.js";
 import { emailHtmlToText } from "./email-body-text.js";
 import { apiMetrics } from "./metrics.js";
 import {
@@ -107,11 +121,20 @@ const logger = createLogger("ai-runtime");
 function recordAiRunMetrics(
   agentCode: string,
   status: string,
-  estimatedCostUsd?: number,
+  estimatedCostUsd?: number | null,
 ) {
   // Operational, low-cardinality labels only. Never expose tenant ids,
   // prompts, context blocks or model output through Prometheus labels.
   apiMetrics.increment("ai_runs_total", { agent_code: agentCode, status });
+  // AI-30: null = modelo sin precio conocido. No se suma como 0 al total de
+  // coste (eso inventaria una factura mas barata de la real); se cuenta aparte
+  // para que el numero de ejecuciones no facturables sea visible.
+  if (estimatedCostUsd === null) {
+    apiMetrics.increment("ai_runs_cost_unknown_total", {
+      agent_code: agentCode,
+    });
+    return;
+  }
   if (estimatedCostUsd !== undefined) {
     apiMetrics.increment(
       "ai_estimated_cost_usd_total",
@@ -119,6 +142,86 @@ function recordAiRunMetrics(
       estimatedCostUsd,
     );
   }
+}
+
+/**
+ * AI-30: campos de correlacion con los que nace un `agent_runs`.
+ *
+ * `trace_id` toma el `x-request-id` de la peticion en curso cuando la hay, y
+ * el propio id del run cuando no (worker, cron, script): una ejecucion sin
+ * origen HTTP es su propia traza, que es la verdad, en vez de dejar el campo
+ * vacio o inventarse una correlacion.
+ *
+ * `root_run_id = runId` porque hoy todas las ejecuciones son raiz. Cuando
+ * existan subagentes, el hijo recibira el `root_run_id` del padre y el arbol
+ * quedara completo sin migrar nada.
+ */
+function agentRunTraceFields(
+  env: ApiEnv,
+  runId: string,
+  budget?: { maxCostUsd?: number; maxToolCalls?: number },
+) {
+  return {
+    trace_id: currentRequestId() ?? runId,
+    root_run_id: runId,
+    parallel_group_id: currentParallelGroupId(),
+    deployment_version: env.GIT_SHA ?? null,
+    budget_max_cost_usd: budget?.maxCostUsd ?? null,
+    budget_max_tool_calls: budget?.maxToolCalls ?? null,
+  };
+}
+
+/**
+ * AI-30: campos de cierre de un `agent_runs` a partir del resultado del turno.
+ *
+ * Existe porque los seis puntos que cierran un run (diagnostico generico, A01,
+ * marketing, imagenes, overlay, chat) repetian el mismo UPDATE literal, y
+ * anadir un campo obligaba a acordarse de los seis. Con el helper, lo que el
+ * runtime sabe de una ejecucion llega entero a la fila o no llega a ninguna.
+ *
+ * `provider` y `model` son el dato importante: antes solo quedaban como texto
+ * dentro del payload de un paso, y el panel leia `agent_versions.model`, que es
+ * el modelo CONFIGURADO -- distinto del ejecutado cuando actua el fallback.
+ */
+function agentRunCompletionFields(
+  turn: Pick<
+    AgentTurnResult<unknown>,
+    | "provider"
+    | "model"
+    | "inputTokens"
+    | "outputTokens"
+    | "cacheReadTokens"
+    | "cacheCreationTokens"
+    | "reasoningTokens"
+    | "estimatedCostUsd"
+    | "costBasis"
+    | "pricingVersion"
+    | "latencyMs"
+    | "stopReason"
+    | "modelCalls"
+    | "toolCallCount"
+  >,
+) {
+  return {
+    status: "succeeded",
+    provider: turn.provider,
+    model: turn.model,
+    input_tokens: turn.inputTokens,
+    output_tokens: turn.outputTokens,
+    // Los tres siguientes van tal cual, null incluido: null significa "el
+    // proveedor no informo", que no es lo mismo que cero.
+    cache_read_tokens: turn.cacheReadTokens,
+    cache_creation_tokens: turn.cacheCreationTokens,
+    reasoning_tokens: turn.reasoningTokens,
+    estimated_cost_usd: turn.estimatedCostUsd,
+    cost_basis: turn.costBasis,
+    pricing_version: turn.pricingVersion,
+    latency_ms: turn.latencyMs,
+    stop_reason: turn.stopReason,
+    model_calls: turn.modelCalls,
+    tool_call_count: turn.toolCallCount,
+    finished_at: new Date().toISOString(),
+  };
 }
 
 function hasConfiguredAiProvider(env: ApiEnv): boolean {
@@ -677,6 +780,14 @@ function describeAgentTurnFailure(error: unknown): {
     };
   }
 
+  // AI-30: un timeout del proveedor dejaba de distinguirse de un fallo real y
+  // los dos caian en `failed`. Son incidentes distintos -- uno se arregla
+  // subiendo el timeout o mirando la latencia del proveedor, el otro no -- y
+  // el panel tiene que poder separarlos sin leerse el mensaje de error.
+  if (error instanceof AgentRequestTimeoutError) {
+    return { status: "timeout", message: error.message };
+  }
+
   return {
     status: "failed",
     message: error instanceof Error ? error.message : "unknown_error",
@@ -756,23 +867,115 @@ async function runAgentTurnWithFallbackCore<TOutput>(
   }
 }
 
+/**
+ * AI-30: persiste los eventos de seguridad de un turno.
+ *
+ * Una sola insercion por turno, no una por evento: la deteccion corre en el
+ * camino caliente y la observabilidad no puede pagar un round-trip por patron
+ * neutralizado.
+ *
+ * Nunca lanza. Un fallo escribiendo telemetria no puede tumbar una ejecucion
+ * que por lo demas fue bien -- pero se registra en el log, porque perder
+ * eventos de seguridad en silencio seria repetir el defecto que esto arregla.
+ */
+async function persistSecurityEvents(
+  supabase: SupabaseClient,
+  organizationId: string,
+  runId: string,
+  traceId: string,
+  events: readonly AgentSecurityEvent[],
+) {
+  if (events.length === 0) {
+    return;
+  }
+
+  try {
+    const { error } = await supabase.from("ai_security_events").insert(
+      events.map((event) => ({
+        organization_id: organizationId,
+        run_id: runId,
+        trace_id: traceId,
+        event_type: event.type,
+        severity: event.severity,
+        source: event.source,
+        // El detalle lo construye el runtime y ya es metadata, pero pasa por la
+        // misma puerta que el resto de la telemetria: una sola funcion de
+        // sanitizado, sin excepciones.
+        detail: sanitizeForTelemetry(event.detail),
+      })),
+    );
+
+    if (error) {
+      logger.error("ai_security_events_insert_failed", {
+        run_id: runId,
+        event_count: events.length,
+        error: error.message,
+      });
+      return;
+    }
+
+    for (const event of events) {
+      apiMetrics.increment("ai_security_events_total", {
+        event_type: event.type,
+        severity: event.severity,
+      });
+    }
+  } catch (error) {
+    logger.error("ai_security_events_insert_threw", {
+      run_id: runId,
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
+  }
+}
+
 async function runAgentTurnWithFallback<TOutput>(
   env: ApiEnv,
   params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey">,
+  /**
+   * Eventos detectados ANTES del turno -- hoy las denegaciones de permiso de
+   * `buildAgentTools`, que corre antes de que exista la fila de `agent_runs` y
+   * por tanto no puede persistir nada todavia. Se siembran aqui para que salgan
+   * en la misma insercion que los del turno.
+   */
+  seedSecurityEvents: readonly AgentSecurityEvent[] = [],
 ): Promise<Awaited<ReturnType<typeof runAgentTurn<TOutput>>>> {
+  // El colector se crea aqui, en el unico punto por el que pasan los seis
+  // agentes y los dos proveedores. Ponerlo en cada funcion de agente serian
+  // seis sitios donde olvidarse de drenarlo.
+  const security = createSecurityEventCollector();
+  for (const event of seedSecurityEvents) {
+    security.emit(event);
+  }
+  // AI-30: aqui habia una bifurcacion a LangGraph. Se retiro porque
+  // `runOperationThroughLangGraph` construia un grafo de UN SOLO nodo que se
+  // limitaba a invocar la operacion: ni estado, ni reanudacion, ni ramas. Era
+  // una dependencia y una capa de indireccion a cambio de nada. Si algun dia
+  // hace falta un grafo de verdad (checkpointing, reanudar un run largo), se
+  // reintroduce aqui mismo, que es donde estaba el punto de enganche.
   const tracedTurn = createOptionalLangSmithTraceable(
     "ecomscaling.agent_turn",
-    () => {
-      const operation = () =>
-        runAgentTurnWithFallbackCore<TOutput>(env, params);
-      return resolveAgentOrchestrationMode(env.AI_ORCHESTRATION_MODE) ===
-        "langgraph"
-        ? runOperationThroughLangGraph(operation)
-        : operation();
-    },
+    () =>
+      runAgentTurnWithFallbackCore<TOutput>(env, {
+        ...params,
+        onSecurityEvent: security.emit,
+      }),
     resolveLangSmithRuntimeConfig(env),
   );
-  return tracedTurn();
+
+  try {
+    return await tracedTurn();
+  } finally {
+    // En `finally` a proposito: un turno que revienta por presupuesto o por
+    // salida invalida puede haber detectado una inyeccion antes de morir, y ese
+    // es justo el caso que mas interesa conservar.
+    await persistSecurityEvents(
+      createServiceClient(env),
+      params.input.organization_id,
+      params.input.run_id,
+      currentRequestId() ?? params.input.run_id,
+      security.drain(),
+    );
+  }
 }
 
 async function resolveAgentCodeForRun(
@@ -911,30 +1114,93 @@ function buildAgentTools(
   // haber leido notas internas. Solo un chat sincrono, donde el backend sabe
   // quien esta preguntando, puede ampliarlo -- ver runConsultantChatTurn.
   knowledgeAudience: readonly string[] = ["client_visible"],
-): { tools: AgentToolDefinition[]; systemPrompt: string } {
+  // AI-30: lo que le falta a `authorizeTool` para poder decidir. Va como objeto
+  // con nombres y no como dos posicionales mas: esta firma ya tiene nueve
+  // argumentos y dos strings sueltos al final se intercambian solos.
+  //
+  // Sin valor por defecto a proposito: un default aqui seria un contexto de
+  // permisos inventado, y el compilador dejaria de avisar al siguiente que
+  // anada una llamada.
+  authorization?: {
+    actorUserId: string;
+    approvalMode: ToolContext["approval_mode"];
+  },
+): {
+  tools: AgentToolDefinition[];
+  systemPrompt: string;
+  /**
+   * Denegaciones de permiso detectadas al declarar las tools. Se devuelven en
+   * vez de persistirse aqui porque esto corre ANTES de insertar la fila de
+   * `agent_runs`, y `ai_security_events.run_id` tiene FK contra ella.
+   */
+  securityEvents: AgentSecurityEvent[];
+} {
   const requestedToolNames = Array.isArray(rawAllowedTools)
     ? (rawAllowedTools as unknown[]).filter(
         (name): name is string => typeof name === "string",
       )
     : [];
-  const unavailableToolNames = requestedToolNames.filter((name) => {
-    const definition = getToolDefinition(name);
-    return Boolean(
-      definition &&
-      (definition.status === "planned" || definition.status === "disabled"),
-    );
-  });
-  const missingConnectorToolNames = requestedToolNames.filter((name) => {
-    const connector = getToolDefinition(name)?.connector;
-    return Boolean(
-      connector &&
-      connector !== "core" &&
-      !connectedConnectors.includes(connector),
-    );
-  });
-  const allowedToolNames = requestedToolNames.filter(
-    (name) => !missingConnectorToolNames.includes(name),
-  );
+
+  // AI-30: la decision de que tools se declaran la toma `authorizeTool`, que es
+  // el motor de permisos que los tests cubren.
+  //
+  // Antes esto era un filtrado a mano aqui mismo que reimplementaba dos de sus
+  // seis comprobaciones (estado y conector) y se dejaba las otras. La
+  // consecuencia: la logica de permisos que se probaba NO era la que corria, y
+  // la que corria era mas laxa -- en particular no comprobaba `requires_approval`
+  // contra `approval_mode`, asi que una tool que exige revision humana podia
+  // declararse en un agente configurado con `approval_mode: 'none'`. Hoy no
+  // explota porque el catalogo activo son dos tools de solo lectura; era una
+  // trampa armada para la primera tool de escritura.
+  const toolContext: ToolContext = {
+    organization_id: organizationId,
+    actor_user_id: authorization?.actorUserId ?? organizationId,
+    allowed_tools: requestedToolNames,
+    approval_mode: authorization?.approvalMode ?? "required_before_write",
+    connected_connectors:
+      connectedConnectors as ToolContext["connected_connectors"],
+  };
+
+  const allowedToolNames: string[] = [];
+  const denials: Array<{ name: string; reason: ToolError }> = [];
+
+  for (const name of requestedToolNames) {
+    // `read` es el permiso con el que se DECLARA una tool al modelo: declararla
+    // no es pedir escalada. La comprobacion de escalada corresponde al momento
+    // de invocarla con un permiso mayor.
+    const verdict = authorizeTool(name, toolContext, "read");
+    if (verdict.allowed) {
+      allowedToolNames.push(name);
+    } else {
+      denials.push({ name, reason: verdict.reason });
+    }
+  }
+
+  const securityEvents: AgentSecurityEvent[] = denials.map((denial) => ({
+    type: "permission_denied" as const,
+    severity:
+      // Que una tool este planificada o su conector sin conectar es
+      // configuracion normal, no un incidente. Que la version del agente pida
+      // una tool que no existe, o una que exige aprobacion en un agente sin
+      // aprobacion, si lo es.
+      denial.reason.error === "tool_not_implemented" ||
+      denial.reason.error === "connector_not_connected"
+        ? ("info" as const)
+        : ("high" as const),
+    source: "tool_registry",
+    detail: {
+      tool_name: denial.name,
+      error: denial.reason.error,
+      why: denial.reason.why,
+    },
+  }));
+
+  const unavailableToolNames = denials
+    .filter((denial) => denial.reason.error === "tool_not_implemented")
+    .map((denial) => denial.name);
+  const missingConnectorToolNames = denials
+    .filter((denial) => denial.reason.error === "connector_not_connected")
+    .map((denial) => denial.name);
 
   const recordToolCall = async (
     toolName: string,
@@ -947,8 +1213,13 @@ function buildAgentTools(
       run_id: runId,
       organization_id: organizationId,
       tool_name: toolName,
-      input: toolInput,
-      output: toolOutput,
+      // AI-30: entrada y salida se guardaban en crudo. Era la via mas probable
+      // de que un dato personal de un cliente acabara en telemetria: la salida
+      // de sql_select o search_knowledge puede traer pedidos, correos y notas.
+      // `sanitizeForTelemetry` redacta claves con forma de credencial y recorta
+      // cadenas y arrays largos -- para depurar basta la forma del resultado.
+      input: sanitizeForTelemetry(toolInput),
+      output: sanitizeForTelemetry(toolOutput),
       is_error: isError,
       duration_ms: durationMs,
     });
@@ -2305,7 +2576,7 @@ function buildAgentTools(
     }),
   );
 
-  return { tools, systemPrompt };
+  return { tools, systemPrompt, securityEvents };
 }
 
 /**
@@ -2745,7 +3016,7 @@ async function runGenericDiagnosticAgent(
     organizationId,
   );
 
-  const { tools, systemPrompt } = buildAgentTools(
+  const { tools, systemPrompt, securityEvents: toolAuthEvents } = buildAgentTools(
     env,
     supabase,
     runId,
@@ -2754,6 +3025,11 @@ async function runGenericDiagnosticAgent(
     prompt.content,
     storeId,
     connectedConnectors,
+    ["client_visible"],
+    {
+      actorUserId: context.user.id,
+      approvalMode: agentVersion.approval_mode as ToolContext["approval_mode"],
+    },
   );
 
   const input: AgentInput = {
@@ -2769,6 +3045,16 @@ async function runGenericDiagnosticAgent(
     approval_mode: agentVersion.approval_mode as AgentInput["approval_mode"],
   };
 
+  // AI-30: el presupuesto se resuelve ANTES de crear la fila para poder
+  // guardar contra que limite corrio el run. Sin esto, un run cortado por
+  // presupuesto no decia cual era el tope, y el tope vive en env vars que
+  // cambian: leerlas hoy no dice lo que se aplico ayer.
+  const agentBudget = resolveAgentBudget(
+    input.agent_code,
+    parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+    planPolicy,
+  );
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: organizationId,
@@ -2780,6 +3066,7 @@ async function runGenericDiagnosticAgent(
     store_id: storeId,
     lookback_days: lookbackDays,
     execution_mode: DEFAULT_AGENT_EXECUTION_MODE,
+    ...agentRunTraceFields(env, runId, agentBudget),
   });
 
   if (runInsertError) {
@@ -2837,12 +3124,8 @@ async function runGenericDiagnosticAgent(
       contextBlocks,
       tools,
       ...(leanContract ? { outputContract: leanContract } : {}),
-      budget: resolveAgentBudget(
-        input.agent_code,
-        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
-        planPolicy,
-      ),
-    });
+      budget: agentBudget,
+    }, toolAuthEvents);
 
     await recordStep(
       supabase,
@@ -2886,15 +3169,7 @@ async function runGenericDiagnosticAgent(
 
     await supabase
       .from("agent_runs")
-      .update({
-        status: "succeeded",
-        input_tokens: turn.inputTokens,
-        output_tokens: turn.outputTokens,
-        cache_read_tokens: turn.cacheReadTokens,
-        estimated_cost_usd: turn.estimatedCostUsd,
-        latency_ms: turn.latencyMs,
-        finished_at: new Date().toISOString(),
-      })
+      .update(agentRunCompletionFields(turn))
       .eq("id", runId);
 
     recordAiRunMetrics(agentCode, "succeeded", turn.estimatedCostUsd);
@@ -3053,9 +3328,6 @@ async function getCachedDiagnostic(
   const supabase = createServiceClient(env);
 
   const runtimePresentation = {
-    orchestration_mode: resolveAgentOrchestrationMode(
-      env.AI_ORCHESTRATION_MODE,
-    ),
     langsmith_tracing: resolveLangSmithRuntimeConfig(env).tracing,
   } as const;
 
@@ -5879,7 +6151,7 @@ type GateLogRow = {
  * resumen para el log del worker; el detalle por (org, agente) queda en
  * ai_diagnostic_gate_log para el panel de observabilidad.
  */
-export async function runDiagnosticOrchestratorTick(env: ApiEnv): Promise<
+export type DiagnosticOrchestratorTickResult =
   | {
       ok: true;
       tick_id: string;
@@ -5887,9 +6159,31 @@ export async function runDiagnosticOrchestratorTick(env: ApiEnv): Promise<
       skipped: number;
       by_reason: Record<string, number>;
     }
-  | { ok: false; statusCode: number; error: string; message: string }
-> {
+  | { ok: false; statusCode: number; error: string; message: string };
+
+/**
+ * AI-30: la pasada entera corre dentro del contexto de correlacion, de forma
+ * que los N runs que lance comparten `trace_id` (= el tick) y
+ * `parallel_group_id`. Antes el `tick_id` solo se escribia en
+ * `ai_diagnostic_gate_log`, una tabla sin FK a `agent_runs`: se sabia que se
+ * habia decidido ejecutar algo, pero no que ejecuciones eran de la misma pasada.
+ *
+ * El wrapper existe para no reindentar el cuerpo entero, que ya era largo.
+ */
+export async function runDiagnosticOrchestratorTick(
+  env: ApiEnv,
+): Promise<DiagnosticOrchestratorTickResult> {
   const tickId = crypto.randomUUID();
+  return runWithRequestCorrelation(
+    { requestId: tickId, parallelGroupId: tickId },
+    () => runDiagnosticOrchestratorTickInner(env, tickId),
+  );
+}
+
+async function runDiagnosticOrchestratorTickInner(
+  env: ApiEnv,
+  tickId: string,
+): Promise<DiagnosticOrchestratorTickResult> {
   const supabase = createServiceClient(env);
 
   if (!isAgentAutorunEnabled(env)) {
@@ -6784,6 +7078,16 @@ export async function runCallAnalyst(
     approval_mode: agentVersion.approval_mode as AgentInput["approval_mode"],
   };
 
+  // AI-30: el presupuesto se resuelve ANTES de crear la fila para poder
+  // guardar contra que limite corrio el run. Sin esto, un run cortado por
+  // presupuesto no decia cual era el tope, y el tope vive en env vars que
+  // cambian: leerlas hoy no dice lo que se aplico ayer.
+  const agentBudget = resolveAgentBudget(
+    input.agent_code,
+    parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+    planPolicy,
+  );
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: organizationId,
@@ -6792,6 +7096,7 @@ export async function runCallAnalyst(
     trigger_type: input.trigger_type,
     objective: input.objective,
     execution_mode: DEFAULT_AGENT_EXECUTION_MODE,
+    ...agentRunTraceFields(env, runId, agentBudget),
   });
 
   if (runInsertError) {
@@ -6871,11 +7176,7 @@ export async function runCallAnalyst(
         jsonSchema: callSummaryJsonSchema as unknown as Record<string, unknown>,
         schema: callSummaryOutputSchema,
       },
-      budget: resolveAgentBudget(
-        input.agent_code,
-        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
-        planPolicy,
-      ),
+      budget: agentBudget,
     });
 
     await recordStep(
@@ -6928,15 +7229,7 @@ export async function runCallAnalyst(
 
     await supabase
       .from("agent_runs")
-      .update({
-        status: "succeeded",
-        input_tokens: turn.inputTokens,
-        output_tokens: turn.outputTokens,
-        cache_read_tokens: turn.cacheReadTokens,
-        estimated_cost_usd: turn.estimatedCostUsd,
-        latency_ms: turn.latencyMs,
-        finished_at: new Date().toISOString(),
-      })
+      .update(agentRunCompletionFields(turn))
       .eq("id", runId);
 
     recordAiRunMetrics(
@@ -7346,7 +7639,7 @@ export async function runMarketingContentDraft(
     supabase,
     organizationId,
   );
-  const { tools, systemPrompt } = buildAgentTools(
+  const { tools, systemPrompt, securityEvents: toolAuthEvents } = buildAgentTools(
     env,
     supabase,
     runId,
@@ -7355,6 +7648,11 @@ export async function runMarketingContentDraft(
     prompt.content,
     null,
     connectedConnectors,
+    ["client_visible"],
+    {
+      actorUserId: context.user.id,
+      approvalMode: agentVersion.approval_mode as ToolContext["approval_mode"],
+    },
   );
   const input: AgentInput = {
     run_id: runId,
@@ -7368,6 +7666,16 @@ export async function runMarketingContentDraft(
     approval_mode: agentVersion.approval_mode as AgentInput["approval_mode"],
   };
 
+  // AI-30: el presupuesto se resuelve ANTES de crear la fila para poder
+  // guardar contra que limite corrio el run. Sin esto, un run cortado por
+  // presupuesto no decia cual era el tope, y el tope vive en env vars que
+  // cambian: leerlas hoy no dice lo que se aplico ayer.
+  const agentBudget = resolveAgentBudget(
+    input.agent_code,
+    parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+    planPolicy,
+  );
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: organizationId,
@@ -7376,6 +7684,7 @@ export async function runMarketingContentDraft(
     trigger_type: input.trigger_type,
     objective: input.objective,
     execution_mode: DEFAULT_AGENT_EXECUTION_MODE,
+    ...agentRunTraceFields(env, runId, agentBudget),
   });
 
   if (runInsertError) {
@@ -7450,12 +7759,8 @@ export async function runMarketingContentDraft(
               >,
               schema: klaviyoEmailOutputSchema,
             },
-      budget: resolveAgentBudget(
-        input.agent_code,
-        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
-        planPolicy,
-      ),
-    });
+      budget: agentBudget,
+    }, toolAuthEvents);
 
     const metaOutput = isMetaAds
       ? metaAdsOutputSchema.parse({
@@ -7672,15 +7977,7 @@ export async function runMarketingContentDraft(
 
     await supabase
       .from("agent_runs")
-      .update({
-        status: "succeeded",
-        input_tokens: turn.inputTokens,
-        output_tokens: turn.outputTokens,
-        cache_read_tokens: turn.cacheReadTokens,
-        estimated_cost_usd: turn.estimatedCostUsd,
-        latency_ms: turn.latencyMs,
-        finished_at: new Date().toISOString(),
-      })
+      .update(agentRunCompletionFields(turn))
       .eq("id", runId);
 
     recordAiRunMetrics(
@@ -7960,7 +8257,8 @@ export async function analyzeInstagramImage(
       ok: true;
       analysis: InstagramImageAnalysis;
       runId: string;
-      estimatedCostUsd: number;
+      /** AI-30: null = modelo sin precio conocido, no gratis. */
+      estimatedCostUsd: number | null;
     }
   | { ok: false; error: string; detail: string; retriable: boolean }
 > {
@@ -8024,6 +8322,15 @@ export async function analyzeInstagramImage(
     approval_mode: "none",
   };
 
+  // AI-30: el presupuesto se resuelve ANTES de crear la fila para poder
+  // guardar contra que limite corrio el run. Sin esto, un run cortado por
+  // presupuesto no decia cual era el tope, y el tope vive en env vars que
+  // cambian: leerlas hoy no dice lo que se aplico ayer.
+  const agentBudget = resolveAgentBudget(
+    input.agent_code,
+    parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+  );
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: params.organizationId,
@@ -8032,6 +8339,7 @@ export async function analyzeInstagramImage(
     trigger_type: input.trigger_type,
     objective: input.objective,
     execution_mode: DEFAULT_AGENT_EXECUTION_MODE,
+    ...agentRunTraceFields(env, runId, agentBudget),
   });
 
   if (runInsertError) {
@@ -8059,10 +8367,7 @@ export async function analyzeInstagramImage(
         >,
         schema: instagramImageAnalysisSchema,
       },
-      budget: resolveAgentBudget(
-        input.agent_code,
-        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
-      ),
+      budget: agentBudget,
     });
 
     await recordStep(
@@ -8083,15 +8388,7 @@ export async function analyzeInstagramImage(
 
     await supabase
       .from("agent_runs")
-      .update({
-        status: "succeeded",
-        input_tokens: turn.inputTokens,
-        output_tokens: turn.outputTokens,
-        cache_read_tokens: turn.cacheReadTokens,
-        estimated_cost_usd: turn.estimatedCostUsd,
-        latency_ms: turn.latencyMs,
-        finished_at: new Date().toISOString(),
-      })
+      .update(agentRunCompletionFields(turn))
       .eq("id", runId);
 
     recordAiRunMetrics("a15_analista_imagenes", "succeeded", turn.estimatedCostUsd);
@@ -8100,6 +8397,8 @@ export async function analyzeInstagramImage(
       ok: true,
       analysis: turn.output,
       runId,
+      // AI-30: null cuando el modelo no esta tarifado. Quien consuma esto debe
+      // distinguir "gratis" de "no calculable"; ver agent_runs.cost_basis.
       estimatedCostUsd: turn.estimatedCostUsd,
     };
   } catch (error) {
@@ -8220,6 +8519,15 @@ export async function draftInstagramOverlay(
     approval_mode: "none",
   };
 
+  // AI-30: el presupuesto se resuelve ANTES de crear la fila para poder
+  // guardar contra que limite corrio el run. Sin esto, un run cortado por
+  // presupuesto no decia cual era el tope, y el tope vive en env vars que
+  // cambian: leerlas hoy no dice lo que se aplico ayer.
+  const agentBudget = resolveAgentBudget(
+    input.agent_code,
+    parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+  );
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: params.organizationId,
@@ -8228,6 +8536,7 @@ export async function draftInstagramOverlay(
     trigger_type: input.trigger_type,
     objective: input.objective,
     execution_mode: DEFAULT_AGENT_EXECUTION_MODE,
+    ...agentRunTraceFields(env, runId, agentBudget),
   });
   if (runInsertError) {
     return {
@@ -8272,10 +8581,7 @@ export async function draftInstagramOverlay(
         >,
         schema: instagramOverlayDraftSchema,
       },
-      budget: resolveAgentBudget(
-        input.agent_code,
-        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
-      ),
+      budget: agentBudget,
     });
 
     await recordStep(
@@ -8294,15 +8600,7 @@ export async function draftInstagramOverlay(
     );
     await supabase
       .from("agent_runs")
-      .update({
-        status: "succeeded",
-        input_tokens: turn.inputTokens,
-        output_tokens: turn.outputTokens,
-        cache_read_tokens: turn.cacheReadTokens,
-        estimated_cost_usd: turn.estimatedCostUsd,
-        latency_ms: turn.latencyMs,
-        finished_at: new Date().toISOString(),
-      })
+      .update(agentRunCompletionFields(turn))
       .eq("id", runId);
     recordAiRunMetrics(
       "a16_texto_sobre_imagen",
@@ -9012,7 +9310,7 @@ export async function runConsultantChatTurn(
     context.profile.platform_role,
   );
 
-  const { tools, systemPrompt } = buildAgentTools(
+  const { tools, systemPrompt, securityEvents: toolAuthEvents } = buildAgentTools(
     env,
     supabase,
     runId,
@@ -9022,6 +9320,10 @@ export async function runConsultantChatTurn(
     knowledgeStoreId,
     connectedConnectors,
     knowledgeAudience,
+    {
+      actorUserId: context.user.id,
+      approvalMode: agentVersion.approval_mode as ToolContext["approval_mode"],
+    },
   );
 
   const input: AgentInput = {
@@ -9036,6 +9338,16 @@ export async function runConsultantChatTurn(
     approval_mode: agentVersion.approval_mode as AgentInput["approval_mode"],
   };
 
+  // AI-30: el presupuesto se resuelve ANTES de crear la fila para poder
+  // guardar contra que limite corrio el run. Sin esto, un run cortado por
+  // presupuesto no decia cual era el tope, y el tope vive en env vars que
+  // cambian: leerlas hoy no dice lo que se aplico ayer.
+  const agentBudget = resolveAgentBudget(
+    input.agent_code,
+    parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
+    planPolicy,
+  );
+
   const { error: runInsertError } = await supabase.from("agent_runs").insert({
     id: runId,
     organization_id: organizationId,
@@ -9044,6 +9356,7 @@ export async function runConsultantChatTurn(
     trigger_type: input.trigger_type,
     objective: input.objective,
     execution_mode: DEFAULT_AGENT_EXECUTION_MODE,
+    ...agentRunTraceFields(env, runId, agentBudget),
   });
 
   if (runInsertError) {
@@ -9099,12 +9412,8 @@ export async function runConsultantChatTurn(
         jsonSchema: chatJsonSchema as unknown as Record<string, unknown>,
         schema: chatOutputSchema,
       },
-      budget: resolveAgentBudget(
-        input.agent_code,
-        parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON),
-        planPolicy,
-      ),
-    });
+      budget: agentBudget,
+    }, toolAuthEvents);
 
     await recordStep(
       supabase,
@@ -9141,15 +9450,7 @@ export async function runConsultantChatTurn(
 
     await supabase
       .from("agent_runs")
-      .update({
-        status: "succeeded",
-        input_tokens: turn.inputTokens,
-        output_tokens: turn.outputTokens,
-        cache_read_tokens: turn.cacheReadTokens,
-        estimated_cost_usd: turn.estimatedCostUsd,
-        latency_ms: turn.latencyMs,
-        finished_at: new Date().toISOString(),
-      })
+      .update(agentRunCompletionFields(turn))
       .eq("id", runId);
 
     recordAiRunMetrics(
@@ -9731,7 +10032,7 @@ export async function listAgentRuns(
   const { data, error } = await supabase
     .from("agent_runs")
     .select(
-      "id, trigger_type, objective, status, execution_mode, input_tokens, output_tokens, estimated_cost_usd, latency_ms, error_message, started_at, finished_at, agent_outputs(id, status, approval_required, output, published_at)",
+      "id, trace_id, trigger_type, objective, status, execution_mode, provider, model, input_tokens, output_tokens, estimated_cost_usd, cost_basis, latency_ms, error_message, started_at, finished_at, agent_outputs(id, status, approval_required, output, published_at)",
     )
     .eq("organization_id", organizationId)
     .order("started_at", { ascending: false })
@@ -9791,7 +10092,7 @@ export async function getAgentRunTrace(
   const { data: run, error: runError } = await supabase
     .from("agent_runs")
     .select(
-      "id, trigger_type, objective, status, execution_mode, input_tokens, output_tokens, cache_read_tokens, estimated_cost_usd, latency_ms, error_message, started_at, finished_at, agent_versions(version, model, agent_definitions(code))",
+      "id, trace_id, parent_run_id, root_run_id, parallel_group_id, deployment_version, trigger_type, objective, status, execution_mode, stop_reason, provider, model, model_calls, tool_call_count, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens, estimated_cost_usd, cost_basis, pricing_version, budget_max_cost_usd, budget_max_tool_calls, latency_ms, error_message, started_at, finished_at, agent_versions(version, model, prompt_code, prompt_version, agent_definitions(code))",
     )
     .eq("id", runId)
     .eq("organization_id", organizationId)
@@ -9814,7 +10115,8 @@ export async function getAgentRunTrace(
     };
   }
 
-  const [steps, toolCalls, contextSnapshots, queryRuns] = await Promise.all([
+  const [steps, toolCalls, contextSnapshots, queryRuns, securityEvents] =
+    await Promise.all([
     supabase
       .from("agent_run_steps")
       .select("id, position, step_type, summary, duration_ms, created_at")
@@ -9837,6 +10139,14 @@ export async function getAgentRunTrace(
       )
       .eq("run_id", runId)
       .order("created_at", { ascending: true }),
+    // AI-30: los eventos de seguridad de la ejecucion. Hasta ahora las
+    // detecciones se neutralizaban y se descartaban, asi que la traza no podia
+    // responder "que controles saltaron en este run".
+    supabase
+      .from("ai_security_events")
+      .select("id, event_type, severity, source, detail, created_at")
+      .eq("run_id", runId)
+      .order("created_at", { ascending: true }),
   ]);
 
   const replayFixture = createToolReplayFixture(toolCalls.data ?? []);
@@ -9850,6 +10160,7 @@ export async function getAgentRunTrace(
       replay_fixture: replayFixture,
       context_snapshots: contextSnapshots.data ?? [],
       query_runs: queryRuns.data ?? [],
+      security_events: securityEvents.data ?? [],
     },
   };
 }

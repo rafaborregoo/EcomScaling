@@ -4557,7 +4557,14 @@ type ObservabilityRun = {
   execution_mode: string | null;
   trigger_type: string;
   objective: string;
-  cost_usd: number;
+  /** AI-30: null = modelo sin tarifa conocida. No es gratis; ver cost_basis. */
+  cost_usd: number | null;
+  cost_basis: string | null;
+  /** Proveedor y modelo REALES del turno, no los configurados en agent_versions. */
+  provider: string | null;
+  model: string | null;
+  /** Correlacion con la peticion HTTP o la pasada de cron que lo lanzo. */
+  trace_id: string | null;
   latency_ms: number | null;
   input_tokens: number;
   output_tokens: number;
@@ -4610,7 +4617,7 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
     supabase
       .from("agent_runs")
       .select(
-        "id, status, execution_mode, trigger_type, objective, estimated_cost_usd, latency_ms, input_tokens, output_tokens, error_message, started_at, organization_id, store_id, actor_user_id, agent_versions!inner(agent_definitions!inner(code, name))",
+        "id, status, execution_mode, trigger_type, objective, estimated_cost_usd, cost_basis, provider, model, trace_id, latency_ms, input_tokens, output_tokens, error_message, started_at, organization_id, store_id, actor_user_id, agent_versions!inner(agent_definitions!inner(code, name))",
       )
       .gte("started_at", since)
       .order("started_at", { ascending: false })
@@ -4722,7 +4729,14 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
       execution_mode: (row.execution_mode as string | null) ?? null,
       trigger_type: row.trigger_type as string,
       objective: String(row.objective ?? ""),
-      cost_usd: Number(row.estimated_cost_usd ?? 0),
+      // AI-30: null se propaga tal cual. Convertirlo en 0 aqui volveria a
+      // pintar como gratis una ejecucion cuyo coste no sabemos calcular.
+      cost_usd:
+        row.estimated_cost_usd == null ? null : Number(row.estimated_cost_usd),
+      cost_basis: (row.cost_basis as string | null) ?? null,
+      provider: (row.provider as string | null) ?? null,
+      model: (row.model as string | null) ?? null,
+      trace_id: (row.trace_id as string | null) ?? null,
       latency_ms: latency == null ? null : Number(latency),
       input_tokens: Number(row.input_tokens ?? 0),
       output_tokens: Number(row.output_tokens ?? 0),

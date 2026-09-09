@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -105,6 +111,84 @@ function formatDate(value: string | null | undefined) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+/**
+ * Medicion: que invalida las cifras de esta pantalla.
+ *
+ * Estas tres senales ya estaban, pero repartidas: "productos sin coste" era
+ * una tarjeta mas de la tira de KPIs, al lado de "margen bruto" y con el mismo
+ * peso visual -- cuando lo que dice es precisamente que ese margen esta mal. El
+ * aviso vivia en el `hint` de la tarjeta, que es lo ultimo que se lee.
+ *
+ * Aqui van juntas y nombrando la cifra que estropean. La tira de arriba se deja
+ * intacta a proposito: ademas de pintarse, se publica al Consultor IA como
+ * "vista actual" (ver components/module-summary), asi que quitarle senales le
+ * quitaria contexto al agente.
+ */
+function MeasurementCard({ metrics }: { metrics: ShopifyMetrics | null }) {
+  if (!metrics) return null;
+
+  const problems: ReactNode[] = [];
+
+  if (metrics.margin.items_without_cost > 0) {
+    problems.push(
+      <>
+        <strong>El margen bruto de arriba esta inflado.</strong>{" "}
+        {metrics.margin.items_without_cost.toLocaleString("es-ES")} lineas de
+        pedido no tienen coste cargado, y lo que no tiene coste cuenta como si
+        no costara nada. Lo normal es rellenarlo en Shopify, en el coste por
+        articulo de la variante, y que lo traiga el sync;{" "}
+        <a href="#shopify-costes" className="underline">
+          aqui abajo se puede cargar suelto por SKU
+        </a>
+        .
+      </>,
+    );
+  }
+
+  // `funnel: null` y `has_sessions: false` son lo mismo para el usuario: no hay
+  // sesiones. La causa habitual es el permiso de informes, no la tienda.
+  if (!metrics.funnel || !metrics.funnel.has_sessions) {
+    problems.push(
+      <>
+        <strong>No hay tasa de conversion.</strong> Las sesiones vienen de los
+        informes de Shopify y necesitan ese permiso en la conexion. Sin ellas se
+        ve cuanto se vende, pero no cuanta gente entro para conseguirlo.{" "}
+        <Link href="/integraciones">Revisar la conexion</Link>
+      </>,
+    );
+  }
+
+  if (metrics.stock.tracked_items === 0) {
+    problems.push(
+      <>
+        <strong>Ningun articulo lleva seguimiento de inventario.</strong> Los
+        agotados y el stock bajo salen de ahi: sin seguimiento, un cero no
+        significa que no queden unidades.
+      </>,
+    );
+  }
+
+  return (
+    <Card
+      title="Medición"
+      description="Si esto está roto, lo de abajo mide otra cosa."
+    >
+      {problems.length === 0 ? (
+        <p className="text-sm text-muted">
+          Nada invalida las cifras de esta pantalla: los costes están cargados,
+          hay sesiones y el inventario se sigue.
+        </p>
+      ) : (
+        <ul className="list-disc space-y-2 pl-5 text-sm text-muted">
+          {problems.map((problem, index) => (
+            <li key={index}>{problem}</li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
 }
 
 function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
@@ -260,18 +344,17 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setSelectedOrganizationId,
   ]);
 
-  useEffect(() => {
-    if (!overview?.selected_connection_id) {
-      return;
-    }
-    if (!selectedConnectionId) {
-      setSelectedConnectionId(overview.selected_connection_id);
-    }
-  }, [
-    overview?.selected_connection_id,
-    selectedConnectionId,
-    setSelectedConnectionId,
-  ]);
+  // Aqui vivia un efecto que, si no habia tienda elegida, ponia la que el
+  // backend hubiera resuelto por su cuenta. Hacia imposible usar "Todas las
+  // tiendas": el selector del shell escribe "" para decir "agregado", este
+  // efecto lo leia como "no ha elegido nada todavia" y devolvia una tienda
+  // concreta, asi que la seleccion rebotaba cada vez.
+  //
+  // "" no es ausencia de eleccion, es una eleccion -- el propio shell lo
+  // documenta ("Por defecto: '' = todas las tiendas del cliente agregadas").
+  // Las metricas ya agregan bien sin connectionId; el unico que no sabe
+  // agregar es el overview, y eso se resuelve abajo diciendolo en pantalla en
+  // vez de cambiando la seleccion del usuario a su espalda.
 
   useEffect(() => {
     void loadMetrics();
@@ -311,14 +394,29 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   const currency = overview.store?.currency_code ?? "EUR";
 
+  // "Todas las tiendas" con mas de una conectada. Con una sola, el agregado y
+  // esa tienda son lo mismo y la ficha de siempre es correcta.
+  //
+  // Importante: el overview NO sabe agregar -- cuando no se le pasa conexion
+  // resuelve una por su cuenta (la primera que no este pendiente). Las cifras
+  // de abajo si agregan. Sin decirlo, la pantalla mezclaria la ficha de una
+  // tienda con los numeros de todas.
+  const isAggregate = !selectedConnectionId && overview.connections.length > 1;
+
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
       <Card
-        title={overview.store?.shop_name ?? "Sin tienda conectada"}
+        title={
+          isAggregate
+            ? "Todas tus tiendas"
+            : (overview.store?.shop_name ?? "Sin tienda conectada")
+        }
         description={
-          overview.store?.primary_domain ??
-          overview.store?.myshopify_domain ??
-          "sin dominio"
+          isAggregate
+            ? `${overview.connections.length} tiendas · las cifras de abajo son la suma de todas`
+            : (overview.store?.primary_domain ??
+              overview.store?.myshopify_domain ??
+              "sin dominio")
         }
         actions={
           <div className="flex flex-wrap gap-3">
@@ -329,20 +427,26 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             >
               {isRefreshing ? "Actualizando..." : "Actualizar"}
             </Button>
-            <Button
-              variant="danger"
-              type="button"
-              disabled={
-                isSyncing ||
-                !overview.connection ||
-                overview.connection.status === "syncing"
-              }
-              onClick={() => void triggerSync()}
-            >
-              {isSyncing || overview.connection?.status === "syncing"
-                ? "Sincronizando..."
-                : "Sincronizar ahora"}
-            </Button>
+            {/* Sincronizar es siempre de UNA conexion. Con el agregado
+                delante, el boton sincronizaria la tienda que el backend
+                resolvio por su cuenta -- que no es ninguna de las que el
+                usuario cree estar mirando. */}
+            {isAggregate ? null : (
+              <Button
+                variant="danger"
+                type="button"
+                disabled={
+                  isSyncing ||
+                  !overview.connection ||
+                  overview.connection.status === "syncing"
+                }
+                onClick={() => void triggerSync()}
+              >
+                {isSyncing || overview.connection?.status === "syncing"
+                  ? "Sincronizando..."
+                  : "Sincronizar ahora"}
+              </Button>
+            )}
           </div>
         }
       >
@@ -351,7 +455,13 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <ErrorBlock>{syncError}</ErrorBlock>
           </div>
         ) : null}
-        {overview.connection?.last_error_message ? (
+        {isAggregate ? (
+          <p className="mt-3 text-sm text-muted">
+            El estado de la conexión y el sincronizado manual son de cada
+            tienda, no del conjunto. Elige una arriba para verlos.
+          </p>
+        ) : null}
+        {!isAggregate && overview.connection?.last_error_message ? (
           <div className="mt-3">
             <Banner tone="danger">
               <span className="font-mono text-xs">
@@ -424,7 +534,14 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         />
       ) : null}
 
+      {/* Las anclas son el destino de los hallazgos de los agentes de abajo. El
+          mapa área->ancla va con cada AiDiagnosticSection. */}
+      <section id="shopify-medicion">
+        <MeasurementCard metrics={metrics} />
+      </section>
+
       <Card
+        id="shopify-ventas"
         title="Ventas"
         actions={
           <div className="flex flex-wrap gap-2">
@@ -570,6 +687,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </div>
                 </div>
                 <form
+                  id="shopify-costes"
                   onSubmit={(event) => void saveCost(event)}
                   className="mt-4 space-y-2"
                 >
@@ -617,6 +735,7 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           tasas de conversión a propósito -- cada una lleva su fuente, no se
           promedian entre sí (ADR-0021). */}
       <Card
+        id="shopify-embudo"
         title="Embudo"
         description="Cuánta gente entra y cuánta compra."
       >
@@ -732,6 +851,11 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             tasksLabelSingular="tarea"
             days={90}
             showInternals={isConsultant}
+            areas={{
+              clientes: { label: "Ver los clientes", href: "#shopify-clientes" },
+              cohortes: { label: "Ver las cohortes", href: "#shopify-cohortes" },
+              medicion: { label: "Ver medición", href: "#shopify-medicion" },
+            }}
           />
           <AiDiagnosticSection
             organizationId={organization.id}
@@ -742,6 +866,19 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             tasksLabelSingular="tarea"
             days={90}
             showInternals={isConsultant}
+            areas={{
+              origen: { label: "Ver de dónde vienen", href: "#shopify-origen" },
+              embudo: { label: "Ver el embudo", href: "#shopify-embudo" },
+              carritos: {
+                label: "Ver los carritos abandonados",
+                href: "#shopify-carritos",
+              },
+              promociones: {
+                label: "Ver las promociones",
+                href: "#shopify-promociones",
+              },
+              medicion: { label: "Ver medición", href: "#shopify-medicion" },
+            }}
           />
           <AiDiagnosticSection
             organizationId={organization.id}
@@ -752,6 +889,11 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             tasksLabelSingular="tarea"
             days={90}
             showInternals={isConsultant}
+            areas={{
+              operativa: { label: "Ver la operativa", href: "#shopify-operativa" },
+              ventas: { label: "Ver las ventas", href: "#shopify-ventas" },
+              medicion: { label: "Ver medición", href: "#shopify-medicion" },
+            }}
           />
         </>
       ) : null}

@@ -751,7 +751,7 @@ function PortalShellContent({
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-white p-6 text-foreground">
+      <main className="min-h-dvh bg-white p-6 text-foreground">
         <AsyncState status="loading" loadingLabel="Cargando cuenta..." />
       </main>
     );
@@ -759,7 +759,7 @@ function PortalShellContent({
 
   if (error || !bootstrap || !token) {
     return (
-      <main className="min-h-screen bg-white p-6 text-foreground">
+      <main className="min-h-dvh bg-white p-6 text-foreground">
         <ErrorBlock>{error ?? "No se pudo resolver la sesión"}</ErrorBlock>
       </main>
     );
@@ -1027,7 +1027,10 @@ function PortalShellContent({
 
   return (
     <>
-      <main className="min-h-screen bg-white text-foreground lg:pt-2">
+      {/* dvh, no vh: en Safari movil 100vh incluye la barra de URL, asi que
+          la pagina siempre quedaba un poco scrolleable aunque no hubiera
+          contenido de sobra. */}
+      <main className="min-h-dvh bg-white text-foreground lg:pt-2">
         <a className="skip-link" href="#portal-content">
           Saltar al contenido principal
         </a>
@@ -1042,7 +1045,7 @@ function PortalShellContent({
               aria-controls="mobile-nav"
               aria-expanded={isMobileNavOpen}
               onClick={() => setIsMobileNavOpen(true)}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface pointer-coarse:size-11"
             >
               <Avatar
                 name={
@@ -1059,7 +1062,7 @@ function PortalShellContent({
                 {title}
               </p>
             </div>
-            <div className="flex size-9 shrink-0 items-center justify-center">
+            <div className="flex size-9 shrink-0 items-center justify-center pointer-coarse:size-11">
               <NotificationsBell token={token} />
             </div>
           </div>
@@ -1082,7 +1085,7 @@ function PortalShellContent({
             />
             <div
               id="mobile-nav"
-              className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5"
+              className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5 pointer-coarse:[&_a]:py-3"
             >
               <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-edge" />
               {navigation}
@@ -1091,7 +1094,7 @@ function PortalShellContent({
           </div>
         ) : null}
 
-        <div className="grid min-h-screen lg:grid-cols-[232px_1fr]">
+        <div className="grid min-h-dvh lg:grid-cols-[232px_1fr]">
           <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-separator bg-white px-3 py-5 text-foreground lg:flex">
             <div>
               <p className="px-2 text-sm font-semibold tracking-tight">

@@ -74,7 +74,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-white text-foreground">
+    <main className="min-h-dvh bg-white text-foreground">
       <header className="border-b border-separator px-6 py-4">
         <p className={cn(EYEBROW, "text-accent")}>EcomScaling</p>
       </header>

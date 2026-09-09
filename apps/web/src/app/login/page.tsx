@@ -65,7 +65,7 @@ function LoginPageContent() {
   }
 
   return (
-    <main className="grid min-h-screen bg-white text-foreground lg:grid-cols-2">
+    <main className="grid min-h-dvh bg-white text-foreground lg:grid-cols-2">
       {/* Panel de marca (oculto en móvil) */}
       <aside className="hidden flex-col justify-between border-r border-separator p-10 lg:flex">
         <p className={cn(EYEBROW, "text-accent")}>EcomScaling IA</p>

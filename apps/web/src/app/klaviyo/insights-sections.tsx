@@ -112,6 +112,7 @@ function MeasurementSection({ health }: { health: KlaviyoHealth | null }) {
 
   return (
     <Card
+      id="klaviyo-medicion"
       title="Medición"
       description="Si esto está roto, lo de abajo mide otra cosa."
     >
@@ -209,6 +210,7 @@ function InventorySection({ emails }: { emails: KlaviyoEmail[] }) {
 
   return (
     <Card
+      id="klaviyo-emails"
       title="Qué emails hay"
       description="Lo que reciben tus clientes, con su asunto y su contenido."
     >
@@ -351,6 +353,7 @@ function PerformanceSection({
 
   return (
     <Card
+      id="klaviyo-rendimiento"
       title="Rendimiento"
       description="EUR atribuidos por Klaviyo en su propia ventana de conversión. No es venta Shopify."
     >

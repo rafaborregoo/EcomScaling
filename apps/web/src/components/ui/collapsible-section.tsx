@@ -26,7 +26,7 @@ export function CollapsibleSection({
         className,
       )}
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-2.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-2.5 text-sm font-medium text-foreground pointer-coarse:py-3 [&::-webkit-details-marker]:hidden">
         {title}
         <IconChevronDown
           aria-hidden

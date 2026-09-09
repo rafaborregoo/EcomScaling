@@ -6,12 +6,12 @@ export const metadata: Metadata = {
   description: "Política de privacidad de EcomScaling IA: qué datos tratamos, con qué finalidad y cómo ejercer tus derechos.",
 };
 
-const LAST_UPDATED = "28 de julio de 2026";
+const LAST_UPDATED = "9 de septiembre de 2026";
 const CONTACT_EMAIL = "rafael@noraapp.es";
 
 export default function PrivacyPolicyPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-12 sm:px-6">
+    <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-4 py-12 sm:px-6">
       <header className="flex flex-col gap-2">
         <p className={EYEBROW}>EcomScaling IA</p>
         <Heading level={1} size="lg">Política de privacidad</Heading>
@@ -22,7 +22,7 @@ export default function PrivacyPolicyPage() {
         <p>
           EcomScaling IA es una plataforma de consultoría para tiendas de e-commerce que centraliza
           métricas y automatiza tareas operativas para sus clientes, integrando datos de plataformas
-          como Shopify y Meta (Facebook/Instagram) Ads. Esta política describe qué datos personales
+          como Shopify, Meta (Facebook/Instagram) Ads y Klaviyo. Esta política describe qué datos personales
           tratamos, con qué finalidad, y cómo puedes ejercer tus derechos sobre ellos.
         </p>
       </Card>
@@ -36,8 +36,8 @@ export default function PrivacyPolicyPage() {
           <li>
             Datos de negocio conectados por el propio cliente: métricas y datos de campañas de Meta
             Ads (identificadores de cuenta publicitaria, campañas, anuncios, métricas agregadas de
-            rendimiento), y datos equivalentes de Shopify (pedidos, productos, costes) cuando el
-            cliente conecta esa integración.
+            rendimiento), datos equivalentes de Shopify (pedidos, productos, costes) y métricas de campañas y
+            flujos de email/SMS de Klaviyo, cuando el cliente conecta esas integraciones.
           </li>
           <li>
             Contenido generado en el uso del producto: notas, tareas, resúmenes de llamadas de
@@ -73,7 +73,7 @@ export default function PrivacyPolicyPage() {
         <p>
           Conservamos los datos mientras la cuenta del cliente esté activa. Un cliente puede solicitar
           en cualquier momento la eliminación de su cuenta y de los datos conectados (incluyendo
-          tokens y datos importados desde Meta Ads o Shopify) escribiendo a{" "}
+          tokens y datos importados desde Meta Ads, Shopify o Klaviyo) escribiendo a{" "}
           <Link className="underline" href={`mailto:${CONTACT_EMAIL}`}>
             {CONTACT_EMAIL}
           </Link>

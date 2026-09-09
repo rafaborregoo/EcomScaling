@@ -63,7 +63,9 @@ export function Select({
       value={(value || null) as Key | null}
       onChange={(key) => onChange(key ? String(key) : "")}
     >
-      <HeroSelect.Trigger>
+      {/* Mismo minimo tactil de 44px que Button: el trigger de HeroUI ronda
+          los 36px, que con el dedo se falla. */}
+      <HeroSelect.Trigger className="pointer-coarse:min-h-11">
         <HeroSelect.Value />
         <HeroSelect.Indicator />
       </HeroSelect.Trigger>

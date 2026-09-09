@@ -61,6 +61,75 @@ export function redactSensitive(value: unknown): unknown {
   return result;
 }
 
+/**
+ * AI-30: unica puerta por la que un payload puede llegar a una tabla de
+ * telemetria (hoy `agent_tool_calls.input`/`.output`, que se guardaban en
+ * crudo).
+ *
+ * Hace tres cosas, en este orden:
+ *
+ * 1. Redacta las claves con forma de credencial, reutilizando `redactSensitive`
+ *    -- la misma logica que protege los logs. No hay una segunda
+ *    implementacion: el encargo pedia explicitamente no sanitizar distinto en
+ *    veinte sitios, y dos funciones divergen en cuanto una se actualiza sola.
+ * 2. Recorta las cadenas largas. Un resultado de tool puede traer cientos de
+ *    filas del negocio del cliente; para depurar basta el principio, y guardar
+ *    el resto es acumular datos personales sin necesidad.
+ * 3. Acota la profundidad, para que una estructura ciclica o absurdamente
+ *    anidada no pueda reventar la insercion.
+ *
+ * El orden importa: se acota ANTES de redactar. `redactSensitive` no tiene
+ * limite de profundidad -- le basta para los logs, que construimos nosotros --
+ * y aqui la entrada es la salida de una herramienta, que no controlamos. Acotar
+ * primero rompe cualquier ciclo y garantiza que la redaccion recibe un arbol
+ * finito.
+ *
+ * Lo que NO hace: detectar PII por contenido. Eso requiere clasificadores y da
+ * falsos negativos; la politica real es minimizar (guardar poco) en vez de
+ * confiar en detectar.
+ */
+export function sanitizeForTelemetry(
+  value: unknown,
+  options: { maxStringChars?: number; maxDepth?: number } = {},
+): unknown {
+  const maxStringChars = options.maxStringChars ?? 500;
+  const maxDepth = options.maxDepth ?? 6;
+
+  const bound = (input: unknown, depth: number): unknown => {
+    if (typeof input === "string") {
+      return input.length > maxStringChars
+        ? `${input.slice(0, maxStringChars)}…[+${input.length - maxStringChars} chars]`
+        : input;
+    }
+
+    if (input === null || typeof input !== "object") {
+      return input;
+    }
+
+    if (depth >= maxDepth) {
+      return "[TRUNCATED_DEPTH]";
+    }
+
+    if (Array.isArray(input)) {
+      // Un array largo se recorta: para depurar sirve la forma de los
+      // elementos, no los 400 pedidos del cliente.
+      const kept = input.slice(0, 20).map((item) => bound(item, depth + 1));
+      return input.length > 20
+        ? [...kept, `[+${input.length - 20} elementos omitidos]`]
+        : kept;
+    }
+
+    return Object.fromEntries(
+      Object.entries(input as Record<string, unknown>).map(([key, item]) => [
+        key,
+        bound(item, depth + 1),
+      ]),
+    );
+  };
+
+  return redactSensitive(bound(value, 0));
+}
+
 export type MetricLabels = Record<string, string | number | boolean>;
 
 type MetricSample = {

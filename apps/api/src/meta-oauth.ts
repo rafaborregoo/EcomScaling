@@ -19,7 +19,7 @@ export function resolveMetaAppEnv(env: LoadedApiEnv): MetaOAuthEnv | null {
     META_APP_SECRET: env.META_APP_SECRET,
     META_REDIRECT_URI: env.META_REDIRECT_URI,
     META_SCOPES:
-      env.META_SCOPES ?? "ads_read,business_management,pages_show_list",
+      env.META_SCOPES ?? "ads_read,ads_management,business_management,pages_show_list",
   };
 }
 

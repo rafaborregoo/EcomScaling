@@ -66,6 +66,23 @@ export type MetaInsightsData = {
   // volumen suficiente (menos de N impresiones)" sin repetir el numero.
   min_impressions_for_rates: number;
   change_window_days: number;
+  // La vista general del modulo. Va aparte de los bloques de detalle porque
+  // responde otra pregunta: "como va Meta" antes de "que anuncio falla".
+  // `days_with_data` es lo que permite decir si el periodo esta completo: con
+  // huecos, el gasto de arriba describe menos dias de los que dice la ventana.
+  summary: {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    purchases: number;
+    purchase_value: number;
+    roas: number | null;
+    cac: number | null;
+    days_with_data: number;
+    // Que accion cuenta Meta como compra en esta cuenta. Si hay mas de una,
+    // las cifras de abajo no son comparables entre cuentas del ambito.
+    purchase_action_types: string[];
+  } | null;
   creatives: MetaCreativeRow[];
   ranking_distribution: Array<{
     dimension: string;
@@ -281,6 +298,7 @@ export async function getMetaInsights(
     const currency = await loadCurrency(supabase, organizationId, storeId);
 
     const [
+      summaryResult,
       creativesResult,
       rankingResult,
       learningResult,
@@ -288,6 +306,7 @@ export async function getMetaInsights(
       audiencesResult,
       changesResult,
     ] = await Promise.all([
+      supabase.rpc("meta_spend_summary", window),
       supabase.rpc("meta_creative_performance", {
         ...window,
         min_impressions: MIN_IMPRESSIONS_FOR_RATES,
@@ -309,6 +328,18 @@ export async function getMetaInsights(
 
     const unavailable: string[] = [];
 
+    // Sin filas no es un fallo: es una cuenta sin insights en la ventana. El
+    // fallo ya lo registra `rows` en `unavailable`, y son cosas distintas --
+    // "no gastaste nada" y "no se pudo calcular" no se pueden dibujar igual.
+    const summaryRow =
+      rows<Record<string, unknown>>(summaryResult, "resumen", unavailable)[0] ??
+      null;
+    // PostgREST devuelve `numeric` como cadena. Sin esta conversion, la moneda
+    // se formatea sobre un string y el ROAS se compara como texto.
+    const num = (value: unknown): number => Number(value) || 0;
+    const nullableNum = (value: unknown): number | null =>
+      value === null || value === undefined ? null : Number(value);
+
     const data: MetaInsightsData = {
       organization_id: organizationId,
       selected_connection_id: connectionId ?? null,
@@ -321,6 +352,23 @@ export async function getMetaInsights(
       currency,
       min_impressions_for_rates: MIN_IMPRESSIONS_FOR_RATES,
       change_window_days: CHANGE_WINDOW_DAYS,
+      summary: summaryRow
+        ? {
+            spend: num(summaryRow.spend),
+            impressions: num(summaryRow.impressions),
+            clicks: num(summaryRow.clicks),
+            purchases: num(summaryRow.purchases),
+            purchase_value: num(summaryRow.purchase_value),
+            roas: nullableNum(summaryRow.roas),
+            cac: nullableNum(summaryRow.cac),
+            days_with_data: num(summaryRow.days_with_data),
+            purchase_action_types: Array.isArray(
+              summaryRow.purchase_action_types,
+            )
+              ? (summaryRow.purchase_action_types as string[])
+              : [],
+          }
+        : null,
       creatives: rows(creativesResult, "creatives", unavailable),
       ranking_distribution: rows(rankingResult, "ranking", unavailable),
       learning: rows(learningResult, "learning", unavailable),

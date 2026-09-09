@@ -1,6 +1,7 @@
 "use client";
 
 import { Pagination as HeroPagination } from "@heroui/react";
+import { cn } from "./cn";
 import { IconChevronLeft, IconChevronRight } from "./icons";
 
 // Rango con elipsis: HeroUI Pagination es puramente presentacional (Link,
@@ -45,11 +46,16 @@ export function Pagination({
   }
 
   return (
-    <HeroPagination className={className} size="sm">
+    // En movil las etiquetas quedan en sr-only y solo se ven los chevrones:
+    // "Anterior" +
+    // 7 numeros + "Siguiente" son ~390px en una fila de 296px. El
+    // overflow-x-auto es la red por si el rango crece.
+    <HeroPagination className={cn("max-w-full overflow-x-auto", className)} size="sm">
       <HeroPagination.Content>
         <HeroPagination.Item>
           <HeroPagination.Previous isDisabled={page <= 1} onPress={() => onChange(page - 1)}>
-            <IconChevronLeft aria-hidden /> Anterior
+            <IconChevronLeft aria-hidden />
+            <span className="sr-only sm:not-sr-only">Anterior</span>
           </HeroPagination.Previous>
         </HeroPagination.Item>
         {paginationRange(page, pageCount).map((item, index) =>
@@ -67,7 +73,8 @@ export function Pagination({
         )}
         <HeroPagination.Item>
           <HeroPagination.Next isDisabled={page >= pageCount} onPress={() => onChange(page + 1)}>
-            Siguiente <IconChevronRight aria-hidden />
+            <span className="sr-only sm:not-sr-only">Siguiente</span>
+            <IconChevronRight aria-hidden />
           </HeroPagination.Next>
         </HeroPagination.Item>
       </HeroPagination.Content>

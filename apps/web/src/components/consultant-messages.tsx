@@ -268,7 +268,7 @@ export function MessageThread({
   }
 
   return (
-    <div className={`flex flex-col ${className ?? "h-[28rem]"}`}>
+    <div className={`flex flex-col ${className ?? "h-[55svh] min-h-72 lg:h-[28rem]"}`}>
       <div
         ref={scrollRef}
         className="flex-1 space-y-2 overflow-y-auto pr-1"

@@ -12,6 +12,9 @@ import {
   buildLeanOutputContract,
   checkOutputSanity,
   isBudgetNearlyExhausted,
+  estimateCostUsd,
+  evaluateAgentBudget,
+  PRICING_VERSION,
   runAgentTurn,
 } from "./index.js";
 
@@ -132,4 +135,138 @@ test("el contrato recortado no pide lo que la UI no pinta, pero conserva la form
       "answer",
     ),
   );
+});
+
+// ---------------------------------------------------------------------------
+// AI-30: fidelidad del registro de una ejecucion.
+// ---------------------------------------------------------------------------
+
+/**
+ * Ejecuta un turno de una sola vuelta contra un Anthropic simulado y devuelve
+ * el resultado. `usage` es lo que el proveedor "reporta": el punto de estos
+ * tests es que lo que NO reporta no se convierta en 0.
+ */
+async function runOneShotTurn(options: {
+  model: string;
+  usage: Record<string, number>;
+}) {
+  const answer = {
+    answer: "Respuesta valida.",
+    findings: [],
+    recommendations: [],
+    sources: [],
+    proposed_writes: [],
+    approval_required: false,
+    confidence: "low",
+    warnings: [],
+  };
+
+  const original = Anthropic.Messages.prototype.create;
+  Anthropic.Messages.prototype.create = async function () {
+    return {
+      stop_reason: "end_turn",
+      usage: options.usage,
+      content: [{ type: "text", text: JSON.stringify(answer) }],
+    };
+  } as never;
+
+  try {
+    return await runAgentTurn({
+      apiKey: "test",
+      model: options.model,
+      systemPrompt: "test",
+      input: {
+        run_id: "11111111-1111-4111-8111-111111111111",
+        agent_code: "a02_monitor_negocio",
+        agent_version: "v1",
+        organization_id: "00000000-0000-0000-0000-000000000000",
+        actor_user_id: "22222222-2222-4222-8222-222222222222",
+        trigger_type: "manual",
+        objective: "probar el registro de uso",
+        allowed_tools: [],
+        approval_mode: "required_before_write",
+      },
+      contextBlocks: [],
+    });
+  } finally {
+    Anthropic.Messages.prototype.create = original;
+  }
+}
+
+test("el turno declara que proveedor y modelo atendieron de verdad", async () => {
+  const result = await runOneShotTurn({
+    model: "claude-sonnet-5",
+    usage: { input_tokens: 1000, output_tokens: 100 },
+  });
+
+  // Este es el dato que antes solo quedaba como prosa dentro de un paso, y que
+  // el panel sustituia por agent_versions.model -- el CONFIGURADO, no el usado.
+  assert.equal(result.provider, "anthropic");
+  assert.equal(result.model, "claude-sonnet-5");
+  assert.equal(result.stopReason, "end_turn");
+});
+
+test("lo que el proveedor no reporta queda como null, nunca como 0", async () => {
+  // El proveedor no manda ningun campo de cache en este turno.
+  const result = await runOneShotTurn({
+    model: "claude-sonnet-5",
+    usage: { input_tokens: 1000, output_tokens: 100 },
+  });
+
+  assert.equal(
+    result.cacheReadTokens,
+    null,
+    "sin dato del proveedor, cacheReadTokens debe ser null: 0 significaria 'hubo cero hits', que es otra cosa",
+  );
+  assert.equal(result.cacheCreationTokens, null);
+  assert.equal(result.reasoningTokens, null);
+});
+
+test("lo que el proveedor si reporta se acumula como numero, incluido el cero", async () => {
+  const result = await runOneShotTurn({
+    model: "claude-sonnet-5",
+    usage: {
+      input_tokens: 1000,
+      output_tokens: 100,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 512,
+    },
+  });
+
+  // 0 reportado es un hecho distinto de null: el proveedor dijo "cero hits".
+  assert.equal(result.cacheReadTokens, 0);
+  assert.equal(result.cacheCreationTokens, 512);
+});
+
+test("un modelo sin tarifa deja el coste en null y lo marca como incidente", async () => {
+  const result = await runOneShotTurn({
+    model: "modelo-sin-tarifa",
+    usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 },
+  });
+
+  // Antes esto valia 0: una ejecucion cara pasaba por gratis, los topes de
+  // presupuesto no mordian y el panel de costes facturaba de menos.
+  assert.equal(result.estimatedCostUsd, null);
+  assert.equal(result.costBasis, "unknown_model");
+});
+
+test("un modelo tarifado registra coste y la version de precios aplicada", async () => {
+  const result = await runOneShotTurn({
+    model: "claude-sonnet-5",
+    usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 },
+  });
+
+  // claude-sonnet-5: $3/1M entrada + $15/1M salida.
+  assert.equal(result.estimatedCostUsd, 18);
+  assert.equal(result.costBasis, "priced");
+  assert.equal(result.pricingVersion, PRICING_VERSION);
+});
+
+test("sin precio conocido el tope en dolares no puede cortar, pero el de tools si", async () => {
+  // Con coste null, evaluar "0 > maxCostUsd" seria falso y dejaria el turno sin
+  // freno alguno. El presupuesto de tool calls sigue siendo cierto y aplicable.
+  const budget = { maxCostUsd: 0.01, maxToolCalls: 2 };
+  assert.equal(estimateCostUsd("modelo-sin-tarifa", 1_000_000, 1_000_000), null);
+  assert.equal(evaluateAgentBudget(budget, 0, 3).exceeded, true);
+  assert.equal(evaluateAgentBudget(budget, 0, 1).exceeded, false);
 });

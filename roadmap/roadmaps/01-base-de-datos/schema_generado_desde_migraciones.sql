@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (160 archivos).
+-- Regenerado desde supabase/migrations (168 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -17659,3 +17659,896 @@ $$;
 
 comment on function private.export_organization_data is
   'Exportacion de portabilidad de una organizacion. El conjunto de tablas se DERIVA (toda tabla base de public con organization_id) en vez de mantenerse a mano, que es como se quedo corta. Credentials remain excluded by design: el esquema private no se lee.';
+
+-- =============================================================================
+-- Migracion: 20260908280000_klaviyo_borrar_datos_de_demo.sql
+-- =============================================================================
+-- Saca los datos de demo de Klaviyo de cualquier organizacion que ademas tenga
+-- una conexion real.
+--
+-- Que paso: `scripts/seed-klaviyo-history.ts` reutilizaba la conexion Klaviyo
+-- que ya existiera en la org "cliente-demo-store" -- que es justo la que tiene
+-- la clave real. Resultado en produccion: /klaviyo mostraba arriba el
+-- inventario de verdad (1 flujo, 5 emails, los de NORA) y abajo, en
+-- "Rendimiento", 56 campanas sinteticas con 592.060 entregados y 466.109 EUR
+-- de ingresos atribuidos que no existen. Nada en la pantalla distinguia unas
+-- de otras, porque van a las mismas tablas.
+--
+-- Las filas del seed son inequivocas y no se solapan con ninguna real:
+--   klaviyo_report_runs.idempotency_key  like 'demo:campaign-values:%'
+--   klaviyo_campaigns.external_campaign_id like 'demo-camp-%'
+--   klaviyo_accounts.conversion_metric_id = 'demo-metric-placed-order'
+-- klaviyo_report_values cuelga de report_runs con `on delete cascade`, asi que
+-- se va con ellos.
+--
+-- El seed ya no puede repetirlo: ahora exige que la org NO tenga conexion
+-- Klaviyo real y aborta con KLAVIYO_SEED_REAL_CONNECTION_REFUSED.
+--
+-- Idempotente por naturaleza: un `delete` que no encuentra nada no falla.
+
+delete from public.klaviyo_report_runs
+where idempotency_key like 'demo:campaign-values:%';
+
+delete from public.klaviyo_campaigns
+where external_campaign_id like 'demo-camp-%';
+
+-- El seed tambien piso la cuenta real: le puso nombre de demo y una metrica de
+-- conversion inventada. Con ese id los informes de Klaviyo no pueden pedir
+-- valores. Se deja a null para que el consultor vuelva a elegirla en /klaviyo,
+-- que es de donde sale (no la resuelve el sync sola).
+update public.klaviyo_accounts
+set conversion_metric_id = null,
+    conversion_metric_name = null,
+    conversion_metric_source = null
+where conversion_metric_id = 'demo-metric-placed-order';
+
+update public.klaviyo_accounts
+set name = null
+where name like '%— Klaviyo (demo)';
+
+update public.integration_connections
+set provider_account_name = null
+where provider = 'klaviyo'
+  and provider_account_name = 'Klaviyo (datos de demo)';
+
+-- La conexion de demo pura (la que el seed crea cuando la org no tiene ninguna)
+-- se queda: ahi los datos sinteticos son legitimos y no enganan a nadie.
+
+-- =============================================================================
+-- Migracion: 20260908290000_meta_borrar_datos_de_demo.sql
+-- =============================================================================
+-- Saca los datos de demo de Meta Ads, por el mismo motivo que los de Klaviyo:
+-- estan en `cliente-demo-store`, que pese al nombre es la organizacion real de
+-- Rafa, y manana se conecta ahi una cuenta de Meta de verdad.
+--
+-- A diferencia del seed de Klaviyo, este NO secuestraba la conexion real: crea
+-- la suya con `provider_account_id = 'demo-act-0'` y su cuenta publicitaria
+-- `act_demo_0`. El problema es otro: al conectar la cuenta buena la org tendria
+-- dos conexiones Meta a la vez, y la de demo ya viene con `is_selected = true`
+-- y 550 dias x 3 anuncios de insights sinteticos.
+--
+-- Basta borrar la conexion: meta_ad_accounts cuelga de ella, y de la cuenta
+-- cuelgan meta_insight_rows_daily y meta_insight_action_metrics, todo con
+-- `on delete cascade` (20260717170000_db_06_meta_ads.sql).
+--
+-- Idempotente: un `delete` que no encuentra nada no falla.
+
+delete from public.integration_connections
+where provider = 'meta_ads'
+  and provider_account_id = 'demo-act-0';
+
+-- =============================================================================
+-- Migracion: 20260909100000_ai_meta_hallazgos_con_area.sql
+-- =============================================================================
+-- A23/A24/A25 v2: cada hallazgo dice DONDE se arregla.
+--
+-- El problema que resuelve: un hallazgo es texto. "El pixel lleva tres dias sin
+-- disparar" se lee, se asiente, y no lleva a ningun sitio. La pantalla de Meta
+-- tiene el bloque donde eso se ve, pero el usuario tiene que encontrarlo solo.
+--
+-- La solucion NO es que el modelo escriba el enlace: se inventaria rutas, y las
+-- que acertara hoy quedarian muertas en silencio al renombrar una pagina. En su
+-- lugar devuelve una CLAVE de una lista cerrada que enumera este prompt, y
+-- apps/web/src/app/meta/page.tsx la traduce a un ancla concreta. Una clave que
+-- la pantalla no reconozca es inerte: el hallazgo se dibuja sin enlace, como
+-- hasta ahora. Por eso tampoco se valida contra ningun conjunto en el backend
+-- -- la lista es distinta por agente y no merece tumbar una salida util.
+--
+-- El campo `area` viaja en el contrato comun (packages/ai): requerido y
+-- nulable, como `period` en sources. Los demas agentes, cuyo prompt no enumera
+-- claves, devuelven null y no cambian de comportamiento.
+--
+-- Idempotente: los prompts v2 se derivan del v1 con `replace` sobre un ancla
+-- exacta, `on conflict do nothing`, y las versiones de agente usan
+-- `do update set is_active` -- nunca `do nothing`, que sobre una base que ya
+-- tenia la fila desactivaria la vieja sin reactivar la nueva y dejaria al
+-- agente sin ninguna version activa.
+
+-- --- 1. Prompts v2 ----------------------------------------------------------
+--
+-- Se derivan del contenido v1 en vez de reescribirlo entero: copiar 50 lineas
+-- de prompt a mano es como se cuelan las diferencias que nadie ve luego en el
+-- diff. El `where position(...) > 0` evita insertar un v2 identico al v1 si el
+-- ancla se movio; el bloque de comprobacion del final convierte eso en un
+-- error ruidoso en vez de un agente que calla.
+
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  p.code,
+  'v2',
+  replace(
+    p.content,
+    'Espanol de negocio: nunca cites nombres de campo (hook_rate, quality_ranking...), traducelos.',
+    'Espanol de negocio: nunca cites nombres de campo (hook_rate, quality_ranking...), traducelos. Cada hallazgo lleva ademas `area`: donde se arregla, para que quien lo lea pueda ir. Solo estas claves y escritas tal cual: `creatividades` (la pieza concreta), `reparto` (a que se esta yendo el presupuesto), `general` (la cifra de cabecera de la cuenta). Si ninguna encaja, null. Jamas una URL ni texto libre.'
+  ),
+  encode(sha256('a23_creatividad_meta_system_v2'::bytea), 'hex')
+from public.prompt_versions p
+where p.code = 'a23_creatividad_meta_system'
+  and p.version = 'v1'
+  and position('nunca cites nombres de campo (hook_rate' in p.content) > 0
+on conflict (code, version) do nothing;
+
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  p.code,
+  'v2',
+  replace(
+    p.content,
+    'Espanol de negocio, sin nombres de campo.',
+    'Espanol de negocio, sin nombres de campo. Cada hallazgo lleva ademas `area`: donde se arregla, para que quien lo lea pueda ir. Solo estas claves y escritas tal cual: `medicion` (el pixel y sus eventos), `aprendizaje` (conjuntos que aun no salen de la fase), `general` (la cifra de cabecera de la cuenta). Si ninguna encaja, null. Jamas una URL ni texto libre.'
+  ),
+  encode(sha256('a24_medicion_meta_system_v2'::bytea), 'hex')
+from public.prompt_versions p
+where p.code = 'a24_medicion_meta_system'
+  and p.version = 'v1'
+  and position('Espanol de negocio, sin nombres de campo.' in p.content) > 0
+on conflict (code, version) do nothing;
+
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  p.code,
+  'v2',
+  replace(
+    p.content,
+    'Espanol de negocio, sin nombres de campo.',
+    'Espanol de negocio, sin nombres de campo. Cada hallazgo lleva ademas `area`: donde se arregla, para que quien lo lea pueda ir. Solo estas claves y escritas tal cual: `cambios` (que se toco y que paso despues), `publicos` (los publicos de la cuenta), `general` (la cifra de cabecera de la cuenta). Si ninguna encaja, null. Jamas una URL ni texto libre.'
+  ),
+  encode(sha256('a25_cambios_meta_system_v2'::bytea), 'hex')
+from public.prompt_versions p
+where p.code = 'a25_cambios_meta_system'
+  and p.version = 'v1'
+  and position('Espanol de negocio, sin nombres de campo.' in p.content) > 0
+on conflict (code, version) do nothing;
+
+-- --- 2. Versiones de agente -------------------------------------------------
+--
+-- Se copian del v1 (modelo, tools, modo de aprobacion) cambiando solo la
+-- version del prompt: si manana cambian las tools del v1, este bloque no se
+-- queda con una copia vieja escrita a mano.
+
+update public.agent_versions
+set is_active = false
+where is_active
+  and definition_id in (
+    select id from public.agent_definitions
+    where code in (
+      'a23_creatividad_meta',
+      'a24_medicion_meta',
+      'a25_cambios_meta'
+    )
+  );
+
+insert into public.agent_versions (
+  definition_id, version, model, prompt_code, prompt_version,
+  allowed_tools, approval_mode
+)
+select
+  v.definition_id, 'v2', v.model, v.prompt_code, 'v2',
+  v.allowed_tools, v.approval_mode
+from public.agent_versions v
+join public.agent_definitions d on d.id = v.definition_id
+where d.code in (
+    'a23_creatividad_meta',
+    'a24_medicion_meta',
+    'a25_cambios_meta'
+  )
+  and v.version = 'v1'
+on conflict (definition_id, version) do update
+  set is_active = excluded.is_active,
+      prompt_version = excluded.prompt_version;
+
+-- --- 3. Que no quede a medias -----------------------------------------------
+--
+-- No hay clave ajena entre agent_versions.prompt_version y prompt_versions: un
+-- v2 de agente apuntando a un prompt que no existe no falla aqui, falla en la
+-- cara del usuario la proxima vez que ejecute el agente. Se comprueba.
+
+do $meta_areas$
+declare
+  prompts integer;
+  versiones integer;
+begin
+  select count(*) into prompts
+  from public.prompt_versions
+  where version = 'v2'
+    and code in (
+      'a23_creatividad_meta_system',
+      'a24_medicion_meta_system',
+      'a25_cambios_meta_system'
+    )
+    and position('`area`' in content) > 0;
+
+  select count(*) into versiones
+  from public.agent_versions v
+  join public.agent_definitions d on d.id = v.definition_id
+  where v.version = 'v2'
+    and v.is_active
+    and d.code in (
+      'a23_creatividad_meta',
+      'a24_medicion_meta',
+      'a25_cambios_meta'
+    );
+
+  if prompts <> 3 or versiones <> 3 then
+    raise exception
+      'META_AREAS_INCOMPLETO: % prompts v2 con area y % versiones activas, se esperaban 3 y 3. El ancla del prompt v1 pudo cambiar.',
+      prompts, versiones;
+  end if;
+end
+$meta_areas$;
+
+-- =============================================================================
+-- Migracion: 20260909110000_ai_shopify_hallazgos_con_area.sql
+-- =============================================================================
+-- A20/A21/A22 v2: los hallazgos de Shopify tambien dicen donde se arreglan.
+--
+-- Mismo mecanismo que 20260909100000 hizo con los tres de Meta, y por el mismo
+-- motivo: el modelo devuelve una CLAVE de una lista cerrada, nunca una URL, y
+-- apps/web/src/app/shopify/page.tsx la traduce a un ancla. Una clave que la
+-- pantalla no reconozca es inerte -- el hallazgo se dibuja sin enlace.
+--
+-- `medicion` esta en las tres listas a proposito. Es el unico bloque que puede
+-- invalidar lo que los tres analizan: sin costes cargados el margen esta
+-- inflado, sin sesiones no hay conversion, sin seguimiento de inventario los
+-- agotados no significan nada. Cuando un agente concluya que algo va mal por
+-- falta de dato y no por el negocio, ahi es donde hay que ir.
+--
+-- Idempotente: los prompts v2 se derivan del v1 con `replace` sobre un ancla
+-- exacta, `on conflict do nothing`, y las versiones de agente usan
+-- `do update set is_active`, nunca `do nothing`.
+
+-- --- 1. Prompts v2 ----------------------------------------------------------
+
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  p.code,
+  'v2',
+  replace(
+    p.content,
+    'Espanol de negocio: nunca cites nombres de campo (repeat_order_rate, p90...), traducelos.',
+    'Espanol de negocio: nunca cites nombres de campo (repeat_order_rate, p90...), traducelos. Cada hallazgo lleva ademas `area`: donde se arregla, para que quien lo lea pueda ir. Solo estas claves y escritas tal cual: `clientes` (quien compra y cuanto vale), `cohortes` (quien vuelve mes a mes), `medicion` (lo que puede estar invalidando las cifras). Si ninguna encaja, null. Jamas una URL ni texto libre.'
+  ),
+  encode(sha256('a20_retencion_clientes_system_v2'::bytea), 'hex')
+from public.prompt_versions p
+where p.code = 'a20_retencion_clientes_system'
+  and p.version = 'v1'
+  and position('nunca cites nombres de campo (repeat_order_rate' in p.content) > 0
+on conflict (code, version) do nothing;
+
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  p.code,
+  'v2',
+  replace(
+    p.content,
+    'Espanol de negocio, sin nombres de campo.',
+    'Espanol de negocio, sin nombres de campo. Cada hallazgo lleva ademas `area`: donde se arregla, para que quien lo lea pueda ir. Solo estas claves y escritas tal cual: `origen` (de donde viene el comprador), `embudo` (cuanta gente entra y cuanta compra), `carritos` (los que llegaron al pago y se fueron), `promociones` (que codigo se uso y que trajo), `medicion` (lo que puede estar invalidando las cifras). Si ninguna encaja, null. Jamas una URL ni texto libre.'
+  ),
+  encode(sha256('a21_adquisicion_shopify_system_v2'::bytea), 'hex')
+from public.prompt_versions p
+where p.code = 'a21_adquisicion_shopify_system'
+  and p.version = 'v1'
+  and position('Espanol de negocio, sin nombres de campo.' in p.content) > 0
+on conflict (code, version) do nothing;
+
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  p.code,
+  'v2',
+  replace(
+    p.content,
+    'Espanol de negocio, sin nombres de campo.',
+    'Espanol de negocio, sin nombres de campo. Cada hallazgo lleva ademas `area`: donde se arregla, para que quien lo lea pueda ir. Solo estas claves y escritas tal cual: `operativa` (plazos de entrega y devoluciones), `ventas` (la cifra de ventas y sus productos), `medicion` (lo que puede estar invalidando las cifras). Si ninguna encaja, null. Jamas una URL ni texto libre.'
+  ),
+  encode(sha256('a22_postventa_shopify_system_v2'::bytea), 'hex')
+from public.prompt_versions p
+where p.code = 'a22_postventa_shopify_system'
+  and p.version = 'v1'
+  and position('Espanol de negocio, sin nombres de campo.' in p.content) > 0
+on conflict (code, version) do nothing;
+
+-- --- 2. Versiones de agente -------------------------------------------------
+
+update public.agent_versions
+set is_active = false
+where is_active
+  and definition_id in (
+    select id from public.agent_definitions
+    where code in (
+      'a20_retencion_clientes',
+      'a21_adquisicion_shopify',
+      'a22_postventa_shopify'
+    )
+  );
+
+insert into public.agent_versions (
+  definition_id, version, model, prompt_code, prompt_version,
+  allowed_tools, approval_mode
+)
+select
+  v.definition_id, 'v2', v.model, v.prompt_code, 'v2',
+  v.allowed_tools, v.approval_mode
+from public.agent_versions v
+join public.agent_definitions d on d.id = v.definition_id
+where d.code in (
+    'a20_retencion_clientes',
+    'a21_adquisicion_shopify',
+    'a22_postventa_shopify'
+  )
+  and v.version = 'v1'
+on conflict (definition_id, version) do update
+  set is_active = excluded.is_active,
+      prompt_version = excluded.prompt_version;
+
+-- --- 3. Que no quede a medias -----------------------------------------------
+--
+-- No hay clave ajena entre agent_versions.prompt_version y prompt_versions: un
+-- v2 apuntando a un prompt inexistente no falla aqui, falla la proxima vez que
+-- alguien ejecute el agente.
+
+do $shopify_areas$
+declare
+  prompts integer;
+  versiones integer;
+begin
+  select count(*) into prompts
+  from public.prompt_versions
+  where version = 'v2'
+    and code in (
+      'a20_retencion_clientes_system',
+      'a21_adquisicion_shopify_system',
+      'a22_postventa_shopify_system'
+    )
+    and position('`area`' in content) > 0;
+
+  select count(*) into versiones
+  from public.agent_versions v
+  join public.agent_definitions d on d.id = v.definition_id
+  where v.version = 'v2'
+    and v.is_active
+    and d.code in (
+      'a20_retencion_clientes',
+      'a21_adquisicion_shopify',
+      'a22_postventa_shopify'
+    );
+
+  if prompts <> 3 or versiones <> 3 then
+    raise exception
+      'SHOPIFY_AREAS_INCOMPLETO: % prompts v2 con area y % versiones activas, se esperaban 3 y 3. El ancla del prompt v1 pudo cambiar.',
+      prompts, versiones;
+  end if;
+end
+$shopify_areas$;
+
+-- =============================================================================
+-- Migracion: 20260909120000_ai_klaviyo_hallazgos_con_area.sql
+-- =============================================================================
+-- A26/A12 v2: los hallazgos de Klaviyo dicen donde se arreglan. Cierra el
+-- patron que 20260909100000 (Meta) y 20260909110000 (Shopify) ya aplicaron.
+--
+-- Mismo mecanismo: clave de una lista cerrada, nunca una URL; la traduce
+-- apps/web/src/app/klaviyo/page.tsx a un ancla. Clave desconocida = hallazgo
+-- sin enlace, que es como se dibujaba hasta ahora.
+--
+-- Dos diferencias con los otros modulos, ambas deliberadas:
+--
+-- 1. A26 NO tiene `rendimiento`. Ese agente lee asuntos, cuerpos y enlaces; su
+--    prompt le prohibe expresamente juzgar con cifras que no recibe ("Aqui no
+--    tienes rendimiento... una hipotesis a comprobar, no un dato"). Darle el
+--    area le dejaria mandar al lector a una tabla que no ha mirado.
+--
+-- 2. A12 no sigue el formato de 9 secciones: su prompt es un bloque unico. El
+--    ancla es su frase sobre el lenguaje, que es donde ya viven las reglas de
+--    salida.
+--
+-- Idempotente: `replace` sobre un ancla exacta, `on conflict do nothing`, y las
+-- versiones de agente con `do update set is_active`, nunca `do nothing`.
+
+-- --- 1. Prompts v2 ----------------------------------------------------------
+
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  p.code,
+  'v2',
+  replace(
+    p.content,
+    'Espanol de negocio: nunca cites nombres de campo (adds_utm, preview_text...), traducelos.',
+    'Espanol de negocio: nunca cites nombres de campo (adds_utm, preview_text...), traducelos. Cada hallazgo lleva ademas `area`: donde se arregla, para que quien lo lea pueda ir. Solo estas claves y escritas tal cual: `emails` (el asunto, el cuerpo o los enlaces de una pieza concreta), `medicion` (el etiquetado de enlaces y lo que hace invisible el efecto). Si ninguna encaja, null. Jamas una URL ni texto libre. No existe un area de rendimiento: tu no recibes esas cifras.'
+  ),
+  encode(sha256('a26_contenido_email_system_v2'::bytea), 'hex')
+from public.prompt_versions p
+where p.code = 'a26_contenido_email_system'
+  and p.version = 'v1'
+  and position('nunca cites nombres de campo (adds_utm' in p.content) > 0
+on conflict (code, version) do nothing;
+
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  p.code,
+  'v2',
+  replace(
+    p.content,
+    'nunca cites nombres de campo (flow_share_pct, open_rate...); traducelos.',
+    'nunca cites nombres de campo (flow_share_pct, open_rate...); traducelos. Cada hallazgo lleva ademas `area`: donde se arregla, para que quien lo lea pueda ir. Solo estas claves y escritas tal cual: `rendimiento` (las cifras por envio y por asunto), `emails` (que emails existen y que dicen), `medicion` (el etiquetado de enlaces y lo que hace invisible el efecto). Si ninguna encaja, null. Jamas una URL ni texto libre.'
+  ),
+  encode(sha256('a12_analista_email_system_v2'::bytea), 'hex')
+from public.prompt_versions p
+where p.code = 'a12_analista_email_system'
+  and p.version = 'v1'
+  and position('nunca cites nombres de campo (flow_share_pct' in p.content) > 0
+on conflict (code, version) do nothing;
+
+-- --- 2. Versiones de agente -------------------------------------------------
+
+update public.agent_versions
+set is_active = false
+where is_active
+  and definition_id in (
+    select id from public.agent_definitions
+    where code in ('a26_contenido_email', 'a12_analista_email')
+  );
+
+insert into public.agent_versions (
+  definition_id, version, model, prompt_code, prompt_version,
+  allowed_tools, approval_mode
+)
+select
+  v.definition_id, 'v2', v.model, v.prompt_code, 'v2',
+  v.allowed_tools, v.approval_mode
+from public.agent_versions v
+join public.agent_definitions d on d.id = v.definition_id
+where d.code in ('a26_contenido_email', 'a12_analista_email')
+  and v.version = 'v1'
+on conflict (definition_id, version) do update
+  set is_active = excluded.is_active,
+      prompt_version = excluded.prompt_version;
+
+-- --- 3. Que no quede a medias -----------------------------------------------
+
+do $klaviyo_areas$
+declare
+  prompts integer;
+  versiones integer;
+begin
+  select count(*) into prompts
+  from public.prompt_versions
+  where version = 'v2'
+    and code in ('a26_contenido_email_system', 'a12_analista_email_system')
+    and position('`area`' in content) > 0;
+
+  select count(*) into versiones
+  from public.agent_versions v
+  join public.agent_definitions d on d.id = v.definition_id
+  where v.version = 'v2'
+    and v.is_active
+    and d.code in ('a26_contenido_email', 'a12_analista_email');
+
+  if prompts <> 2 or versiones <> 2 then
+    raise exception
+      'KLAVIYO_AREAS_INCOMPLETO: % prompts v2 con area y % versiones activas, se esperaban 2 y 2. El ancla del prompt v1 pudo cambiar.',
+      prompts, versiones;
+  end if;
+end
+$klaviyo_areas$;
+
+-- =============================================================================
+-- Migracion: 20260909130000_ai_30_trazabilidad_ejecuciones.sql
+-- =============================================================================
+-- AI-30 fase 1: correlacion y fidelidad del registro de ejecuciones de IA.
+--
+-- El audit (docs/ai/AI_INFRASTRUCTURE_AUDIT.md) encontro que agent_runs ya es
+-- una buena tabla de trazas -- tiene tenant, objetivo, tokens, coste, latencia,
+-- estado y RLS -- pero le faltan los datos que hacen falta para investigar un
+-- incidente de verdad. Esta migracion NO crea tablas nuevas: anade columnas a
+-- la que ya existe, porque el modelo TRACE/SPAN ya esta cubierto por
+-- agent_runs + agent_run_steps y duplicarlo seria peor.
+--
+-- Lo que se arregla, en orden de gravedad:
+--
+-- 1. provider/model. runAgentTurnWithFallbackCore puede caer de Anthropic a
+--    OpenAI en silencio, y el modelo real solo quedaba como texto dentro del
+--    payload de un paso ("Llamada al modelo X"). El panel mostraba
+--    agent_versions.model, que es el CONFIGURADO, no el ejecutado: ante un
+--    incidente podia mentir sobre quien respondio.
+--
+-- 2. estimated_cost_usd pasa a nullable. Antes era `not null default 0` y
+--    estimateCostUsd devolvia 0 para un modelo sin precio conocido: coste cero
+--    silencioso, presupuestos que dejan de morder y facturacion falsa. Ahora
+--    null = "no lo sabemos" y cost_basis dice por que. Los agregados existentes
+--    ya toleran null: sum() ignora nulls y todos los consumidores TS hacen
+--    `Number(x ?? 0)` (apps/api/src/consultant.ts, ai-runtime.ts).
+--
+-- 3. cache_read_tokens pasa a nullable por el mismo motivo: "el proveedor no
+--    informo" y "hubo cero hits" no son el mismo hecho y no pueden compartir 0.
+--
+-- 4. trace_id / parallel_group_id / parent_run_id / root_run_id. La API ya
+--    genera x-request-id y el orquestador ya genera tick_id, pero ninguno
+--    llegaba a agent_runs: no se podia unir una peticion del navegador con la
+--    ejecucion que provoco, ni agrupar las N ejecuciones de una misma pasada.
+--
+-- Las columnas de jerarquia se anaden aunque hoy sean null en el 100% de las
+-- filas (no hay subagentes todavia): son nullable + indice, cuestan casi nada,
+-- y evitan una migracion con backfill sobre una tabla ya grande el dia que se
+-- introduzca el primero.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md): todo con `if not exists`, los checks se
+-- borran antes de crearse y el backfill filtra por `is null`.
+
+-- --------------------------------------------------------------------------
+-- 1. Proveedor y modelo realmente usados
+-- --------------------------------------------------------------------------
+
+alter table public.agent_runs
+  add column if not exists provider varchar(40);
+
+alter table public.agent_runs
+  add column if not exists model varchar(120);
+
+comment on column public.agent_runs.provider is
+  'Proveedor que atendio realmente el turno (anthropic/openai). Puede diferir del configurado en agent_versions cuando actua el fallback R-020. null = ejecuciones anteriores a AI-30.';
+
+comment on column public.agent_runs.model is
+  'Modelo que atendio realmente el turno. No usar agent_versions.model para auditar: ese es el configurado, no el ejecutado.';
+
+-- --------------------------------------------------------------------------
+-- 2. Coste honesto
+-- --------------------------------------------------------------------------
+
+alter table public.agent_runs
+  alter column estimated_cost_usd drop not null;
+
+alter table public.agent_runs
+  alter column estimated_cost_usd drop default;
+
+alter table public.agent_runs
+  add column if not exists cost_basis varchar(20);
+
+alter table public.agent_runs
+  drop constraint if exists agent_runs_cost_basis;
+
+alter table public.agent_runs
+  add constraint agent_runs_cost_basis
+  check (cost_basis is null or cost_basis in ('priced', 'unknown_model'));
+
+alter table public.agent_runs
+  add column if not exists pricing_version varchar(40);
+
+comment on column public.agent_runs.estimated_cost_usd is
+  'Coste estimado en USD. null = no se pudo calcular (modelo sin precio en MODEL_PRICING); ver cost_basis. NUNCA rellenar con 0 para representar desconocimiento.';
+
+comment on column public.agent_runs.cost_basis is
+  'priced = el coste sale de una tarifa conocida. unknown_model = el modelo no esta tarifado y el coste es null; el run debe aparecer como incidente en el panel, no como gratis.';
+
+comment on column public.agent_runs.pricing_version is
+  'Version de la tabla de precios aplicada (PRICING_VERSION en packages/ai/src/provider-capabilities.ts). Permite auditar un coste historico despues de cambiar una tarifa.';
+
+-- --------------------------------------------------------------------------
+-- 3. Uso reportado por el proveedor: null = no lo reporto
+-- --------------------------------------------------------------------------
+
+alter table public.agent_runs
+  alter column cache_read_tokens drop not null;
+
+alter table public.agent_runs
+  alter column cache_read_tokens drop default;
+
+alter table public.agent_runs
+  add column if not exists cache_creation_tokens bigint;
+
+alter table public.agent_runs
+  add column if not exists reasoning_tokens bigint;
+
+comment on column public.agent_runs.cache_read_tokens is
+  'Tokens leidos de prompt cache segun el proveedor. null = no informo del campo en este turno (distinto de 0 = informo y fue cero).';
+
+comment on column public.agent_runs.cache_creation_tokens is
+  'Tokens de creacion de prompt cache. null = el proveedor no lo reporta (hoy: siempre en OpenAI).';
+
+comment on column public.agent_runs.reasoning_tokens is
+  'Tokens de razonamiento. null = el modelo/proveedor no los expone. No inventar 0.';
+
+-- --------------------------------------------------------------------------
+-- 4. Correlacion: traza, jerarquia y ejecucion en paralelo
+-- --------------------------------------------------------------------------
+
+alter table public.agent_runs
+  add column if not exists trace_id text;
+
+alter table public.agent_runs
+  add column if not exists parent_run_id uuid references public.agent_runs (id) on delete set null;
+
+alter table public.agent_runs
+  add column if not exists root_run_id uuid references public.agent_runs (id) on delete set null;
+
+alter table public.agent_runs
+  add column if not exists parallel_group_id text;
+
+alter table public.agent_runs
+  add column if not exists deployment_version varchar(80);
+
+comment on column public.agent_runs.trace_id is
+  'Correlacion de la operacion completa. Origen: x-request-id de la API (apps/api/src/server.ts) o el tick_id del orquestador. Un run sin padre tiene trace_id propio. Es text, no uuid: el identificador puede venir de un cliente o de un sistema de tracing externo y no siempre es un uuid.';
+
+comment on column public.agent_runs.parent_run_id is
+  'Run que delego este (subagentes). null = ejecucion raiz. Hoy siempre null: no hay subagentes todavia.';
+
+comment on column public.agent_runs.root_run_id is
+  'Raiz del arbol de ejecucion, para poder pintarlo sin CTE recursiva en el caso comun. Igual a id en una ejecucion raiz.';
+
+comment on column public.agent_runs.parallel_group_id is
+  'Lote de ejecuciones lanzadas juntas. Hoy: el tick_id de runDiagnosticOrchestratorTick, que ya se registra en ai_diagnostic_gate_log pero no se podia unir con los runs.';
+
+comment on column public.agent_runs.deployment_version is
+  'Version de la aplicacion desplegada (GIT_SHA). Permite atar un comportamiento de produccion al commit exacto que lo produjo.';
+
+-- --------------------------------------------------------------------------
+-- 5. Como termino y cuanto trabajo costo
+-- --------------------------------------------------------------------------
+
+alter table public.agent_runs
+  add column if not exists stop_reason varchar(60);
+
+alter table public.agent_runs
+  add column if not exists model_calls integer;
+
+alter table public.agent_runs
+  add column if not exists tool_call_count integer;
+
+alter table public.agent_runs
+  add column if not exists budget_max_cost_usd numeric(12, 6);
+
+alter table public.agent_runs
+  add column if not exists budget_max_tool_calls integer;
+
+comment on column public.agent_runs.stop_reason is
+  'stop_reason/finish_reason tal cual lo devuelve el proveedor. Se guarda sin normalizar: el valor crudo es lo que sirve para depurar contra su documentacion.';
+
+comment on column public.agent_runs.budget_max_cost_usd is
+  'Tope de coste realmente aplicado a este run (resolveAgentBudget lo calcula en memoria desde env vars). Sin esto, un run cortado por presupuesto no dice contra que limite murio.';
+
+-- Estados nuevos: timeout y cancelled dejan de confundirse con failed.
+alter table public.agent_runs
+  drop constraint if exists agent_runs_status;
+
+alter table public.agent_runs
+  add constraint agent_runs_status
+  check (
+    status in (
+      'running',
+      'succeeded',
+      'failed',
+      'rejected_output',
+      'budget_exceeded',
+      'timeout',
+      'cancelled'
+    )
+  );
+
+-- --------------------------------------------------------------------------
+-- 6. Indices
+-- --------------------------------------------------------------------------
+
+-- Buscar por traza es la accion numero uno al investigar un incidente ("me han
+-- pasado este x-request-id"): debe ser inmediata sin filtrar antes por org.
+create index if not exists agent_runs_trace_id_idx
+  on public.agent_runs (trace_id)
+  where trace_id is not null;
+
+create index if not exists agent_runs_parallel_group_idx
+  on public.agent_runs (parallel_group_id, started_at)
+  where parallel_group_id is not null;
+
+create index if not exists agent_runs_root_run_idx
+  on public.agent_runs (root_run_id)
+  where root_run_id is not null;
+
+-- Coste por proveedor/modelo y por dia: la consulta del dashboard de costes.
+create index if not exists agent_runs_provider_model_started_idx
+  on public.agent_runs (provider, model, started_at);
+
+-- Los runs sin coste calculable son un incidente que hay que poder listar.
+create index if not exists agent_runs_cost_basis_unknown_idx
+  on public.agent_runs (started_at)
+  where cost_basis = 'unknown_model';
+
+-- --------------------------------------------------------------------------
+-- 7. Backfill
+-- --------------------------------------------------------------------------
+
+-- Las ejecuciones anteriores a AI-30 no saben su proveedor real, y no se puede
+-- deducir: el fallback a OpenAI no dejaba rastro. Se dejan con provider/model
+-- null (= desconocido, honesto) en vez de asignarles el modelo configurado, que
+-- seria inventarse el dato justo en las filas donde mas podria enganar.
+--
+-- Lo que si se puede afirmar de ellas: su coste se calculo con la tabla de
+-- precios de entonces y no fue null, asi que cost_basis 'priced' es cierto.
+update public.agent_runs
+set cost_basis = 'priced'
+where cost_basis is null
+  and estimated_cost_usd is not null;
+
+-- Una ejecucion sin padre es su propia raiz. Deja el arbol coherente desde el
+-- primer dia para que la consulta del panel no necesite un caso especial.
+update public.agent_runs
+set root_run_id = id
+where root_run_id is null
+  and parent_run_id is null;
+
+-- =============================================================================
+-- Migracion: 20260909140000_ai_30_eventos_de_seguridad.sql
+-- =============================================================================
+-- AI-30 fase 4: eventos de seguridad de las ejecuciones de IA.
+--
+-- El audit (docs/ai/AI_INFRASTRUCTURE_AUDIT.md, ficha 26) encontro que las
+-- defensas ya existian y funcionaban, pero no dejaban rastro:
+--
+--   * `serializeUntrustedContextBlocks` contaba los patrones de inyeccion
+--     neutralizados y `runAgentTurn` tiraba el numero
+--     (packages/ai/src/index.ts). Un intento de inyeccion se limpiaba y
+--     desaparecia: no habia forma de saber si nos atacan.
+--   * Una herramienta pedida fuera del catalogo devolvia un error al modelo y
+--     no quedaba constancia en ningun sitio.
+--
+-- Esta tabla NO detecta nada nuevo. Es el destino de lo que ya se detectaba.
+--
+-- Por que una tabla propia y no una fila mas en `agent_run_steps`: los pasos
+-- son la narracion cronologica de un run y se consultan por run; los eventos de
+-- seguridad se consultan al reves -- "dame todos los intentos de inyeccion de
+-- la ultima semana, de cualquier organizacion" -- y necesitan severidad y sus
+-- propios indices. Meterlos en `agent_run_steps` obligaria a filtrar por
+-- step_type sobre una tabla mucho mas grande y sin indice util.
+--
+-- Contenido: METADATOS, nunca el texto que provoco el evento. El texto de un
+-- intento de inyeccion es contenido no confiable y puede traer datos personales
+-- del cliente; guardarlo en una tabla de auditoria mueve el problema en vez de
+-- resolverlo.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+create table if not exists public.ai_security_events (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  -- Nullable: un evento puede detectarse fuera de un turno (por ejemplo al
+  -- validar una peticion antes de crear el run).
+  run_id uuid references public.agent_runs (id) on delete cascade,
+  -- Correlacion con el resto de la operacion aunque el run se borre.
+  trace_id text,
+  event_type varchar(60) not null,
+  severity varchar(20) not null,
+  -- Donde se detecto: context_block, tool_result, tool_registry...
+  source varchar(60) not null,
+  -- Metadatos ya redactados. Nunca el contenido que provoco el evento.
+  detail jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  constraint ai_security_events_type check (
+    event_type in (
+      'prompt_injection_detected',
+      'tool_poisoning_suspected',
+      'unauthorized_tool_attempt',
+      'permission_denied',
+      'sensitive_data_access_attempt',
+      'policy_violation'
+    )
+  ),
+  constraint ai_security_events_severity check (
+    severity in ('info', 'low', 'medium', 'high', 'critical')
+  )
+);
+
+comment on table public.ai_security_events is
+  'Eventos de seguridad de ejecuciones de IA. Solo metadatos: nunca el texto que provoco el evento, que es contenido no confiable y puede contener datos personales.';
+
+comment on column public.ai_security_events.detail is
+  'Metadatos ya pasados por sanitizeForTelemetry. Cuantos patrones, que herramienta, que bloques. Nunca el payload.';
+
+-- Investigar un incidente empieza por "que ha pasado ultimamente y de que
+-- gravedad", no por un run concreto.
+create index if not exists ai_security_events_created_severity_idx
+  on public.ai_security_events (created_at desc, severity);
+
+create index if not exists ai_security_events_organization_idx
+  on public.ai_security_events (organization_id, created_at desc);
+
+create index if not exists ai_security_events_run_idx
+  on public.ai_security_events (run_id)
+  where run_id is not null;
+
+create index if not exists ai_security_events_type_idx
+  on public.ai_security_events (event_type, created_at desc);
+
+alter table public.ai_security_events enable row level security;
+
+-- Mismo criterio que agent_context_snapshots y agent_query_runs: un evento de
+-- seguridad puede revelar como se ataca al sistema y que herramientas existen,
+-- asi que no lo ve un cliente final aunque sea de su organizacion. Escritura
+-- solo por service role (sin policy de insert), como el resto del runtime.
+drop policy if exists "ai_security_events_select_staff" on public.ai_security_events;
+create policy "ai_security_events_select_staff" on public.ai_security_events
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+-- =============================================================================
+-- Migracion: 20260909150000_ai_30_retencion_eventos_de_seguridad.sql
+-- =============================================================================
+-- AI-30: retencion de los eventos de seguridad de IA.
+--
+-- `private.purge_expired_ai_context` (20260826173000) redacta el contexto de IA
+-- a los 180 dias. Los eventos de seguridad NO pueden colgar de esa politica por
+-- dos motivos:
+--
+--   1. Deben vivir MAS que el contexto, no menos. Un patron de ataque se ve
+--      comparando meses; borrarlos a la vez que la evidencia operativa deja el
+--      analisis ciego justo donde hace falta memoria larga.
+--   2. No hay nada que redactar. La tabla es metadata-only por diseno (nunca el
+--      texto que provoco el evento), asi que la operacion correcta al vencer el
+--      plazo es borrar la fila, no vaciarle campos.
+--
+-- Funcion aparte y no un parametro mas en la existente: anadir un parametro con
+-- `default` a una funcion ya desplegada crea una sobrecarga y deja la llamada
+-- antigua ambigua (ver CLAUDE.md). Dos horizontes distintos justifican dos
+-- funciones distintas.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md): `create or replace` y `drop` previo.
+
+drop function if exists private.purge_expired_ai_security_events(timestamptz, integer);
+
+create or replace function private.purge_expired_ai_security_events(
+  p_before timestamptz,
+  p_limit integer default 1000
+)
+returns jsonb
+language plpgsql
+set search_path = pg_catalog, public, private
+as $$
+declare
+  deleted_count integer;
+begin
+  if p_before >= clock_timestamp() then
+    raise exception 'purge_cutoff_must_be_in_the_past';
+  end if;
+  if p_limit < 1 or p_limit > 10000 then
+    raise exception 'purge_limit_out_of_range';
+  end if;
+
+  with candidates as (
+    select id from public.ai_security_events
+    where created_at < p_before
+    order by created_at asc limit p_limit
+  )
+  delete from public.ai_security_events target
+  using candidates
+  where target.id = candidates.id;
+  get diagnostics deleted_count = row_count;
+
+  return jsonb_build_object('ai_security_events_deleted', deleted_count);
+end;
+$$;
+
+revoke all on function private.purge_expired_ai_security_events(timestamptz, integer) from public;
+grant execute on function private.purge_expired_ai_security_events(timestamptz, integer) to service_role;
+
+comment on function private.purge_expired_ai_security_events(timestamptz, integer) is
+  'Borra eventos de seguridad de IA vencidos. Horizonte mas largo que el del contexto (private.purge_expired_ai_context): la evidencia de seguridad necesita memoria larga para poder comparar meses.';

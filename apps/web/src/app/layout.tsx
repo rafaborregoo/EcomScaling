@@ -27,6 +27,12 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Con el teclado virtual abierto, el viewport de maquetacion NO encoge por
+  // defecto: los contenedores `position: fixed` (el drawer del Consultor IA, la
+  // hoja inferior del menu, la de notificaciones) mantienen su alto y su campo
+  // de texto queda debajo del teclado. `resizes-content` encoge el viewport, que
+  // es lo que hace una app nativa.
+  interactiveWidget: "resizes-content",
   themeColor: "#ffffff",
 };
 

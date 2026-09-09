@@ -71,13 +71,16 @@ const apiEnvSchema = z.object({
   AI_PLAN_BUDGETS_JSON: z.string().min(1).optional(),
   // AI-14: direct por defecto; langgraph solo se activa explícitamente en un
   // entorno de shadow/piloto tras validar paridad.
-  AI_ORCHESTRATION_MODE: z.enum(["direct", "langgraph"]).optional(),
   // Observabilidad opcional de agentes. Nunca se activa solo por tener una
   // API key: exige LANGSMITH_TRACING=true y pasa por el adaptador de @ecomscaling/ai.
   LANGSMITH_TRACING: z.enum(["true", "false"]).optional(),
   LANGSMITH_API_KEY: z.string().min(1).optional(),
   LANGSMITH_PROJECT: z.string().min(1).optional(),
   APP_ENV: z.string().min(1).optional(),
+  // AI-30: commit desplegado. Se inyecta en el build de la imagen (deploy/) y se
+  // guarda en agent_runs.deployment_version para poder atar un comportamiento
+  // de produccion al codigo exacto que lo produjo.
+  GIT_SHA: z.string().min(1).optional(),
   // Embeddings para RAG (AI-04). Opcional: sin key, la ingestion/busqueda de
   // conocimiento devuelve 503 y la tool search_knowledge no se habilita.
   VOYAGE_API_KEY: z.string().min(1).optional(),
@@ -147,11 +150,11 @@ export type LoadedApiEnv = {
   OPENAI_MODEL?: string;
   AI_MODEL_ROUTING_JSON?: string;
   AI_PLAN_BUDGETS_JSON?: string;
-  AI_ORCHESTRATION_MODE?: "direct" | "langgraph";
   LANGSMITH_TRACING?: "true" | "false";
   LANGSMITH_API_KEY?: string;
   LANGSMITH_PROJECT?: string;
   APP_ENV?: string;
+  GIT_SHA?: string;
   VOYAGE_API_KEY?: string;
   INTERNAL_API_SECRET?: string;
   REDIS_URL?: string;
@@ -281,7 +284,7 @@ export function loadApiEnv(
             ? { META_GRAPH_VERSION: env.META_GRAPH_VERSION }
             : {}),
           META_SCOPES:
-            env.META_SCOPES ?? "ads_read,business_management,pages_show_list",
+            env.META_SCOPES ?? "ads_read,ads_management,business_management,pages_show_list",
           ...(env.META_INSIGHTS_MODE
             ? { META_INSIGHTS_MODE: env.META_INSIGHTS_MODE }
             : {}),
@@ -317,9 +320,6 @@ export function loadApiEnv(
     ...(env.AI_PLAN_BUDGETS_JSON
       ? { AI_PLAN_BUDGETS_JSON: env.AI_PLAN_BUDGETS_JSON }
       : {}),
-    ...(env.AI_ORCHESTRATION_MODE
-      ? { AI_ORCHESTRATION_MODE: env.AI_ORCHESTRATION_MODE }
-      : {}),
     ...(env.LANGSMITH_TRACING
       ? { LANGSMITH_TRACING: env.LANGSMITH_TRACING }
       : {}),
@@ -330,6 +330,7 @@ export function loadApiEnv(
       ? { LANGSMITH_PROJECT: env.LANGSMITH_PROJECT }
       : {}),
     ...(env.APP_ENV ? { APP_ENV: env.APP_ENV } : {}),
+    ...(env.GIT_SHA ? { GIT_SHA: env.GIT_SHA } : {}),
     ...(env.VOYAGE_API_KEY ? { VOYAGE_API_KEY: env.VOYAGE_API_KEY } : {}),
     ...(env.INTERNAL_API_SECRET
       ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET }

@@ -8,6 +8,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { z } from "zod";
 import {
+  costBasisFor,
+  estimateCostUsd,
+  PRICING_VERSION,
+  type AIProviderId,
+  type CostBasis,
+} from "./provider-capabilities.js";
+import {
   AgentResiliencePolicy,
   DEFAULT_AGENT_RESILIENCE_POLICY,
   withAgentResilience,
@@ -16,10 +23,12 @@ import {
   serializeUntrustedContextBlocks,
   serializeUntrustedToolResult,
 } from "./untrusted-context.js";
+import type { AgentSecurityEventSink } from "./security-events.js";
 
+export * from "./provider-capabilities.js";
+export * from "./security-events.js";
 export * from "./tool-layer.js";
 export * from "./release-gate.js";
-export * from "./agent-orchestration.js";
 export * from "./langsmith-observability.js";
 export * from "./resilience.js";
 export * from "./untrusted-context.js";
@@ -175,6 +184,17 @@ export const agentFindingSchema = z.object({
   title: z.string(),
   severity: z.enum(["info", "low", "medium", "high", "critical"]),
   evidence: z.string(),
+  // A donde se va a arreglar esto. Clave corta de una lista cerrada que fija
+  // el prompt de cada agente; la pantalla la traduce a un bloque concreto.
+  //
+  // Por que una clave y no una URL: si el modelo escribiera el enlace se
+  // inventaria rutas, y las que hoy acertara quedarian muertas en silencio al
+  // renombrar una pagina. Con una clave, lo peor que puede pasar es que la
+  // pantalla no la reconozca y el hallazgo se quede como texto -- exactamente
+  // lo que ya hacia. Por eso NO se valida aqui contra ningun conjunto: la
+  // lista es distinta por agente y un area desconocida es inerte, no un error
+  // que tumbe una salida por lo demas util.
+  area: z.string().nullish(),
 });
 
 export const agentRecommendationSchema = z.object({
@@ -255,13 +275,22 @@ export const agentOutputJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "severity", "evidence"],
+        required: ["title", "severity", "evidence", "area"],
         properties: {
           title: { type: "string" },
           severity: { type: "string", enum: severityEnum },
           evidence: {
             type: "string",
             description: "Cifra concreta y periodo del que sale.",
+          },
+          // Requerido y nulable, como `period` en sources: el resto del
+          // esquema no tiene propiedades opcionales y no se abre esa puerta
+          // por un campo. Los agentes cuyo prompt no define lista devuelven
+          // null, y la pantalla dibuja el hallazgo sin enlace.
+          area: {
+            type: ["string", "null"],
+            description:
+              "Donde se arregla esto. UNICAMENTE una de las claves que enumere tu propio prompt, tal cual. null si tu prompt no las enumera o si ninguna encaja. Nunca una URL ni texto libre.",
           },
         },
       },
@@ -1451,57 +1480,145 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Modelo de costes (USD por millon de tokens; actualizar junto al modelo)
-// ---------------------------------------------------------------------------
-
-const MODEL_PRICING: Record<
-  string,
-  { inputPerMTok: number; outputPerMTok: number }
-> = {
-  "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
-  "claude-sonnet-5": { inputPerMTok: 3, outputPerMTok: 15 },
-  "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
-  // R-020: fallback OpenAI. Verificar contra https://openai.com/api/pricing
-  // antes de confiar en estimated_cost_usd para presupuesto real.
-  "gpt-4.1": { inputPerMTok: 2, outputPerMTok: 8 },
-  "gpt-4.1-mini": { inputPerMTok: 0.4, outputPerMTok: 1.6 },
-  "gpt-4.1-nano": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
-};
-
-export function estimateCostUsd(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-) {
-  const pricing = MODEL_PRICING[model];
-
-  if (!pricing) {
-    return 0;
-  }
-
-  return (
-    (inputTokens / 1_000_000) * pricing.inputPerMTok +
-    (outputTokens / 1_000_000) * pricing.outputPerMTok
-  );
-}
+// El modelo de costes vive en ./provider-capabilities.ts (fuente unica de
+// precios y capacidades, reexportada mas abajo). `estimateCostUsd` devuelve
+// `number | null`: null = no conocemos el precio de ese modelo.
 
 // ---------------------------------------------------------------------------
 // Executor: una vuelta de agente con salida estructurada validada
 // ---------------------------------------------------------------------------
 
+/**
+ * Acumulador de uso reportado por el proveedor.
+ *
+ * Los campos de cache y razonamiento son `number | null` a proposito: `null`
+ * significa "el proveedor no informo de esto en ninguna de las respuestas del
+ * turno", que NO es lo mismo que `0` ("informo, y fue cero"). Antes ambos casos
+ * se guardaban como 0 y el panel no podia distinguirlos.
+ */
 export type AgentTurnResult<TOutput = AgentOutput> = {
   output: TOutput;
+  /** Proveedor que atendio realmente el turno (no el configurado). */
+  provider: AIProviderId;
+  /** Modelo que atendio realmente el turno (no el de agent_versions). */
   model: string;
   inputTokens: number;
   outputTokens: number;
-  cacheReadTokens: number;
-  estimatedCostUsd: number;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
+  reasoningTokens: number | null;
+  /** null = modelo sin precio conocido. Ver `costBasis`. */
+  estimatedCostUsd: number | null;
+  costBasis: CostBasis;
+  /** Version de la tabla de precios aplicada, para poder auditar el pasado. */
+  pricingVersion: string;
   latencyMs: number;
   stopReason: string | null;
   modelCalls: number;
   toolCallCount: number;
 };
+
+/**
+ * Suma un valor reportado por el proveedor a un acumulador que empieza en
+ * `null`. Si el proveedor no manda el campo (`undefined`), el acumulador se
+ * queda como esta: un turno entero sin el campo termina en `null`.
+ */
+function addReported(
+  accumulator: number | null,
+  reported: number | null | undefined,
+): number | null {
+  if (reported === null || reported === undefined) {
+    return accumulator;
+  }
+  return (accumulator ?? 0) + reported;
+}
+
+/**
+ * AI-30: serializa el contexto y ademas denuncia lo que la frontera de
+ * contenido no confiable haya tenido que neutralizar.
+ *
+ * El recorte tambien se declara: un turno al que le faltaron 20.000 caracteres
+ * de evidencia razona peor, y hasta ahora eso pasaba en silencio.
+ */
+function serializeContextWithSecurityEvents(
+  blocks: Array<{ label: string; data: unknown }>,
+  onSecurityEvent: AgentSecurityEventSink | undefined,
+): string {
+  const serialized = serializeUntrustedContextBlocks(blocks);
+
+  if (serialized.blockedPatterns > 0) {
+    onSecurityEvent?.({
+      type: "prompt_injection_detected",
+      severity: "medium",
+      source: "context_block",
+      detail: {
+        blocked_patterns: serialized.blockedPatterns,
+        block_labels: blocks.map((block) => String(block.label)),
+        note: "Neutralizado antes de llegar al modelo. No se guarda el texto.",
+      },
+    });
+  }
+
+  if (serialized.truncated) {
+    onSecurityEvent?.({
+      type: "policy_violation",
+      severity: "info",
+      source: "context_block",
+      detail: {
+        reason: "contexto_truncado_por_limite_de_tamano",
+        block_count: blocks.length,
+      },
+    });
+  }
+
+  return serialized.text;
+}
+
+/**
+ * Serializa el resultado de una herramienta. Un resultado que trae contenido
+ * con forma de instruccion es un intento de tool poisoning: se neutraliza (ya
+ * se hacia) y ahora ademas se registra.
+ */
+function serializeToolResultWithSecurityEvents(
+  result: unknown,
+  toolName: string,
+  onSecurityEvent: AgentSecurityEventSink | undefined,
+): string {
+  const serialized = serializeUntrustedToolResult(result);
+
+  if (serialized.blockedPatterns > 0) {
+    onSecurityEvent?.({
+      type: "tool_poisoning_suspected",
+      severity: "high",
+      source: "tool_result",
+      detail: {
+        tool_name: toolName,
+        blocked_patterns: serialized.blockedPatterns,
+        note: "El resultado traia contenido instruccional. Neutralizado.",
+      },
+    });
+  }
+
+  return serialized.text;
+}
+
+/** El modelo pidio una herramienta que no se le habia declarado. */
+function unknownToolResult(
+  toolName: string,
+  onSecurityEvent: AgentSecurityEventSink | undefined,
+): string {
+  onSecurityEvent?.({
+    type: "unauthorized_tool_attempt",
+    severity: "high",
+    source: "tool_registry",
+    detail: {
+      tool_name: toolName,
+      note: "No estaba en el catalogo declarado para este turno; no se ejecuto.",
+    },
+  });
+
+  return JSON.stringify({ error: `tool_desconocida: ${toolName}` });
+}
 
 /**
  * Contrato de salida estructurada de una vuelta de agente: el JSON Schema que
@@ -1978,6 +2095,12 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   budget?: AgentBudget;
   resilience?: Partial<AgentResiliencePolicy>;
   /**
+   * AI-30: sumidero sincrono de eventos de seguridad. Sincrono a proposito:
+   * corre en el camino caliente del turno y no puede ser una escritura a base
+   * de datos por evento. Quien llama acumula y persiste una sola vez.
+   */
+  onSecurityEvent?: AgentSecurityEventSink;
+  /**
    * Imágenes adjuntas al mensaje de usuario (visión). `url` debe ser pública y
    * de confianza -- el backend valida el origen antes de llamar aquí.
    */
@@ -1992,7 +2115,10 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     params.outputContract ??
     (defaultOutputContract as unknown as OutputContract<TOutput>);
 
-  const contextText = serializeUntrustedContextBlocks(params.contextBlocks).text;
+  const contextText = serializeContextWithSecurityEvents(
+    params.contextBlocks,
+    params.onSecurityEvent,
+  );
 
   const attachedImages = (params.images ?? []).slice(0, 8);
   const imageBlocks: Anthropic.ImageBlockParam[] = attachedImages.map((img) => ({
@@ -2062,12 +2188,21 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
 
   let inputTokens = 0;
   let outputTokens = 0;
-  let cacheReadTokens = 0;
+  let cacheReadTokens: number | null = null;
+  let cacheCreationTokens: number | null = null;
   let modelCalls = 0;
   let toolCallCount = 0;
 
+  // Con un modelo sin precio conocido el coste es `null` y el tope en dolares
+  // no puede evaluarse: cortar por "0 > max" seria falso, y no frenar nada
+  // seria peligroso. Se degrada al unico freno que sigue siendo cierto -- el
+  // numero de tool calls -- y el turno se marca `unknown_model` para que quede
+  // visible en el panel en vez de pasar por gratis.
+  const costSoFarOrZero = () =>
+    estimateCostUsd(params.model, inputTokens, outputTokens) ?? 0;
+
   const enforceBudget = () => {
-    const costSoFar = estimateCostUsd(params.model, inputTokens, outputTokens);
+    const costSoFar = costSoFarOrZero();
     const verdict = evaluateAgentBudget(budget, costSoFar, toolCallCount);
 
     if (verdict.exceeded) {
@@ -2105,7 +2240,14 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   modelCalls += 1;
   inputTokens += response.usage.input_tokens;
   outputTokens += response.usage.output_tokens;
-  cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+  cacheReadTokens = addReported(
+    cacheReadTokens,
+    response.usage.cache_read_input_tokens,
+  );
+  cacheCreationTokens = addReported(
+    cacheCreationTokens,
+    response.usage.cache_creation_input_tokens,
+  );
   enforceBudget();
 
   while (response.stop_reason === "tool_use") {
@@ -2117,11 +2259,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     // run cortado a media investigacion no.
     const isFinalRound =
       modelCalls >= MAX_MODEL_CALLS_PER_TURN - 1 ||
-      isBudgetNearlyExhausted(
-        budget,
-        estimateCostUsd(params.model, inputTokens, outputTokens),
-        toolCallCount,
-      );
+      isBudgetNearlyExhausted(budget, costSoFarOrZero(), toolCallCount);
 
     const toolUses = response.content.filter(
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
@@ -2138,21 +2276,27 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
       let isError = false;
 
       if (!tool) {
-        resultContent = JSON.stringify({
-          error: `tool_desconocida: ${toolUse.name}`,
-        });
+        resultContent = unknownToolResult(toolUse.name, params.onSecurityEvent);
         isError = true;
       } else {
         try {
           const result = await tool.execute(
             (toolUse.input ?? {}) as Record<string, unknown>,
           );
-          resultContent = serializeUntrustedToolResult(result);
+          resultContent = serializeToolResultWithSecurityEvents(
+            result,
+            tool.name,
+            params.onSecurityEvent,
+          );
         } catch (error) {
-          resultContent = serializeUntrustedToolResult({
-            error:
-              error instanceof Error ? error.message : "tool_execution_failed",
-          });
+          resultContent = serializeToolResultWithSecurityEvents(
+            {
+              error:
+                error instanceof Error ? error.message : "tool_execution_failed",
+            },
+            tool.name,
+            params.onSecurityEvent,
+          );
           isError = true;
         }
       }
@@ -2177,7 +2321,14 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     modelCalls += 1;
     inputTokens += response.usage.input_tokens;
     outputTokens += response.usage.output_tokens;
-    cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+    cacheReadTokens = addReported(
+      cacheReadTokens,
+      response.usage.cache_read_input_tokens,
+    );
+    cacheCreationTokens = addReported(
+      cacheCreationTokens,
+      response.usage.cache_creation_input_tokens,
+    );
     enforceBudget();
 
     if (isFinalRound) {
@@ -2239,11 +2390,18 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
 
   return {
     output: validated.data,
+    provider: "anthropic",
     model: params.model,
     inputTokens,
     outputTokens,
     cacheReadTokens,
+    cacheCreationTokens,
+    // Anthropic no expone tokens de razonamiento en `usage` para estos
+    // modelos: `null` (desconocido), nunca 0.
+    reasoningTokens: null,
     estimatedCostUsd: estimateCostUsd(params.model, inputTokens, outputTokens),
+    costBasis: costBasisFor(params.model),
+    pricingVersion: PRICING_VERSION,
     latencyMs,
     stopReason: response.stop_reason,
     modelCalls,
@@ -2269,6 +2427,12 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   outputContract?: OutputContract<TOutput>;
   budget?: AgentBudget;
   resilience?: Partial<AgentResiliencePolicy>;
+  /**
+   * AI-30: sumidero sincrono de eventos de seguridad. Sincrono a proposito:
+   * corre en el camino caliente del turno y no puede ser una escritura a base
+   * de datos por evento. Quien llama acumula y persiste una sola vez.
+   */
+  onSecurityEvent?: AgentSecurityEventSink;
 }): Promise<AgentTurnResult<TOutput>> {
   const input = agentInputSchema.parse(params.input);
   const client = new OpenAI({ apiKey: params.apiKey });
@@ -2279,7 +2443,10 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     params.outputContract ??
     (defaultOutputContract as unknown as OutputContract<TOutput>);
 
-  const contextText = serializeUntrustedContextBlocks(params.contextBlocks).text;
+  const contextText = serializeContextWithSecurityEvents(
+    params.contextBlocks,
+    params.onSecurityEvent,
+  );
 
   const userText = [
     `Organizacion activa: ${input.organization_id} (resuelta por el backend; analiza solo estos datos).`,
@@ -2328,12 +2495,21 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
 
   let inputTokens = 0;
   let outputTokens = 0;
-  let cacheReadTokens = 0;
+  let cacheReadTokens: number | null = null;
+  let cacheCreationTokens: number | null = null;
   let modelCalls = 0;
   let toolCallCount = 0;
 
+  // Con un modelo sin precio conocido el coste es `null` y el tope en dolares
+  // no puede evaluarse: cortar por "0 > max" seria falso, y no frenar nada
+  // seria peligroso. Se degrada al unico freno que sigue siendo cierto -- el
+  // numero de tool calls -- y el turno se marca `unknown_model` para que quede
+  // visible en el panel en vez de pasar por gratis.
+  const costSoFarOrZero = () =>
+    estimateCostUsd(params.model, inputTokens, outputTokens) ?? 0;
+
   const enforceBudget = () => {
-    const costSoFar = estimateCostUsd(params.model, inputTokens, outputTokens);
+    const costSoFar = costSoFarOrZero();
     const verdict = evaluateAgentBudget(budget, costSoFar, toolCallCount);
 
     if (verdict.exceeded) {
@@ -2372,7 +2548,10 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   modelCalls += 1;
   inputTokens += response.usage?.prompt_tokens ?? 0;
   outputTokens += response.usage?.completion_tokens ?? 0;
-  cacheReadTokens += response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  cacheReadTokens = addReported(
+    cacheReadTokens,
+    response.usage?.prompt_tokens_details?.cached_tokens,
+  );
   enforceBudget();
 
   let choice = response.choices[0];
@@ -2386,11 +2565,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     // responde sin herramientas, en vez de tirar el run.
     const isFinalRound =
       modelCalls >= MAX_MODEL_CALLS_PER_TURN - 1 ||
-      isBudgetNearlyExhausted(
-        budget,
-        estimateCostUsd(params.model, inputTokens, outputTokens),
-        toolCallCount,
-      );
+      isBudgetNearlyExhausted(budget, costSoFarOrZero(), toolCallCount);
 
     const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] =
       [];
@@ -2409,21 +2584,30 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
       let resultContent: string;
 
       if (!tool) {
-        resultContent = JSON.stringify({
-          error: `tool_desconocida: ${toolCall.function.name}`,
-        });
+        resultContent = unknownToolResult(
+          toolCall.function.name,
+          params.onSecurityEvent,
+        );
       } else {
         try {
           const args = toolCall.function.arguments
             ? JSON.parse(toolCall.function.arguments)
             : {};
           const result = await tool.execute(args as Record<string, unknown>);
-          resultContent = serializeUntrustedToolResult(result);
+          resultContent = serializeToolResultWithSecurityEvents(
+            result,
+            tool.name,
+            params.onSecurityEvent,
+          );
         } catch (error) {
-          resultContent = serializeUntrustedToolResult({
-            error:
-              error instanceof Error ? error.message : "tool_execution_failed",
-          });
+          resultContent = serializeToolResultWithSecurityEvents(
+            {
+              error:
+                error instanceof Error ? error.message : "tool_execution_failed",
+            },
+            tool.name,
+            params.onSecurityEvent,
+          );
         }
       }
 
@@ -2444,8 +2628,10 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     modelCalls += 1;
     inputTokens += response.usage?.prompt_tokens ?? 0;
     outputTokens += response.usage?.completion_tokens ?? 0;
-    cacheReadTokens +=
-      response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    cacheReadTokens = addReported(
+      cacheReadTokens,
+      response.usage?.prompt_tokens_details?.cached_tokens,
+    );
     enforceBudget();
 
     const nextChoice = response.choices[0];
@@ -2505,11 +2691,21 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
 
   return {
     output: validated.data,
+    provider: "openai",
     model: params.model,
     inputTokens,
     outputTokens,
     cacheReadTokens,
+    // El caching de OpenAI es automatico: la API informa de lo leido de cache
+    // (`cached_tokens`) pero no de lo escrito, asi que este acumulador nunca
+    // se toca y termina en `null` = el proveedor no lo reporta.
+    cacheCreationTokens,
+    // `usage.completion_tokens_details.reasoning_tokens` solo existe en los
+    // modelos de razonamiento, que hoy no usamos. No se inventa un 0.
+    reasoningTokens: null,
     estimatedCostUsd: estimateCostUsd(params.model, inputTokens, outputTokens),
+    costBasis: costBasisFor(params.model),
+    pricingVersion: PRICING_VERSION,
     latencyMs,
     stopReason: choice.finish_reason,
     modelCalls,

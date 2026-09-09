@@ -58,7 +58,10 @@ export function Metric({
   const body = (
     <div
       className={cn(
-        "flex items-start justify-between gap-4",
+        // @container: el sparkline se esconde por el ancho REAL de la tarjeta, no
+        // del viewport -- la misma Metric vive a ancho completo y tambien dentro
+        // de una celda de ~150px de una rejilla de dos columnas en movil.
+        "@container flex items-start justify-between gap-4",
         card ? "" : "py-3",
         className,
       )}
@@ -68,7 +71,12 @@ export function Metric({
         <p
           className={cn(
             "mt-1 font-semibold tracking-tight tabular-nums",
-            size === "sm" ? "text-lg" : "text-2xl",
+            // A dos por fila en movil la tarjeta mide ~156px: text-2xl parte
+            // "12.345,67 €" en dos lineas. Baja por ancho de tarjeta.
+            // break-words: no todo valor es una cifra -- /camino mete aqui
+            // "Fase activa" y "Hito en curso", que son nombres largos.
+            "break-words",
+            size === "sm" ? "text-lg" : "text-xl @2xs:text-2xl",
             VALUE_TONE[tone],
           )}
         >
@@ -78,7 +86,7 @@ export function Metric({
         {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
       </div>
       {hasTrend ? (
-        <div className="w-24 shrink-0 self-center sm:w-32">
+        <div className="hidden w-24 shrink-0 self-center @2xs:block @sm:w-32">
           <Sparkline data={trend} tone={trendTone} />
         </div>
       ) : null}

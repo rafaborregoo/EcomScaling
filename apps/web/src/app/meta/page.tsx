@@ -279,7 +279,7 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </p>
           </div>
           <Select
-            className="w-40"
+            className="w-full sm:w-40"
             aria-label="Periodo"
             value={String(periodDays)}
             onChange={(value) =>
@@ -309,7 +309,13 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {/* Los tres especialistas, en el mismo orden que los bloques de arriba y
           por la misma razon: si la medicion esta rota, lo que diga el de
-          creatividad describe otra cosa. */}
+          creatividad describe otra cosa.
+
+          `areas` cierra el circulo: cada hallazgo vuelve al bloque de datos que
+          lo prueba. El mapa vive aqui porque esta pagina es la unica que sabe
+          que secciones ha montado -- `publicos` solo existe para el consultor,
+          y darle esa clave al cliente lo mandaria a un ancla que no esta en su
+          version de la pantalla. */}
       <AiDiagnosticSection
         organizationId={organizationId}
         title="Medición y entrega"
@@ -319,6 +325,14 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         tasksLabelSingular="tarea"
         days={30}
         showInternals={isConsultant}
+        areas={{
+          medicion: { label: "Ver el píxel", href: "#meta-medicion" },
+          aprendizaje: {
+            label: "Ver los conjuntos en aprendizaje",
+            href: "#meta-aprendizaje",
+          },
+          general: { label: "Ver la vista general", href: "#meta-general" },
+        }}
       />
       <AiDiagnosticSection
         organizationId={organizationId}
@@ -329,6 +343,14 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         tasksLabelSingular="tarea"
         days={30}
         showInternals={isConsultant}
+        areas={{
+          creatividades: {
+            label: "Ver las creatividades",
+            href: "#meta-creatividades",
+          },
+          reparto: { label: "Ver dónde va el dinero", href: "#meta-reparto" },
+          general: { label: "Ver la vista general", href: "#meta-general" },
+        }}
       />
       <AiDiagnosticSection
         organizationId={organizationId}
@@ -339,6 +361,18 @@ function MetaAccountView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         tasksLabelSingular="tarea"
         days={30}
         showInternals={isConsultant}
+        areas={{
+          cambios: { label: "Ver qué se tocó", href: "#meta-cambios" },
+          ...(isConsultant
+            ? {
+                publicos: {
+                  label: "Ver los públicos",
+                  href: "#meta-publicos",
+                },
+              }
+            : {}),
+          general: { label: "Ver la vista general", href: "#meta-general" },
+        }}
       />
     </div>
   );

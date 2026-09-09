@@ -44,7 +44,10 @@ export function Button({
       isDisabled={disabled}
       className={cn(
         "min-w-20 font-medium tracking-[-0.01em] focus-visible:outline-2 focus-visible:outline-offset-2",
-        size === "sm" ? "min-h-8" : "min-h-9",
+        // 32/36px valen con raton; con el dedo el minimo usable son 44px. La
+        // variante `pointer-coarse` lo aplica por capacidad del dispositivo,
+        // no por ancho de viewport -- un portatil tactil tambien lo necesita.
+        size === "sm" ? "min-h-8 pointer-coarse:min-h-11" : "min-h-9 pointer-coarse:min-h-11",
         className,
       )}
       onPress={onClick}

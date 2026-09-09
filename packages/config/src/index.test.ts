@@ -111,7 +111,7 @@ test("loadApiEnv: aplica META_SCOPES por defecto cuando las 3 variables de Meta 
     META_APP_SECRET: "meta-secret",
     META_REDIRECT_URI: "https://example.com/meta-callback",
   });
-  assert.equal(env.META_SCOPES, "ads_read,business_management,pages_show_list");
+  assert.equal(env.META_SCOPES, "ads_read,ads_management,business_management,pages_show_list");
 });
 
 test("loadApiEnv: respeta META_SCOPES explicito en vez del default", () => {
@@ -214,22 +214,23 @@ test("loadApiEnv: conserva los presupuestos IA por plan sin exigir proveedores",
   assert.equal(env.ANTHROPIC_API_KEY, undefined);
 });
 
-test("loadApiEnv: mantiene direct por contrato y permite activar LangGraph explícitamente", () => {
-  const direct = loadApiEnv({ ...BASE_ENV });
-  assert.equal(direct.AI_ORCHESTRATION_MODE, undefined);
-
-  const langgraph = loadApiEnv({
+// AI-30: aqui habia dos tests de `AI_ORCHESTRATION_MODE`. La variable se
+// retiro junto con el envoltorio LangGraph, que construia un grafo de un solo
+// nodo y no aportaba ni estado ni reanudacion. No se sustituyen por otros: no
+// hay comportamiento que probar donde ya no hay opcion.
+//
+// Lo que si sigue cubierto: una variable de entorno desconocida no rompe la
+// carga (el schema de Zod ignora las que no declara), asi que un despliegue con
+// AI_ORCHESTRATION_MODE todavia puesta en su .env.production arranca igual.
+test("loadApiEnv: ignora variables de entorno que ya no se declaran", () => {
+  const env = loadApiEnv({
     ...BASE_ENV,
     AI_ORCHESTRATION_MODE: "langgraph",
-  });
-  assert.equal(langgraph.AI_ORCHESTRATION_MODE, "langgraph");
-  assert.equal(langgraph.ANTHROPIC_API_KEY, undefined);
-});
+  } as Parameters<typeof loadApiEnv>[0]);
 
-test("loadApiEnv: rechaza un modo de orquestación desconocido", () => {
-  assert.throws(
-    () => loadApiEnv({ ...BASE_ENV, AI_ORCHESTRATION_MODE: "experimental" }),
-    /AI_ORCHESTRATION_MODE/,
+  assert.equal(
+    (env as Record<string, unknown>).AI_ORCHESTRATION_MODE,
+    undefined,
   );
 });
 

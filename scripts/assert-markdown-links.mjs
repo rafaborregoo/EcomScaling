@@ -16,7 +16,15 @@ async function walk(directory) {
     if (!entry.name.endsWith(".md")) continue;
 
     const source = await readFile(filePath, "utf8");
-    for (const match of source.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+
+    // Los bloques y spans de codigo llevan regex y comandos que se parecen a
+    // un enlace sin serlo. El caso real: una linea con la regex
+    // ["](openai|@anthropic-ai) casaba con [texto](destino) y el guard
+    // reportaba un enlace roto a un fichero que nunca existio.
+    const scannable = source
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/`[^`\n]*`/g, "");
+    for (const match of scannable.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
       const target = match[1].trim();
       if (/^(?:https?:\/\/|mailto:|#|app:\/\/)/i.test(target)) continue;
 

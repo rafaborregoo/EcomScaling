@@ -184,7 +184,9 @@ export function NotificationsBell({ token }: { token: string }) {
         unreadCount > 0 ? ` (${unreadCount} sin leer)` : ""
       }`}
       className={cn(
-        "relative inline-flex size-9 items-center justify-center bg-transparent transition-colors",
+        // La campana es un <button> propio, no el Button del catalogo: el
+        // minimo tactil hay que ponerlo aqui tambien.
+        "relative inline-flex size-9 items-center justify-center bg-transparent transition-colors pointer-coarse:size-11",
         unreadCount > 0 ? "text-foreground" : "text-muted hover:text-foreground",
       )}
     >
@@ -294,7 +296,7 @@ export function NotificationsBell({ token }: { token: string }) {
               type="button"
               aria-label="Archivar notificación"
               title="Archivar"
-              className="size-8 min-w-0 shrink-0 justify-center p-0 text-muted opacity-60 transition hover:bg-black/5 hover:text-foreground hover:opacity-100"
+              className="size-8 min-w-0 shrink-0 justify-center p-0 text-muted opacity-60 transition hover:bg-black/5 hover:text-foreground hover:opacity-100 pointer-coarse:size-11"
               onClick={() => void markStatus(notification.id, "archived")}
             >
               <ArchiveIcon aria-hidden="true" className="size-4" />
@@ -341,7 +343,7 @@ export function NotificationsBell({ token }: { token: string }) {
               className="w-full max-w-none overflow-hidden p-0"
             >
               {header}
-              <div className="max-h-[70vh] overflow-y-auto">{body}</div>
+              <div className="max-h-[70svh] overflow-y-auto">{body}</div>
             </Modal.Dialog>
           </Modal.Container>
         </Modal.Backdrop>

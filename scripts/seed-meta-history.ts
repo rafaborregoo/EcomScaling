@@ -102,6 +102,26 @@ async function main() {
   const nowIso = new Date().toISOString();
 
   // 1. Conexión de demo (sin OAuth real) + cuenta publicitaria.
+  //
+  // Datos de demo y una cuenta conectada de verdad no pueden convivir en la
+  // misma organizacion: aunque esta conexion es suya (`demo-act-0`, nunca pisa
+  // la real), la org acabaria con dos conexiones Meta y la de demo llega con
+  // `is_selected = true` y 550 dias de insights inventados. Con Klaviyo paso
+  // exactamente eso en produccion y /klaviyo mostro ingresos que no existian.
+  const { data: existingReal } = await supabase
+    .from("integration_connections")
+    .select("provider_account_id")
+    .eq("organization_id", organizationId)
+    .eq("provider", "meta_ads")
+    .neq("provider_account_id", "demo-act-0")
+    .limit(1)
+    .maybeSingle();
+  if (existingReal) {
+    throw new Error(
+      `META_SEED_REAL_CONNECTION_REFUSED: la organizacion "${env.SEED_ORG_SLUG}" ya tiene una conexion Meta real (${existingReal.provider_account_id}). Apunta SEED_ORG_SLUG a una org sin Meta.`,
+    );
+  }
+
   const { data: connection, error: connError } = await supabase
     .from("integration_connections")
     .upsert(

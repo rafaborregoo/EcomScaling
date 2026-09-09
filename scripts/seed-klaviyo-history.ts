@@ -132,8 +132,12 @@ async function main() {
   const currency = ((org.currency_code as string) ?? "EUR").toUpperCase();
   const nowIso = new Date().toISOString();
 
-  // 1. Conexión Klaviyo. Reutiliza la que ya exista para la org (aunque esté en
-  // `error`) y la deja `connected`; si no hay, crea una de demo.
+  // 1. Conexión Klaviyo de demo. NUNCA la de una cuenta real: reutilizarla
+  // escribia las campanas sinteticas SOBRE la cuenta conectada, y /klaviyo las
+  // mezclaba con los emails de verdad en la misma pantalla sin distinguirlas
+  // -- el consultor leia como ingresos atribuidos unas cifras inventadas.
+  // Paso en produccion sobre `cliente-demo-store`, que ademas de llamarse
+  // "demo" es la org que tiene la clave real de Klaviyo.
   const { data: existing } = await supabase
     .from("integration_connections")
     .select("id, provider_account_id")
@@ -142,8 +146,12 @@ async function main() {
     .limit(1)
     .maybeSingle();
 
-  const providerAccountId =
-    (existing?.provider_account_id as string | undefined) ?? "demo-klaviyo-0";
+  const providerAccountId = "demo-klaviyo-0";
+  if (existing && existing.provider_account_id !== providerAccountId) {
+    throw new Error(
+      `KLAVIYO_SEED_REAL_CONNECTION_REFUSED: la organizacion "${env.SEED_ORG_SLUG}" ya tiene una conexion Klaviyo real (${existing.provider_account_id}). Los datos de demo y una cuenta conectada no pueden convivir en la misma organizacion: apunta SEED_ORG_SLUG a una org sin Klaviyo.`,
+    );
+  }
 
   const { data: connection, error: connError } = await supabase
     .from("integration_connections")
