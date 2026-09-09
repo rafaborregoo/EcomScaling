@@ -17,7 +17,9 @@ export function Select({
   required,
   disabled,
   bare,
+  invalid,
   "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -26,11 +28,15 @@ export function Select({
   className?: string;
   required?: boolean;
   disabled?: boolean;
+  // El campo que quedo mal: marca el trigger como invalido para el lector de
+  // pantalla. El texto del error se enlaza con `aria-describedby`.
+  invalid?: boolean;
   // `bare`: trigger sin caja (sin borde ni fondo), inline sobre el mismo
   // fondo, estilo selector de proyecto de Supabase. Para la barra superior,
   // no para formularios. El look se define en globals.css (.select-bare).
   bare?: boolean;
   "aria-label"?: string;
+  "aria-describedby"?: string;
 }) {
   const renderItem = (option: SelectOption) => (
     <ListBox.Item
@@ -59,7 +65,9 @@ export function Select({
       placeholder={placeholder}
       isRequired={required}
       isDisabled={disabled}
+      isInvalid={invalid}
       aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
       value={(value || null) as Key | null}
       onChange={(key) => onChange(key ? String(key) : "")}
     >

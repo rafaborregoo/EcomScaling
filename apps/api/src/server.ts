@@ -231,6 +231,7 @@ import {
   getCaminoProposal,
   isCaminoHorizon,
   type ConsultantChatViewContext,
+  describeProviderRedundancy,
 } from "./ai-runtime.js";
 import {
   enqueueInstagramImage,
@@ -1051,11 +1052,16 @@ export async function buildApp(): Promise<FastifyInstance> {
         return reply.code(401).send({ error: "missing_bearer_token" });
       }
 
-      const result = await listConsultantAgenda(env, authorization, auth.context, {
-        from: request.query.from,
-        to: request.query.to,
-        scope: request.query.scope || "all",
-      });
+      const result = await listConsultantAgenda(
+        env,
+        authorization,
+        auth.context,
+        {
+          from: request.query.from,
+          to: request.query.to,
+          scope: request.query.scope || "all",
+        },
+      );
 
       if (isServiceFailure(result)) {
         return sendServiceFailure(reply, result);
@@ -1347,9 +1353,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
         {
-          limit: request.query.limit
-            ? Number(request.query.limit)
-            : undefined,
+          limit: request.query.limit ? Number(request.query.limit) : undefined,
         },
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
@@ -3580,7 +3584,11 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.put<{
     Params: { organizationId: string; templateId: string };
-    Body: { isEnabled?: boolean; severity?: string | null; threshold?: number | null };
+    Body: {
+      isEnabled?: boolean;
+      severity?: string | null;
+      threshold?: number | null;
+    };
   }>(
     "/v1/organizations/:organizationId/alert-rules/:templateId",
     async (request, reply) => {
@@ -4927,7 +4935,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.get<{ Params: { organizationId: string } }>(
       `/v1/organizations/:organizationId/ai/${agent.slug}`,
       async (request, reply) => {
-        const auth = await resolveAuthContext(env, request.headers.authorization);
+        const auth = await resolveAuthContext(
+          env,
+          request.headers.authorization,
+        );
         if (isAuthContextError(auth)) {
           return sendAuthFailure(reply, auth.error);
         }
@@ -4947,7 +4958,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       `/v1/organizations/:organizationId/ai/${agent.slug}-run`,
       aiEndpointRateLimit,
       async (request, reply) => {
-        const auth = await resolveAuthContext(env, request.headers.authorization);
+        const auth = await resolveAuthContext(
+          env,
+          request.headers.authorization,
+        );
         if (isAuthContextError(auth)) {
           return sendAuthFailure(reply, auth.error);
         }
@@ -6380,6 +6394,17 @@ if (isDirectRun) {
   try {
     await app.listen({ host: env.API_HOST, port: env.API_PORT });
     logger.info(`API listening on ${env.API_HOST}:${env.API_PORT}`);
+
+    // AI-30: decir en voz alta si la IA tiene red de seguridad. No aborta el
+    // arranque -- un solo proveedor es una configuracion valida -- pero deja de
+    // ser invisible, que es lo que costo una semana de ejecuciones muertas.
+    const redundancy = describeProviderRedundancy(env);
+    if (redundancy.level === "redundant") {
+      logger.info(redundancy.message);
+    } else {
+      logger.error(`ai_provider_redundancy: ${redundancy.message}`);
+    }
+
     registerGracefulShutdown(app);
   } catch (error) {
     logger.error("API failed to start", error);

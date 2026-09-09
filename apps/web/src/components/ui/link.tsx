@@ -19,6 +19,7 @@ export function Link({
   rel,
   onClick,
   "aria-current": ariaCurrent,
+  "aria-label": ariaLabel,
 }: {
   href: string;
   children?: ReactNode;
@@ -27,6 +28,10 @@ export function Link({
   rel?: string;
   onClick?: () => void;
   "aria-current"?: "page" | boolean;
+  // Cuando el texto se repite en una lista ("Ver y configurar" en cada
+  // tarjeta), la lista de enlaces del lector de pantalla es ilegible sin un
+  // nombre que diga de que tarjeta es cada uno.
+  "aria-label"?: string;
 }) {
   return (
     <HeroLink
@@ -36,6 +41,7 @@ export function Link({
       onPress={onClick}
       className={className}
       aria-current={ariaCurrent}
+      aria-label={ariaLabel}
     >
       {children}
     </HeroLink>

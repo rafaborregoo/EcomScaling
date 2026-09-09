@@ -7,11 +7,28 @@ import {
   runLiveAgentEvalSuite,
   type LiveAgentEvalCase,
 } from "./live-eval-contract.js";
+import { ACTIVE_AGENT_CODES } from "./agent-evals.js";
 
-test("genera un caso base para cada agente activo", () => {
+// AI-30: este test afirmaba `cases.length === 11`. Hoy hay 13 agentes activos,
+// asi que llevaba roto desde que se anadio el numero 12 -- y nadie se entero
+// porque `live-eval-contract.test.ts` no estaba en el script `test` del
+// paquete: existia y no se ejecutaba nunca.
+//
+// No se sube 11 a 13. Un numero a mano vuelve a caducar con el agente 14, y lo
+// que el test dice querer comprobar no es "hay 11 casos" sino "hay un caso por
+// agente activo, y ninguno se queda fuera". Eso se compara contra la fuente de
+// verdad, que es la misma lista que usa la implementacion.
+test("genera un caso base para cada agente activo, sin dejarse ninguno", () => {
   const cases = buildDefaultLiveEvalCases();
-  assert.equal(cases.length, 11);
-  assert.equal(new Set(cases.map((item) => item.agentCode)).size, 11);
+
+  assert.deepEqual(
+    cases.map((item) => item.agentCode).sort(),
+    [...ACTIVE_AGENT_CODES].sort(),
+  );
+  assert.equal(
+    new Set(cases.map((item) => item.agentCode)).size,
+    ACTIVE_AGENT_CODES.length,
+  );
   assert.ok(cases.every((item) => item.expectedAbstention));
 });
 

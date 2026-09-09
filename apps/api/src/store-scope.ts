@@ -39,6 +39,13 @@ export type StoreScopeInput = Partial<
   Record<ScopedTable, StoreScopeAssignment[]>
 >;
 
+/** Fallo de una cuenta concreta, para poder pintarlo en su fila. */
+export type StoreScopeFailure = {
+  table: ScopedTable;
+  id: string;
+  message: string;
+};
+
 type Failure = {
   ok: false;
   statusCode: number;
@@ -88,8 +95,11 @@ export async function listStoreScope(
   const supabase = createServiceClient(env);
 
   const { data: stores, error: storesError } = await supabase
+    // connection_id: el selector de tienda del header (y ?connectionId=) va
+    // por integration_connections.id, no por shopify_stores.id. Sin devolverlo,
+    // la UI no puede decir cual de estas tiendas es la que se esta viendo.
     .from("shopify_stores")
-    .select("id, myshopify_domain, shop_name")
+    .select("id, connection_id, myshopify_domain, shop_name")
     .eq("organization_id", organizationId)
     .eq("is_active", true)
     .order("shop_name");
@@ -158,6 +168,20 @@ export function parseStoreScopeInput(input: StoreScopeInput):
       entries: Array<{ table: ScopedTable; rows: StoreScopeAssignment[] }>;
       storeIds: string[];
     } {
+  // Un cuerpo que no es objeto (una cadena JSON sin parsear, por ejemplo, que
+  // es lo que llega si el cliente no manda content-type: application/json)
+  // caia en la rama de "no me has mandado ninguna asignacion", que hacia
+  // buscar el fallo en el sitio equivocado.
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "invalid_store_scope_body",
+      message:
+        "El cuerpo debe ser un objeto JSON (content-type: application/json).",
+    };
+  }
+
   const entries = (Object.keys(SCOPED_TABLES) as ScopedTable[])
     .map((table) => ({ table, rows: input[table] }))
     .filter(
@@ -197,7 +221,9 @@ export async function assignStoreScope(
   authContext: AuthContext,
   organizationId: string,
   input: StoreScopeInput,
-): Promise<Failure | { ok: true; data: { updated: number } }> {
+): Promise<
+  Failure | { ok: true; data: { updated: number; failed: StoreScopeFailure[] } }
+> {
   if (!canManageOrganization(authContext, organizationId)) {
     return {
       ok: false,
@@ -241,7 +267,12 @@ export async function assignStoreScope(
     }
   }
 
+  // Una fila que falla no invalida las demas: cada cuenta es una decision
+  // independiente, y abortar en la primera dejaba al usuario con un error
+  // global sin saber cual de las cuentas era la mala ni cuales si se habian
+  // guardado. Se intentan todas y se devuelve el fallo pegado a su cuenta.
   let updated = 0;
+  const failed: StoreScopeFailure[] = [];
   for (const entry of entries) {
     for (const row of entry.rows) {
       const { error, count } = await supabase
@@ -250,12 +281,26 @@ export async function assignStoreScope(
         .eq("organization_id", organizationId)
         .eq("id", row.id);
       if (error) {
-        return {
-          ok: false,
-          statusCode: 500,
-          error: "store_scope_update_failed",
-          detail: error.message,
-        };
+        // El texto de Postgres no sale a la UI (misma regla que
+        // sendServiceFailure con `detail`): describe el esquema.
+        console.error(
+          `store_scope_update_failed[${entry.table}:${row.id}]`,
+          error.message,
+        );
+        failed.push({
+          table: entry.table,
+          id: row.id,
+          message: "No se pudo guardar esta cuenta. Reintenta.",
+        });
+        continue;
+      }
+      if ((count ?? 0) === 0) {
+        failed.push({
+          table: entry.table,
+          id: row.id,
+          message: "La cuenta ya no existe en este cliente. Recarga la lista.",
+        });
+        continue;
       }
       updated += count ?? 0;
     }
@@ -270,8 +315,9 @@ export async function assignStoreScope(
       meta_ad_accounts: input.meta_ad_accounts?.length ?? 0,
       klaviyo_accounts: input.klaviyo_accounts?.length ?? 0,
       updated,
+      failed: failed.length,
     },
   });
 
-  return { ok: true, data: { updated } };
+  return { ok: true, data: { updated, failed } };
 }

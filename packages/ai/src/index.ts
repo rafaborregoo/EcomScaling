@@ -2207,9 +2207,21 @@ function createTurnAccounting(model: string, budget: AgentBudget | undefined) {
       );
       enforceBudget();
     },
-    /** Contabiliza una invocacion de herramienta y comprueba el presupuesto. */
-    recordToolCall() {
-      usage.toolCallCount += 1;
+    /**
+     * Contabiliza las invocaciones de herramienta de una ronda y comprueba el
+     * presupuesto UNA vez, con la ronda entera ya contada.
+     *
+     * Antes se contaba y comprobaba tool a tool, dentro del bucle que las
+     * ejecutaba en serie. Con la ronda ejecutandose en paralelo eso ya no vale:
+     * hay que saber antes de lanzar nada si la ronda cabe en el presupuesto.
+     *
+     * El efecto secundario es una mejora: donde antes se ejecutaban dos
+     * herramientas y la tercera hacia saltar el tope -- pagando dos consultas
+     * para acabar fallando igual --, ahora se corta antes de gastar nada. El
+     * desenlace del run es el mismo; el trabajo tirado, no.
+     */
+    recordToolCalls(count: number) {
+      usage.toolCallCount += count;
       enforceBudget();
     },
     /**
@@ -2276,6 +2288,54 @@ async function executeModelToolCall(
       isError: true,
     };
   }
+}
+
+/**
+ * Cuantas herramientas de una misma ronda se ejecutan a la vez.
+ *
+ * El proveedor devuelve varias `tool_use` en una ronda precisamente porque el
+ * modelo las considera independientes: ninguna necesita el resultado de otra.
+ * Ejecutarlas en serie sumaba las esperas enteras -- en produccion se vieron
+ * turnos de 6 y 8,5 minutos con 6 y 7 consultas de lectura encadenadas.
+ *
+ * El tope existe para no convertir una ronda ancha en una rafaga contra
+ * Postgres: el SQL Gateway ya limita cada consulta (12 s, 200 filas), pero diez
+ * a la vez es un pico que no aporta nada frente a cuatro. Cuatro cubre el caso
+ * observado (mediana de 6 tools por ejecucion, repartidas en varias rondas).
+ *
+ * Seguro hoy porque el catalogo activo es de solo lectura y las tools de
+ * propuesta solo construyen un objeto. **Si algun dia entra una tool que
+ * escribe en el dominio, hay que revisar este paralelismo**: dos escrituras
+ * concurrentes de la misma ejecucion no tienen orden garantizado.
+ */
+const MAX_PARALLEL_TOOL_CALLS = 4;
+
+/**
+ * Ejecuta `run` sobre cada elemento con como mucho `limit` en vuelo, y devuelve
+ * los resultados **en el orden de entrada** -- que aqui no es un detalle: cada
+ * resultado tiene que volver emparejado con el `tool_use_id` que lo pidio.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await run(items[index]!);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+
+  return results;
 }
 
 /**
@@ -2473,25 +2533,28 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
     );
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    accounting.recordToolCalls(toolUses.length);
 
-    for (const toolUse of toolUses) {
-      accounting.recordToolCall();
+    const executed = await mapWithConcurrency(
+      toolUses,
+      MAX_PARALLEL_TOOL_CALLS,
+      (toolUse) =>
+        executeModelToolCall(
+          tools,
+          toolUse.name,
+          () => (toolUse.input ?? {}) as Record<string, unknown>,
+          params.onSecurityEvent,
+        ),
+    );
 
-      const executed = await executeModelToolCall(
-        tools,
-        toolUse.name,
-        () => (toolUse.input ?? {}) as Record<string, unknown>,
-        params.onSecurityEvent,
-      );
-
-      toolResults.push({
+    const toolResults: Anthropic.ToolResultBlockParam[] = toolUses.map(
+      (toolUse, index) => ({
         type: "tool_result",
         tool_use_id: toolUse.id,
-        content: executed.content,
-        is_error: executed.isError,
-      });
-    }
+        content: executed[index]!.content,
+        is_error: executed[index]!.isError,
+      }),
+    );
 
     messages.push({ role: "assistant", content: response.content });
     messages.push({
@@ -2669,35 +2732,36 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
   while (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
     const isFinalRound = accounting.isFinalRound();
 
+    const functionCalls = choice.message.tool_calls.filter(
+      (toolCall) => toolCall.type === "function",
+    );
+
+    accounting.recordToolCalls(functionCalls.length);
+
+    const executed = await mapWithConcurrency(
+      functionCalls,
+      MAX_PARALLEL_TOOL_CALLS,
+      (toolCall) =>
+        executeModelToolCall(
+          tools,
+          toolCall.function.name,
+          () =>
+            toolCall.function.arguments
+              ? (JSON.parse(toolCall.function.arguments) as Record<
+                  string,
+                  unknown
+                >)
+              : {},
+          params.onSecurityEvent,
+        ),
+    );
+
     const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] =
-      [];
-
-    for (const toolCall of choice.message.tool_calls) {
-      if (toolCall.type !== "function") {
-        continue;
-      }
-
-      accounting.recordToolCall();
-
-      const executed = await executeModelToolCall(
-        tools,
-        toolCall.function.name,
-        () =>
-          toolCall.function.arguments
-            ? (JSON.parse(toolCall.function.arguments) as Record<
-                string,
-                unknown
-              >)
-            : {},
-        params.onSecurityEvent,
-      );
-
-      toolResults.push({
+      functionCalls.map((toolCall, index) => ({
         role: "tool",
         tool_call_id: toolCall.id,
-        content: executed.content,
-      });
-    }
+        content: executed[index]!.content,
+      }));
 
     messages.push(choice.message);
     messages.push(...toolResults);

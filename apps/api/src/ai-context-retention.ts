@@ -7,6 +7,11 @@ const DEFAULT_RETENTION_DAYS = 180;
 // ventana minima para distinguir un ataque de un pico estacional.
 const DEFAULT_SECURITY_RETENTION_DAYS = 400;
 const DEFAULT_BATCH_LIMIT = 1_000;
+// AI-30: a partir de cuando una ejecucion en `running` esta muerta y no lenta.
+// El turno mas largo observado en produccion fue de 8,5 minutos; el techo
+// teorico son 16 llamadas al modelo con timeout de 45 s. 30 minutos deja margen
+// de sobra para no cerrar a un agente que sigue trabajando.
+const DEFAULT_STALLED_RUN_MINUTES = 30;
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -50,12 +55,35 @@ export function aiSecurityEventRetentionCutoff(
   return new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
 }
 
+/**
+ * AI-30: momento a partir del cual una ejecucion en `running` se considera
+ * colgada y no lenta.
+ *
+ * Se valida el rango porque un umbral demasiado corto es destructivo: cerraria
+ * como `timeout` ejecuciones que siguen vivas, y el panel diria que fallaron
+ * cuando en realidad terminaron bien.
+ */
+export function stalledAgentRunCutoff(
+  now = new Date(),
+  stalledMinutes = DEFAULT_STALLED_RUN_MINUTES,
+) {
+  if (
+    !Number.isInteger(stalledMinutes) ||
+    stalledMinutes < 15 ||
+    stalledMinutes > 1440
+  ) {
+    throw new Error("ai_stalled_run_minutes_out_of_range");
+  }
+  return new Date(now.getTime() - stalledMinutes * 60 * 1000);
+}
+
 export async function purgeExpiredAiContext(
   env: ApiEnv,
   options: {
     now?: Date;
     retentionDays?: number;
     securityRetentionDays?: number;
+    stalledRunMinutes?: number;
     limit?: number;
   } = {},
 ) {
@@ -95,9 +123,36 @@ export async function purgeExpiredAiContext(
     );
   }
 
+  // AI-30: cerrar las ejecuciones que se quedaron en `running`. Va en esta
+  // misma pasada y no en un job propio porque el coste es una llamada y el
+  // criterio de frecuencia es el mismo: nada de esto es urgente, solo tiene que
+  // pasar sin que nadie se acuerde.
+  //
+  // Su fallo NO tumba la purga: la retencion es una obligacion de privacidad y
+  // limpiar filas colgadas es higiene del panel. Si hay que sacrificar una, no
+  // es la retencion.
+  const stalledCutoff = stalledAgentRunCutoff(
+    options.now,
+    options.stalledRunMinutes,
+  );
+  let reapedData: Record<string, number> = {};
+  const { data: reaped, error: reapError } = await client
+    .schema("private")
+    .rpc("reap_stalled_agent_runs", {
+      p_before: stalledCutoff.toISOString(),
+      p_limit: limit,
+    });
+  if (reapError) {
+    console.error("ai_stalled_agent_runs_reap_failed", reapError.message);
+  } else {
+    reapedData = (reaped as Record<string, number>) ?? {};
+  }
+
   return {
     ...(data as Record<string, number>),
     ...(securityData as Record<string, number>),
+    ...reapedData,
+    stalledRunCutoff: stalledCutoff.toISOString(),
     cutoff: cutoff.toISOString(),
     retentionDays: options.retentionDays ?? DEFAULT_RETENTION_DAYS,
     securityCutoff: securityCutoff.toISOString(),

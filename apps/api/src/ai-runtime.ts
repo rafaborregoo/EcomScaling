@@ -8,6 +8,7 @@ import {
   AgentRequestTimeoutError,
   authorizeTool,
   capSecurityEvents,
+  classifyProviderError,
   createSecurityEventCollector,
   SECURITY_EVENTS_DAILY_CAP_PER_ORG,
   type AgentSecurityEvent,
@@ -787,9 +788,19 @@ function describeAgentTurnFailure(error: unknown): {
     return { status: "timeout", message: error.message };
   }
 
+  // AI-30: el motivo del fallo, delante y en una palabra.
+  //
+  // En produccion 61 de 65 fallos fueron "saldo de Anthropic agotado" y se
+  // guardaban como el blob JSON crudo del SDK, mezclados con los fallos reales.
+  // Quien mira el panel tiene que poder separar "hay que pagar la factura" de
+  // "el proveedor esta caido" sin leerse un JSON. El texto original se conserva
+  // detras: la clasificacion resume, no sustituye.
+  const kind = classifyProviderError(error);
+  const detail = error instanceof Error ? error.message : "unknown_error";
+
   return {
     status: "failed",
-    message: error instanceof Error ? error.message : "unknown_error",
+    message: kind === "unknown" ? detail : `provider_${kind}: ${detail}`,
   };
 }
 
@@ -802,6 +813,47 @@ function describeAgentTurnFailure(error: unknown): {
 // fallo final. El presupuesto diario y el circuit breaker por organizacion se
 // validan antes de entrar aqui. AI-09 resuelve el override por agente/proveedor;
 // el ajuste de políticas por plan/organización queda como mejora posterior.
+/**
+ * AI-30: hay red de seguridad de proveedor, o no la hay.
+ *
+ * Existe por un fallo de operacion, no de codigo: el fallback R-020 llevaba
+ * meses escrito y probado, pero `OPENAI_API_KEY` nunca se declaro en
+ * `deploy/docker-compose.prod.yml`. Entre el 3 y el 9 de septiembre de 2026,
+ * 61 ejecuciones murieron por saldo de Anthropic agotado con un segundo
+ * proveedor que no podia entrar -- y nada en los logs decia por que.
+ *
+ * La comprobacion es trivial. Lo que faltaba era que alguien la hiciera en voz
+ * alta al arrancar, que es cuando todavia se puede arreglar sin perder una
+ * semana de diagnosticos.
+ */
+export function describeProviderRedundancy(env: {
+  ANTHROPIC_API_KEY?: string | undefined;
+  OPENAI_API_KEY?: string | undefined;
+}): { level: "redundant" | "single_provider" | "none"; message: string } {
+  const anthropic = Boolean(env.ANTHROPIC_API_KEY);
+  const openai = Boolean(env.OPENAI_API_KEY);
+
+  if (anthropic && openai) {
+    return {
+      level: "redundant",
+      message: "IA con dos proveedores: el fallback R-020 puede actuar.",
+    };
+  }
+
+  if (!anthropic && !openai) {
+    return {
+      level: "none",
+      message:
+        "IA desactivada: no hay ningun proveedor configurado. Los agentes no se ejecutaran.",
+    };
+  }
+
+  return {
+    level: "single_provider",
+    message: `IA con un solo proveedor (${anthropic ? "Anthropic" : "OpenAI"}). SIN RED: cualquier fallo suyo -- caida, rate limit o saldo agotado -- tumba la ejecucion, porque no hay fallback posible. Configura ${anthropic ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"}.`,
+  };
+}
+
 async function runAgentTurnWithFallbackCore<TOutput>(
   env: ApiEnv,
   params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey">,
@@ -843,14 +895,35 @@ async function runAgentTurnWithFallbackCore<TOutput>(
       error instanceof AgentBudgetExceededError ||
       error instanceof AgentOutputValidationError;
 
+    const failureKind = classifyProviderError(error);
+
     if (isJudgmentOnAnthropicResponse || !env.OPENAI_API_KEY) {
+      // Sin segundo proveedor el fallo de Anthropic es el fallo final. Se
+      // registra como error y no en silencio: durante siete dias de septiembre
+      // TODAS las ejecuciones murieron por saldo agotado y no habia una sola
+      // linea que dijera "el fallback no pudo entrar porque no esta
+      // configurado".
+      if (!isJudgmentOnAnthropicResponse && !env.OPENAI_API_KEY) {
+        logger.error("ai_fallback_unavailable_no_openai_key", {
+          organization_id: params.input.organization_id,
+          agent_code: params.input.agent_code,
+          failure_kind: failureKind,
+        });
+        apiMetrics.increment("ai_fallback_unavailable_total", {
+          failure_kind: failureKind,
+        });
+      }
       throw error;
     }
 
     logger.info("anthropic_call_failed_falling_back_to_openai", {
       organization_id: params.input.organization_id,
       agent_code: params.input.agent_code,
+      failure_kind: failureKind,
       error: error instanceof Error ? error.message : String(error),
+    });
+    apiMetrics.increment("ai_provider_fallback_total", {
+      failure_kind: failureKind,
     });
 
     return await runAgentTurnOpenAI<TOutput>({

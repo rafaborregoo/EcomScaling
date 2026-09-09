@@ -26,8 +26,93 @@ export class AgentRequestTimeoutError extends Error {
   }
 }
 
+/**
+ * Por que fallo el proveedor, en terminos que cambian lo que hay que hacer.
+ *
+ * Existe porque en produccion 61 de 65 fallos de agente fueron "saldo de
+ * Anthropic agotado" y llegaban a `agent_runs.error_message` como un blob JSON
+ * del SDK, indistinguibles de un fallo de red. Un problema de facturacion y una
+ * caida del proveedor se arreglan en sitios distintos y por personas distintas.
+ */
+export const PROVIDER_FAILURE_KINDS = [
+  /** No hay credito/cuota. No se arregla reintentando: se arregla pagando. */
+  "out_of_credit",
+  /** Clave invalida, revocada o sin permisos. */
+  "auth",
+  /** Limite de tasa del proveedor. Se reintenta. */
+  "rate_limited",
+  "timeout",
+  /** Caida o degradacion del proveedor (5xx, red). Se reintenta. */
+  "unavailable",
+  /** La peticion estaba mal formada. Culpa nuestra, no del proveedor. */
+  "bad_request",
+  "unknown",
+] as const;
+
+export type ProviderFailureKind = (typeof PROVIDER_FAILURE_KINDS)[number];
+
+function errorSurface(error: unknown): { status: number; text: string } {
+  const candidate = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    code?: unknown;
+    message?: unknown;
+  };
+  const code = typeof candidate?.code === "string" ? candidate.code : "";
+  const message =
+    typeof candidate?.message === "string" ? candidate.message : "";
+  return {
+    status: Number(candidate?.status ?? candidate?.statusCode),
+    text: `${code} ${message}`,
+  };
+}
+
+export function classifyProviderError(error: unknown): ProviderFailureKind {
+  if (error instanceof AgentRequestTimeoutError) return "timeout";
+
+  const { status, text } = errorSurface(error);
+
+  // Antes que el status: Anthropic manda el saldo agotado como 400 y OpenAI la
+  // cuota agotada como 429. Clasificar por codigo mandaria uno a "peticion mal
+  // formada" y el otro a "reintentalo", y las dos lecturas son falsas.
+  if (
+    /credit balance is too low|insufficient_quota|exceeded your current quota|billing|payment required/i.test(
+      text,
+    ) ||
+    status === 402
+  ) {
+    return "out_of_credit";
+  }
+
+  if (status === 401 || status === 403 || /invalid.?api.?key/i.test(text)) {
+    return "auth";
+  }
+  if (status === 429 || /rate.?limit/i.test(text)) return "rate_limited";
+  if (/timeout|etimedout|timed out/i.test(text)) return "timeout";
+  if (
+    (Number.isInteger(status) && status >= 500 && status <= 599) ||
+    /econnreset|econnrefused|enotfound|fetch failed|network|overloaded|temporar/i.test(
+      text,
+    )
+  ) {
+    return "unavailable";
+  }
+  if (Number.isInteger(status) && status >= 400 && status <= 499) {
+    return "bad_request";
+  }
+
+  return "unknown";
+}
+
 export function isTransientAgentError(error: unknown): boolean {
   if (error instanceof AgentRequestTimeoutError) return true;
+
+  // Sin saldo o sin credenciales validas, reintentar es quemar el reloj para
+  // recibir el mismo error tres veces. Va antes que la comprobacion de status
+  // porque la cuota agotada de OpenAI es un 429, que si es reintentable en
+  // cualquier otro caso.
+  const kind = classifyProviderError(error);
+  if (kind === "out_of_credit" || kind === "auth") return false;
 
   const candidate = error as {
     status?: unknown;
@@ -42,7 +127,8 @@ export function isTransientAgentError(error: unknown): boolean {
   if (Number.isInteger(status) && status >= 500 && status <= 599) return true;
 
   const code = typeof candidate?.code === "string" ? candidate.code : "";
-  const message = typeof candidate?.message === "string" ? candidate.message : "";
+  const message =
+    typeof candidate?.message === "string" ? candidate.message : "";
   return /(?:econnreset|econnrefused|etimedout|enotfound|fetch failed|network|overloaded|rate.?limit|timeout|temporar)/i.test(
     `${code} ${message}`,
   );
@@ -100,6 +186,7 @@ export async function withAgentResilience<T>(
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error("agent_provider_failed");
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("agent_provider_failed");
 }
-

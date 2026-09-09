@@ -23,6 +23,7 @@ export function Button({
   "aria-expanded": ariaExpanded,
   "aria-controls": ariaControls,
   "aria-label": ariaLabel,
+  "aria-pressed": ariaPressed,
 }: {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -35,6 +36,9 @@ export function Button({
   "aria-expanded"?: boolean;
   "aria-controls"?: string;
   "aria-label"?: string;
+  // Botones que son un interruptor (un filtro activado/desactivado): sin esto
+  // el lector de pantalla lee la etiqueta y no dice si esta puesto o quitado.
+  "aria-pressed"?: boolean;
 }) {
   const button = (
     <HeroButton
@@ -54,6 +58,7 @@ export function Button({
       aria-expanded={ariaExpanded}
       aria-controls={ariaControls}
       aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
     >
       {children}
     </HeroButton>

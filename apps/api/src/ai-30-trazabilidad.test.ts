@@ -10,7 +10,9 @@ import { evaluateCostGate } from "./eval-cost-gate.js";
 import {
   aiContextRetentionCutoff,
   aiSecurityEventRetentionCutoff,
+  stalledAgentRunCutoff,
 } from "./ai-context-retention.js";
+import { describeProviderRedundancy } from "./ai-runtime.js";
 import {
   currentParallelGroupId,
   currentRequestId,
@@ -114,4 +116,57 @@ test("no se puede configurar una retencion de seguridad mas corta que la del con
   );
   // El limite inferior es exactamente el horizonte del contexto.
   assert.doesNotThrow(() => aiSecurityEventRetentionCutoff(new Date(), 180));
+});
+
+// AI-30 (2026-09-09): el fallback R-020 llevaba meses escrito y probado, pero
+// `OPENAI_API_KEY` no estaba declarada en deploy/docker-compose.prod.yml. Entre
+// el 3 y el 9 de septiembre murieron 61 ejecuciones por saldo de Anthropic
+// agotado con un segundo proveedor que no podia entrar. Estos tests fijan la
+// comprobacion que faltaba: no la de "hay clave", sino la de "hay red".
+test("un solo proveedor se declara como sin red, no como configuracion correcta", () => {
+  const solo = describeProviderRedundancy({ ANTHROPIC_API_KEY: "sk-ant" });
+
+  assert.equal(solo.level, "single_provider");
+  assert.match(solo.message, /SIN RED/);
+  // Tiene que decir QUE falta, no solo que algo falta.
+  assert.match(solo.message, /OPENAI_API_KEY/);
+});
+
+test("con los dos proveedores hay fallback, y sin ninguno la IA esta apagada", () => {
+  assert.equal(
+    describeProviderRedundancy({
+      ANTHROPIC_API_KEY: "sk-ant",
+      OPENAI_API_KEY: "sk-oai",
+    }).level,
+    "redundant",
+  );
+  assert.equal(describeProviderRedundancy({}).level, "none");
+
+  // Una cadena vacia es "no configurada": los .env se copian del .env.example
+  // con las claves opcionales en blanco.
+  assert.equal(
+    describeProviderRedundancy({ ANTHROPIC_API_KEY: "", OPENAI_API_KEY: "" })
+      .level,
+    "none",
+  );
+});
+
+// El reaper marca ejecuciones como `timeout`. Un umbral demasiado corto no es
+// un bug menor: cerraria como fallidas ejecuciones que siguen vivas y el panel
+// mentiria sobre runs que en realidad terminaron bien.
+test("el umbral de ejecucion colgada no puede bajar de un turno largo legitimo", () => {
+  assert.throws(
+    () => stalledAgentRunCutoff(new Date(), 5),
+    /ai_stalled_run_minutes_out_of_range/,
+  );
+  assert.throws(
+    () => stalledAgentRunCutoff(new Date(), 10_000),
+    /ai_stalled_run_minutes_out_of_range/,
+  );
+
+  const now = new Date("2026-09-09T12:00:00.000Z");
+  assert.equal(
+    stalledAgentRunCutoff(now).toISOString(),
+    "2026-09-09T11:30:00.000Z",
+  );
 });

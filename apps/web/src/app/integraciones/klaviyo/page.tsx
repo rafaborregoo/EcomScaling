@@ -101,6 +101,9 @@ function KlaviyoIntegrationPage({
   const [apiKey, setApiKey] = useState("");
   const [savingMetric, setSavingMetric] = useState(false);
   const [metricSaveError, setMetricSaveError] = useState<string | null>(null);
+  // El Select guarda al cambiar y no habia ninguna confirmacion: ni visual ni
+  // anunciada. Quien lo usa con teclado no sabia si se habia guardado.
+  const [metricStatus, setMetricStatus] = useState("");
 
   if (isLoading) {
     return <AsyncState status="loading" loadingLabel="Cargando Klaviyo..." />;
@@ -132,6 +135,7 @@ function KlaviyoIntegrationPage({
     if (!organization || !metricId) return;
     setSavingMetric(true);
     setMetricSaveError(null);
+    setMetricStatus("Guardando métrica de conversión...");
     try {
       const response = await apiFetch(
         `/v1/organizations/${organization.id}/klaviyo/conversion-metric`,
@@ -142,9 +146,12 @@ function KlaviyoIntegrationPage({
         },
       );
       if (!response.ok) {
-        setMetricSaveError(await readErr(response));
+        const message = await readErr(response);
+        setMetricSaveError(message);
+        setMetricStatus(`No se pudo guardar la métrica. ${message}`);
         return;
       }
+      setMetricStatus("Métrica de conversión guardada.");
       setMetrics((current) =>
         current
           ? {
@@ -159,6 +166,7 @@ function KlaviyoIntegrationPage({
       );
     } catch {
       setMetricSaveError("No se pudo guardar la métrica. Reintenta.");
+      setMetricStatus("No se pudo guardar la métrica. Reintenta.");
     } finally {
       setSavingMetric(false);
     }
@@ -272,6 +280,9 @@ function KlaviyoIntegrationPage({
                   label: `${metric.name}${metric.metric_type ? ` · ${metric.metric_type}` : ""}`,
                 }))}
               />
+              <p role="status" aria-live="polite" className="mt-2 text-xs text-muted">
+                {metricStatus}
+              </p>
               {metricSaveError ? (
                 <Banner className="mt-3" tone="danger">
                   {metricSaveError}

@@ -2,6 +2,18 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+// AI-30: la raiz se calcula desde este fichero, no desde `process.cwd()`.
+//
+// Con `cwd` el test solo pasaba si se lanzaba desde la raiz del monorepo, y
+// `npm run test -w @ecomscaling/ai` lanza desde `packages/ai`. Por eso esta
+// suite estaba fuera del script `test` del paquete: no se arreglo, se dejo de
+// ejecutar.
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+);
 
 const promptSources = [
   "supabase/migrations/20260824120000_ai_13_canonical_prompt_sections.sql",
@@ -46,7 +58,7 @@ const requiredSections = [
 
 test("cada agente del catálogo tiene un prompt canónico completo de nueve secciones", () => {
   const migrations = promptSources.map((source) =>
-    fs.readFileSync(path.resolve(process.cwd(), source), "utf8"),
+    fs.readFileSync(path.resolve(REPO_ROOT, source), "utf8"),
   );
 
   for (const promptCode of promptCodes) {
@@ -56,13 +68,18 @@ test("cada agente del catálogo tiene un prompt canónico completo de nueve secc
     assert.ok(source, `missing canonical prompt ${promptCode}`);
 
     const match = source.match(
-      new RegExp(`\\n  '${promptCode}',\\n  'v\\d+',\\n  \\\$\\$([\\s\\S]*?)\\$\\$,`),
+      new RegExp(
+        `\\n  '${promptCode}',\\n  'v\\d+',\\n  \\\$\\$([\\s\\S]*?)\\$\\$,`,
+      ),
     );
     assert.ok(match, `missing prompt body ${promptCode}`);
     const promptBody = match[1];
     assert.ok(promptBody, `empty prompt body ${promptCode}`);
     for (const section of requiredSections) {
-      assert.ok(promptBody.includes(section), `${promptCode} missing ${section}`);
+      assert.ok(
+        promptBody.includes(section),
+        `${promptCode} missing ${section}`,
+      );
     }
   }
 });

@@ -31,6 +31,13 @@ services:
       # que el default coincide con la etiqueta de la imagen de arriba: lo que
       # se registra es siempre lo que de verdad esta corriendo.
       GIT_SHA: ${IMAGE_TAG:-latest}
+      # R-020: OPENAI_API_KEY y OPENAI_MODEL NO se declaran aqui a proposito.
+      # `env_file: .env.production` ya las inyecta. Declararlas en `environment`
+      # las romperia: `environment` tiene prioridad sobre `env_file`, y
+      # ${OPENAI_API_KEY:-} se resuelve contra el .env del proyecto compose
+      # (/opt/ecomscaling/.env, que solo tiene IMAGE_TAG), asi que quedarian
+      # vacias y el fallback a OpenAI jamas podria entrar -- justo lo contrario
+      # de lo que se buscaba. Comprobado con `docker compose config`.
     depends_on:
       redis:
         condition: service_healthy

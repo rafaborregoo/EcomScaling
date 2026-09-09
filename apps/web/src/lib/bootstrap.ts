@@ -98,6 +98,23 @@ export function defaultTimeoutFor(path: string): number | undefined {
   return path.includes("/ai/") ? AI_REQUEST_TIMEOUT_MS : undefined;
 }
 
+// `fetch` etiqueta un body de tipo string como text/plain, y Fastify trae
+// parser propio para text/plain: el JSON llegaba al handler como cadena y no
+// como objeto, asi que los campos del cuerpo eran undefined y la ruta
+// respondia como si no le hubieran mandado nada. Se vio en
+// PUT /v1/organizations/:id/store-scope, que contestaba "invalid_store_scope -
+// Envia al menos una asignacion" con las asignaciones ya rellenadas. Cada call
+// site ponia la cabecera a mano y el que se olvidaba fallaba en silencio: va
+// aqui, que es por donde pasan todos.
+function authHeaders(init: RequestInit, token: string) {
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  if (typeof init.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  return headers;
+}
+
 export async function apiFetch(
   path: string,
   init: RequestInit = {},
@@ -109,8 +126,7 @@ export async function apiFetch(
     throw new Error("No hay sesion activa.");
   }
 
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${token}`);
+  const headers = authHeaders(init, token);
 
   const response = await fetchApiWithTimeout(
     `${apiUrl}${path}`,
@@ -131,8 +147,7 @@ export async function apiFetch(
     return response;
   }
 
-  const retryHeaders = new Headers(init.headers);
-  retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
+  const retryHeaders = authHeaders(init, refreshedToken);
 
   return fetchApiWithTimeout(
     `${apiUrl}${path}`,

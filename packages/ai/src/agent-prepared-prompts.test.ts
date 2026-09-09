@@ -2,10 +2,21 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+// AI-30: raiz del repo desde este fichero, no desde `process.cwd()` -- ver
+// agent-canonical-prompts.test.ts.
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+);
 
 test("los agentes preparados tienen prompt canónico y permanecen inactivos", () => {
   const migration = fs.readFileSync(
-    path.resolve(process.cwd(), "supabase/migrations/20260826120000_ai_22_prepared_agent_prompts.sql"),
+    path.resolve(
+      REPO_ROOT,
+      "supabase/migrations/20260826120000_ai_22_prepared_agent_prompts.sql",
+    ),
     "utf8",
   );
   for (const code of [
@@ -17,9 +28,15 @@ test("los agentes preparados tienen prompt canónico y permanecen inactivos", ()
     assert.match(migration, new RegExp(`${code}_system`));
   }
   const sections = [
-    "1. ROLE", "2. GOAL", "3. CONTEXT", "4. INPUT",
-    "5. RULES / CONSTRAINTS", "6. TOOLS", "7. OUTPUT",
-    "8. FAILURE BEHAVIOUR", "9. EXAMPLES",
+    "1. ROLE",
+    "2. GOAL",
+    "3. CONTEXT",
+    "4. INPUT",
+    "5. RULES / CONSTRAINTS",
+    "6. TOOLS",
+    "7. OUTPUT",
+    "8. FAILURE BEHAVIOUR",
+    "9. EXAMPLES",
   ];
   for (const code of [
     "a03_analista_adquisicion",
@@ -27,7 +44,9 @@ test("los agentes preparados tienen prompt canónico y permanecen inactivos", ()
     "a07_rendimiento_contenido",
   ]) {
     const promptMatch = migration.match(
-      new RegExp(`\\n  '${code}_system',\\n  'v1',\\n  \\\$\\$([\\s\\S]*?)\\$\\$,`),
+      new RegExp(
+        `\\n  '${code}_system',\\n  'v1',\\n  \\\$\\$([\\s\\S]*?)\\$\\$,`,
+      ),
     );
     assert.ok(promptMatch, `missing prompt body for ${code}`);
     const promptBody = promptMatch[1];

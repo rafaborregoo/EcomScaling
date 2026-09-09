@@ -285,6 +285,29 @@ copias de la misma regla**, y una regla en dos copias se arregla en una sola —
 implementaciones para esconder las pocas diferencias que sí son reales, y esas diferencias es
 mejor verlas.
 
+### Fiabilidad: lo que el diagnóstico sobre producción destapó (2026-09-09)
+
+Con 175 ejecuciones reales y 2 organizaciones, los datos contradijeron la intuición de que
+hacían falta subagentes: el agente más cargado usa 10 de las 16 llamadas al modelo
+disponibles y 74,6k tokens de una ventana de ~200k. **Ningún agente está contra el techo.**
+Lo que sí había eran tres defectos, y ninguno se arreglaba con más agentes.
+
+| Defecto                                                                    | Causa                                                                                                                                     | Arreglo                                                                                                                             |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 18 de 175 ejecuciones eternas en `running`, la más antigua del 19 de julio | Si el proceso muere a mitad de turno, la fila queda sin estado terminal y nadie la cierra                                                 | `private.reap_stalled_agent_runs`, en la pasada de retención. Se marcan `timeout` con `latency_ms` a `null`: no medimos su duración |
+| Latencias de 6 y 8,5 minutos                                               | Las herramientas de una misma ronda se ejecutaban en serie (`for … await`) aunque el modelo las pide juntas **porque son independientes** | Ejecución concurrente con tope de 4. El presupuesto se comprueba una vez con la ronda entera contada, antes de lanzar nada          |
+| 61 de 65 fallos por saldo de Anthropic agotado                             | El fallback R-020 estaba escrito y probado, pero `OPENAI_API_KEY` **nunca se declaró en `docker-compose.prod.yml`**                       | Variables cableadas + `describeProviderRedundancy` avisando al arrancar + `classifyProviderError`                                   |
+
+El tercero es el que importa: no era un fallo de código sino de operación, y era invisible.
+Siete días de ejecuciones muertas sin una sola línea que dijera "el fallback no puede entrar
+porque no está configurado". Ahora la API lo grita al arrancar.
+
+**Cuándo tocarán subagentes**, entonces: cuando un agente roce las 16 llamadas de forma
+habitual, cuando el contexto se acerque a la ventana, cuando hagan falta ramas realmente
+independientes con presupuesto propio, o cuando un catálogo de herramientas no quepa en un
+prompt — el candidato natural ahí es `a09_copiloto_consultor`, con 20 tools declaradas. La
+infraestructura de correlación ya está lista para ese día.
+
 ### Lo que sigue abierto
 
 1. **Árbol de subagentes en el panel.** Las columnas existen y el detalle ya sabría pintarlo,

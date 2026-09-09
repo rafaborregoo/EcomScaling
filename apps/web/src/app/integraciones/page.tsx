@@ -43,6 +43,7 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
     payload,
     isLoading,
     error,
+    reload,
   } = useIntegrations(bootstrap);
   const [oauthNotice, setOauthNotice] =
     useState<ReturnType<typeof readOAuthNotice>>(null);
@@ -63,8 +64,11 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
   }
   if (error) {
     return (
-      <div className="portal-page">
+      <div className="portal-page space-y-3">
         <ErrorBlock>{error}</ErrorBlock>
+        <Button variant="secondary" size="sm" onClick={() => void reload()}>
+          Reintentar
+        </Button>
       </div>
     );
   }
@@ -203,6 +207,10 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <Link
                     className="inline-flex items-center gap-1 text-sm font-medium"
                     href={`/integraciones/${slug}`}
+                    // Doce tarjetas con el mismo "Ver y configurar" dejaban la
+                    // lista de enlaces del lector de pantalla sin distinguir
+                    // ninguna.
+                    aria-label={`${provider.connection ? "Ver y configurar" : "Conectar"} ${provider.name}`}
                   >
                     {provider.connection ? "Ver y configurar" : "Conectar"}
                     <IconChevronRight aria-hidden />
@@ -310,6 +318,7 @@ function ConsultantIntegrationsView() {
           <Button
             variant={onlyIssues ? "primary" : "secondary"}
             size="sm"
+            aria-pressed={onlyIssues}
             onClick={() => setOnlyIssues((value) => !value)}
           >
             Solo con incidencias
@@ -332,11 +341,21 @@ function ConsultantIntegrationsView() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[36rem] border-collapse text-sm">
+              <caption className="sr-only">
+                Estado de cada integración por cliente. Activa el nombre del
+                cliente para pasar a su vista.
+              </caption>
               <thead>
                 <tr className="border-b border-separator text-left">
-                  <th className="py-2 pr-4 font-medium">Cliente</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">
+                    Cliente
+                  </th>
                   {data.providers.map((provider) => (
-                    <th key={provider} className="px-3 py-2 font-medium">
+                    <th
+                      scope="col"
+                      key={provider}
+                      className="px-3 py-2 font-medium"
+                    >
                       {displayValue(provider)}
                     </th>
                   ))}
@@ -346,10 +365,21 @@ function ConsultantIntegrationsView() {
                 {rows.map((row) => (
                   <tr
                     key={row.organization_id}
-                    className="cursor-pointer border-b border-separator hover:bg-surface"
-                    onClick={() => setOrganizationId(row.organization_id)}
+                    className="border-b border-separator hover:bg-surface"
                   >
-                    <td className="py-3 pr-4 font-medium">{row.display_name}</td>
+                    {/* La fila entera era un onClick sobre el <tr>: con teclado
+                        no habia forma de abrir un cliente, y el lector de
+                        pantalla no anunciaba que fuera pulsable. El disparador
+                        es el nombre, que ademas es la cabecera de la fila. */}
+                    <th scope="row" className="py-3 pr-4 text-left font-medium">
+                      <button
+                        type="button"
+                        className="rounded-sm text-left underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+                        onClick={() => setOrganizationId(row.organization_id)}
+                      >
+                        {row.display_name}
+                      </button>
+                    </th>
                     {data.providers.map((provider) => {
                       const cell = row.providers[provider];
                       return (

@@ -258,9 +258,11 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </Checkbox>
                 ))}
               </fieldset>
-              {saveMessage ? (
-                <p className="mt-3 text-xs text-success">{saveMessage}</p>
-              ) : null}
+              {/* Antes era texto suelto: al guardar, con lector de pantalla no
+                  se anunciaba nada y el foco seguia en el boton. */}
+              <p role="status" aria-live="polite" className="mt-3 text-xs text-success">
+                {saveMessage}
+              </p>
               {saveError ? (
                 <Banner className="mt-3" tone="danger">
                   {saveError}

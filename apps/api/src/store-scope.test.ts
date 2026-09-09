@@ -80,6 +80,21 @@ test("rechaza un cuerpo vacio o sin filas", () => {
   );
 });
 
+// Regresion: sin content-type: application/json, Fastify parsea el cuerpo con
+// su parser de text/plain y el handler recibe la cadena JSON en crudo. Antes
+// caia en "envia al menos una asignacion" y mandaba a buscar el fallo a la UI.
+test("un cuerpo que no es objeto se distingue de un cuerpo sin filas", () => {
+  const parsed = parseStoreScopeInput(
+    '{"meta_ad_accounts":[]}' as unknown as Parameters<
+      typeof parseStoreScopeInput
+    >[0],
+  );
+
+  assert.equal(parsed.ok, false);
+  if (parsed.ok !== false) return;
+  assert.equal(parsed.error, "invalid_store_scope_body");
+});
+
 // El consultor tiene membership virtual con role "consultant": ve los datos del
 // cliente pero no reescribe su atribucion. Misma regla que conectar Shopify.
 test("un consultor no puede reasignar tiendas", async () => {
