@@ -38,6 +38,7 @@ export function Metric({
   tone = "default",
   size = "md",
   card = false,
+  insight,
   className,
 }: {
   label: ReactNode;
@@ -51,6 +52,10 @@ export function Metric({
   tone?: keyof typeof VALUE_TONE;
   size?: "md" | "sm";
   card?: boolean;
+  // Marca de la IA, pegada a la etiqueta (no a la esquina de la tarjeta: ahi
+  // choca con el sparkline y se pierde en la version `size="sm"`, que no es
+  // una tarjeta sino una celda de rejilla). Ver MetricInsights.
+  insight?: ReactNode;
   className?: string;
 }) {
   const hasTrend = Array.isArray(trend) && trend.length > 1;
@@ -67,7 +72,14 @@ export function Metric({
       )}
     >
       <div className="min-w-0">
-        <p className={EYEBROW}>{label}</p>
+        {insight ? (
+          <div className="flex items-center gap-1">
+            <p className={EYEBROW}>{label}</p>
+            {insight}
+          </div>
+        ) : (
+          <p className={EYEBROW}>{label}</p>
+        )}
         <p
           className={cn(
             "mt-1 font-semibold tracking-tight tabular-nums",

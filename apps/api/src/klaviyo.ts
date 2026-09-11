@@ -9,6 +9,12 @@ import {
   type AuthContext,
 } from "./auth-context.js";
 import { createKlaviyoClient } from "./klaviyo-client.js";
+import {
+  describeKlaviyoMissingPermissions,
+  isKlaviyoPermissionError,
+  klaviyoCapability,
+  probeKlaviyoPermissions,
+} from "./klaviyo-permissions.js";
 import { recordAuditLog } from "./audit-log.js";
 import { emailHtmlToPlainText } from "./email-body-text.js";
 import {
@@ -196,6 +202,21 @@ export async function connectKlaviyoWithApiKey(
     };
   }
 
+  // /accounts solo prueba que la key existe. Sin sondear el resto, una key
+  // sin permisos se guarda "conectada" y falla despues en el sync, donde la
+  // persona ya no tiene el panel de Klaviyo delante.
+  const probe = await probeKlaviyoPermissions(createKlaviyoClient(key));
+  const missingRequired = probe.missing.filter((item) => item.required);
+  if (missingRequired.length > 0) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: "klaviyo_api_key_missing_permissions",
+      message: describeKlaviyoMissingPermissions(missingRequired, "api_key"),
+      detail: missingRequired.map((item) => item.key).join(","),
+    };
+  }
+
   const attributes = account.attributes ?? {};
   const accountName =
     typeof attributes.name === "string" ? attributes.name : "Klaviyo";
@@ -210,7 +231,9 @@ export async function connectKlaviyoWithApiKey(
         provider_account_id: account.id,
         provider_account_name: accountName,
         status: "connected",
-        scopes: [],
+        // Lo que la key puede hacer de verdad, no una lista vacia: asi la UI
+        // puede decir "esta key no publica plantillas" sin volver a preguntar.
+        scopes: probe.granted,
         api_version: "2026-07-15",
         connected_at: now,
         last_error_at: null,
@@ -1301,4 +1324,218 @@ export async function importKlaviyoTemplate(
   });
 
   return { ok: true, data: { draft_id: draft.id } };
+}
+
+/** Atributos de plantilla que acepta Klaviyo desde un borrador nuestro. */
+export type KlaviyoTemplateAttributes = {
+  name: string;
+  editor_type: "CODE";
+  html: string;
+  text: string;
+};
+
+/**
+ * Peticion de escritura de plantilla: crear si no hay id, actualizar si lo hay.
+ * Aparte del resto para poder comprobar la forma del cuerpo sin llamar a
+ * Klaviyo -- `type` e `id` dentro de `data` son justo lo que rechaza la API
+ * si se equivoca.
+ */
+export function klaviyoTemplateWriteRequest(
+  existingId: string | null,
+  attributes: KlaviyoTemplateAttributes,
+): { path: string; init: RequestInit } {
+  const body = existingId
+    ? { data: { type: "template", id: existingId, attributes } }
+    : { data: { type: "template", attributes } };
+  return {
+    path: existingId
+      ? `/templates/${encodeURIComponent(existingId)}/`
+      : "/templates/",
+    init: {
+      method: existingId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  };
+}
+
+/**
+ * Empuja el HTML de un borrador aprobado a Klaviyo como plantilla.
+ *
+ * Escritura en la cuenta del cliente, asi que exige borrador `approved` y rol
+ * de gestion: el consultor decide, el software no publica solo. Idempotente
+ * por `request.klaviyo_template_id`: la primera vez crea, despues actualiza la
+ * misma plantilla en vez de sembrar duplicados en la cuenta. Si esa plantilla
+ * ya no existe en Klaviyo (borrada a mano), se recrea.
+ */
+export async function pushDraftToKlaviyoTemplate(
+  env: LoadedApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  draftId: string,
+): Promise<Result<{ klaviyo_template_id: string; created: boolean }>> {
+  const accessError = canManage(context, organizationId);
+  if (accessError) return { ok: false, statusCode: 403, error: accessError };
+  if (!draftId.trim()) {
+    return { ok: false, statusCode: 400, error: "missing_draft_id" };
+  }
+
+  const supabase = serviceClient(env);
+  const { data: draft, error: draftError } = await supabase
+    .from("marketing_content_drafts")
+    .select("id, status, html, plain_text, template_name, subject, request")
+    .eq("id", draftId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (draftError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "marketing_draft_load_failed",
+      detail: draftError.message,
+    };
+  }
+  if (!draft) {
+    return { ok: false, statusCode: 404, error: "marketing_draft_not_found" };
+  }
+  if (draft.status !== "approved") {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "marketing_draft_not_approved",
+      message: "Aprueba la pieza antes de enviarla a Klaviyo.",
+    };
+  }
+
+  const html = sanitizeGeneratedEmailHtml(
+    typeof draft.html === "string" ? draft.html : "",
+  );
+  if (!html) {
+    return {
+      ok: false,
+      statusCode: 422,
+      error: "marketing_draft_sin_html",
+      message: "Esta pieza no tiene HTML que enviar.",
+    };
+  }
+  const name = (
+    (typeof draft.template_name === "string" && draft.template_name.trim()) ||
+    (typeof draft.subject === "string" && draft.subject.trim()) ||
+    "Plantilla de EcomScaling"
+  ).slice(0, 160);
+  const text =
+    typeof draft.plain_text === "string" && draft.plain_text.trim()
+      ? draft.plain_text
+      : emailHtmlToPlainText(html) || name;
+
+  const connectionId = await activeKlaviyoConnectionId(supabase, organizationId);
+  if (!connectionId) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: "klaviyo_not_connected",
+      message: "Conecta Klaviyo antes de enviar plantillas.",
+    };
+  }
+
+  const request = (draft.request ?? {}) as Record<string, unknown>;
+  const existingId =
+    typeof request.klaviyo_template_id === "string" &&
+    request.klaviyo_template_id.trim()
+      ? request.klaviyo_template_id
+      : null;
+  // `editor_type: CODE` es lo unico que acepta HTML propio; con el editor
+  // visual Klaviyo ignora el cuerpo y guarda una plantilla vacia.
+  const attributes: KlaviyoTemplateAttributes = {
+    name,
+    editor_type: "CODE",
+    html,
+    text,
+  };
+
+  let templateId: string;
+  let created: boolean;
+  try {
+    const client = createKlaviyoClient(
+      await getValidKlaviyoAccessToken(env, connectionId),
+    );
+    const create = async () => {
+      const { path, init } = klaviyoTemplateWriteRequest(null, attributes);
+      const response = await client.request<{ data?: { id?: string } }>(
+        path,
+        init,
+      );
+      const id = response.data?.id;
+      if (!id) throw new Error("klaviyo_template_id_missing");
+      return id;
+    };
+
+    if (existingId) {
+      try {
+        const update = klaviyoTemplateWriteRequest(existingId, attributes);
+        await client.request(update.path, update.init);
+        templateId = existingId;
+        created = false;
+      } catch (error) {
+        // La plantilla pudo borrarse en Klaviyo; entonces recrear es lo
+        // correcto, no fallar con un 404 que el consultor no puede arreglar.
+        if (!(error instanceof Error && error.message.includes(":404:"))) {
+          throw error;
+        }
+        templateId = await create();
+        created = true;
+      }
+    } else {
+      templateId = await create();
+      created = true;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown_error";
+    // 403 aqui es casi siempre el scope: la conexion se autorizo solo de
+    // lectura y hay que reconectar con `templates:write`.
+    if (isKlaviyoPermissionError(message)) {
+      const capability = klaviyoCapability("templates:write");
+      return {
+        ok: false,
+        statusCode: 403,
+        error: "klaviyo_template_write_denied",
+        message: capability
+          ? describeKlaviyoMissingPermissions([capability], "api_key") +
+            " Si conectaste por OAuth, vuelve a autorizar la cuenta."
+          : "Klaviyo rechaza la escritura de plantillas por falta de permisos.",
+        detail: message,
+      };
+    }
+    return {
+      ok: false,
+      statusCode: 502,
+      error: "klaviyo_template_push_failed",
+      detail: message,
+    };
+  }
+
+  const { error: persistError } = await supabase
+    .from("marketing_content_drafts")
+    .update({ request: { ...request, klaviyo_template_id: templateId } })
+    .eq("id", draftId)
+    .eq("organization_id", organizationId);
+  if (persistError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "marketing_draft_link_failed",
+      detail: persistError.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: created ? "klaviyo.template_created" : "klaviyo.template_updated",
+    entityType: "marketing_content_draft",
+    entityId: draftId,
+    newData: { klaviyo_template_id: templateId, name },
+  });
+
+  return { ok: true, data: { klaviyo_template_id: templateId, created } };
 }

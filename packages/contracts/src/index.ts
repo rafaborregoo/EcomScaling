@@ -148,3 +148,51 @@ export type AgentOutputEnvelope<TContent> = {
   content: TContent;
   proposals: AgentProposal[];
 };
+
+/**
+ * Permisos de Shopify que pide la app, con lo que desbloquea cada uno.
+ *
+ * Vive aqui y no en apps/api porque la interfaz tiene que poder decirle a la
+ * persona que se pierde sin un permiso (leyendo `connection.scopes`) con el
+ * mismo texto que usa el backend al fallar. Dos copias del mismo catalogo se
+ * desincronizan siempre.
+ */
+export type ShopifyScopeInfo = {
+  scope: string;
+  /** Que deja de funcionar sin el, en lenguaje de la persona. */
+  label: string;
+  /** `false` = el modulo sigue, con menos alcance, y hay que avisarlo. */
+  required: boolean;
+  /** Solo para los que Shopify no concede sin tramite aparte. */
+  note?: string;
+};
+
+export const SHOPIFY_SCOPES_USED: readonly ShopifyScopeInfo[] = [
+  { scope: "read_orders", label: "Pedidos", required: true },
+  { scope: "read_products", label: "Productos y variantes", required: true },
+  { scope: "read_inventory", label: "Inventario", required: true },
+  { scope: "read_locations", label: "Ubicaciones de stock", required: true },
+  { scope: "read_customers", label: "Clientes y cohortes", required: true },
+  {
+    scope: "read_all_orders",
+    label: "Histórico de pedidos de más de 60 días",
+    required: false,
+    note: "Shopify solo lo concede con la Access request aprobada en el Partner Dashboard. Sin él, la tienda se ve desde hace 60 días.",
+  },
+  {
+    scope: "read_returns",
+    label: "Devoluciones",
+    required: false,
+    note: "Sin él, las devoluciones no restan en los márgenes.",
+  },
+  {
+    scope: "read_reports",
+    label: "Sesiones y analítica",
+    required: false,
+    note: "Sin él no hay tasa de conversión: el sync de sesiones se salta solo.",
+  },
+];
+
+export function shopifyScopeInfo(scope: string): ShopifyScopeInfo | null {
+  return SHOPIFY_SCOPES_USED.find((item) => item.scope === scope) ?? null;
+}

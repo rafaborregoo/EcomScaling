@@ -191,3 +191,32 @@ test("el allowlist distingue el conector implementado del no implementado", () =
   assert.equal(isIntegrationFeatureEnabled("klaviyo", "shopify,klaviyo"), true);
   assert.equal(isIntegrationFeatureEnabled("instagram", "instagram"), false);
 });
+
+test("una conexion 'syncing' con un error posterior al ultimo sync esta colgada, no sincronizando", () => {
+  const now = new Date("2026-09-10T12:00:00.000Z");
+
+  // Caso real: una tienda con app personalizada sin credenciales configuradas
+  // se queda en `syncing` para siempre, con su error escrito al lado, y la
+  // interfaz la pintaba en gris como si estuviera trabajando.
+  assert.equal(
+    deriveIntegrationHealth({
+      available: true,
+      connectionStatus: "syncing",
+      lastErrorAt: "2026-09-10T11:00:00.000Z",
+      now,
+    }).status,
+    "degraded",
+  );
+
+  // Un sync en marcha despues de haber arreglado el error sigue siendo un sync.
+  assert.equal(
+    deriveIntegrationHealth({
+      available: true,
+      connectionStatus: "syncing",
+      lastErrorAt: "2026-09-10T10:00:00.000Z",
+      lastSyncAt: "2026-09-10T11:30:00.000Z",
+      now,
+    }).status,
+    "syncing",
+  );
+});

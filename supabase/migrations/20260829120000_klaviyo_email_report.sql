@@ -92,7 +92,7 @@ as $$
     rv.entity_type,
     coalesce(c.id::text, f.id::text, rv.external_entity_id),
     (rv.period_end - rv.period_start) desc,
-    rv.created_at desc;
+    rv.captured_at desc;
 $$;
 
 grant execute on function public.klaviyo_email_report(uuid, date, date) to authenticated;

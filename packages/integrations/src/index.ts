@@ -382,6 +382,20 @@ export function deriveIntegrationHealth(
     input.connectionStatus === "syncing" ||
     input.latestSyncStatus === "running"
   ) {
+    // "Sincronizando" con un error posterior al ultimo sync bueno no es una
+    // sincronizacion en marcha: es una que se quedo colgada. Una conexion rota
+    // que se pinta en gris neutro no la mira nadie.
+    const errorAt = input.lastErrorAt
+      ? new Date(input.lastErrorAt).getTime()
+      : null;
+    const syncAt = lastSyncAt ? new Date(lastSyncAt).getTime() : null;
+    if (
+      errorAt !== null &&
+      Number.isFinite(errorAt) &&
+      (syncAt === null || !Number.isFinite(syncAt) || errorAt > syncAt)
+    ) {
+      return { ...base, status: "degraded", reason: "sync_stuck" };
+    }
     return { ...base, status: "syncing" };
   }
   if (input.connectionStatus === "error")

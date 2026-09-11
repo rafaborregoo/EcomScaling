@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
+import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import {
@@ -20,11 +21,15 @@ import {
 import {
   BackToHub,
   ConnectionFacts,
+  ConnectionPicker,
   LastErrorBanner,
   ProviderStatusCard,
   Steps,
   readErr,
+  storesByConnection,
   useIntegrations,
+  useProviderConnection,
+  useStoreScope,
   type KlaviyoMetricsResponse,
   type KlaviyoReportsResponse,
 } from "../shared";
@@ -95,7 +100,27 @@ function KlaviyoIntegrationPage({
   const { organization, provider, isLoading, error, actions, pending, actionError } =
     useIntegrations(bootstrap);
   const klaviyo = provider("klaviyo");
-  const connectionId = klaviyo?.connection?.id ?? null;
+  // En Klaviyo la cuenta es 1:1 con la conexion (unique (connection_id)), asi
+  // que la tienda del encabezado identifica exactamente una conexion.
+  const { connectionId: activeConnectionId } = useActiveConnection();
+  const { scope } = useStoreScope(organization?.id ?? null);
+  const storeByConnection = storesByConnection(
+    scope?.klaviyo_accounts ?? [],
+    scope?.stores ?? [],
+  );
+  const activeStore =
+    scope?.stores.find((store) => store.connection_id === activeConnectionId) ??
+    null;
+  const preferredConnectionId =
+    [...storeByConnection.entries()].find(
+      ([, store]) => store.id === activeStore?.id,
+    )?.[0] ?? null;
+
+  const { connection, connections, setChosenId } = useProviderConnection(
+    klaviyo,
+    preferredConnectionId,
+  );
+  const connectionId = connection?.id ?? null;
   const { metrics, setMetrics, reports, metricsError, reportsError, loading } =
     useKlaviyoConfig(organization?.id ?? null, connectionId);
   const [apiKey, setApiKey] = useState("");
@@ -178,16 +203,42 @@ function KlaviyoIntegrationPage({
 
       <ProviderStatusCard provider={klaviyo}>
         <p className="mt-3 text-sm leading-6 text-muted">
-          Importa campañas, flujos, listas y métricas de email/SMS. Puedes
-          conectar por OAuth o pegando una API key privada.
+          Importa campañas, flujos, listas y métricas de email/SMS, y publica en
+          tu cuenta las plantillas aprobadas en Marketing. Puedes conectar por
+          OAuth o pegando una API key privada.
         </p>
       </ProviderStatusCard>
+
+      <ConnectionPicker
+        connections={connections}
+        connection={connection}
+        onChange={setChosenId}
+        storeByConnection={storeByConnection}
+        activeStore={activeStore}
+      />
+
+      {/* La conexion guarda lo que la credencial puede hacer de verdad
+          (sondeado al conectar). Si no esta el permiso de escritura de
+          plantillas, se dice aqui y no cuando falle el envio. */}
+      {connection &&
+      connection.scopes.length > 0 &&
+      !connection.scopes.includes("templates:write") ? (
+        <Banner tone="warn">
+          Esta conexión puede leer, pero no publicar plantillas. Para enviar a
+          Klaviyo las piezas aprobadas en Marketing, dale{" "}
+          <span className="font-medium">Full access</span> al permiso{" "}
+          <span className="font-medium">Templates</span> de la API key (o vuelve
+          a autorizar por OAuth) y conéctala de nuevo.
+        </Banner>
+      ) : null}
 
       <Card title="Conectar Klaviyo">
         {configured ? (
           <div className="space-y-2">
             <p className="text-sm text-muted">
-              Opción recomendada: autoriza con tu cuenta de Klaviyo.
+              Opción recomendada: autoriza con tu cuenta de Klaviyo. Si
+              conectaste antes de que existiera el envío de plantillas, vuelve a
+              autorizar: el permiso de plantillas no estaba en aquel consentimiento.
             </p>
             <Button
               type="button"
@@ -196,7 +247,7 @@ function KlaviyoIntegrationPage({
             >
               {pending === "klaviyo"
                 ? "Conectando..."
-                : klaviyo.connection
+                : connection
                   ? "Reautorizar Klaviyo (OAuth)"
                   : "Conectar Klaviyo (OAuth)"}
             </Button>
@@ -226,7 +277,7 @@ function KlaviyoIntegrationPage({
             >
               {pending === "klaviyo-key"
                 ? "Conectando..."
-                : klaviyo.connection
+                : connection
                   ? "Actualizar key"
                   : "Conectar"}
             </Button>
@@ -244,6 +295,12 @@ function KlaviyoIntegrationPage({
               permiso de lectura (Read) para Campaigns, Flows, Metrics, Lists y
               Segments.
             </>,
+            <>
+              En <span className="font-medium">Templates</span> dale{" "}
+              <span className="font-medium">Full access</span> (lectura y
+              escritura): es lo que permite publicar en tu cuenta las plantillas
+              aprobadas en Marketing. Solo con lectura, el resto funciona igual.
+            </>,
             <>Pégala arriba y pulsa Conectar.</>,
           ]}
         />
@@ -254,7 +311,7 @@ function KlaviyoIntegrationPage({
         ) : null}
       </Card>
 
-      {klaviyo.connection ? (
+      {connection ? (
         <Card
           title="Métrica primaria de conversión"
           description="La métrica que Klaviyo usará para atribuir ingresos y conversiones en los informes."
@@ -293,7 +350,7 @@ function KlaviyoIntegrationPage({
         </Card>
       ) : null}
 
-      {klaviyo.connection ? (
+      {connection ? (
         <Card
           title="Reporting"
           description="Solo se muestran ejecuciones y valores recibidos de Klaviyo; la ausencia de filas no significa cero."
@@ -366,8 +423,8 @@ function KlaviyoIntegrationPage({
         provider={klaviyo}
         retrying={pending === "retry-klaviyo"}
         onRetry={
-          klaviyo.connection
-            ? () => void actions.retrySync("klaviyo", klaviyo.connection!.id)
+          connection
+            ? () => void actions.retrySync("klaviyo", connection!.id)
             : undefined
         }
       />

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 import {
   ArchiveIcon,
   BellIcon,
@@ -46,19 +47,8 @@ function formatRelativeTime(isoDate: string) {
 }
 
 // El panel de notificaciones se muestra como Popover anclado a la campana en
-// desktop y como Drawer inferior (hoja) en movil -- la misma lista, el
-// contenedor cambia con el ancho. Ambos son primitivos de HeroUI.
-function useIsDesktop() {
-  const [isDesktop, setIsDesktop] = useState(true);
-  useEffect(() => {
-    const query = window.matchMedia("(min-width: 1024px)");
-    const update = () => setIsDesktop(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return isDesktop;
-}
+// desktop y como hoja inferior en movil -- la misma lista, el contenedor
+// cambia con el ancho. Ambos son primitivos de HeroUI.
 
 /** Bell de notificaciones en el shell (DB-01, gap real cerrado 2026-07-29):
  * `notifications` ya insertaba filas reales (alertas nuevas notificadas a

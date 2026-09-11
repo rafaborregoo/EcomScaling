@@ -67,6 +67,7 @@ type ConnectionRow = {
   id: string;
   organization_id: string;
   provider: string;
+  provider_account_id: string | null;
   provider_account_name: string | null;
   status: string;
   scopes: string[];
@@ -77,7 +78,22 @@ type ConnectionRow = {
   last_error_message: string | null;
   created_at: string;
   metadata?: Record<string, unknown> | null;
+  app_mode?: "public" | "custom" | null;
 };
+
+type ConnectionView = Omit<ConnectionRow, "metadata">;
+
+function connectionAppMode(
+  connection: Pick<ConnectionRow, "metadata">,
+): "public" | "custom" | null {
+  const mode = connection.metadata?.app_mode;
+  return mode === "public" || mode === "custom" ? mode : null;
+}
+
+function toConnectionView(connection: ConnectionRow): ConnectionView {
+  const { metadata: _metadata, ...safeConnection } = connection;
+  return safeConnection;
+}
 
 /** Conexion establecida pegando una API key privada (Klaviyo pk_...), sin OAuth. */
 function isApiKeyConnection(connection: ConnectionRow | null): boolean {
@@ -257,6 +273,7 @@ async function loadConnections(
         "id",
         "organization_id",
         "provider",
+        "provider_account_id",
         "provider_account_name",
         "status",
         "scopes",
@@ -278,51 +295,70 @@ async function loadConnections(
 
   return {
     ok: true as const,
-    data: (data ?? []) as unknown as ConnectionRow[],
+    data: (data ?? []).map((row) => {
+      const connection = row as unknown as ConnectionRow;
+      return {
+        ...connection,
+        app_mode: connectionAppMode(connection),
+      };
+    }),
   };
 }
 
-function rankConnectionStatus(status: string) {
+// Severidad del estado de una conexion: mas alto = peor. Un solo orden para
+// todo el producto.
+//
+// Antes habia dos y opuestos: la matriz de cartera colapsaba varias conexiones
+// del mismo proveedor con "peor gana" y el detalle de un cliente con "mejor
+// gana". Un cliente con dos tiendas y una por reautorizar salia rojo en la
+// lista y verde al entrar -- y la que habia que arreglar no aparecia en
+// ninguna pantalla.
+//
+// Un estado que no conocemos no es "sano": va por encima de connected, porque
+// no saber que le pasa a una tienda es motivo para mirarla.
+export function connectionSeverity(status: string): number {
   switch (status) {
-    case "connected":
-      return 4;
-    case "syncing":
-      return 3;
+    case "reauthorization_required":
+    case "needs_reauth":
+      return 5;
     case "error":
+      return 4;
+    case "pending_deletion":
+      return 3;
+    case "disconnected":
       return 2;
     case "pending":
       return 1;
-    default:
+    case "connected":
+    case "syncing":
       return 0;
+    default:
+      return 1;
   }
 }
 
-function pickBestConnection(connections: ConnectionRow[], providerId: string) {
-  const providerConnections = connections.filter(
-    (connection) => connection.provider === providerId,
-  );
-
-  if (!providerConnections.length) {
-    return null;
+// Lo mismo para la salud derivada (deriveIntegrationHealth), que no es el
+// estado crudo de la conexion: una tienda 'connected' que lleva dos semanas sin
+// sincronizar sale 'stale'.
+export function healthSeverity(status: string): number {
+  switch (status) {
+    case "reauthorization_required":
+    case "needs_reauth":
+      return 5;
+    case "error":
+      return 4;
+    case "degraded":
+      return 3;
+    case "stale":
+      return 2;
+    case "unknown":
+      return 1;
+    case "healthy":
+    case "syncing":
+      return 0;
+    default:
+      return 1;
   }
-
-  return (
-    [...providerConnections].sort((left, right) => {
-      const statusDiff =
-        rankConnectionStatus(right.status) - rankConnectionStatus(left.status);
-
-      if (statusDiff !== 0) {
-        return statusDiff;
-      }
-
-      const leftDate = new Date(left.connected_at ?? left.created_at).getTime();
-      const rightDate = new Date(
-        right.connected_at ?? right.created_at,
-      ).getTime();
-
-      return rightDate - leftDate;
-    })[0] ?? null
-  );
 }
 
 async function loadLatestRuns(
@@ -402,9 +438,10 @@ export async function listIntegrations(
             env.KLAVIYO_CLIENT_SECRET &&
             env.KLAVIYO_REDIRECT_URI,
           ),
-      providers: providers.map((provider) => ({
+          providers: providers.map((provider) => ({
             ...provider,
             connection: null,
+            connections: [],
             latest_sync: null,
             health: deriveIntegrationHealth({ available: provider.available }),
             activation: deriveIntegrationActivation(
@@ -455,43 +492,69 @@ export async function listIntegrations(
         env.KLAVIYO_REDIRECT_URI,
       ),
       providers: providers.map((provider) => {
-        const connection = pickBestConnection(
-          connectionsResult.data,
-          provider.id,
-        );
-        const latestSync = connection
-          ? (latestRunsResult.data.find(
-              (item) => item.connection_id === connection.id,
-            ) ?? null)
-          : null;
+        // Cada conexion es una tienda, y lleva su propia salud, su ultimo sync
+        // y su propia activacion. Antes se elegia una sola -- la mas sana -- y
+        // de ella salia todo el estado del proveedor, asi que la tienda rota de
+        // al lado no aparecia en ninguna parte de la interfaz.
+        const connections = connectionsResult.data
+          .filter((item) => item.provider === provider.id)
+          .map((connection) => {
+            const latestSync =
+              latestRunsResult.data.find(
+                (item) => item.connection_id === connection.id,
+              ) ?? null;
+            const health = deriveIntegrationHealth({
+              available: provider.available,
+              connectionStatus: connection.status,
+              lastSyncAt: connection.last_sync_at,
+              lastErrorAt: connection.last_error_at,
+              latestSyncStatus: latestSync?.status ?? null,
+            });
+
+            return {
+              ...toConnectionView(connection),
+              latest_sync: latestSync,
+              health,
+              activation: deriveIntegrationActivation(
+                provider,
+                connection,
+                latestSync,
+                health,
+                hasRecoveredSync(connection.id, latestRunsResult.data),
+              ),
+            };
+          })
+          // Peor primero: lo que hay que atender se lee sin buscarlo.
+          .sort(
+            (left, right) =>
+              healthSeverity(right.health.status) -
+                healthSeverity(left.health.status) ||
+              connectionSeverity(right.status) -
+                connectionSeverity(left.status),
+          );
+
+        // El resumen del proveedor es el de su peor tienda. `connection` se
+        // mantiene para las pantallas que aun hablan de una sola conexion; es
+        // la misma fila que encabeza `connections`.
+        const worst = connections[0] ?? null;
+        const noConnectionHealth = deriveIntegrationHealth({
+          available: provider.available,
+        });
 
         return {
           ...provider,
-          connection,
-          latest_sync: latestSync,
-          health: deriveIntegrationHealth({
-            available: provider.available,
-            connectionStatus: connection?.status ?? null,
-            lastSyncAt: connection?.last_sync_at ?? null,
-            lastErrorAt: connection?.last_error_at ?? null,
-            latestSyncStatus: latestSync?.status ?? null,
-          }),
-          activation: deriveIntegrationActivation(
-            provider,
-            connection,
-            latestSync,
-            deriveIntegrationHealth({
-              available: provider.available,
-              connectionStatus: connection?.status ?? null,
-              lastSyncAt: connection?.last_sync_at ?? null,
-              lastErrorAt: connection?.last_error_at ?? null,
-              latestSyncStatus: latestSync?.status ?? null,
-            }),
-            Boolean(
-              connection &&
-                hasRecoveredSync(connection.id, latestRunsResult.data),
+          connection: worst,
+          connections,
+          latest_sync: worst?.latest_sync ?? null,
+          health: worst?.health ?? noConnectionHealth,
+          activation:
+            worst?.activation ??
+            deriveIntegrationActivation(
+              provider,
+              null,
+              null,
+              noConnectionHealth,
             ),
-          ),
         };
       }),
     },

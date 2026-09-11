@@ -5,7 +5,14 @@
 import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { chunkText, VoyageEmbeddingProvider } from "@ecomscaling/ai";
+import {
+  applyRerank,
+  chunkText,
+  createRagEmbeddingProvider,
+  RAG_RERANK_PROFILE,
+  VoyageRerankProvider,
+  type RerankProvider,
+} from "@ecomscaling/ai";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import {
   requireOperationalOrganization,
@@ -37,8 +44,19 @@ function requireEmbeddings(env: ApiEnv) {
 
   return {
     ok: true as const,
-    provider: new VoyageEmbeddingProvider(env.VOYAGE_API_KEY),
+    provider: createRagEmbeddingProvider(env.VOYAGE_API_KEY),
   };
+}
+
+/**
+ * El reranker es opcional a proposito: sin clave, la busqueda sigue
+ * funcionando con el orden del retrieval. Nunca es motivo para devolver un
+ * error, solo para devolver peor orden.
+ */
+export function createReranker(env: ApiEnv): RerankProvider | null {
+  return env.VOYAGE_API_KEY
+    ? new VoyageRerankProvider(env.VOYAGE_API_KEY)
+    : null;
 }
 
 type KnowledgeSearchRpcInput = {
@@ -61,10 +79,58 @@ function isHybridSearchMissing(message: string) {
   );
 }
 
-/** Shared RPC boundary for human search and agent tool search. */
+/**
+ * Shared RPC boundary for human search and agent tool search.
+ *
+ * Con `reranker`, la busqueda pasa a dos fases: el SQL trae mas candidatos de
+ * los que hacen falta y el reranker elige cuales suben. El reranker solo
+ * REORDENA lo que la funcion SQL ya filtro, asi que no puede ampliar el
+ * alcance de datos: la frontera de tenant / audiencia / tienda sigue estando
+ * entera en el WHERE, que es donde tiene que estar (ver BE-01 en
+ * searchKnowledge).
+ */
 export async function executeKnowledgeSearch(
   supabase: SupabaseClient,
   input: KnowledgeSearchRpcInput,
+  reranker?: Pick<RerankProvider, "rerank"> | null,
+) {
+  const finalCount = input.matchCount ?? 8;
+  // Sin reranker se pide exactamente lo que se va a devolver: traer de mas
+  // para tirarlo seria pagar latencia por nada.
+  const candidateCount = reranker
+    ? Math.min(
+        finalCount * RAG_RERANK_PROFILE.candidateFactor,
+        RAG_RERANK_PROFILE.maxCandidates,
+      )
+    : finalCount;
+
+  const result = await runKnowledgeSearchRpc(supabase, input, candidateCount);
+  if (result.error || !reranker) {
+    return result;
+  }
+
+  const rows = (result.data ?? []) as Array<{ content?: unknown }>;
+  if (rows.length <= 1) return result;
+
+  try {
+    const ranked = await reranker.rerank(
+      input.queryText,
+      rows.map((row) => String(row.content ?? "")),
+      finalCount,
+    );
+    return { ...result, data: applyRerank(rows, ranked, finalCount) };
+  } catch {
+    // El reranker es una mejora, no una dependencia: si el proveedor esta
+    // caido o sin cuota, se sirve el orden del retrieval recortado. Devolver
+    // un error aqui apagaria el RAG entero por no poder ordenarlo mejor.
+    return { ...result, data: rows.slice(0, finalCount) };
+  }
+}
+
+async function runKnowledgeSearchRpc(
+  supabase: SupabaseClient,
+  input: KnowledgeSearchRpcInput,
+  matchCount: number,
 ) {
   const hybrid = await supabase.rpc("knowledge_search_hybrid", {
     target_organization_id: input.targetOrganizationId,
@@ -72,7 +138,7 @@ export async function executeKnowledgeSearch(
     query_text: input.queryText,
     audience_allowed: input.audienceAllowed,
     target_store_id: input.targetStoreId ?? null,
-    match_count: input.matchCount ?? 8,
+    match_count: matchCount,
   });
 
   if (!hybrid.error || !isHybridSearchMissing(hybrid.error.message)) {
@@ -86,7 +152,7 @@ export async function executeKnowledgeSearch(
     query_embedding: input.queryEmbedding,
     audience_allowed: input.audienceAllowed,
     target_store_id: input.targetStoreId ?? null,
-    match_count: input.matchCount ?? 8,
+    match_count: matchCount,
   });
 }
 
@@ -491,14 +557,18 @@ export async function searchKnowledge(
   // `include_global` en knowledge_search_hybrid.
   const hidesGlobal = context.profile.platform_role !== "platform_admin";
 
-  const { data, error } = await executeKnowledgeSearch(supabase, {
-    targetOrganizationId: organizationId,
-    queryEmbedding: JSON.stringify(embedding),
-    queryText,
-    audienceAllowed,
-    targetStoreId: storeId,
-    matchCount: hidesGlobal ? 16 : 8,
-  });
+  const { data, error } = await executeKnowledgeSearch(
+    supabase,
+    {
+      targetOrganizationId: organizationId,
+      queryEmbedding: JSON.stringify(embedding),
+      queryText,
+      audienceAllowed,
+      targetStoreId: storeId,
+      matchCount: hidesGlobal ? 16 : 8,
+    },
+    createReranker(env),
+  );
 
   if (error) {
     return {

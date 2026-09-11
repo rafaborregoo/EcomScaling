@@ -11,6 +11,8 @@ import {
   rankKlaviyoAccounts,
   type KlaviyoSignalRow,
 } from "./klaviyo-triage.js";
+import { loadDraftThreadSummaries } from "./ai-runtime.js";
+import { connectionSeverity } from "./integrations.js";
 import { createLogger } from "@ecomscaling/observability";
 
 const logger = createLogger("consultant");
@@ -1574,7 +1576,7 @@ export async function listConsultantMarketing(
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
 
-  const [draftsResult, notesResult] = await Promise.all([
+  const [draftsResult, threadByDraft] = await Promise.all([
     supabase
       .from("marketing_content_drafts")
       .select(
@@ -1583,34 +1585,35 @@ export async function listConsultantMarketing(
       .in("organization_id", safeIds)
       .order("updated_at", { ascending: false })
       .limit(300),
-    supabase
-      .from("marketing_content_draft_notes")
-      .select("draft_id")
-      .in("organization_id", safeIds),
+    loadDraftThreadSummaries(supabase, safeIds),
   ]);
 
-  if (draftsResult.error || notesResult.error) {
+  if (draftsResult.error) {
     return {
       ok: false as const,
       statusCode: 500,
       error: "consultant_marketing_load_failed",
-      detail: draftsResult.error?.message ?? notesResult.error?.message,
+      detail: draftsResult.error.message,
     };
   }
 
-  const noteCount = new Map<string, number>();
-  for (const note of notesResult.data ?? []) {
-    const draftId = note.draft_id as string;
-    noteCount.set(draftId, (noteCount.get(draftId) ?? 0) + 1);
-  }
-
-  const drafts = (draftsResult.data ?? []).map((draft) => ({
-    ...draft,
-    organization_name:
-      nameByOrg.get(draft.organization_id as string) ??
-      (draft.organization_id as string),
-    note_count: noteCount.get(draft.id as string) ?? 0,
-  }));
+  const drafts = (draftsResult.data ?? []).map((draft) => {
+    const thread = threadByDraft.get(draft.id as string) ?? {
+      count: 0,
+      last_at: null,
+      last_author_kind: null,
+    };
+    return {
+      ...draft,
+      organization_name:
+        nameByOrg.get(draft.organization_id as string) ??
+        (draft.organization_id as string),
+      // note_count se mantiene por compatibilidad con la vista; el detalle de
+      // quien hablo el ultimo va en thread.
+      note_count: thread.count,
+      thread,
+    };
+  });
 
   return {
     ok: true as const,
@@ -1722,9 +1725,15 @@ export async function addMarketingDraftNote(
   context: AuthContext,
   organizationId: string,
   draftId: string,
-  body: { body?: string },
+  body: { body?: string; from_ai?: boolean },
 ) {
-  const authorKind = resolveDraftAuthorKind(context, organizationId);
+  const actorKind = resolveDraftAuthorKind(context, organizationId);
+  // `from_ai` = el mensaje es una respuesta del Consultor IA que una persona
+  // del workspace ha decidido dejar en el hilo. Se firma como 'ai' y no como
+  // quien pulso el boton: el hilo se lee como timeline y "esto lo dijo la IA"
+  // es justo lo que hay que poder distinguir despues. La frontera sigue siendo
+  // la persona -- sin acceso al workspace no se escribe, venga de la IA o no.
+  const authorKind = actorKind && body.from_ai === true ? "ai" : actorKind;
   if (!authorKind) {
     return {
       ok: false as const,
@@ -1786,7 +1795,7 @@ export async function addMarketingDraftNote(
     entityType: "marketing_content_draft",
     entityId: draftId,
     oldData: null,
-    newData: { note_id: note.id, author_kind: authorKind },
+    newData: { note_id: note.id, author_kind: authorKind, actor_kind: actorKind },
   });
 
   return { ok: true as const, data: { note } };
@@ -2415,14 +2424,9 @@ export async function listConsultantIntegrations(
   const byOrg = new Map<string, Record<string, Cell>>();
   const providerSet = new Set<string>();
   // Peor estado gana si un cliente tiene varias conexiones del mismo proveedor.
-  const statusRank: Record<string, number> = {
-    reauthorization_required: 4,
-    needs_reauth: 4,
-    error: 3,
-    pending_deletion: 2,
-    connected: 1,
-    disconnected: 0,
-  };
+  // El orden lo pone connectionSeverity, el mismo que usa el detalle de un
+  // cliente: si cada vista tuviera el suyo volveriamos a la contradiccion de
+  // ver un cliente rojo en la lista y verde al entrar.
   for (const row of data ?? []) {
     const orgId = row.organization_id as string;
     const provider = row.provider as string;
@@ -2432,7 +2436,7 @@ export async function listConsultantIntegrations(
     const nextStatus = row.status as string;
     if (
       !existing ||
-      (statusRank[nextStatus] ?? 0) > (statusRank[existing.status] ?? 0)
+      connectionSeverity(nextStatus) > connectionSeverity(existing.status)
     ) {
       cells[provider] = {
         status: nextStatus,

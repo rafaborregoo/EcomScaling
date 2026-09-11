@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+/**
+ * Permisos que pedimos a Klaviyo. Lectura para el sync y los informes, y
+ * `templates:read`/`templates:write` para leer plantillas de la cuenta y
+ * publicar en ella las piezas aprobadas desde /marketing.
+ *
+ * Ampliar esta lista obliga a reautorizar las conexiones OAuth ya existentes:
+ * el token viejo conserva los permisos que se concedieron entonces.
+ */
+export const DEFAULT_KLAVIYO_SCOPES =
+  "accounts:read flows:read campaigns:read forms:read lists:read segments:read metrics:read templates:read templates:write";
+
 const apiEnvSchema = z.object({
   API_HOST: z.string().default("0.0.0.0"),
   API_PORT: z.coerce.number().int().positive().default(4000),
@@ -166,6 +177,60 @@ export type LoadedApiEnv = {
   AI_MANUAL_REFRESH_DAILY_CAP?: number;
 };
 
+
+/**
+ * Proyecto Supabase de PRODUCCION. Sale del `--project-ref` de
+ * `npm run supabase:link`; no es un secreto (aparece en cada URL del proyecto),
+ * y tenerlo aqui es lo que permite detectar que un entorno de desarrollo esta
+ * apuntando a los datos reales.
+ */
+export const PRODUCTION_SUPABASE_PROJECT_REF = "cthjwpeygpzwdmjkxeqa";
+
+/** Entornos que NO deben tocar produccion. `APP_ENV=local` es el de siempre. */
+const NON_PRODUCTION_APP_ENVS = new Set([
+  "local",
+  "dev",
+  "development",
+  "test",
+  "staging",
+  "shadow",
+]);
+
+export function isProductionSupabaseUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  return url.includes(PRODUCTION_SUPABASE_PROJECT_REF);
+}
+
+/**
+ * Nivel 2 de datos protegidos de Shopify exige separar test y produccion. Esto
+ * detecta el fallo real: no un diseño equivocado, sino la variable pegada de
+ * mas un martes por la tarde.
+ *
+ * Devuelve el aviso, o `null` si el entorno esta donde dice estar. No decide
+ * si eso mata el proceso: eso lo elige quien arranca (ver `SUPABASE_ENV_GUARD`),
+ * para que activar la proteccion no rompa a nadie el dia que se despliega.
+ */
+export function describeEnvironmentTargetRisk(source: {
+  APP_ENV?: string;
+  SUPABASE_URL?: string;
+  NODE_ENV?: string;
+}): string | null {
+  const appEnv = source.APP_ENV?.trim().toLowerCase();
+  if (!appEnv || !NON_PRODUCTION_APP_ENVS.has(appEnv)) return null;
+  if (!isProductionSupabaseUrl(source.SUPABASE_URL)) return null;
+  return `APP_ENV=${appEnv} apuntando al Supabase de PRODUCCION (${PRODUCTION_SUPABASE_PROJECT_REF}). Shopify exige separar datos de test y de produccion: usa el proyecto de desarrollo en este entorno. Para bloquear el arranque en vez de avisar, SUPABASE_ENV_GUARD=block.`;
+}
+
+/**
+ * `block` mata el proceso; cualquier otro valor (o ninguno) solo avisa. Se pone
+ * en `block` cuando el proyecto de desarrollo ya existe.
+ */
+export function shouldBlockOnEnvironmentRisk(source: {
+  SUPABASE_ENV_GUARD?: string;
+}): boolean {
+  return source.SUPABASE_ENV_GUARD?.trim().toLowerCase() === "block";
+}
+
 export function loadApiEnv(
   source: Record<string, string | undefined>,
 ): LoadedApiEnv {
@@ -298,9 +363,7 @@ export function loadApiEnv(
           KLAVIYO_CLIENT_ID: env.KLAVIYO_CLIENT_ID!,
           KLAVIYO_CLIENT_SECRET: env.KLAVIYO_CLIENT_SECRET!,
           KLAVIYO_REDIRECT_URI: env.KLAVIYO_REDIRECT_URI!,
-          KLAVIYO_SCOPES:
-            env.KLAVIYO_SCOPES ??
-            "accounts:read flows:read campaigns:read forms:read lists:read segments:read metrics:read",
+          KLAVIYO_SCOPES: env.KLAVIYO_SCOPES ?? DEFAULT_KLAVIYO_SCOPES,
         }
       : {}),
     ...(env.FATHOM_API_KEY ? { FATHOM_API_KEY: env.FATHOM_API_KEY } : {}),

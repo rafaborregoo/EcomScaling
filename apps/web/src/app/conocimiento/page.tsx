@@ -56,7 +56,13 @@ type KnowledgeMatch = {
   visibility: string;
   chunk_index: number;
   content: string;
+  /**
+   * Puntuacion de fusion RRF: decide el ORDEN, pero su escala es ~0.03 y no
+   * significa nada para una persona. No la pintes como porcentaje.
+   */
   similarity: number;
+  /** Similitud coseno 0..1: esto si se puede leer como "cuanto se parece". */
+  semantic_similarity?: number;
 };
 
 function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
@@ -487,9 +493,14 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       <p className="text-sm font-medium">
                         {match.document_title}
                       </p>
-                      <span className="text-xs text-muted">
-                        {(match.similarity * 100).toFixed(0)}%
-                      </span>
+                      {/* El porcentaje sale de la similitud semantica, no del
+                          score de fusion: desde que el orden lo decide RRF,
+                          `similarity` vive en ~0.03 y se pintaba como "3%". */}
+                      {match.semantic_similarity !== undefined ? (
+                        <span className="text-xs text-muted">
+                          {(match.semantic_similarity * 100).toFixed(0)}%
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-1 text-xs text-muted">
                       fragmento {match.chunk_index + 1}

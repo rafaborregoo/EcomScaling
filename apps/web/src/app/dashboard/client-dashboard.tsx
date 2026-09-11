@@ -302,6 +302,7 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
         {/* La bisagra del panel: quién te acompaña. */}
         {consultant ? (
           <Card
+            className="border-accent"
             title="Tu consultor"
             description={consultant.full_name ?? "Asignado a tu tienda"}
           >

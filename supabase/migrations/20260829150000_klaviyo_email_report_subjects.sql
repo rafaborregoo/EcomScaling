@@ -88,7 +88,7 @@ as $$
     rv.entity_type,
     coalesce(c.id::text, f.id::text, rv.external_entity_id),
     (rv.period_end - rv.period_start) desc,
-    rv.created_at desc;
+    rv.captured_at desc;
 $$;
 
 comment on function public.klaviyo_email_report is 'Rendimiento de email Klaviyo por mes y entidad (campanas y flows) con el asunto real de la campana (de klaviyo_campaign_messages.raw_data). Fuente klaviyo_report_values enlazada por id externo. La API deriva rates, ranking de asuntos y deltas.';

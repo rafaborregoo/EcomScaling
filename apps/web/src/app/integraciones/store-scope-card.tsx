@@ -16,7 +16,7 @@
 //   - fallar dentro de su propia tarjeta, sin llevarse por delante el resto de
 //     /integraciones.
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -28,36 +28,18 @@ import {
   LoadingBlock,
   Select,
 } from "@/components/ui";
-
-type Store = {
-  id: string;
-  connection_id: string | null;
-  myshopify_domain: string;
-  shop_name: string;
-};
+import {
+  storeLabel,
+  useStoreScope,
+  type ScopeAccount,
+} from "./shared";
 
 type ScopedTable = "meta_ad_accounts" | "klaviyo_accounts";
-
-type ProviderAccount = {
-  id: string;
-  store_id: string | null;
-  account_name?: string | null;
-  external_ad_account_id?: string;
-  external_account_id?: string;
-};
-
-type StoreScope = {
-  stores: Store[];
-  meta_ad_accounts: ProviderAccount[];
-  klaviyo_accounts: ProviderAccount[];
-  store_count: number;
-  unassigned_count: number;
-};
 
 type SaveFailure = { table: ScopedTable; id: string; message: string };
 
 type AccountRow = {
-  account: ProviderAccount;
+  account: ScopeAccount;
   table: ScopedTable;
   provider: string;
   label: string;
@@ -65,15 +47,12 @@ type AccountRow = {
 
 const UNASSIGNED = "";
 
-function storeLabel(store: Store) {
-  return store.shop_name || store.myshopify_domain;
-}
-
 export function StoreScopeCard({ organizationId }: { organizationId: string }) {
   const { connectionId } = useActiveConnection();
-  const [scope, setScope] = useState<StoreScope | null>(null);
+  // La carga vive en shared.tsx: la comparten Meta y Klaviyo, que necesitan
+  // saber sobre que tienda estan escribiendo.
+  const { scope, error: loadError, reload: load } = useStoreScope(organizationId);
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [loadError, setLoadError] = useState<string | null>(null);
   // Error de la operacion entera (red, permiso, cuerpo invalido). Lo que falla
   // en una cuenta concreta vive en `rowErrors`, junto a su fila.
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -82,34 +61,18 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const domId = useId();
 
-  const load = useCallback(async () => {
-    if (!organizationId) return;
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/store-scope`,
-      );
-      if (!response.ok) {
-        setLoadError(await readApiError(response));
-        return;
-      }
-      const payload = (await response.json()) as StoreScope;
-      setScope(payload);
-      setDraft(
-        Object.fromEntries(
-          [...payload.meta_ad_accounts, ...payload.klaviyo_accounts].map(
-            (account) => [account.id, account.store_id ?? UNASSIGNED],
-          ),
-        ),
-      );
-      setLoadError(null);
-    } catch {
-      setLoadError("No se pudo cargar la asignación de tiendas. Reintenta.");
-    }
-  }, [organizationId]);
-
+  // El borrador arranca de lo guardado en cuanto llega (y se rehace tras cada
+  // recarga), pero no pisa lo que el usuario ya haya tocado sin guardar.
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!scope) return;
+    setDraft(
+      Object.fromEntries(
+        [...scope.meta_ad_accounts, ...scope.klaviyo_accounts].map(
+          (account) => [account.id, account.store_id ?? UNASSIGNED],
+        ),
+      ),
+    );
+  }, [scope]);
 
   async function save(rows: AccountRow[]) {
     if (!scope) return;

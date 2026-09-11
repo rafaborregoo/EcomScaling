@@ -6,8 +6,13 @@
  * aplicaciones de Windows 11 Home por no estar firmado).
  *
  * Uso:
- *   npm run db:push            aplica las pendientes
+ *   npm run db:push                aplica las pendientes (entorno de .env.local)
  *   npm run db:push -- --dry-run   solo lista las pendientes
+ *   npm run db:push:prod           aplica contra produccion (.env.production.local)
+ *
+ * Produccion esta protegida: si SUPABASE_DB_URL apunta al proyecto de
+ * produccion hace falta "--prod" explicito. Aplicar migraciones a los datos
+ * reales creyendo estar en desarrollo es el accidente que esto evita.
  *
  * "Pendiente" = fichero <version>_<nombre>.sql cuyo <version> (prefijo numerico)
  * no esta en schema_migrations. Cada migracion se aplica en su propia
@@ -24,9 +29,46 @@ const dir = path.resolve(
   "../supabase/migrations",
 );
 const dryRun = process.argv.includes("--dry-run");
+// Dos ficheros con la misma version se aplican los dos pero solo registran una
+// fila (insert ... on conflict do nothing): a partir de ahi uno de los dos
+// queda "aplicado" sin haberse ejecutado nunca en el siguiente entorno. Paso
+// real, encontrado al levantar el proyecto de desarrollo desde cero.
+function assertVersionesUnicas(lista) {
+  const vistas = new Map();
+  for (const m of lista) {
+    if (vistas.has(m.version)) {
+      throw new Error(
+        `Dos migraciones comparten version ${m.version}: ${vistas.get(m.version)} y ${m.file}. Renombra una con otra marca de tiempo.`,
+      );
+    }
+    vistas.set(m.version, m.file);
+  }
+}
 
 const url = process.env.SUPABASE_DB_URL;
 if (!url) throw new Error("SUPABASE_DB_URL no definido (esta en .env.local)");
+
+// Ref del proyecto de produccion (mismo valor que `npm run supabase:link`).
+const PRODUCTION_SUPABASE_PROJECT_REF = "cthjwpeygpzwdmjkxeqa";
+const targetsProduction = url.includes(PRODUCTION_SUPABASE_PROJECT_REF);
+const allowProduction = process.argv.includes("--prod");
+
+if (targetsProduction && !allowProduction) {
+  throw new Error(
+    "SUPABASE_DB_URL apunta a PRODUCCION (" +
+      PRODUCTION_SUPABASE_PROJECT_REF +
+      "). Usa `npm run db:push:prod` si es lo que quieres, o apunta este entorno al proyecto de desarrollo.",
+  );
+}
+if (!targetsProduction && allowProduction) {
+  throw new Error(
+    "--prod pero SUPABASE_DB_URL no es la de produccion: revisa que fichero de entorno estas usando.",
+  );
+}
+
+console.log(
+  `Destino: ${targetsProduction ? "PRODUCCION" : "desarrollo"} (${new URL(url).host})`,
+);
 
 const files = readdirSync(dir)
   .filter((f) => f.endsWith(".sql"))
@@ -38,6 +80,8 @@ const parsed = files.map((file) => {
   return { file, version: match[1], name: match[2] };
 });
 
+assertVersionesUnicas(parsed);
+
 // El endpoint Postgres de Supabase encadena a una CA autofirmada; toda su
 // tooling conecta con verificacion desactivada. Sigue siendo TLS cifrado, y es
 // la BD del propio usuario.
@@ -48,6 +92,19 @@ const client = new pg.Client({
 await client.connect();
 
 try {
+  // En un proyecto recien creado no existe todavia: la crea el CLI de Supabase
+  // en su primer push, y aqui no usamos el CLI. Misma forma que la suya
+  // (version text pk, name text, statements text[]), para que el dia que se use
+  // el binario oficial lea el mismo historial.
+  await client.query("create schema if not exists supabase_migrations");
+  await client.query(
+    `create table if not exists supabase_migrations.schema_migrations (
+       version text primary key,
+       name text,
+       statements text[]
+     )`,
+  );
+
   const { rows } = await client.query(
     "select version from supabase_migrations.schema_migrations",
   );

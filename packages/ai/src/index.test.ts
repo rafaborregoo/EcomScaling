@@ -41,8 +41,8 @@ import {
 
 test("el perfil RAG centraliza el contrato de embeddings y chunking", () => {
   assert.deepEqual(RAG_EMBEDDING_PROFILE, {
-    version: "structural-v1",
-    model: "voyage-3.5",
+    version: "structural-v3",
+    model: "voyage-context-4",
     dimensions: 1024,
     maxChars: 1500,
     overlapChars: 200,

@@ -128,11 +128,18 @@ export function TemplateBuilder({
   design,
   onChange,
   onUploadImage,
+  onSelect,
 }: {
   design: TemplateDesign;
   onChange: (design: TemplateDesign) => void;
   /** Sube un archivo y devuelve la URL pública para el bloque `image`. */
   onUploadImage?: (file: File) => Promise<string>;
+  /**
+   * Qué bloque está seleccionado, para quien monta el compositor alrededor:
+   * "insertar campo" necesita saber dónde escribir. El editor sigue siendo el
+   * dueño de la selección; esto solo la cuenta hacia fuera.
+   */
+  onSelect?: (id: string | null) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [device, setDevice] = useState<"mobile" | "tablet" | "desktop">(
@@ -146,6 +153,10 @@ export function TemplateBuilder({
   const skipSyncRef = useRef(false);
 
   const selected = design.blocks.find((block) => block.id === selectedId) ?? null;
+
+  useEffect(() => {
+    onSelect?.(selectedId);
+  }, [onSelect, selectedId]);
 
   useEffect(() => {
     if (skipSyncRef.current) {
@@ -324,29 +335,33 @@ export function TemplateBuilder({
                       ]}
                     />
                   </Field>
-                  <AlignField
-                    value={selected.align}
-                    onChange={(align) => updateBlock(selected.id, { align })}
-                  />
-                  <ColorField
-                    label="Color"
-                    value={selected.color ?? design.styles.text}
-                    onChange={(hex) => updateBlock(selected.id, { color: hex })}
-                  />
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <AlignField
+                      value={selected.align}
+                      onChange={(align) => updateBlock(selected.id, { align })}
+                    />
+                    <ColorField
+                      label="Color"
+                      value={selected.color ?? design.styles.text}
+                      onChange={(hex) => updateBlock(selected.id, { color: hex })}
+                    />
+                  </div>
                 </>
               ) : null}
 
               {selected.type === "text" ? (
                 <>
-                  <AlignField
-                    value={selected.align}
-                    onChange={(align) => updateBlock(selected.id, { align })}
-                  />
-                  <ColorField
-                    label="Color"
-                    value={selected.color ?? design.styles.text}
-                    onChange={(hex) => updateBlock(selected.id, { color: hex })}
-                  />
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <AlignField
+                      value={selected.align}
+                      onChange={(align) => updateBlock(selected.id, { align })}
+                    />
+                    <ColorField
+                      label="Color"
+                      value={selected.color ?? design.styles.text}
+                      onChange={(hex) => updateBlock(selected.id, { color: hex })}
+                    />
+                  </div>
                 </>
               ) : null}
 
@@ -361,20 +376,22 @@ export function TemplateBuilder({
                       }
                     />
                   </Field>
-                  <AlignField
-                    value={selected.align}
-                    onChange={(align) => updateBlock(selected.id, { align })}
-                  />
-                  <ColorField
-                    label="Fondo"
-                    value={selected.bg ?? design.styles.primary}
-                    onChange={(hex) => updateBlock(selected.id, { bg: hex })}
-                  />
-                  <ColorField
-                    label="Texto"
-                    value={selected.color ?? "#ffffff"}
-                    onChange={(hex) => updateBlock(selected.id, { color: hex })}
-                  />
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <AlignField
+                      value={selected.align}
+                      onChange={(align) => updateBlock(selected.id, { align })}
+                    />
+                    <ColorField
+                      label="Fondo"
+                      value={selected.bg ?? design.styles.primary}
+                      onChange={(hex) => updateBlock(selected.id, { bg: hex })}
+                    />
+                    <ColorField
+                      label="Texto"
+                      value={selected.color ?? "#ffffff"}
+                      onChange={(hex) => updateBlock(selected.id, { color: hex })}
+                    />
+                  </div>
                 </>
               ) : null}
 

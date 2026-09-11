@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Política de privacidad de EcomScaling IA: qué datos tratamos, con qué finalidad y cómo ejercer tus derechos.",
 };
 
-const LAST_UPDATED = "9 de septiembre de 2026";
+const LAST_UPDATED = "10 de septiembre de 2026";
 const CONTACT_EMAIL = "rafael@noraapp.es";
 
 export default function PrivacyPolicyPage() {
@@ -45,9 +45,22 @@ export default function PrivacyPolicyPage() {
           </li>
         </ul>
         <p>
-          No solicitamos ni tratamos datos personales de los clientes finales de nuestros clientes
-          más allá de los agregados/anonimizados que exponen las APIs de métricas de cada plataforma
-          conectada.
+          De los <strong>clientes finales</strong> de la tienda tratamos únicamente un identificador
+          de referencia con hash, su número de pedidos, el importe gastado, la moneda, el estado y las
+          etiquetas, y sus estados de consentimiento de marketing (email y SMS). No tratamos su
+          nombre, correo electrónico, teléfono, dirección postal ni ubicación, y los pedidos y
+          checkouts que almacenamos tampoco incluyen email ni dirección de envío.
+        </p>
+      </Card>
+
+      <Card title="Con quién compartimos los datos">
+        <p>
+          Nos apoyamos en proveedores que tratan datos por cuenta nuestra: Supabase (base de datos,
+          autenticación y copias de seguridad, en la Unión Europea), Vercel e IONOS (alojamiento), y
+          Anthropic y OpenAI (modelos de lenguaje que generan los diagnósticos). A los proveedores de
+          modelos de lenguaje les enviamos métricas agregadas del negocio, nunca listados de clientes
+          ni el identificador de referencia. Las transferencias fuera de la Unión Europea se amparan
+          en las cláusulas contractuales tipo de cada proveedor.
         </p>
       </Card>
 
@@ -79,6 +92,12 @@ export default function PrivacyPolicyPage() {
           </Link>
           . Atenderemos la solicitud en un plazo razonable y confirmaremos por correo cuando se haya
           completado.
+        </p>
+        <p>
+          Al desconectar una tienda o dar de baja una cuenta, los datos quedan marcados para borrado y
+          se eliminan definitivamente a los <strong>30 días</strong>. Ese plazo es un periodo de
+          gracia para poder deshacer una desconexión accidental; si prefieres el borrado inmediato,
+          pídelo y lo hacemos.
         </p>
         <p>
           Si desconectas la integración con Meta desde el panel de integraciones, revocamos el token

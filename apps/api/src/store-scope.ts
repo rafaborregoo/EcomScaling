@@ -113,9 +113,16 @@ export async function listStoreScope(
   }
 
   const [metaResult, klaviyoResult] = await Promise.all([
+    // connection_id: /integraciones/meta y /integraciones/klaviyo configuran
+    // UNA conexion, y sin este campo no hay forma de saber a que tienda
+    // pertenece lo que estas tocando. En Klaviyo la cuenta es 1:1 con la
+    // conexion (unique (connection_id)), asi que ademas identifica la conexion
+    // de la tienda activa.
     supabase
       .from("meta_ad_accounts")
-      .select("id, account_name, external_ad_account_id, store_id, is_selected")
+      .select(
+        "id, connection_id, account_name, external_ad_account_id, store_id, is_selected",
+      )
       .eq("organization_id", organizationId)
       .eq("is_active", true),
     // klaviyo_accounts no tiene ni `account_name` ni `is_active` (a
@@ -125,7 +132,9 @@ export async function listStoreScope(
     // respuesta siga teniendo la misma forma para las dos tablas.
     supabase
       .from("klaviyo_accounts")
-      .select("id, account_name:name, external_account_id, store_id")
+      .select(
+        "id, connection_id, account_name:name, external_account_id, store_id",
+      )
       .eq("organization_id", organizationId),
   ]);
 

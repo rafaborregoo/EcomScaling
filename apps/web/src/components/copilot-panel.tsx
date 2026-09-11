@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { AiEvidence, Alert, Badge, Button, Card, Drawer, Field, Input, Select } from "@/components/ui";
 import type { ModuleSummaryData } from "@/components/module-summary";
+import type { CopilotAsk } from "@/components/copilot-ask";
 
 type ChatSource = { kind: string; reference: string; period: string | null };
 type ChatMessage = { role: "user" | "assistant"; content: string; sources?: ChatSource[]; warnings?: string[] };
@@ -91,6 +92,7 @@ export function CopilotPanel({
   organizationId,
   organizations = [],
   view,
+  ask: pending,
   onClose,
 }: {
   /** Cliente activo del portal. Vacío en vista general del consultor. */
@@ -98,6 +100,8 @@ export function CopilotPanel({
   /** Cartera, para poder elegir cliente sin salir de la vista general. */
   organizations?: Array<{ id: string; name: string }>;
   view?: CopilotView;
+  /** Pregunta con la que se abrió el panel desde un módulo (ver copilot-ask.tsx). */
+  ask?: CopilotAsk | null;
   onClose: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -115,11 +119,19 @@ export function CopilotPanel({
   )?.name;
   const scrollRef = useRef<HTMLDivElement>(null);
   const suggestions = useMemo(() => promptsForView(view), [view]);
+  // Qué respuesta se está guardando en el hilo del artefacto, y cuáles ya
+  // están guardadas (para no dejar dos veces el mismo análisis).
+  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [savedIndexes, setSavedIndexes] = useState<number[]>([]);
+  // La pregunta enganchada se lanza una vez por nonce: sin esto, cualquier
+  // re-render del portal la volvería a enviar y se pagaría el turno otra vez.
+  const askedKeyRef = useRef<number | null>(null);
 
   useEffect(() => {
     setMessages([]);
     setConversationId(null);
     setError(null);
+    setSavedIndexes([]);
   }, [targetOrganizationId]);
   useEffect(() => {
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -160,6 +172,35 @@ export function CopilotPanel({
     void ask(input.trim());
   }
 
+  // El módulo abrió el panel con una pregunta ya escrita: se envía sola. Si
+  // hubiera que pulsar "enviar", el botón "Analizar con el Consultor IA" sería
+  // un botón que solo rellena un input.
+  useEffect(() => {
+    if (!pending || !targetOrganizationId) return;
+    if (askedKeyRef.current === pending.key) return;
+    askedKeyRef.current = pending.key;
+    void ask(pending.question);
+    // `ask` se redefine en cada render (cierra sobre el estado del chat); la
+    // guarda de arriba es lo que hace que esto corra una vez por pregunta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, targetOrganizationId]);
+
+  async function saveAnswer(index: number, text: string) {
+    if (!pending?.saveAnswer) return;
+    setSavingIndex(index);
+    try {
+      await pending.saveAnswer(text);
+      setSavedIndexes((prev) => [...prev, index]);
+    } catch {
+      setError({
+        message: "No se pudo dejar el análisis en el hilo. Reinténtalo.",
+        status: "danger",
+      });
+    } finally {
+      setSavingIndex(null);
+    }
+  }
+
   return (
     <Drawer isOpen onOpenChange={(open) => !open && onClose()}>
       <Drawer.Backdrop>
@@ -177,6 +218,7 @@ export function CopilotPanel({
                   <Badge tone="neutral">{view.title}</Badge>
                   {view.storeLabel ? <Badge tone="neutral">{view.storeLabel}</Badge> : null}
                   {view.summary?.period ? <Badge tone="neutral">{view.summary.period}</Badge> : null}
+                  {pending?.focusLabel ? <Badge tone="brand">{pending.focusLabel}</Badge> : null}
                 </div>
               ) : null}
             </Drawer.Header>
@@ -232,6 +274,24 @@ export function CopilotPanel({
                     <Card key={index} kicker="Consultor IA">
                       <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
                       <AiEvidence sources={message.sources ?? []} warnings={message.warnings ?? []} />
+                      {/* El análisis se queda en la conversación de la pieza,
+                          firmado como IA, para que lo vea también el otro lado
+                          en vez de morir al cerrar el panel. */}
+                      {pending?.saveAnswer ? (
+                        savedIndexes.includes(index) ? (
+                          <p className="mt-3 text-xs text-muted">Guardado en el hilo de la pieza.</p>
+                        ) : (
+                          <Button
+                            className="mt-3"
+                            size="sm"
+                            variant="secondary"
+                            disabled={savingIndex !== null}
+                            onClick={() => void saveAnswer(index, message.content)}
+                          >
+                            {savingIndex === index ? "Guardando…" : "Dejar en el hilo de la pieza"}
+                          </Button>
+                        )
+                      ) : null}
                     </Card>
                   ) : (
                     <Card key={index} kicker="Tú" className="bg-surface">

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import { DEFAULT_KLAVIYO_SCOPES, type LoadedApiEnv } from "@ecomscaling/config";
 import {
   DEFAULT_AGENT_RESILIENCE_POLICY,
   withAgentResilience,
@@ -61,8 +61,7 @@ export function resolveKlaviyoOAuthEnv(
     KLAVIYO_CLIENT_SECRET: env.KLAVIYO_CLIENT_SECRET,
     KLAVIYO_REDIRECT_URI: env.KLAVIYO_REDIRECT_URI,
     KLAVIYO_SCOPES: parseKlaviyoScopes(
-      env.KLAVIYO_SCOPES ??
-        "accounts:read flows:read campaigns:read forms:read lists:read segments:read metrics:read",
+      env.KLAVIYO_SCOPES ?? DEFAULT_KLAVIYO_SCOPES,
     ).join(" "),
   };
 }

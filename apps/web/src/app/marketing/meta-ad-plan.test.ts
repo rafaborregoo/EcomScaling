@@ -45,6 +45,7 @@ function draftFixture(overrides: Partial<MarketingDraft> = {}): MarketingDraft {
     scheduled_for: null,
     decision_reason: null,
     campaign_item: null,
+    thread: null,
     ...overrides,
   };
 }

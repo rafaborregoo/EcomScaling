@@ -36,4 +36,9 @@ Sigue **[docs/decisions/ADR-0006-integration-module-pattern.md](docs/decisions/A
 
 Si el modulo expone **ingresos atribuidos** (Klaviyo, Meta, Google), sigue tambien **[docs/decisions/ADR-0021-ingresos-atribuidos-entre-integraciones.md](docs/decisions/ADR-0021-ingresos-atribuidos-entre-integraciones.md)**: nunca sumar atribucion entre plataformas, cada cifra lleva su ventana/metrica, stream first-party en paralelo, y los agentes reciben "EUR atribuidos por X", no "EUR generados".
 
+Shopify y Klaviyo tienen ademas su propia guia de permisos y errores en
+**[docs/INTEGRACION_SHOPIFY.md](docs/INTEGRACION_SHOPIFY.md)** y
+**[docs/INTEGRACION_KLAVIYO.md](docs/INTEGRACION_KLAVIYO.md)** (que permiso desbloquea que,
+que se comprueba al conectar y como se explican los fallos de permisos).
+
 Otras decisiones arquitectonicas en `docs/decisions/`.

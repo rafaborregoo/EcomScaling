@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
+import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import {
   AsyncState,
@@ -16,11 +17,16 @@ import {
 import {
   BackToHub,
   ConnectionFacts,
+  ConnectionPicker,
   LastErrorBanner,
   ProviderStatusCard,
   Steps,
   readErr,
+  storeLabel,
+  storesByConnection,
   useIntegrations,
+  useProviderConnection,
+  useStoreScope,
   type MetaAssetsResponse,
 } from "../shared";
 
@@ -65,7 +71,39 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organization, provider, isLoading, error, actions, pending, actionError } =
     useIntegrations(bootstrap);
   const meta = provider("meta_ads");
-  const connectionId = meta?.connection?.id ?? null;
+  // En Meta la tienda NO la marca la conexion: una sola conexion OAuth sirve
+  // legitimamente a varias tiendas (una cuenta publicitaria por tienda dentro
+  // del mismo portfolio). Quien lleva la tienda es la cuenta publicitaria, asi
+  // que aqui se etiqueta cuenta a cuenta.
+  const { connectionId: activeConnectionId } = useActiveConnection();
+  const { scope } = useStoreScope(organization?.id ?? null);
+  const storeByConnection = storesByConnection(
+    scope?.meta_ad_accounts ?? [],
+    scope?.stores ?? [],
+  );
+  const activeStore =
+    scope?.stores.find((store) => store.connection_id === activeConnectionId) ??
+    null;
+  const preferredConnectionId =
+    [...storeByConnection.entries()].find(
+      ([, store]) => store.id === activeStore?.id,
+    )?.[0] ?? null;
+
+  const { connection, connections, setChosenId } = useProviderConnection(
+    meta,
+    preferredConnectionId,
+  );
+  const connectionId = connection?.id ?? null;
+
+  // meta_ad_accounts.id, la misma clave que trae la lista de activos.
+  const storeByAccountId = new Map(
+    (scope?.meta_ad_accounts ?? [])
+      .filter((account) => account.store_id)
+      .map((account) => [
+        account.id,
+        scope?.stores.find((store) => store.id === account.store_id) ?? null,
+      ]),
+  );
   const { assets, setAssets, error: assetsError, isLoading: assetsLoading } =
     useMetaAssets(organization?.id ?? null, connectionId);
   const [saving, setSaving] = useState(false);
@@ -148,6 +186,14 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
           marcadas.
         </p>
       </ProviderStatusCard>
+
+      <ConnectionPicker
+        connections={connections}
+        connection={connection}
+        onChange={setChosenId}
+        storeByConnection={storeByConnection}
+        activeStore={activeStore}
+      />
 
       <Card title="Autorizar Meta">
         {!configured ? (
@@ -252,6 +298,24 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           {[asset.currency_code, asset.timezone_name]
                             .filter(Boolean)
                             .join(" · ")}
+                        </span>
+                      ) : null}
+                      {/* A que tienda se le imputa el gasto de esta cuenta. Sin
+                          esto, con dos tiendas, marcar una casilla era decidir
+                          a ciegas de quien es el gasto. */}
+                      {scope && scope.store_count > 1 ? (
+                        <span className="mt-1 block text-xs">
+                          {storeByAccountId.get(asset.id) ? (
+                            <span className="text-muted">
+                              Tienda:{" "}
+                              {storeLabel(storeByAccountId.get(asset.id)!)}
+                            </span>
+                          ) : (
+                            <span className="text-warn">
+                              Sin tienda asignada · su gasto no aparece al
+                              filtrar por tienda
+                            </span>
+                          )}
                         </span>
                       ) : null}
                     </span>

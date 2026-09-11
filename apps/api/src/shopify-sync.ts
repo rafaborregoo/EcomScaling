@@ -11,7 +11,11 @@ import {
   type BulkLine,
 } from "./shopify-bulk.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
-import { syncShopifySessions } from "./shopify-sessions.js";
+import { explainShopifyError } from "./shopify-permissions.js";
+import {
+  ShopifyReportsScopeError,
+  syncShopifySessions,
+} from "./shopify-sessions.js";
 import { getValidShopifyAccessToken } from "./shopify-token-store.js";
 import {
   checkOperationalOrganization,
@@ -224,11 +228,8 @@ type BulkCustomerLine = BulkLine & {
   defaultPhoneNumber?: { marketingState?: string | null } | null;
   verifiedEmail?: boolean | null;
   locale?: string | null;
-  defaultAddress?: {
-    countryCodeV2?: string | null;
-    provinceCode?: string | null;
-    city?: string | null;
-  } | null;
+  // Sin defaultAddress a proposito: la ubicacion del cliente no la usa nadie y
+  // es dato protegido de Shopify. Lo que no se pide no hay que justificarlo.
   lastOrder?: { processedAt?: string | null } | null;
 };
 
@@ -357,10 +358,17 @@ type BlockState = {
   written: number;
   failed: number;
   error: string | null;
+  /**
+   * Lo que no llego pero no rompe la tienda: un permiso que el catalogo marca
+   * como opcional. Se cuenta, se dice, y NO deja la conexion en error -- si no,
+   * una tienda sin analitica de Shopify aparece igual de rota que una sin
+   * pedidos.
+   */
+  warning: string | null;
 };
 
 function createBlockState(): BlockState {
-  return { read: 0, written: 0, failed: 0, error: null };
+  return { read: 0, written: 0, failed: 0, error: null, warning: null };
 }
 
 function createServiceClient(env: ApiEnv) {
@@ -669,7 +677,7 @@ export async function runShopifyInitialSync(
   const { data: connection, error: connectionError } = await supabase
     .from("integration_connections")
     .select(
-      "id, organization_id, provider_account_id, provider_account_name, status, last_sync_at",
+      "id, organization_id, provider_account_id, provider_account_name, status, scopes, last_sync_at",
     )
     .eq("id", connectionId)
     .maybeSingle();
@@ -1883,7 +1891,6 @@ export async function runShopifyInitialSync(
                 defaultPhoneNumber { marketingState }
                 verifiedEmail
                 locale
-                defaultAddress { countryCodeV2 provinceCode city }
                 lastOrder { processedAt }`
                     : ""
                 }
@@ -1927,9 +1934,6 @@ export async function runShopifyInitialSync(
             customer.defaultPhoneNumber?.marketingState ?? null,
           verified_email: customer.verifiedEmail ?? null,
           locale: customer.locale ?? null,
-          default_country_code: customer.defaultAddress?.countryCodeV2 ?? null,
-          default_province_code: customer.defaultAddress?.provinceCode ?? null,
-          default_city: customer.defaultAddress?.city ?? null,
           last_order_at: customer.lastOrder?.processedAt ?? null,
         }),
       );
@@ -1957,7 +1961,16 @@ export async function runShopifyInitialSync(
           ? error.message
           : "shopify_customers_sync_failed";
       blocks.customers.failed += 1;
-      blocks.customers.error = message;
+      const hasCustomersScope =
+        Array.isArray(connection.scopes) &&
+        connection.scopes.includes("read_customers");
+      blocks.customers.error = message.includes(
+        "bulk_operation_failed: ACCESS_DENIED",
+      )
+        ? hasCustomersScope
+          ? "shopify_customers_access_denied: Shopify ha rechazado el acceso a clientes aunque la conexión tiene read_customers. La app necesita aprobación de datos protegidos de clientes en Shopify; después reautoriza la tienda en Integraciones."
+          : "shopify_customers_scope_missing: la conexión no tiene read_customers. Reautoriza la tienda en Integraciones después de añadir ese permiso."
+        : message;
     }
 
     // --- Carritos abandonados ---------------------------------------------
@@ -2535,6 +2548,9 @@ export async function runShopifyInitialSync(
         storeId,
         connectionId,
         sinceIso: updatedAtCutoff,
+        hasReportsScope:
+          Array.isArray(connection.scopes) &&
+          connection.scopes.includes("read_reports"),
       });
       blocks.sessions.read += sessionsResult.read;
       blocks.sessions.written += sessionsResult.written;
@@ -2548,10 +2564,23 @@ export async function runShopifyInitialSync(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "shopify_sessions_sync_failed";
-      blocks.sessions.failed += 1;
-      blocks.sessions.error = message;
+      // Las sesiones dependen de read_reports, que es opcional (y ademas del
+      // acceso a datos protegidos, que Shopify concede aparte). Sin ellas se
+      // pierde la tasa de conversion, no la tienda.
+      if (error instanceof ShopifyReportsScopeError) {
+        blocks.sessions.warning = message;
+      } else {
+        blocks.sessions.failed += 1;
+        blocks.sessions.error = message;
+      }
     }
   }
+
+  // Lo que la tienda concedio de verdad: sin esto, un fallo de Shopify se
+  // podria confundir con un permiso que si esta concedido.
+  const connectionScopes = Array.isArray(connection.scopes)
+    ? (connection.scopes as string[])
+    : [];
 
   const finishedAt = new Date().toISOString();
 
@@ -2562,7 +2591,12 @@ export async function runShopifyInitialSync(
       syncRuns[key].id,
       block.error ? "failed" : "succeeded",
       { read: block.read, written: block.written, failed: block.failed },
-      block.error ?? undefined,
+      // Aqui el error deja de ser interno y lo lee una persona: si Shopify
+      // denego por un permiso que la tienda NO tiene, se dice cual y como
+      // arreglarlo; si lo tiene, el mensaje original ya explicaba el motivo.
+      block.error
+        ? explainShopifyError(block.error, connectionScopes)
+        : (block.warning ?? undefined),
     );
   }
 
@@ -2572,7 +2606,10 @@ export async function runShopifyInitialSync(
 
   if (failedBlocks.length) {
     const combinedError = failedBlocks
-      .map(([key, block]) => `${key}: ${block.error}`)
+      .map(
+        ([key, block]) =>
+          `${key}: ${explainShopifyError(block.error ?? "", connectionScopes)}`,
+      )
       .join(" | ");
 
     await supabase

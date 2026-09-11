@@ -88,7 +88,7 @@ as $function$
     rv.entity_type,
     coalesce(c.id::text, f.id::text, rv.external_entity_id),
     (rv.period_end - rv.period_start) desc,
-    rv.created_at desc;
+    rv.captured_at desc;
 $function$;
 
 create index if not exists klaviyo_report_runs_account_idx

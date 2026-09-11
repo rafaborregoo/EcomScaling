@@ -1,6 +1,7 @@
 import { createLogger } from "@ecomscaling/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
+import { recordProtectedDataAccess } from "./protected-data-access.js";
 
 const logger = createLogger("api:shopify-insights");
 
@@ -211,6 +212,23 @@ export async function getShopifyInsights(
       organizationId,
       connectionId,
     );
+
+    // Se registra antes de mirar la cache: quien pide el panel accede a los
+    // datos igual, venga la respuesta de Redis o de Postgres. Registrar solo
+    // los fallos de cache dejaria huecos en el rastro sin ningun motivo.
+    void recordProtectedDataAccess(supabase, {
+      organizationId,
+      actorUserId: context.user.id,
+      surface: "shopify_insights",
+      resources: [
+        "shopify_customer_recurrence",
+        "shopify_customer_value",
+        "shopify_cohorts",
+      ],
+      purpose: "Panel de Shopify: recurrencia, valor por cliente y cohortes",
+      storeId,
+      detail: { period_days: periodDays },
+    });
 
     const cacheKey = `shopify:insights:${organizationId}:${storeId ?? "org"}:${periodDays}`;
     const cached = await getCached<ShopifyInsightsData>(

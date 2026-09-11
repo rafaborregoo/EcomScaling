@@ -44,6 +44,37 @@ alter table public.klaviyo_flow_actions
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
+-- Convergencia de forma (anadido al replicar el esquema en un proyecto nuevo,
+-- 2026-09-11): en produccion esta tabla cuelga del FLUJO -- flow_id +
+-- external_message_id, con action_id como puntero opcional -- y el sync hace
+-- upsert con ese onConflict. Una base creada desde cero solo con estos ficheros
+-- nacia colgando de la accion (flow_action_id not null), asi que el sync no
+-- habria funcionado en desarrollo. Produccion ya tiene esta forma; estas lineas
+-- son para cualquier entorno que se cree de nuevo.
+alter table public.klaviyo_flow_messages
+  add column if not exists flow_id uuid references public.klaviyo_flows (id) on delete cascade,
+  add column if not exists action_id uuid references public.klaviyo_flow_actions (id) on delete set null;
+
+do $do$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'klaviyo_flow_messages'
+      and column_name = 'flow_action_id'
+      and is_nullable = 'NO'
+  ) then
+    alter table public.klaviyo_flow_messages alter column flow_action_id drop not null;
+  end if;
+end
+$do$;
+
+-- El unique real del upsert. Indice en vez de constraint para poder usar
+-- `if not exists` (Postgres no lo admite en add constraint).
+create unique index if not exists klaviyo_flow_messages_unique_flow_external
+  on public.klaviyo_flow_messages (flow_id, external_message_id);
+
 alter table public.klaviyo_flow_messages
   add column if not exists external_template_id varchar(255),
   add column if not exists name varchar(255),

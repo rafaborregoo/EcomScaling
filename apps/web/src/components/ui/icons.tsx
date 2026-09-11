@@ -10,6 +10,7 @@ import {
   faChevronRight,
   faChevronUp,
   faCheck,
+  faCommentDots,
   faDownload,
   faEllipsis,
   faGear,
@@ -24,6 +25,10 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { ComponentPropsWithoutRef } from "react";
 
 type IconProps = Omit<ComponentPropsWithoutRef<typeof FontAwesomeIcon>, "icon">;
+
+export function MessageIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faCommentDots} {...props} />;
+}
 
 export function CloseIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faXmark} {...props} />;
@@ -249,6 +254,21 @@ export function ClockIcon(props: ComponentPropsWithoutRef<"svg">) {
     <LucideIcon {...props}>
       <circle cx="12" cy="12" r="10" />
       <polyline points="12 6 12 12 16 14" />
+    </LucideIcon>
+  );
+}
+
+// Marca de "esto lo dice la IA". Un solo icono para todas las cards y para la
+// zona del nav: si cada metrica eligiera el suyo, habria que aprender cual es
+// cual. `sparkles` de lucide, del mismo trazo que el resto del nav.
+export function SparklesIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+      <path d="M20 3v4" />
+      <path d="M22 5h-4" />
+      <path d="M4 17v2" />
+      <path d="M5 18H3" />
     </LucideIcon>
   );
 }

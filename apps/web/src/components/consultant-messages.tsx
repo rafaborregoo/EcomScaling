@@ -130,11 +130,14 @@ function MessageBubble({
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[80%] ${mine ? "items-end" : "items-start"}`}>
+        {/* El mensaje del otro (para el cliente, el del consultor) manda: papel
+            blanco, filo de marca y sombra, como una alerta. Los propios se
+            apagan en gris para que la vista caiga en lo que hay que leer. */}
         <div
           className={`rounded-lg px-3 py-2 text-sm ${
             mine
-              ? "bg-accent/10 text-foreground"
-              : "border border-separator bg-surface"
+              ? "border border-edge bg-surface text-muted"
+              : "border border-accent/40 border-l-2 border-l-accent bg-background shadow-surface"
           }`}
         >
           {message.body ? (
@@ -271,7 +274,9 @@ export function MessageThread({
     <div className={`flex flex-col ${className ?? "h-[55svh] min-h-72 lg:h-[28rem]"}`}>
       <div
         ref={scrollRef}
-        className="flex-1 space-y-2 overflow-y-auto pr-1"
+        // Bandeja propia: blanca y enmarcada en el azul de marca, para que la
+        // conversacion no se confunda con el resto de bloques de la pagina.
+        className="flex-1 space-y-2 overflow-y-auto rounded-md border border-accent/30 bg-background p-3"
         aria-live="polite"
       >
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}

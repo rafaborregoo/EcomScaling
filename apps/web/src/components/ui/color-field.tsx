@@ -8,13 +8,14 @@
 import type { ColorChannel, ColorSpace } from "@heroui/react";
 
 import {
+  ColorField as HexField,
   ColorPicker,
   ColorSlider,
   ColorSwatch,
   Label,
-  ListBox,
   parseColor,
-  Select,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@heroui/react";
 import { useEffect, useState } from "react";
 import { sameHex, toEmailHex } from "./color-hex";
@@ -79,40 +80,42 @@ export function ColorField({
       {/* El trigger es un <button>: la etiqueta va en un <span>. Un <label>
           aquí dentro es contenido interactivo anidado (WCAG 4.1.2) y puede
           quedarse el clic que debía abrir el desplegable. */}
-      <ColorPicker.Trigger aria-label={label}>
-        <ColorSwatch size="lg" />
+      {/* Misma altura que un ToggleButton sm: estos disparadores conviven en
+          fila con los grupos de alineacion del constructor de plantillas. */}
+      <ColorPicker.Trigger aria-label={label} className="h-9 md:h-8">
+        <ColorSwatch size="sm" />
         <span>{label}</span>
       </ColorPicker.Trigger>
       <ColorPicker.Popover className="max-w-62 gap-2 px-2 py-3">
-        {/* HeroUI Select es el de react-aria: `value`/`onChange` no existen en
-            su contrato, se colaban como atributos de div y se ignoraban, así
-            que cambiar de espacio de color no hacía nada. */}
-        <Select
+        {/* Segmentado, no <Select>: su desplegable abre un popover DENTRO del
+            popover del ColorPicker y el clic en la opcion no llegaba a cambiar
+            el espacio de color, asi que se quedaba siempre en HSL. */}
+        <ToggleButtonGroup
           aria-label="Espacio de color"
-          selectedKey={colorSpace}
-          variant="secondary"
-          onSelectionChange={(space) => setColorSpace(space as ColorSpace)}
+          className="self-center"
+          disallowEmptySelection
+          selectedKeys={[colorSpace]}
+          selectionMode="single"
+          size="sm"
+          onSelectionChange={(keys) => {
+            const [space] = [...keys];
+
+            if (space) setColorSpace(space as ColorSpace);
+          }}
         >
-          <Select.Trigger>
-            <Select.Value className="uppercase" />
-            <Select.Indicator />
-          </Select.Trigger>
-          <Select.Popover>
-            <ListBox>
-              {Object.keys(colorChannelsByColorSpace).map((space) => (
-                <ListBox.Item
-                  key={space}
-                  className="uppercase"
-                  id={space}
-                  textValue={space}
-                >
-                  {space}
-                  <ListBox.ItemIndicator />
-                </ListBox.Item>
-              ))}
-            </ListBox>
-          </Select.Popover>
-        </Select>
+          {Object.keys(colorChannelsByColorSpace).map((space) => (
+            <ToggleButton key={space} className="uppercase" id={space}>
+              {space}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+        {/* Campo hex: pegar el color de marca directamente, sin pelearse con
+            los sliders. Lo alimenta el ColorPicker via contexto. */}
+        <HexField aria-label={`Codigo de color: ${label}`} className="px-1">
+          <HexField.Group fullWidth>
+            <HexField.Input />
+          </HexField.Group>
+        </HexField>
         <div className="flex flex-col gap-2">
           {colorChannelsByColorSpace[colorSpace].map((channel: ColorChannel) => (
             // @ts-expect-error - TypeScript can't correlate dynamic colorSpace with channel type

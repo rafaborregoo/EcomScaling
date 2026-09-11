@@ -30,6 +30,11 @@ import {
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { recordAuditLog } from "./audit-log.js";
+import {
+  describeShopifyMissingScopes,
+  missingShopifyScopes,
+  parseShopifyScopes,
+} from "./shopify-permissions.js";
 
 type ApiEnv = LoadedApiEnv & ShopifyMultiAppEnv;
 
@@ -645,16 +650,32 @@ export async function handleShopifyOAuthCallback(
   }
   const now = new Date().toISOString();
 
+  // Shopify concede lo que concede: si la instalacion se quedo corta (permiso
+  // pendiente de aprobacion, instalacion vieja con menos scopes) hay que
+  // decirlo AQUI, no dejar que el sync devuelva una tienda a medias sin
+  // explicacion. Se compara contra lo pedido, no contra la tabla entera.
+  const grantedScopes = parseShopifyScopes(tokenResult.scope);
+  const missingScopes = missingShopifyScopes(
+    parseShopifyScopes(appEnv.SHOPIFY_SCOPES),
+    grantedScopes,
+  );
+  const missingRequired = missingScopes.filter((item) => item.required);
+
   const { error: connectionUpdateError } = await supabase
     .from("integration_connections")
     .update({
       provider_account_id: shop,
       provider_account_name: parseProviderAccountName(shop),
-      status: "connected",
-      scopes: tokenResult.scope
-        .split(",")
-        .map((scope) => scope.trim())
-        .filter(Boolean),
+      // Con un permiso obligatorio sin conceder la conexion no esta sana, por
+      // mucho que el token funcione: queda en error con el motivo escrito.
+      status: missingRequired.length > 0 ? "error" : "connected",
+      ...(missingRequired.length > 0
+        ? {
+            last_error_at: now,
+            last_error_message: describeShopifyMissingScopes(missingRequired),
+          }
+        : { last_error_at: null, last_error_message: null }),
+      scopes: grantedScopes,
       connected_at: now,
       last_sync_at: now,
       metadata: {
@@ -665,6 +686,7 @@ export async function handleShopifyOAuthCallback(
         state: state ?? storedState,
         shop_domain: shop,
         auth_mode: "offline",
+        missing_scopes: missingScopes.map((item) => item.scope),
       },
     })
     .eq("id", pendingConnection.id);
@@ -782,7 +804,13 @@ export async function handleShopifyOAuthCallback(
   return {
     ok: true,
     data: {
-      redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=connected`,
+      redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=${
+        missingRequired.length > 0
+          ? "missing_scopes"
+          : missingScopes.length > 0
+            ? "connected_partial"
+            : "connected"
+      }`,
     },
   };
 }

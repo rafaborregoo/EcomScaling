@@ -10,6 +10,9 @@ export { Button } from "./button";
 export { Card, Section } from "./card";
 export { CollapsibleSection } from "./collapsible-section";
 export { Metric } from "./metric";
+export type { MetricInsight } from "./metric-insights-task";
+export { composeTask, insightBadgeCount } from "./metric-insights-task";
+export { MetricInsights } from "./metric-insights";
 export { AreaChart, BarChart, MultiSparkline, Sparkline } from "./chart";
 export type { Tone } from "./badge";
 export { Badge } from "./badge";
@@ -87,12 +90,14 @@ export {
   IconChevronRight,
   IconChevronUp,
   MenuIcon,
+  MessageIcon,
   MoreIcon,
   PencilIcon,
   PhoneIcon,
   PlusIcon,
   RetryIcon,
   SettingsIcon,
+  SparklesIcon,
   TasksIcon,
   TrashIcon,
   UsersIcon,

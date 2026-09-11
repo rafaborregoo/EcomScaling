@@ -14,7 +14,7 @@ import WebSocket from "ws";
 import {
   chunkText,
   instagramImageAnalysisToMarkdown,
-  VoyageEmbeddingProvider,
+  createRagEmbeddingProvider,
 } from "@ecomscaling/ai";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import {
@@ -523,7 +523,7 @@ async function reindexImageMarkdown(
 
   if (!env.VOYAGE_API_KEY) return null;
 
-  const provider = new VoyageEmbeddingProvider(env.VOYAGE_API_KEY);
+  const provider = createRagEmbeddingProvider(env.VOYAGE_API_KEY);
   const chunks = chunkText(input.markdown);
   if (chunks.length === 0) return null;
   const vectors = await embedChunksInOrder(chunks, provider);

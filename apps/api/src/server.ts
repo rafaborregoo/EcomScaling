@@ -4,7 +4,11 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { Redis } from "ioredis";
-import { loadApiEnv } from "@ecomscaling/config";
+import {
+  describeEnvironmentTargetRisk,
+  loadApiEnv,
+  shouldBlockOnEnvironmentRisk,
+} from "@ecomscaling/config";
 import {
   healthResponseSchema,
   readinessResponseSchema,
@@ -136,6 +140,7 @@ import {
   listKlaviyoConversionMetrics,
   listKlaviyoTemplates,
   previewKlaviyoTemplate,
+  pushDraftToKlaviyoTemplate,
   selectKlaviyoConversionMetric,
   triggerKlaviyoSync,
 } from "./klaviyo.js";
@@ -445,6 +450,15 @@ export function sendServiceFailure(
 
 export async function buildApp(): Promise<FastifyInstance> {
   const env = loadApiEnv(process.env);
+  // Test y produccion separados (Shopify, datos protegidos Nivel 2). Avisa
+  // siempre; solo mata el proceso con SUPABASE_ENV_GUARD=block.
+  const environmentRisk = describeEnvironmentTargetRisk(process.env);
+  if (environmentRisk) {
+    if (shouldBlockOnEnvironmentRisk(process.env)) {
+      throw new Error(`entorno_cruzado: ${environmentRisk}`);
+    }
+    console.warn(`entorno_cruzado: ${environmentRisk}`);
+  }
   const app = Fastify({
     // SQO-00/SQO-02 (R-014): Fastify ya trae pino y ya no logea headers por
     // defecto (verificado), pero cualquier log futuro que incluya
@@ -1291,7 +1305,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post<{
     Params: { organizationId: string; draftId: string };
-    Body: { body?: string };
+    Body: { body?: string; from_ai?: boolean };
   }>(
     "/v1/organizations/:organizationId/marketing/drafts/:draftId/notes",
     async (request, reply) => {
@@ -3034,6 +3048,29 @@ export async function buildApp(): Promise<FastifyInstance> {
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { draftId?: string };
+  }>(
+    "/v1/organizations/:organizationId/klaviyo/templates/push",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const draftId = request.body?.draftId;
+      if (typeof draftId !== "string" || !draftId.trim()) {
+        return reply.code(400).send({ error: "missing_draft_id" });
+      }
+      const result = await pushDraftToKlaviyoTemplate(
+        env,
+        auth.context,
+        request.params.organizationId,
+        draftId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
     },
   );
 

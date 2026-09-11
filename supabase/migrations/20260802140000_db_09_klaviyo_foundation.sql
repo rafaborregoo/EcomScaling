@@ -415,12 +415,12 @@ drop policy if exists "klaviyo_accounts_select_authorized" on public.klaviyo_acc
 create policy "klaviyo_accounts_select_authorized" on public.klaviyo_accounts for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_lists_select_authorized" on public.klaviyo_lists;
 create policy "klaviyo_lists_select_authorized" on public.klaviyo_lists for select to authenticated using (private.can_access_org(organization_id));
-drop policy if exists "klaviyo_list_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots;
-create policy "klaviyo_list_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_list_daily_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots;
+create policy "klaviyo_list_daily_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_segments_select_authorized" on public.klaviyo_segments;
 create policy "klaviyo_segments_select_authorized" on public.klaviyo_segments for select to authenticated using (private.can_access_org(organization_id));
-drop policy if exists "klaviyo_segment_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots;
-create policy "klaviyo_segment_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_segment_daily_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots;
+create policy "klaviyo_segment_daily_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_flows_select_authorized" on public.klaviyo_flows;
 create policy "klaviyo_flows_select_authorized" on public.klaviyo_flows for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_flow_actions_select_authorized" on public.klaviyo_flow_actions;
@@ -442,7 +442,7 @@ create policy "klaviyo_report_values_select_authorized" on public.klaviyo_report
 drop policy if exists "klaviyo_metrics_select_authorized" on public.klaviyo_metrics;
 create policy "klaviyo_metrics_select_authorized" on public.klaviyo_metrics for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_daily_metrics_select_authorized" on public.klaviyo_daily_account_metrics;
-create policy "klaviyo_daily_metrics_select_authorized" on public.klaviyo_daily_account_metrics for select to authenticated using (private.can_access_org(organization_id));
+create policy "klaviyo_daily_account_metrics_select_authorized" on public.klaviyo_daily_account_metrics for select to authenticated using (private.can_access_org(organization_id));
 
 grant select on public.klaviyo_accounts, public.klaviyo_lists, public.klaviyo_list_daily_snapshots,
   public.klaviyo_segments, public.klaviyo_segment_daily_snapshots, public.klaviyo_flows,

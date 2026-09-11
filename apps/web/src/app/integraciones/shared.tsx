@@ -24,9 +24,49 @@ import {
   IntegrationActivationChecklist,
   IntegrationStatusBadge,
   Link,
+  Select,
 } from "@/components/ui";
 
 // --- Tipos de la respuesta del backend ------------------------------------
+
+export type IntegrationHealth = {
+  status: string;
+  reason?: string;
+  lastSyncAt: string | null;
+};
+
+export type IntegrationActivation = {
+  ready: boolean;
+  missing: string[];
+};
+
+export type IntegrationSyncRun = {
+  sync_type: string;
+  status: string;
+  records_read: number;
+  records_written: number;
+  records_failed: number;
+  finished_at: string | null;
+  error_message: string | null;
+};
+
+/** Una conexion = una tienda del proveedor, con su propio estado. El backend
+ * las manda peor-primero: `provider.connection` es la primera de esta lista. */
+export type IntegrationConnection = {
+  id: string;
+  provider_account_id: string | null;
+  provider_account_name: string | null;
+  app_mode?: "public" | "custom" | null;
+  status: string;
+  scopes: string[];
+  api_version: string | null;
+  connected_at: string | null;
+  last_sync_at: string | null;
+  last_error_message: string | null;
+  latest_sync: IntegrationSyncRun | null;
+  health: IntegrationHealth;
+  activation: IntegrationActivation;
+};
 
 export type IntegrationProvider = {
   id: string;
@@ -51,34 +91,13 @@ export type IntegrationProvider = {
     incrementalSync: boolean;
     assetSelection: boolean;
   };
-  health: {
-    status: string;
-    reason?: string;
-    lastSyncAt: string | null;
-  };
-  activation: {
-    ready: boolean;
-    missing: string[];
-  };
-  connection: {
-    id: string;
-    provider_account_name: string | null;
-    status: string;
-    scopes: string[];
-    api_version: string | null;
-    connected_at: string | null;
-    last_sync_at: string | null;
-    last_error_message: string | null;
-  } | null;
-  latest_sync: {
-    sync_type: string;
-    status: string;
-    records_read: number;
-    records_written: number;
-    records_failed: number;
-    finished_at: string | null;
-    error_message: string | null;
-  } | null;
+  // Resumen del proveedor = el de su peor tienda. Para hablar de una tienda
+  // concreta, `connections`.
+  health: IntegrationHealth;
+  activation: IntegrationActivation;
+  connection: IntegrationConnection | null;
+  connections: IntegrationConnection[];
+  latest_sync: IntegrationSyncRun | null;
 };
 
 export type IntegrationsResponse = {
@@ -232,6 +251,19 @@ export function readOAuthNotice(): {
     return {
       tone: "warn",
       text: `Cancelaste la autorización de ${label}. La conexión no se activó; puedes intentarlo de nuevo.`,
+    };
+  // La instalación devolvió menos permisos de los pedidos. El detalle (qué
+  // permiso y qué deja de funcionar) lo pinta la página del proveedor leyendo
+  // los scopes de la conexión; aquí solo se avisa de que hay algo que mirar.
+  if (result === "connected_partial")
+    return {
+      tone: "warn",
+      text: `${label} se conectó, pero con menos permisos de los pedidos: parte de los datos no se podrá traer. Revisa el aviso de la integración.`,
+    };
+  if (result === "missing_scopes")
+    return {
+      tone: "danger",
+      text: `${label} no concedió permisos imprescindibles, así que la conexión queda en error. Vuelve a instalar la app aceptando todos los permisos.`,
     };
   return {
     tone: "danger",
@@ -428,6 +460,11 @@ export function ProviderStatusCard({
             · {provider.connection.provider_account_name}
           </span>
         ) : null}
+        {provider.connection?.provider_account_id ? (
+          <span className="font-mono text-muted">
+            · {provider.connection.provider_account_id}
+          </span>
+        ) : null}
       </div>
 
       <IntegrationActivationChecklist
@@ -475,12 +512,212 @@ export function Steps({ items }: { items: ReactNode[] }) {
   );
 }
 
+// --- A que tienda pertenece cada cuenta ---------------------------------
+
+// Se importan ademas de reexportarse: `export ... from` no trae los nombres al
+// ambito de este fichero, y aqui dentro se usan.
+import {
+  storeLabel,
+  type ScopeStore,
+  type StoreScope,
+} from "./store-scope-model";
+
+export {
+  storeLabel,
+  storesByConnection,
+  type ScopeAccount,
+  type ScopeStore,
+  type StoreScope,
+} from "./store-scope-model";
+
+/** El reparto de cuentas por tienda. Lo cargan la tarjeta de asignacion del hub
+ * y las subpaginas de Meta y Klaviyo, que necesitan saber sobre que tienda
+ * estan escribiendo. */
+export function useStoreScope(organizationId: string | null) {
+  const [scope, setScope] = useState<StoreScope | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    if (!organizationId) {
+      setScope(null);
+      return;
+    }
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/store-scope`,
+      );
+      if (!response.ok) {
+        setError(await readErr(response));
+        return;
+      }
+      setScope((await response.json()) as StoreScope);
+      setError(null);
+    } catch {
+      setError("No se pudo cargar la asignación de tiendas. Reintenta.");
+    }
+  }, [organizationId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return { scope, error, reload };
+}
+
+/** Cual de las N conexiones del proveedor se esta viendo y configurando.
+ *
+ * Antes no habia eleccion: cada subpagina cogia `provider.connection`, que el
+ * backend resolvia por su cuenta. Con dos cuentas Klaviyo o dos de Meta,
+ * guardar los activos escribia sobre una de ellas sin decir cual -- y no
+ * necesariamente la que el consultor creia estar mirando.
+ *
+ * Orden de preferencia: lo que el usuario elija aqui, luego la conexion de la
+ * tienda activa del encabezado (`preferredId`), y si no hay ninguna, la primera
+ * de la lista -- que es la peor, la que hay que atender. */
+export function useProviderConnection(
+  provider: IntegrationProvider | null,
+  preferredId?: string | null,
+) {
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  const connections = provider?.connections ?? [];
+  const connection =
+    connections.find((item) => item.id === chosenId) ??
+    connections.find((item) => item.id === preferredId) ??
+    connections[0] ??
+    null;
+
+  return { connection, connections, setChosenId };
+}
+
+/** Selector de la conexion que se esta configurando. Con una sola no aparece:
+ * no hay nada que elegir. */
+export function ConnectionPicker({
+  connections,
+  connection,
+  onChange,
+  storeByConnection,
+  activeStore,
+}: {
+  connections: IntegrationConnection[];
+  connection: IntegrationConnection | null;
+  onChange: (id: string) => void;
+  storeByConnection?: Map<string, ScopeStore>;
+  activeStore?: ScopeStore | null;
+}) {
+  if (connections.length < 2) return null;
+
+  const currentStore = connection
+    ? storeByConnection?.get(connection.id)
+    : undefined;
+  // Estas viendo una tienda en el encabezado y configurando la cuenta de otra:
+  // es justo el error que este selector existe para hacer imposible.
+  const mismatch = Boolean(
+    activeStore && currentStore && currentStore.id !== activeStore.id,
+  );
+
+  return (
+    <Card
+      title="Cuenta que estás configurando"
+      description="Esta organización tiene varias cuentas conectadas de este proveedor. Lo que guardes abajo se aplica solo a la elegida."
+    >
+      <Select
+        aria-label="Cuenta conectada"
+        value={connection?.id ?? ""}
+        onChange={onChange}
+        options={connections.map((item) => {
+          const store = storeByConnection?.get(item.id);
+          return {
+            value: item.id,
+            label: [
+              item.provider_account_name ?? item.provider_account_id ?? item.id,
+              store ? storeLabel(store) : null,
+              healthLabel(item.health.status),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          };
+        })}
+      />
+
+      {mismatch ? (
+        <Banner className="mt-3" tone="warn">
+          Estás viendo{" "}
+          <span className="font-medium">{storeLabel(activeStore!)}</span> en el
+          encabezado, pero esta cuenta es de{" "}
+          <span className="font-medium">{storeLabel(currentStore!)}</span>. Lo
+          que guardes se aplica a {storeLabel(currentStore!)}.
+        </Banner>
+      ) : null}
+    </Card>
+  );
+}
+
+/** El estado de cada tienda del proveedor, una linea por conexion.
+ *
+ * Existe porque el resumen del proveedor es el de su peor tienda: sin esta
+ * lista, "Shopify · Reautorizar" no dice CUAL de las dos hay que reautorizar, y
+ * antes ni siquiera eso -- ganaba la mas sana y la rota no se veia. */
+export function ConnectionHealthList({
+  connections,
+  activeConnectionId,
+}: {
+  connections: IntegrationConnection[];
+  activeConnectionId?: string | null;
+}) {
+  // Con una sola no hay nada que desambiguar: el resumen de arriba ya es esa.
+  if (connections.length < 2) return null;
+
+  return (
+    <ul className="mt-3 space-y-2 border-t border-separator pt-3">
+      {connections.map((connection) => (
+        <li
+          key={connection.id}
+          className="flex flex-wrap items-center gap-2 text-xs"
+        >
+          <Badge tone={healthTone(connection.health.status)}>
+            {healthLabel(connection.health.status)}
+          </Badge>
+          <span className="min-w-0 break-all font-mono">
+            {connection.provider_account_id ??
+              connection.provider_account_name ??
+              connection.id}
+          </span>
+          {connection.id === activeConnectionId ? (
+            <Badge tone="brand">Tienda activa</Badge>
+          ) : null}
+          {connection.last_error_message ? (
+            <span className="w-full break-words text-danger">
+              {connection.last_error_message}
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function ConnectionFacts({ provider }: { provider: IntegrationProvider }) {
   return (
-    <dl className="mt-4 grid gap-2 border-t border-separator pt-4 text-sm sm:grid-cols-3">
+    <dl className="mt-4 grid gap-3 border-t border-separator pt-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
       <div>
         <dt className="text-xs text-muted">Cuenta</dt>
         <dd>{provider.connection?.provider_account_name ?? "Pendiente"}</dd>
+      </div>
+      <div>
+        <dt className="text-xs text-muted">Tienda Shopify</dt>
+        <dd className="break-all font-mono">
+          {provider.connection?.provider_account_id ?? "Pendiente"}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs text-muted">Tipo de app</dt>
+        <dd>
+          {provider.connection?.app_mode === "custom"
+            ? "Personalizada"
+            : provider.connection?.app_mode === "public"
+              ? "Pública"
+              : "No informado"}
+        </dd>
       </div>
       <div>
         <dt className="text-xs text-muted">Último sync</dt>
@@ -524,6 +761,11 @@ export function LastErrorBanner({
           </Button>
         ) : null}
       </div>
+      {provider.connection?.provider_account_id ? (
+        <p className="mt-2 text-xs text-muted">
+          Tienda afectada: <span className="font-mono">{provider.connection.provider_account_id}</span>
+        </p>
+      ) : null}
     </Banner>
   );
 }

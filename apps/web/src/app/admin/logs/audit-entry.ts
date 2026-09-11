@@ -23,6 +23,9 @@ export const AUDIT_AREAS = [
   { value: "calls", label: "Llamadas" },
   { value: "marketing_draft", label: "Marketing" },
   { value: "ai", label: "IA" },
+  // Lecturas de datos de cliente, no cambios. Es el filtro con el que se
+  // demuestra ante Shopify quien ha accedido a datos protegidos.
+  { value: "protected_data", label: "Accesos a datos de cliente" },
 ];
 
 const AREA_LABEL: Record<string, string> = {
@@ -39,6 +42,7 @@ const AREA_LABEL: Record<string, string> = {
   marketing_draft_note: "Marketing",
   meta: "Meta",
   operations: "Operativa",
+  protected_data: "Datos de cliente",
   shopify: "Shopify",
   shopify_product_costs: "Costes",
 };
@@ -76,6 +80,10 @@ const VERB_LABEL: Record<string, string> = {
   "klaviyo.api_key_connected": "conectó Klaviyo con clave privada",
   "meta.oauth_connected": "conectó Meta",
   "shopify.oauth_connected": "conectó Shopify",
+  "protected_data.shopify_insights": "consultó recurrencia, valor y cohortes",
+  "protected_data.ai_agent_context": "un agente IA leyó datos de cliente",
+  "protected_data.ai_sql_gateway": "un agente IA consultó la tabla de clientes",
+  "protected_data.organization_export": "exportó los datos del cliente",
 };
 
 export type AuditSummary = { area: string; verb: string };

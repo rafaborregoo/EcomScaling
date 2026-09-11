@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import {
   chunkText,
-  VoyageEmbeddingProvider,
+  createRagEmbeddingProvider,
 } from "@ecomscaling/ai";
 import { createLogger } from "@ecomscaling/observability";
 import { embedChunksInOrder, EMBEDDING_BATCH_CONCURRENCY, EMBEDDING_BATCH_SIZE } from "./embedding-batching.js";
@@ -181,7 +181,7 @@ export async function processMemoryIngestionQueue(env: ProcessEnv) {
     return result;
   }
 
-  const embeddings = new VoyageEmbeddingProvider(env.VOYAGE_API_KEY);
+  const embeddings = createRagEmbeddingProvider(env.VOYAGE_API_KEY);
 
   const { data: rows, error } = await supabase
     .from("memory_ingestion_queue")

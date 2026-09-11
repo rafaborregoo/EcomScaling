@@ -43,7 +43,7 @@ import {
   type OmittableOutputField,
   runAgentTurn,
   runAgentTurnOpenAI,
-  VoyageEmbeddingProvider,
+  createRagEmbeddingProvider,
   createToolReplayFixture,
   createOptionalLangSmithTraceable,
   resolveLangSmithRuntimeConfig,
@@ -87,9 +87,10 @@ import {
 } from "./auth-context.js";
 import { executeGatewayQuery, SQL_GATEWAY_SCHEMA_DOC } from "./sql-gateway.js";
 import { recordAuditLog } from "./audit-log.js";
+import { recordProtectedDataAccess } from "./protected-data-access.js";
 import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
-import { executeKnowledgeSearch } from "./knowledge.js";
+import { createReranker, executeKnowledgeSearch } from "./knowledge.js";
 import { createSingleFlight } from "./single-flight.js";
 import { getOrgMetaBackfillStatus } from "./meta-sync.js";
 import { isErr } from "./result-guard.js";
@@ -1774,6 +1775,22 @@ function buildAgentTools(
     "Recurrencia, valor por cliente y cohortes de la tienda: responde si los clientes vuelven y cuanto vale cada uno. Los pedidos contados en unknown_orders NO son clientes nuevos, son pedidos sin el dato de Shopify.",
     async (client) => {
       const window = insightsWindow();
+      // Estas tres RPC no pasan por el SQL Gateway, asi que no dejan fila en
+      // `agent_query_runs`: sin esto, un agente podia leer cohortes de clientes
+      // sin rastro en ninguna parte.
+      void recordProtectedDataAccess(client, {
+        organizationId,
+        actorUserId: null,
+        surface: "ai_agent_context",
+        resources: [
+          "shopify_customer_recurrence",
+          "shopify_customer_value",
+          "shopify_cohorts",
+        ],
+        purpose: "Herramienta shopify_customer_health de un agente IA",
+        storeId,
+      });
+
       return combineMetricRpcs({
         recurrencia: client.rpc("shopify_customer_recurrence", window),
         valor_por_cliente: client.rpc("shopify_customer_value", {
@@ -2229,7 +2246,11 @@ function buildAgentTools(
     getToolDefinition("search_knowledge")?.status === "implemented_partial" &&
     env.VOYAGE_API_KEY
   ) {
-    const embeddings = new VoyageEmbeddingProvider(env.VOYAGE_API_KEY);
+    const embeddings = createRagEmbeddingProvider(env.VOYAGE_API_KEY);
+    // El agente busca con el mismo retrieval de dos fases que la busqueda
+    // humana: si solo lo tuviera una de las dos, el consultor y su copiloto
+    // verian orden distinto para la misma pregunta.
+    const reranker = createReranker(env);
     // AI-07: la audiencia la fija SIEMPRE el llamador (default
     // client_visible), nunca el agente ni el modelo. Ningun agente automatico
     // la amplia; el chat del Consultor IA la amplia solo cuando quien
@@ -2268,14 +2289,18 @@ function buildAgentTools(
 
         try {
           const [embedding] = await embeddings.embed([query], "query");
-          const { data, error } = await executeKnowledgeSearch(supabase, {
-            targetOrganizationId: organizationId,
-            queryEmbedding: JSON.stringify(embedding),
-            queryText: query,
-            audienceAllowed: audienceAllowed,
-            targetStoreId: storeId,
-            matchCount: 8,
-          });
+          const { data, error } = await executeKnowledgeSearch(
+            supabase,
+            {
+              targetOrganizationId: organizationId,
+              queryEmbedding: JSON.stringify(embedding),
+              queryText: query,
+              audienceAllowed: audienceAllowed,
+              targetStoreId: storeId,
+              matchCount: 8,
+            },
+            reranker,
+          );
 
           if (error) {
             output = {
@@ -5394,6 +5419,18 @@ export async function runRetencionClientesAgent(
     null,
     SHOPIFY_SPECIALIST_LOOKBACK_DAYS,
     async (supabase) => {
+      void recordProtectedDataAccess(supabase, {
+        organizationId,
+        actorUserId: null,
+        surface: "ai_agent_context",
+        resources: [
+          "shopify_customer_recurrence",
+          "shopify_customer_value",
+          "shopify_cohorts",
+        ],
+        purpose: "Agente a20_retencion_clientes",
+      });
+
       const [recurrence, value, cohorts] = await Promise.all([
         supabase.rpc("shopify_customer_recurrence", {
           target_organization_id: organizationId,
@@ -8248,6 +8285,38 @@ export async function saveManualMarketingDraft(
       : "";
   const plainText =
     typeof payload.plain_text === "string" ? payload.plain_text.trim() : "";
+  // La cabecera del email la escribe el compositor y forma parte de la
+  // plantilla: si no se guardara, al reabrirla el remitente y el preheader
+  // volverían vacíos sin que nadie los haya borrado.
+  const preheader =
+    typeof payload.preheader === "string" ? payload.preheader.trim() : "";
+  const fromName =
+    typeof payload.from_name === "string" ? payload.from_name.trim() : "";
+  const replyToRaw =
+    typeof payload.reply_to === "string" ? payload.reply_to.trim() : "";
+  // Un reply-to que no es una dirección es peor que ninguno: rebota callando
+  // en el envío real, no aquí.
+  const replyTo = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(replyToRaw)
+    ? replyToRaw.slice(0, 255)
+    : null;
+  if (replyToRaw && !replyTo) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "reply_to_invalido",
+      message: "La dirección de respuesta no es un email válido.",
+    };
+  }
+  const personalizationTokens = Array.isArray(payload.personalization_tokens)
+    ? [
+        ...new Set(
+          payload.personalization_tokens
+            .filter((token): token is string => typeof token === "string")
+            .map((token) => token.trim().slice(0, 120))
+            .filter(Boolean),
+        ),
+      ].slice(0, 100)
+    : [];
   const design =
     payload.design && typeof payload.design === "object" ? payload.design : {};
   const blocks =
@@ -8286,9 +8355,9 @@ export async function saveManualMarketingDraft(
       summary: "Plantilla diseñada en el editor visual.",
       template_name: name.slice(0, 160),
       subject: subject.slice(0, 255),
-      preheader: "",
-      from_name: "",
-      reply_to: null,
+      preheader: preheader.slice(0, 255),
+      from_name: fromName.slice(0, 120),
+      reply_to: replyTo,
       purpose: "Plantilla creada manualmente en el editor.",
       audience: "",
       locale: "es",
@@ -8296,7 +8365,7 @@ export async function saveManualMarketingDraft(
       plain_text: plainText || name,
       html,
       blocks,
-      personalization_tokens: [],
+      personalization_tokens: personalizationTokens,
       compliance_notes: [],
       sources: [],
       confidence: "high",
@@ -8828,6 +8897,57 @@ export async function draftInstagramOverlay(
   }
 }
 
+/**
+ * Resumen del hilo de cada pieza: cuantos mensajes tiene y quien hablo el
+ * ultimo. Es lo que enciende el icono de mensaje en la rejilla, y por eso vive
+ * aqui y no en cada vista: la lista del cliente y el espejo del consultor
+ * tienen que encender el mismo icono con el mismo criterio, o un lado cree que
+ * no hay conversacion cuando si la hay.
+ *
+ * Las lineas de sistema (cambios de fecha, que empiezan por el emoji de
+ * calendario) no cuentan como mensaje: nadie las escribio y no esperan
+ * respuesta.
+ */
+export type DraftThreadSummary = {
+  count: number;
+  last_at: string | null;
+  last_author_kind: string | null;
+};
+
+export async function loadDraftThreadSummaries(
+  supabase: SupabaseClient,
+  organizationIds: string[],
+  /** Piezas que se estan listando. Sin esto se traeria el historial entero de
+   *  la organizacion para pintar el contador de 50 tarjetas. */
+  draftIds?: string[],
+): Promise<Map<string, DraftThreadSummary>> {
+  const summaries = new Map<string, DraftThreadSummary>();
+  if (organizationIds.length === 0) return summaries;
+  if (draftIds && draftIds.length === 0) return summaries;
+
+  // Si la consulta falla, la pieza se sigue viendo sin icono: es informacion
+  // añadida, no puede tumbar la lista del modulo.
+  let query = supabase
+    .from("marketing_content_draft_notes")
+    .select("draft_id, author_kind, created_at, body")
+    .in("organization_id", organizationIds);
+  if (draftIds) query = query.in("draft_id", draftIds);
+  const { data } = await query.order("created_at", { ascending: true });
+
+  for (const note of (data ?? []) as Array<Record<string, unknown>>) {
+    if (String(note.body ?? "").startsWith("📅")) continue;
+    const draftId = note.draft_id as string;
+    const current = summaries.get(draftId);
+    summaries.set(draftId, {
+      count: (current?.count ?? 0) + 1,
+      last_at: note.created_at as string,
+      last_author_kind: (note.author_kind as string | null) ?? "consultant",
+    });
+  }
+
+  return summaries;
+}
+
 export async function listMarketingContentDrafts(
   env: ApiEnv,
   authorization: string,
@@ -8889,6 +9009,14 @@ export async function listMarketingContentDrafts(
     ]),
   );
 
+  // El hilo de cada pieza, para que la rejilla pueda encender el icono de
+  // mensaje sin abrir la pieza una por una.
+  const threadByDraft = await loadDraftThreadSummaries(
+    supabase,
+    [organizationId],
+    draftIds,
+  );
+
   return {
     ok: true as const,
     data: {
@@ -8896,6 +9024,11 @@ export async function listMarketingContentDrafts(
       drafts: drafts.map((draft) => ({
         ...draft,
         campaign_item: itemByDraft.get(draft.id as string) ?? null,
+        thread: threadByDraft.get(draft.id as string) ?? {
+          count: 0,
+          last_at: null,
+          last_author_kind: null,
+        },
       })),
     },
   };

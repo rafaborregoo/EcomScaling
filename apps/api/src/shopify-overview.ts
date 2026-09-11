@@ -100,13 +100,6 @@ const shopifyScopeCatalog: ShopifyScopeCatalogItem[] = [
     enables: ["ShopifyQL", "reporting agregado", "comparativas por periodo"],
   },
   {
-    scope: "read_analytics",
-    area: "Analytics",
-    status: "metric_source",
-    fields: ["analytics reports", "session/sales aggregates"],
-    enables: ["Evolucion diaria/semanal/mensual", "comparativas de rendimiento"],
-  },
-  {
     scope: "read_channels",
     area: "Canales",
     status: "authorized_pending_ingestion",
@@ -421,7 +414,7 @@ const datasets: DatasetDefinition[] = [
     table: null,
     description: "Reportes, ShopifyQL, agregados diarios/semanales/mensuales y comparativas.",
     status: "planned",
-    scopes: ["read_analytics", "read_reports"],
+    scopes: ["read_reports"],
     syncScope: null,
   },
 ];

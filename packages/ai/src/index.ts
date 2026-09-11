@@ -2904,13 +2904,324 @@ export class VoyageEmbeddingProvider implements EmbeddingProvider {
  * una reingesta versionada; nunca se deben mezclar embeddings de perfiles.
  */
 export const RAG_EMBEDDING_PROFILE = Object.freeze({
-  version: "structural-v1",
-  model: "voyage-3.5" as string,
+  // Historial del perfil, porque cada cambio aqui obliga a reingestar:
+  //
+  // - v1: voyage-3.5. Se quedo sin cuota gratuita en la cuenta (la bolsa va
+  //   atada a la generacion del modelo y se pone a cero cuando envejece, no
+  //   cuando la gastas).
+  // - v2: voyage-4. Misma familia, 1024 dimensiones nativas.
+  // - v3: voyage-context-4 (2026-09-10). Embeddings CONTEXTUALIZADOS: cada
+  //   fragmento se embebe sabiendo los de su misma llamada, en vez de como un
+  //   texto suelto. Es el fallo que este mismo fichero parchea a mano en
+  //   chunkText repitiendo el encabezado de seccion: un fragmento que dice
+  //   "esto se revisa cada semana" sin decir que es "esto".
+  //
+  // Los tres cambios salieron gratis porque el indice estaba vacio (0 chunks).
+  // Con el corpus dentro, cambiar de modelo cuesta una reingesta completa: no
+  // se pueden mezclar embeddings de dos modelos en la misma columna.
+  version: "structural-v3",
+  model: "voyage-context-4" as string,
   dimensions: 1024,
   maxChars: 1500,
   overlapChars: 200,
 });
 
+/**
+ * Embeddings contextualizados: los fragmentos de una misma llamada se embeben
+ * sabiendo unos de otros.
+ *
+ * Implementa la MISMA interfaz que el proveedor clasico a proposito, para que
+ * ningun llamador tenga que saber cual de los dos esta usando. La diferencia
+ * esta en que `texts` deja de ser "una lista de textos independientes" y pasa
+ * a ser "los fragmentos de UN documento, en orden": van en un solo `inputs`
+ * para que el modelo los lea como lo que son.
+ *
+ * Endpoint distinto del clasico, y no se pueden intercambiar: /v1/embeddings
+ * rechaza los modelos voyage-context-* con un 400.
+ */
+export class VoyageContextualEmbeddingProvider implements EmbeddingProvider {
+  readonly model: string;
+  readonly dimensions = RAG_EMBEDDING_PROFILE.dimensions;
+
+  constructor(
+    private readonly apiKey: string,
+    model = RAG_EMBEDDING_PROFILE.model,
+    private readonly resiliencePolicy: AgentResiliencePolicy = DEFAULT_AGENT_RESILIENCE_POLICY,
+  ) {
+    this.model = model;
+  }
+
+  async embed(
+    texts: string[],
+    inputType: "document" | "query",
+  ): Promise<number[][]> {
+    if (texts.length === 0) {
+      return [];
+    }
+
+    const response = await withAgentResilience(
+      (signal) =>
+        fetch("https://api.voyageai.com/v1/contextualizedembeddings", {
+          method: "POST",
+          signal,
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${this.apiKey}`,
+          },
+          // Una sola lista = un documento. El modelo devuelve 1024
+          // dimensiones de forma nativa, asi que no se pide
+          // `output_dimension`: este endpoint no lo acepta igual que el
+          // clasico y el ancho nativo ya calza con la columna vector(1024).
+          body: JSON.stringify({
+            model: this.model,
+            inputs: [texts],
+            input_type: inputType,
+          }),
+        }).then(async (result) => {
+          if (result.ok) return result;
+          const detail = await result.text().catch(() => "");
+          throw Object.assign(
+            new Error(
+              `voyage_contextual_embeddings_failed: ${result.status} ${detail.slice(0, 300)}`,
+            ),
+            { status: result.status },
+          );
+        }),
+      this.resiliencePolicy,
+    );
+
+    const payload = (await response.json()) as {
+      data?: Array<{
+        index?: number;
+        data?: Array<{ index?: number; embedding?: number[] }>;
+      }>;
+    };
+
+    return flattenContextualEmbeddings(payload.data, texts.length, this.dimensions);
+  }
+}
+
+/**
+ * Aplana la respuesta anidada (lista de documentos -> lista de fragmentos) al
+ * mismo `number[][]` que devuelve el proveedor clasico, en el orden en que se
+ * mandaron los fragmentos.
+ *
+ * Comprueba el numero de vectores y su ancho porque los dos fallan callando:
+ * un vector de menos desalinea los embeddings de todos los fragmentos
+ * siguientes (el chunk 5 se guarda con el vector del 6) y ni Postgres ni la
+ * busqueda darian error, solo resultados sutilmente equivocados para siempre.
+ */
+export function flattenContextualEmbeddings(
+  data:
+    | Array<{
+        index?: number;
+        data?: Array<{ index?: number; embedding?: number[] }>;
+      }>
+    | undefined,
+  expectedCount: number,
+  expectedDimensions: number,
+): number[][] {
+  const documents = [...(data ?? [])].sort(
+    (a, b) => (a.index ?? 0) - (b.index ?? 0),
+  );
+  const vectors = documents.flatMap((document) =>
+    [...(document.data ?? [])]
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+      .map((entry) => entry.embedding),
+  );
+
+  if (vectors.length !== expectedCount) {
+    throw new Error(
+      `voyage_contextual_embeddings_count_mismatch: pedidos ${expectedCount}, devueltos ${vectors.length}`,
+    );
+  }
+
+  return vectors.map((vector, position) => {
+    if (!Array.isArray(vector) || vector.length !== expectedDimensions) {
+      throw new Error(
+        `voyage_contextual_embeddings_dimension_mismatch: fragmento ${position} con ${
+          Array.isArray(vector) ? vector.length : "ninguna"
+        } dimensiones, se esperaban ${expectedDimensions}`,
+      );
+    }
+    return vector;
+  });
+}
+
+/**
+ * El unico sitio donde se decide con que se embebe.
+ *
+ * Existe porque la pregunta y los documentos tienen que vivir en el MISMO
+ * espacio vectorial: si un sitio del codigo embebe documentos con un modelo y
+ * otro embebe las consultas con otro, el coseno entre ellos deja de significar
+ * nada y el retrieval se degrada a ruido sin un solo error en los logs. Habia
+ * cuatro sitios construyendo el proveedor a mano; ahora los cuatro pasan por
+ * aqui.
+ */
+export function createRagEmbeddingProvider(
+  apiKey: string,
+  model: string = RAG_EMBEDDING_PROFILE.model,
+  resiliencePolicy?: AgentResiliencePolicy,
+): EmbeddingProvider {
+  return model.startsWith("voyage-context-")
+    ? new VoyageContextualEmbeddingProvider(apiKey, model, resiliencePolicy)
+    : new VoyageEmbeddingProvider(apiKey, model, resiliencePolicy);
+}
+
+/**
+ * Reordenado de resultados del RAG.
+ *
+ * El retrieval decide QUÉ es candidato; el reranker decide QUÉ VA PRIMERO.
+ * Son dos preguntas distintas: la similitud de embeddings compara dos vectores
+ * calculados por separado y mide parecido temático, mientras que un reranker
+ * cruzado lee la pregunta y el fragmento juntos. Por eso distingue "este texto
+ * habla de ROAS" de "este texto responde a lo que se ha preguntado".
+ *
+ * Cambiar de reranker NO invalida el índice: no toca ni un vector guardado,
+ * solo el orden de lo ya recuperado. De ahí que viva fuera de
+ * RAG_EMBEDDING_PROFILE, cuyo cambio sí obliga a reingesta.
+ */
+export const RAG_RERANK_PROFILE = Object.freeze({
+  // rerank-3 y rerank-2.5 tienen bolsa gratuita propia y los dos aciertan el
+  // orden en las pruebas manuales; se elige el 3 por generacion. Cambiarlo NO
+  // invalida el indice, asi que no arrastra reingesta (ver abajo).
+  model: "rerank-3" as string,
+  /** Candidatos que se piden al retrieval por cada resultado final. */
+  candidateFactor: 4,
+  /** Tope del propio knowledge_search_hybrid: pedir más no trae más. */
+  maxCandidates: 50,
+});
+
+/**
+ * El reranker está en la latencia de CADA búsqueda y es una mejora opcional:
+ * si falla, la respuesta se sirve igual con el orden del retrieval. De ahí un
+ * timeout corto y un solo reintento, y no los 45s x3 de un turno de agente —
+ * una búsqueda que tarda medio minuto en ordenar mejor es una búsqueda peor.
+ */
+export const RERANK_RESILIENCE_POLICY: AgentResiliencePolicy = {
+  timeoutMs: 8_000,
+  maxRetries: 1,
+  baseBackoffMs: 400,
+  maxBackoffMs: 2_000,
+  jitterRatio: 0.2,
+};
+
+export type RerankResult = { index: number; score: number };
+
+export interface RerankProvider {
+  readonly model: string;
+  /** Devuelve los `topK` mejores como índices sobre `documents`, de más a menos. */
+  rerank(
+    query: string,
+    documents: string[],
+    topK: number,
+  ): Promise<RerankResult[]>;
+}
+
+export class VoyageRerankProvider implements RerankProvider {
+  readonly model: string;
+
+  constructor(
+    private readonly apiKey: string,
+    model = RAG_RERANK_PROFILE.model,
+    private readonly resiliencePolicy: AgentResiliencePolicy = RERANK_RESILIENCE_POLICY,
+  ) {
+    this.model = model;
+  }
+
+  async rerank(
+    query: string,
+    documents: string[],
+    topK: number,
+  ): Promise<RerankResult[]> {
+    if (documents.length === 0 || topK <= 0) {
+      return [];
+    }
+
+    const response = await withAgentResilience(
+      (signal) =>
+        fetch("https://api.voyageai.com/v1/rerank", {
+          method: "POST",
+          signal,
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.model,
+            query,
+            documents,
+            top_k: Math.min(topK, documents.length),
+          }),
+        }).then(async (result) => {
+          if (result.ok) return result;
+          const detail = await result.text().catch(() => "");
+          throw Object.assign(
+            new Error(
+              `voyage_rerank_failed: ${result.status} ${detail.slice(0, 300)}`,
+            ),
+            { status: result.status },
+          );
+        }),
+      this.resiliencePolicy,
+    );
+
+    const payload = (await response.json()) as {
+      data?: Array<{ index?: unknown; relevance_score?: unknown }>;
+    };
+
+    return normalizeRerankResults(payload.data, documents.length, topK);
+  }
+}
+
+/**
+ * Índices que apuntan de verdad a un candidato, ordenados de más a menos
+ * relevante.
+ *
+ * Un índice fuera de rango reordenaría la lista con un `undefined` dentro y el
+ * fragmento saldría vacío en una cita, sin error en ningún sitio. El orden se
+ * reimpone aquí en vez de confiarlo a la respuesta: el contrato de la API es
+ * que devuelve los mejores, no en qué orden los serializa.
+ */
+export function normalizeRerankResults(
+  data: Array<{ index?: unknown; relevance_score?: unknown }> | undefined,
+  candidateCount: number,
+  topK: number,
+): RerankResult[] {
+  return (data ?? [])
+    .map((entry) => ({
+      index: Number(entry?.index),
+      score: Number(entry?.relevance_score),
+    }))
+    .filter(
+      (entry) =>
+        Number.isInteger(entry.index) &&
+        entry.index >= 0 &&
+        entry.index < candidateCount &&
+        Number.isFinite(entry.score),
+    )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
+}
+
+/**
+ * Aplica el orden del reranker a las filas del retrieval.
+ *
+ * Si el reranker no devolvió nada utilizable se conserva el orden original
+ * recortado: una búsqueda peor ordenada sigue sirviendo, una búsqueda vacía
+ * no. Es la diferencia entre una mejora opcional y una dependencia.
+ */
+export function applyRerank<T>(
+  rows: readonly T[],
+  ranked: readonly RerankResult[],
+  topK: number,
+): T[] {
+  if (ranked.length === 0) return rows.slice(0, topK);
+  return ranked
+    .map((entry) => rows[entry.index])
+    .filter((row): row is T => row !== undefined)
+    .slice(0, topK);
+}
 /**
  * Chunking estructural ligero con solape.
  *

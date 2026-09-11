@@ -89,6 +89,39 @@ function createServiceClient(env: ApiEnv) {
 
 type SyncBlockResult = { read: number; written: number };
 
+/**
+ * El token guardado ya no casa con `META_APP_SECRET`.
+ *
+ * `appsecret_proof` es un HMAC del token con el secreto de la app, asi que
+ * Meta solo lo rechaza cuando el token lo emitio OTRA app (o el secreto se
+ * rotó). No hay reintento que lo arregle: hay que reautorizar. Paso el
+ * 2026-09-10 y el modulo entero se quedo sin datos bajo el mensaje generico
+ * `meta_sync_partial_failure`, que no dice nada de reautorizar.
+ */
+export function isMetaAppSecretProofError(message: string): boolean {
+  return message.includes("Invalid appsecret_proof");
+}
+
+/** El token caduco. Mismo final que el anterior: reautorizar, no reintentar. */
+export function isMetaTokenExpiredError(message: string): boolean {
+  return (
+    message.includes("Session has expired") ||
+    message.includes("Error validating access token")
+  );
+}
+
+export function metaConnectionErrorMessage(
+  blockErrors: readonly string[],
+): string {
+  if (blockErrors.some(isMetaAppSecretProofError)) {
+    return "meta_reauth_required: el token guardado no pertenece a la app configurada (appsecret_proof invalido). Reconecta Meta Ads en Integraciones.";
+  }
+  if (blockErrors.some(isMetaTokenExpiredError)) {
+    return "meta_reauth_required: el token de Meta ha caducado. Reconecta Meta Ads en Integraciones.";
+  }
+  return "meta_sync_partial_failure";
+}
+
 async function recordSyncRun(
   supabase: SupabaseClient,
   connectionId: string,
@@ -99,6 +132,10 @@ async function recordSyncRun(
   // El backfill pasa una clave estable por mes (sin la fecha de hoy) para que
   // reintentar el mismo mes sea idempotente y no cree una fila nueva por dia.
   idempotencyKeyOverride?: string,
+  // Los mensajes de los bloques que fallan se acumulan aqui para que, al
+  // cerrar el sync, la conexion pueda decir QUE hay que hacer y no solo que
+  // algo fallo. Va el ultimo para no mover los parametros existentes.
+  blockErrors?: string[],
 ) {
   const startedAt = new Date().toISOString();
   const idempotencyKey =
@@ -152,6 +189,7 @@ async function recordSyncRun(
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    blockErrors?.push(message);
     logger.error("meta_sync_block_failed", {
       scope,
       connection_id: connectionId,
@@ -2045,6 +2083,8 @@ export async function runMetaSync(
     .eq("id", connectionId);
 
   let anyFailed = false;
+  // Se acumulan para que el mensaje final de la conexion diga que hacer.
+  const blockErrors: string[] = [];
 
   // Bloques independientes por ADR-0006: cada uno falla o triunfa por su
   // cuenta, con su fila en integration_sync_runs. Que Meta no de acceso al
@@ -2078,6 +2118,8 @@ export async function runMetaSync(
           external,
           accessToken,
         ),
+      undefined,
+      blockErrors,
     );
 
     const blocks: Array<[string, () => Promise<SyncBlockResult>]> = [
@@ -2188,6 +2230,8 @@ export async function runMetaSync(
         scope,
         mode,
         runner,
+        undefined,
+        blockErrors,
       );
       accountFailed = accountFailed || !ok;
     }
@@ -2204,7 +2248,7 @@ export async function runMetaSync(
       ...(anyFailed
         ? {
             last_error_at: now,
-            last_error_message: "meta_sync_partial_failure",
+            last_error_message: metaConnectionErrorMessage(blockErrors),
           }
         : { last_error_message: null }),
     })

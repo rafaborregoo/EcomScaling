@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { AuthContext } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { recordProtectedDataAccess } from "./protected-data-access.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -46,6 +47,20 @@ export async function exportOrganizationData(
     entityType: "organization",
     entityId: organizationId,
     newData: { schema_version: "v1", credential_data_excluded: true },
+  });
+
+  // Dos filas a proposito para la misma operacion: la de arriba es la accion
+  // (alguien exporto una organizacion) y esta es el acceso a datos protegidos.
+  // El export incluye `shopify_customers`, y es el acceso mas amplio que existe
+  // en el producto: tiene que salir al filtrar por `protected_data.` sin que
+  // haya que acordarse de que un export tambien los lleva dentro.
+  await recordProtectedDataAccess(client, {
+    organizationId,
+    actorUserId: context.user.id,
+    surface: "organization_export",
+    resources: ["shopify_customers"],
+    purpose: "Export completo de la organizacion (platform_admin)",
+    detail: { schema_version: "v1" },
   });
 
   return { ok: true as const, data };

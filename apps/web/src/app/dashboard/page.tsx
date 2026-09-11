@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ComponentType } from "react";
+import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import {
   getLocalTimeZone,
@@ -9,6 +10,7 @@ import {
 } from "@internationalized/date";
 import { PortalShell } from "@/components/portal-shell";
 import { ClientDashboard } from "./client-dashboard";
+import { insightAnchorId, insightSpotFor } from "@/lib/insights-registry";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -44,6 +46,7 @@ import {
   Link,
   LoadingBlock,
   Metric,
+  MetricInsights,
   Modal,
   RangeCalendar,
   MultiSparkline,
@@ -74,7 +77,8 @@ import {
   MessageThreadsCard,
 } from "@/components/consultant-messages";
 
-type DashboardTab = "todo" | "shopify" | "meta" | "klaviyo";
+const DASHBOARD_TABS = ["todo", "shopify", "meta", "klaviyo"] as const;
+type DashboardTab = (typeof DASHBOARD_TABS)[number];
 
 // Un recurso de marca ausente no debe dejar un icono roto ni eliminar la señal visual de la pestaña.
 function PlatformIcon({
@@ -2528,6 +2532,24 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isLoadingFinancialConfig, setIsLoadingFinancialConfig] =
     useState(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>("todo");
+  const searchParams = useSearchParams();
+
+  // Enlace desde la zona de IA del header: `?tab=meta#insight-roas`. La
+  // pestaña se resuelve al montar y no en el estado inicial -- el servidor no
+  // ve la URL del cliente y el HTML tiene que coincidir. El salto al ancla
+  // tampoco vale el nativo: cuando el navegador lo intenta, la pestaña de
+  // destino todavia no se ha renderizado y el elemento no existe.
+  useEffect(() => {
+    const requested = searchParams.get("tab");
+    if (!requested) return;
+    if (!DASHBOARD_TABS.includes(requested as DashboardTab)) return;
+    setActiveTab(requested as DashboardTab);
+    const anchor = window.location.hash.slice(1);
+    if (!anchor) return;
+    requestAnimationFrame(() => {
+      document.getElementById(anchor)?.scrollIntoView({ block: "center" });
+    });
+  }, [searchParams]);
 
   const organization =
     bootstrap.memberships.find(
@@ -3163,15 +3185,35 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               value={formatMoney(metaMetrics?.acquisition.spend ?? 0)}
               trend={metaMetrics?.daily?.map((day) => day.spend)}
             />
-            <Metric
-              card
-              label="ROAS"
-              value={
-                metaMetrics?.acquisition.roas != null
-                  ? `${Number(metaMetrics.acquisition.roas).toFixed(2)}x`
-                  : "0.00x"
-              }
-            />
+            {/* `data-insight-target` + el id del registro: al llegar desde la
+                zona de IA del header, esta card parpadea (globals.css). */}
+            <div id={insightAnchorId("roas")} data-insight-target>
+              <Metric
+                card
+                label="ROAS"
+                value={
+                  metaMetrics?.acquisition.roas != null
+                    ? `${Number(metaMetrics.acquisition.roas).toFixed(2)}x`
+                    : "0.00x"
+                }
+                insight={
+                  <MetricInsights
+                    metricLabel="ROAS"
+                    insights={
+                      insightSpotFor(
+                        {
+                          organizationId: organization.id,
+                          connectionId: activeConnectionId,
+                          isConsultant,
+                        },
+                        "roas",
+                      )?.insights ?? []
+                    }
+                    onCreateTask={() => {}}
+                  />
+                }
+              />
+            </div>
             <Metric
               card
               label="CAC"

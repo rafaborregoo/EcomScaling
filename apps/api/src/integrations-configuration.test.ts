@@ -98,6 +98,7 @@ test("Meta puede cerrar readiness cuando existe recuperación operacional", () =
       id: "connection-1",
       organization_id: "org-1",
       provider: "meta_ads",
+      provider_account_id: "meta-account-1",
       provider_account_name: "Cuenta principal",
       status: "connected",
       scopes: ["ads_read"],

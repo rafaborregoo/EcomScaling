@@ -54,9 +54,11 @@ export type SessionsSyncResult = {
 };
 
 export class ShopifyReportsScopeError extends Error {
-  constructor() {
+  constructor(hasReportsScope = false) {
     super(
-      "shopify_read_reports_scope_missing: la conexión no tiene el permiso de informes. Reautoriza la tienda en Integraciones para activar sesiones y conversión.",
+      hasReportsScope
+        ? "shopify_reports_access_denied: Shopify ha rechazado ShopifyQL aunque la conexión tiene read_reports. Revisa el permiso de informes y el acceso Nivel 2 a datos protegidos en Shopify; después reautoriza la tienda en Integraciones."
+        : "shopify_read_reports_scope_missing: la conexión no tiene el permiso de informes. Reautoriza la tienda en Integraciones para activar sesiones y conversión.",
     );
     this.name = "ShopifyReportsScopeError";
   }
@@ -181,6 +183,7 @@ export async function syncShopifySessions(
     storeId: string;
     connectionId: string;
     sinceIso: string | null;
+    hasReportsScope?: boolean;
   },
 ): Promise<SessionsSyncResult> {
   const { shopDomain, accessToken, organizationId, storeId, sinceIso } = options;
@@ -203,7 +206,7 @@ export async function syncShopifySessions(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isAccessDenied(message)) {
-      throw new ShopifyReportsScopeError();
+      throw new ShopifyReportsScopeError(options.hasReportsScope === true);
     }
     throw error;
   }

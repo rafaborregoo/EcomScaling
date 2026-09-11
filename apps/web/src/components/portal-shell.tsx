@@ -48,11 +48,13 @@ import {
   ActiveConnectionContext,
 } from "@/components/active-connection";
 import { CopilotPanel } from "@/components/copilot-panel";
+import { CopilotAskProvider, type CopilotAsk } from "@/components/copilot-ask";
 import {
   ModuleSummaryProvider,
   type ModuleSummaryData,
 } from "@/components/module-summary";
 import { NotificationsBell } from "@/components/notifications-bell";
+import { InsightsMenu } from "@/components/insights-menu";
 
 type PortalShellProps = {
   title: string;
@@ -78,9 +80,14 @@ const ORG_SCOPED_PREFIXES = ["/agentes", "/configuracion"];
 // a diario sobre el cliente activo. "Ejecuciones IA" (/agentes) sigue fuera del
 // nav. Configuración vive al fondo (settingsNavItem).
 //
-// Fuera del nav a proposito (las rutas siguen vivas, se llega desde
-// Configuración): /consultor y /tiendas son el inventario de tus clientes y tus
-// tiendas -- se consultan de vez en cuando, no se operan.
+// Fuera del nav a proposito (la ruta sigue viva, se llega desde
+// Configuración): /consultor es el inventario de tus clientes -- se consulta de
+// vez en cuando, no se opera.
+//
+// /tiendas SI entra desde 2026-09-10. Estaba fuera por el mismo motivo, y no es
+// el mismo caso: es el unico sitio donde el consultor da de alta y gestiona sus
+// tiendas propias, y sin entrada de nav no se llegaba salvo buscandolo en
+// Configuración > Cartera.
 //
 // /shopify SI entra desde 2026-09-07. Estaba fuera por ser "el detalle de una
 // integracion", y esa premisa ya no se sostiene: deja de contar el estado de
@@ -95,6 +102,8 @@ const consultantNavGroups: NavGroup[] = [
       // Lo unico del nav que NO es de un cliente: es la pantalla del consultor
       // sobre si mismo, asi que va la primera y no cambia al cambiar de tienda.
       { href: "/mi-trabajo", label: "Mi trabajo" },
+      // Tampoco es de un cliente: son las tiendas propias del consultor.
+      { href: "/tiendas", label: "Mis Tiendas" },
       { href: "/camino", label: "Mi Camino" },
       { href: "/tareas", label: "Tareas" },
       { href: "/agenda", label: "Agenda" },
@@ -173,6 +182,7 @@ const NAV_ICONS: Record<
 > = {
   "/dashboard": HomeIcon,
   "/consultor": UsersIcon,
+  "/tiendas": UsersIcon,
   "/camino": CompassIcon,
   "/tareas": TasksIcon,
   "/llamadas": PhoneIcon,
@@ -427,6 +437,9 @@ function PortalShellContent({
   const [adminViewMode, setAdminViewMode] = useState<AdminViewMode>("admin");
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  // Pregunta con la que un módulo abre el Consultor IA (ver copilot-ask.tsx).
+  // Vive aquí porque el panel vive aquí: el módulo solo dice qué preguntar.
+  const [copilotAsk, setCopilotAsk] = useState<CopilotAsk | null>(null);
   // Resumen que publica el modulo activo (ver module-summary.tsx). Viaja al
   // Consultor IA como "vista actual" para que responda sobre lo que el
   // consultor tiene delante, no sobre el cliente en abstracto.
@@ -811,6 +824,23 @@ function PortalShellContent({
   // dice lo que pasa.
   const chatsDisabled = !isConsultant && hasConsultantThread === false;
 
+  // Un consultor puede tener tiendas propias (membership real) ademas de las de
+  // su cartera (consultant_assignment).
+  const ownMemberships = bootstrap.memberships.filter(
+    (membership) => membership.accessSource === "membership",
+  );
+  // Las tiendas propias no son "un cliente mas": son suyas, y las visita a
+  // diario. Iban mezcladas con la cartera en el selector de cliente del header,
+  // asi que entrar en la tuya era buscarla entre los clientes. Aqui esta a un
+  // clic desde cualquier pagina.
+  //
+  // Elegir una hace exactamente lo mismo que elegir un cliente -- escribe el
+  // mismo activeOrganizationId -- asi que Shopify, Meta, Klaviyo, Tareas y el
+  // resto del programa pasan a operar sobre ella sin nada especifico.
+  const activeIsOwnStore = ownMemberships.some(
+    (membership) => membership.organization_id === activeOrganizationId,
+  );
+
   const navigation = (
     <nav className="grid gap-6" aria-label="Navegacion principal">
       {isPlatformAdmin ? (
@@ -953,12 +983,8 @@ function PortalShellContent({
   const showStoreSelect =
     Boolean(activeOrganizationId) && shopifyConnections.length >= 1;
 
-  // Un consultor puede tener tiendas propias (membership real) ademas de las de
-  // su cartera (consultant_assignment). Solo cuando tiene de las dos clases se
-  // agrupan bajo encabezados; si no, la lista va plana como siempre.
-  const ownMemberships = bootstrap.memberships.filter(
-    (membership) => membership.accessSource === "membership",
-  );
+  // Solo cuando tiene tiendas propias y clientes se agrupan bajo encabezados;
+  // si no, la lista va plana como siempre.
   const groupClientSelect =
     isConsultant &&
     ownMemberships.length > 0 &&
@@ -994,6 +1020,35 @@ function PortalShellContent({
       options={clientSelectOptions}
     />
   ) : null;
+  // Selector de tiendas propias. Va en la barra superior pero pegado a la
+  // derecha, separado del de cliente/tienda que vive a la izquierda: son dos
+  // preguntas distintas ("en que cliente estoy" contra "entrar en una tienda
+  // mia") y juntas se leian como una sola lista de sitios a los que ir.
+  const ownStoreSelectNode =
+    isConsultant && !inPlatformAdminView && ownMemberships.length > 0 ? (
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="whitespace-nowrap text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted">
+          Mis Tiendas
+        </span>
+        <Select
+          bare
+          className="max-w-[12rem]"
+          aria-label="Tienda propia activa"
+          placeholder="Elegir..."
+          // Vacio cuando el cliente activo es de la cartera: el selector dice
+          // "no estas en ninguna tuya", no miente señalando una.
+          value={activeIsOwnStore ? activeOrganizationId : ""}
+          onChange={selectOrganization}
+          options={ownMemberships.map((membership) => ({
+            value: membership.organization_id,
+            label:
+              membership.organization?.display_name ??
+              membership.organization_id,
+          }))}
+        />
+      </div>
+    ) : null;
+
   const storeSelectNode = showStoreSelect ? (
     <Select
       bare
@@ -1062,14 +1117,24 @@ function PortalShellContent({
                 {title}
               </p>
             </div>
-            <div className="flex size-9 shrink-0 items-center justify-center pointer-coarse:size-11">
+            <div className="flex shrink-0 items-center">
+              <InsightsMenu
+                scope={{
+                  organizationId: activeOrganizationId,
+                  connectionId: activeConnectionId,
+                  isConsultant,
+                }}
+              />
               <NotificationsBell token={token} />
             </div>
           </div>
-          {clientSelectNode || storeSelectNode ? (
+          {clientSelectNode || storeSelectNode || ownStoreSelectNode ? (
             <div className="flex items-center justify-center gap-2 overflow-x-auto px-4 pb-2">
               {clientSelectNode}
               {storeSelectNode}
+              {/* En movil no hay barra superior donde separarlo a la derecha,
+                  asi que va al final de la misma fila. */}
+              {ownStoreSelectNode}
             </div>
           ) : null}
         </div>
@@ -1132,7 +1197,15 @@ function PortalShellContent({
                   {storeSelectNode}
                 </>
               ) : null}
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center gap-3">
+                {ownStoreSelectNode}
+                <InsightsMenu
+                scope={{
+                  organizationId: activeOrganizationId,
+                  connectionId: activeConnectionId,
+                  isConsultant,
+                }}
+              />
                 <NotificationsBell token={token} />
               </div>
             </div>
@@ -1230,7 +1303,14 @@ function PortalShellContent({
                       />
                     ) : (
                       <ModuleSummaryProvider publish={setModuleSummary}>
-                        {children(bootstrap, token)}
+                        <CopilotAskProvider
+                          ask={(next) => {
+                            setCopilotAsk({ ...next, key: Date.now() });
+                            setIsCopilotOpen(true);
+                          }}
+                        >
+                          {children(bootstrap, token)}
+                        </CopilotAskProvider>
                       </ModuleSummaryProvider>
                     )}
                   </ActiveConnectionContext.Provider>
@@ -1294,7 +1374,12 @@ function PortalShellContent({
               className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 sm:right-6 lg:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]"
               aria-expanded={isCopilotOpen}
               aria-controls="copilot-panel"
-              onClick={() => setIsCopilotOpen((open) => !open)}
+              onClick={() => {
+                // Abrir el panel a mano lo devuelve a chat libre: si quedara la
+                // pregunta anterior colgada, se relanzaría al reabrirlo.
+                setCopilotAsk(null);
+                setIsCopilotOpen((open) => !open);
+              }}
             >
               {isCopilotOpen ? "Cerrar Consultor IA" : "Consultor IA"}
             </Button>
@@ -1317,7 +1402,11 @@ function PortalShellContent({
                     )?.provider_account_id ?? undefined,
                   summary: moduleSummary,
                 }}
-                onClose={() => setIsCopilotOpen(false)}
+                ask={copilotAsk}
+                onClose={() => {
+                  setIsCopilotOpen(false);
+                  setCopilotAsk(null);
+                }}
               />
             ) : null}
           </>

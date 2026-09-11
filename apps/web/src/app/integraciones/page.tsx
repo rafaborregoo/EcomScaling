@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
@@ -16,14 +17,13 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  Field,
   IconChevronRight,
   IntegrationStatusBadge,
   Link,
   LoadingBlock,
-  Select,
 } from "@/components/ui";
 import {
+  ConnectionHealthList,
   PROVIDER_SLUG,
   healthLabel,
   healthTone,
@@ -36,15 +36,11 @@ import { StoreScopeCard } from "./store-scope-card";
 // propia pagina. La configuracion detallada de cada uno vive en
 // /integraciones/<slug>.
 function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
-  const {
-    organization,
-    memberships,
-    setOrganizationId,
-    payload,
-    isLoading,
-    error,
-    reload,
-  } = useIntegrations(bootstrap);
+  const { organization, payload, isLoading, error, reload } =
+    useIntegrations(bootstrap);
+  // La tienda del selector del encabezado. /integraciones era el unico modulo
+  // que la ignoraba por completo.
+  const { connectionId: activeConnectionId } = useActiveConnection();
   const [oauthNotice, setOauthNotice] =
     useState<ReturnType<typeof readOAuthNotice>>(null);
   // Onboarding: se llega aquí justo después de crear una tienda propia en
@@ -82,6 +78,12 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
     );
   }
 
+  // Una conexion = una tienda del proveedor. El recuento del modulo se hace
+  // sobre estas y no sobre `providers`, que solo lleva el resumen de la peor.
+  const allConnections = payload.providers.flatMap(
+    (provider) => provider.connections,
+  );
+
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
       {welcomeStore ? (
@@ -100,24 +102,10 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </Banner>
       ) : null}
 
-      <Card
-        title="Integraciones"
-        description="Conecta las plataformas de la tienda. Abre cada una para ver los pasos, el estado y su configuración."
-      >
-        <Field label="Cliente activo">
-          <Select
-            aria-label="Cliente activo"
-            value={organization?.id ?? ""}
-            onChange={setOrganizationId}
-            options={memberships.map((membership) => ({
-              value: membership.organization_id,
-              label:
-                membership.organization?.display_name ??
-                membership.organization_id,
-            }))}
-          />
-        </Field>
-      </Card>
+      {/* El selector de cliente vive en el encabezado del portal, como en el
+          resto del programa. Aqui habia un segundo con el mismo nombre
+          accesible ("Cliente activo") que ademas no ofrecia volver a la vista
+          general: dos controles para lo mismo, uno de ellos sin salida. */}
 
       {organization?.id ? (
         <StoreScopeCard organizationId={organization.id} />
@@ -136,22 +124,28 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
               : "warn",
           },
           {
-            label: "Con incidencia",
-            value: payload.providers
-              .filter((provider) => provider.health.status !== "healthy")
+            // Cuenta conexiones, no proveedores: con dos tiendas y una rota,
+            // "1 proveedor con incidencia" no decia que faltaba media cartera
+            // de datos. Cada conexion es una tienda.
+            label: "Tiendas con incidencia",
+            value: allConnections
+              .filter((connection) => connection.health.status !== "healthy")
               .length.toLocaleString("es-ES"),
-            tone: payload.providers.some(
-              (provider) => provider.health.status !== "healthy",
+            tone: allConnections.some(
+              (connection) => connection.health.status !== "healthy",
             )
               ? "danger"
               : "success",
+            hint: `${allConnections.length} ${allConnections.length === 1 ? "conexión" : "conexiones"} en total`,
           },
           {
             label: "Sincronización más antigua",
             value: (() => {
               const days = daysSince(
                 oldest(
-                  payload.providers.map((provider) => provider.health.lastSyncAt),
+                  allConnections.map(
+                    (connection) => connection.health.lastSyncAt,
+                  ),
                 ),
               );
               if (days === null) return "Nunca";
@@ -193,14 +187,37 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 <Badge tone={healthTone(provider.health.status)}>
                   {healthLabel(provider.health.status)}
                 </Badge>
-                {provider.connection?.provider_account_name ? (
+                {provider.connections.length > 1 ? (
+                  // Con varias tiendas el badge es el de la peor: decirlo aqui
+                  // evita leerlo como "el proveedor entero esta asi".
+                  <span className="text-muted">
+                    {provider.connections.length} tiendas ·{" "}
+                    {
+                      provider.connections.filter(
+                        (connection) => connection.health.status !== "healthy",
+                      ).length
+                    }{" "}
+                    con incidencia
+                  </span>
+                ) : provider.connection?.provider_account_name ? (
                   <span className="text-muted">
                     {provider.connection.provider_account_name}
                   </span>
                 ) : (
                   <span className="text-muted">Sin conectar</span>
                 )}
+                {provider.connections.length <= 1 &&
+                provider.connection?.provider_account_id ? (
+                  <span className="font-mono text-muted">
+                    {provider.connection.provider_account_id}
+                  </span>
+                ) : null}
               </div>
+
+              <ConnectionHealthList
+                connections={provider.connections}
+                activeConnectionId={activeConnectionId}
+              />
 
               <div className="mt-4 pt-2">
                 {slug ? (

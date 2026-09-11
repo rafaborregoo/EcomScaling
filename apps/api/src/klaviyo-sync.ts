@@ -9,6 +9,11 @@ import {
 } from "./klaviyo-client.js";
 import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
 import {
+  isKlaviyoPermissionError,
+  klaviyoCapability,
+  type KlaviyoCapability,
+} from "./klaviyo-permissions.js";
+import {
   checkOperationalOrganization,
   isOperationalOrganizationError,
 } from "./operational-organization.js";
@@ -327,19 +332,26 @@ export async function runKlaviyoSync(
     // que se anota `succeeded` con `records_failed: 0` mientras tres recursos
     // fallan hace que A12 lea "0 flujos" como "esta tienda no tiene flujos".
     const skipped: string[] = [];
+    // Un recurso que no llega por falta de permiso no es "un recurso que no
+    // llego": es una casilla sin marcar en Klaviyo, y hay que decirlo con ese
+    // nombre o nadie sabe que tocar.
+    const deniedPermissions: KlaviyoCapability[] = [];
     const fetchResource = async (
       label: string,
       fetcher: () => Promise<KlaviyoResource[]>,
+      capabilityKey?: string,
     ): Promise<KlaviyoResource[]> => {
       try {
         return await fetcher();
       } catch (error) {
         skipped.push(label);
-        console.warn(
-          `klaviyo_resource_skipped:${label}:${
-            error instanceof Error ? error.message : "unknown_error"
-          }`,
-        );
+        const message =
+          error instanceof Error ? error.message : "unknown_error";
+        const capability = capabilityKey ? klaviyoCapability(capabilityKey) : null;
+        if (capability && isKlaviyoPermissionError(message)) {
+          deniedPermissions.push(capability);
+        }
+        console.warn(`klaviyo_resource_skipped:${label}:${message}`);
         return [];
       }
     };
@@ -351,15 +363,29 @@ export async function runKlaviyoSync(
     // están vacíos); cuando haga falta, se pide por lista con su propio
     // endpoint, vigilando la cuota.
     const resources = await Promise.all([
-      fetchResource("lists", () => api.listResources("lists")),
-      fetchResource("segments", () => api.listResources("segments")),
-      fetchResource("flows", () => api.listResources("flows")),
-      fetchResource("campaigns_email", () =>
-        api.listAll(campaignsPath("email")),
+      fetchResource("lists", () => api.listResources("lists"), "lists:read"),
+      fetchResource(
+        "segments",
+        () => api.listResources("segments"),
+        "segments:read",
       ),
-      fetchResource("campaigns_sms", () => api.listAll(campaignsPath("sms"))),
-      fetchResource("forms", () => api.listResources("forms")),
-      fetchResource("metrics", () => api.listResources("metrics")),
+      fetchResource("flows", () => api.listResources("flows"), "flows:read"),
+      fetchResource(
+        "campaigns_email",
+        () => api.listAll(campaignsPath("email")),
+        "campaigns:read",
+      ),
+      fetchResource(
+        "campaigns_sms",
+        () => api.listAll(campaignsPath("sms")),
+        "campaigns:read",
+      ),
+      fetchResource("forms", () => api.listResources("forms"), "forms:read"),
+      fetchResource(
+        "metrics",
+        () => api.listResources("metrics"),
+        "metrics:read",
+      ),
     ]);
     const [
       lists,
@@ -1062,7 +1088,7 @@ export async function runKlaviyoSync(
         // tiene que saberlo antes de concluir que algo no existe.
         records_failed: skipped.length,
         error_message: skipped.length
-          ? `klaviyo_recursos_no_traidos:${skipped.join(",")}`
+          ? permissionAwareSkipMessage(skipped, deniedPermissions)
           : null,
         finished_at: now,
       })
@@ -1107,6 +1133,38 @@ export async function runKlaviyoSync(
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+// Estadisticas que Klaviyo solo sabe calcular si la metrica de conversion
+// elegida lleva valor economico. Con una que no lo lleve, la API NO ignora
+// estas cuatro: rechaza el informe entero con 400.
+const VALUE_STATISTICS = new Set([
+  "conversion_rate",
+  "conversion_uniques",
+  "conversion_value",
+  "revenue_per_recipient",
+]);
+
+/**
+ * Comprobado contra la cuenta real el 2026-09-10: pidiendo las 19 estadisticas
+ * con `Placed Order` (WsWGgW) la API devuelve 400
+ * "Passed in conversion metric does not support querying for values data";
+ * quitando estas cuatro, la MISMA peticion devuelve 200.
+ *
+ * Es decir: cuatro estadisticas dejaban sin aperturas, clics ni entregas a todo
+ * el modulo de email -- `klaviyo_report_values` llevaba vacia desde el primer
+ * dia y A12 opinaba sin una sola cifra de envio. Se reintenta sin ellas y el
+ * run queda `partial`: hay rendimiento, no hay ingresos atribuidos. Que es la
+ * verdad, y ADR-0021 exige justamente no inventarse la parte de ingresos.
+ */
+export function isConversionMetricValueError(message: string): boolean {
+  return message.includes(
+    "conversion metric does not support querying for values data",
+  );
+}
+
+export function statisticsWithoutValues(statistics: string[]): string[] {
+  return statistics.filter((statistic) => !VALUE_STATISTICS.has(statistic));
 }
 
 export async function runKlaviyoReport(
@@ -1196,7 +1254,7 @@ export async function runKlaviyoReport(
   try {
     const token = await getValidKlaviyoAccessToken(env, connectionId);
     const api = createKlaviyoClient(token);
-    const response = await api.queryReport<{
+    type ReportResponse = {
       data?: {
         attributes?: {
           results?: Array<{
@@ -1205,18 +1263,34 @@ export async function runKlaviyoReport(
           }>;
         };
       };
-    }>({
-      type: input.type,
-      statistics: input.statistics,
-      conversion_metric_id: account.conversion_metric_id,
-      timeframe: {
-        start: `${input.periodStart}T00:00:00+00:00`,
-        end: `${input.periodEnd}T23:59:59+00:00`,
-      },
-      ...(input.filter ? { filter: input.filter } : {}),
-      ...(input.group_by ? { group_by: input.group_by } : {}),
-      ...(input.interval ? { interval: input.interval } : {}),
-    });
+    };
+    const ask = (statistics: string[]) =>
+      api.queryReport<ReportResponse>({
+        type: input.type,
+        statistics,
+        conversion_metric_id: account.conversion_metric_id,
+        timeframe: {
+          start: `${input.periodStart}T00:00:00+00:00`,
+          end: `${input.periodEnd}T23:59:59+00:00`,
+        },
+        ...(input.filter ? { filter: input.filter } : {}),
+        ...(input.group_by ? { group_by: input.group_by } : {}),
+        ...(input.interval ? { interval: input.interval } : {}),
+      });
+
+    let response: ReportResponse;
+    let sinIngresos = false;
+    try {
+      response = await ask(input.statistics);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const resto = statisticsWithoutValues(input.statistics);
+      // Sin estadisticas que pedir aparte de las de valor no hay reintento que
+      // valga: el fallo es el mismo y volver a llamar solo gasta cuota.
+      if (!isConversionMetricValueError(message) || resto.length === 0) throw error;
+      response = await ask(resto);
+      sinIngresos = true;
+    }
     const results = response.data?.attributes?.results ?? [];
     const entityType = input.type.split("-")[0] ?? "unknown";
     const entityKey = `${entityType}_id`;
@@ -1256,10 +1330,16 @@ export async function runKlaviyoReport(
     }
     await client
       .from("klaviyo_report_runs")
-      .update({ status: "succeeded", finished_at: new Date().toISOString() })
+      .update({
+        status: sinIngresos ? "partial" : "succeeded",
+        error_message: sinIngresos
+          ? `conversion_metric_sin_valor:${account.conversion_metric_id}: la metrica de conversion elegida no devuelve valor economico. Hay aperturas, clics y entregas; NO hay ingresos atribuidos ni tasa de conversion.`
+          : null,
+        finished_at: new Date().toISOString(),
+      })
       .eq("id", reportRun.id);
     return {
-      status: "succeeded" as const,
+      status: sinIngresos ? ("partial" as const) : ("succeeded" as const),
       reportRunId: reportRun.id,
       resultCount: rows.length,
     };
@@ -1560,4 +1640,18 @@ export async function reconcileAllKlaviyoConnections(env: LoadedApiEnv) {
     skipped: results.filter((item) => item.status === "skipped").length,
     results,
   };
+}
+
+/**
+ * Mensaje del run cuando falta algo: si la causa fue un permiso, nombra el
+ * permiso tal cual aparece en Klaviyo en vez del codigo interno.
+ */
+export function permissionAwareSkipMessage(
+  skipped: readonly string[],
+  denied: readonly KlaviyoCapability[],
+): string {
+  const codigo = `klaviyo_recursos_no_traidos:${skipped.join(",")}`;
+  if (denied.length === 0) return codigo;
+  const permisos = [...new Set(denied.map((item) => item.label))].join(", ");
+  return `Faltan permisos en Klaviyo: ${permisos}. Actualiza la API key (o vuelve a autorizar la cuenta) y sincroniza de nuevo. ${codigo}`;
 }

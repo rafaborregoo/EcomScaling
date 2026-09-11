@@ -5,6 +5,10 @@
 // validacion podria devolver datos de otro tenant.
 import { parse } from "pgsql-ast-parser";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  protectedTablesTouched,
+  recordProtectedDataAccess,
+} from "./protected-data-access.js";
 
 // Vistas expuestas en el esquema `ai` (deben coincidir con la migracion db_08b).
 export const GATEWAY_ALLOWED_TABLES = new Set([
@@ -365,6 +369,24 @@ export async function executeGatewayQuery(
     was_rejected: Boolean(executionError),
     rejection_reason: executionError ?? null,
   });
+
+  // `agent_query_runs` de arriba ya es el registro completo de esta superficie
+  // -- SQL, tablas y filas de cada consulta -- y no se duplica. Lo que se anota
+  // aparte es solo la consulta que TOCA datos de cliente, para que "quien ha
+  // leido datos protegidos" se responda en un unico sitio (audit_logs) sin
+  // tener que cruzar antes agent_query_runs con agent_runs.
+  const protectedTables = protectedTablesTouched(validation.tables);
+  if (protectedTables.length > 0 && !executionError) {
+    await recordProtectedDataAccess(supabase, {
+      organizationId,
+      // El actor es la ejecucion del agente; quien la lanzo cuelga de `run_id`.
+      actorUserId: null,
+      surface: "ai_sql_gateway",
+      resources: protectedTables,
+      purpose: "Consulta de un agente IA sobre las vistas de solo lectura",
+      detail: { run_id: runId, rows_returned: rows ? rows.length : null },
+    });
+  }
 
   if (executionError) {
     return {

@@ -1,5 +1,9 @@
 import { Queue, Worker } from "bullmq";
-import { loadWorkerEnv } from "@ecomscaling/config";
+import {
+  describeEnvironmentTargetRisk,
+  loadWorkerEnv,
+  shouldBlockOnEnvironmentRisk,
+} from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
 import {
   SHOPIFY_RECONCILE_CRON,
@@ -21,6 +25,15 @@ import { recordWorkerJobMetric, workerMetrics } from "./metrics.js";
 import { fetchWorkerWithResilience } from "./worker-http.js";
 
 const env = loadWorkerEnv(process.env);
+// Mismo guardarrail que la API: el worker escribe mas que nadie, asi que
+// apuntar sin querer a produccion desde local es peor aqui.
+const environmentRisk = describeEnvironmentTargetRisk(process.env);
+if (environmentRisk) {
+  if (shouldBlockOnEnvironmentRisk(process.env)) {
+    throw new Error(`entorno_cruzado: ${environmentRisk}`);
+  }
+  console.warn(`entorno_cruzado: ${environmentRisk}`);
+}
 const logger = createLogger("worker");
 
 const redisUrl = new URL(env.REDIS_URL);

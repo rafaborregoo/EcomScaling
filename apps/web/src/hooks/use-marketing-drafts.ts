@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import type { TemplateDesign } from "@/app/marketing/template-design";
+import type { PieceThread } from "@/app/marketing/piece-analysis";
 
 /**
  * Carga de borradores de marketing, fuera del componente de pagina.
@@ -64,6 +65,12 @@ export type MarketingDraft = {
     ends_at: string | null;
     status: string;
   } | null;
+  /**
+   * Resumen del hilo de la pieza (cuántos mensajes y quién habló el último).
+   * Lo resuelve el backend en la misma llamada para que la rejilla pueda
+   * encender el icono de mensaje sin abrir las piezas una por una.
+   */
+  thread: PieceThread | null;
 };
 
 export function useMarketingDrafts(organizationId: string, canView: boolean) {

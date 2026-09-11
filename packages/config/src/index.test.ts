@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadApiEnv, loadWorkerEnv } from "./index.js";
+import {
+  DEFAULT_KLAVIYO_SCOPES,
+  PRODUCTION_SUPABASE_PROJECT_REF,
+  describeEnvironmentTargetRisk,
+  loadApiEnv,
+  loadWorkerEnv,
+  shouldBlockOnEnvironmentRisk,
+} from "./index.js";
 
 const BASE_ENV = {
   SUPABASE_URL: "https://example.supabase.co",
@@ -173,10 +180,8 @@ test("loadApiEnv: aplica scopes de lectura de Klaviyo cuando OAuth está configu
     KLAVIYO_CLIENT_SECRET: "klaviyo-secret",
     KLAVIYO_REDIRECT_URI: "https://example.com/klaviyo-callback",
   });
-  assert.equal(
-    env.KLAVIYO_SCOPES,
-    "accounts:read flows:read campaigns:read forms:read lists:read segments:read metrics:read",
-  );
+  assert.equal(env.KLAVIYO_SCOPES, DEFAULT_KLAVIYO_SCOPES);
+  assert.match(env.KLAVIYO_SCOPES, /templates:write/);
 });
 
 test("loadApiEnv: conserva el allowlist de feature flags de integraciones", () => {
@@ -247,4 +252,44 @@ test("loadWorkerEnv: respeta REDIS_URL y API_URL explicitos", () => {
   });
   assert.equal(env.REDIS_URL, "redis://custom-host:6380");
   assert.equal(env.API_URL, "https://api.example.com");
+});
+
+test("avisa cuando un entorno de desarrollo apunta al Supabase de produccion", () => {
+  const riesgo = describeEnvironmentTargetRisk({
+    APP_ENV: "local",
+    SUPABASE_URL: `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`,
+  });
+  assert.match(riesgo ?? "", /PRODUCCION/);
+
+  // El propio entorno de produccion no es un riesgo.
+  assert.equal(
+    describeEnvironmentTargetRisk({
+      APP_ENV: "production",
+      SUPABASE_URL: `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`,
+    }),
+    null,
+  );
+
+  // Desarrollo contra el proyecto de desarrollo tampoco.
+  assert.equal(
+    describeEnvironmentTargetRisk({
+      APP_ENV: "local",
+      SUPABASE_URL: "https://proyecto-dev.supabase.co",
+    }),
+    null,
+  );
+
+  // Sin APP_ENV no se inventa nada: no rompe a quien todavia no lo ha puesto.
+  assert.equal(
+    describeEnvironmentTargetRisk({
+      SUPABASE_URL: `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`,
+    }),
+    null,
+  );
+});
+
+test("solo SUPABASE_ENV_GUARD=block mata el arranque", () => {
+  assert.equal(shouldBlockOnEnvironmentRisk({ SUPABASE_ENV_GUARD: "block" }), true);
+  assert.equal(shouldBlockOnEnvironmentRisk({ SUPABASE_ENV_GUARD: "warn" }), false);
+  assert.equal(shouldBlockOnEnvironmentRisk({}), false);
 });
