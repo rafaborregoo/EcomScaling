@@ -161,6 +161,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accessible_org_ids: { Args: never; Returns: string[] }
+      assigned_consultant_org_ids: { Args: never; Returns: string[] }
       can_access_org: {
         Args: { target_organization_id: string }
         Returns: boolean
@@ -196,9 +198,17 @@ export type Database = {
         Args: { p_before: string; p_limit?: number }
         Returns: Json
       }
+      purge_expired_ai_security_events: {
+        Args: { p_before: string; p_limit?: number }
+        Returns: Json
+      }
       purge_processed_webhook_events: {
         Args: { p_before: string; p_limit?: number }
         Returns: number
+      }
+      reap_stalled_agent_runs: {
+        Args: { p_before: string; p_limit?: number }
+        Returns: Json
       }
       record_agent_version_evaluation: {
         Args: { p_payload: Json }
@@ -499,72 +509,123 @@ export type Database = {
       }
       agent_runs: {
         Row: {
+          activity_digest: string | null
           actor_user_id: string | null
           agent_version_id: string
-          cache_read_tokens: number
+          budget_max_cost_usd: number | null
+          budget_max_tool_calls: number | null
+          cache_creation_tokens: number | null
+          cache_read_tokens: number | null
+          cost_basis: string | null
           created_at: string
+          deployment_version: string | null
           entity_ids: Json | null
           error_message: string | null
-          estimated_cost_usd: number
+          estimated_cost_usd: number | null
           execution_mode: string
           finished_at: string | null
           id: string
           input_tokens: number
           latency_ms: number | null
           lookback_days: number
+          model: string | null
+          model_calls: number | null
           objective: string
           organization_id: string
           output_tokens: number
+          parallel_group_id: string | null
+          parent_run_id: string | null
+          pricing_version: string | null
+          provider: string | null
+          reasoning_tokens: number | null
+          root_run_id: string | null
           started_at: string
           status: string
+          stop_reason: string | null
           store_id: string | null
           time_range: Json | null
+          tool_call_count: number | null
+          trace_id: string | null
           trigger_type: string
         }
         Insert: {
+          activity_digest?: string | null
           actor_user_id?: string | null
           agent_version_id: string
-          cache_read_tokens?: number
+          budget_max_cost_usd?: number | null
+          budget_max_tool_calls?: number | null
+          cache_creation_tokens?: number | null
+          cache_read_tokens?: number | null
+          cost_basis?: string | null
           created_at?: string
+          deployment_version?: string | null
           entity_ids?: Json | null
           error_message?: string | null
-          estimated_cost_usd?: number
+          estimated_cost_usd?: number | null
           execution_mode?: string
           finished_at?: string | null
           id?: string
           input_tokens?: number
           latency_ms?: number | null
           lookback_days?: number
+          model?: string | null
+          model_calls?: number | null
           objective: string
           organization_id: string
           output_tokens?: number
+          parallel_group_id?: string | null
+          parent_run_id?: string | null
+          pricing_version?: string | null
+          provider?: string | null
+          reasoning_tokens?: number | null
+          root_run_id?: string | null
           started_at?: string
           status?: string
+          stop_reason?: string | null
           store_id?: string | null
           time_range?: Json | null
+          tool_call_count?: number | null
+          trace_id?: string | null
           trigger_type: string
         }
         Update: {
+          activity_digest?: string | null
           actor_user_id?: string | null
           agent_version_id?: string
-          cache_read_tokens?: number
+          budget_max_cost_usd?: number | null
+          budget_max_tool_calls?: number | null
+          cache_creation_tokens?: number | null
+          cache_read_tokens?: number | null
+          cost_basis?: string | null
           created_at?: string
+          deployment_version?: string | null
           entity_ids?: Json | null
           error_message?: string | null
-          estimated_cost_usd?: number
+          estimated_cost_usd?: number | null
           execution_mode?: string
           finished_at?: string | null
           id?: string
           input_tokens?: number
           latency_ms?: number | null
           lookback_days?: number
+          model?: string | null
+          model_calls?: number | null
           objective?: string
           organization_id?: string
           output_tokens?: number
+          parallel_group_id?: string | null
+          parent_run_id?: string | null
+          pricing_version?: string | null
+          provider?: string | null
+          reasoning_tokens?: number | null
+          root_run_id?: string | null
           started_at?: string
           status?: string
+          stop_reason?: string | null
           store_id?: string | null
           time_range?: Json | null
+          tool_call_count?: number | null
+          trace_id?: string | null
           trigger_type?: string
         }
         Relationships: [
@@ -587,6 +648,20 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_parent_run_id_fkey"
+            columns: ["parent_run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_root_run_id_fkey"
+            columns: ["root_run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
             referencedColumns: ["id"]
           },
           {
@@ -844,6 +919,57 @@ export type Database = {
           },
         ]
       }
+      ai_diagnostic_gate_log: {
+        Row: {
+          activity_digest: string | null
+          agent_code: string
+          created_at: string
+          decision: string
+          id: string
+          organization_id: string
+          reason: string
+          store_id: string | null
+          tick_id: string
+        }
+        Insert: {
+          activity_digest?: string | null
+          agent_code: string
+          created_at?: string
+          decision: string
+          id?: string
+          organization_id: string
+          reason: string
+          store_id?: string | null
+          tick_id: string
+        }
+        Update: {
+          activity_digest?: string | null
+          agent_code?: string
+          created_at?: string
+          decision?: string
+          id?: string
+          organization_id?: string
+          reason?: string
+          store_id?: string | null
+          tick_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_diagnostic_gate_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_diagnostic_gate_log_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_messages: {
         Row: {
           content: string
@@ -889,6 +1015,57 @@ export type Database = {
           },
           {
             foreignKeyName: "ai_messages_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_security_events: {
+        Row: {
+          created_at: string
+          detail: Json
+          event_type: string
+          id: string
+          organization_id: string
+          run_id: string | null
+          severity: string
+          source: string
+          trace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          event_type: string
+          id?: string
+          organization_id: string
+          run_id?: string | null
+          severity: string
+          source: string
+          trace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          event_type?: string
+          id?: string
+          organization_id?: string
+          run_id?: string | null
+          severity?: string
+          source?: string
+          trace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_security_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_security_events_run_id_fkey"
             columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "agent_runs"
@@ -1393,6 +1570,251 @@ export type Database = {
           },
         ]
       }
+      campaign_calendar_items: {
+        Row: {
+          blocked_reason: string | null
+          calendar_id: string
+          channel: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          description: string | null
+          ends_at: string | null
+          executed_at: string | null
+          executed_by: string | null
+          execution_notes: string | null
+          id: string
+          is_visible_to_client: boolean
+          item_type: string
+          klaviyo_campaign_id: string | null
+          marketing_draft_id: string | null
+          meta_campaign_id: string | null
+          metadata: Json
+          milestone_id: string | null
+          organization_id: string
+          owner_user_id: string | null
+          result_data: Json
+          starts_at: string
+          status: string
+          store_id: string | null
+          task_id: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          blocked_reason?: string | null
+          calendar_id: string
+          channel: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          description?: string | null
+          ends_at?: string | null
+          executed_at?: string | null
+          executed_by?: string | null
+          execution_notes?: string | null
+          id?: string
+          is_visible_to_client?: boolean
+          item_type?: string
+          klaviyo_campaign_id?: string | null
+          marketing_draft_id?: string | null
+          meta_campaign_id?: string | null
+          metadata?: Json
+          milestone_id?: string | null
+          organization_id: string
+          owner_user_id?: string | null
+          result_data?: Json
+          starts_at: string
+          status?: string
+          store_id?: string | null
+          task_id?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          blocked_reason?: string | null
+          calendar_id?: string
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          description?: string | null
+          ends_at?: string | null
+          executed_at?: string | null
+          executed_by?: string | null
+          execution_notes?: string | null
+          id?: string
+          is_visible_to_client?: boolean
+          item_type?: string
+          klaviyo_campaign_id?: string | null
+          marketing_draft_id?: string | null
+          meta_campaign_id?: string | null
+          metadata?: Json
+          milestone_id?: string | null
+          organization_id?: string
+          owner_user_id?: string | null
+          result_data?: Json
+          starts_at?: string
+          status?: string
+          store_id?: string | null
+          task_id?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_calendar_items_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_executed_by_fkey"
+            columns: ["executed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_klaviyo_campaign_id_fkey"
+            columns: ["klaviyo_campaign_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_marketing_draft_id_fkey"
+            columns: ["marketing_draft_id"]
+            isOneToOne: false
+            referencedRelation: "marketing_content_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_meta_campaign_id_fkey"
+            columns: ["meta_campaign_id"]
+            isOneToOne: false
+            referencedRelation: "meta_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_milestone_id_fkey"
+            columns: ["milestone_id"]
+            isOneToOne: false
+            referencedRelation: "strategic_plan_milestones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendar_items_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_calendars: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_visible_to_client: boolean
+          name: string
+          organization_id: string
+          status: string
+          store_id: string | null
+          updated_at: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_visible_to_client?: boolean
+          name: string
+          organization_id: string
+          status?: string
+          store_id?: string | null
+          updated_at?: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_visible_to_client?: boolean
+          name?: string
+          organization_id?: string
+          status?: string
+          store_id?: string | null
+          updated_at?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_calendars_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendars_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_calendars_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_constraints: {
         Row: {
           category: string
@@ -1460,6 +1882,60 @@ export type Database = {
           },
         ]
       }
+      client_invites: {
+        Row: {
+          code: string
+          consultant_user_id: string
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invited_user_id: string | null
+          organization_id: string
+          redeemed_at: string | null
+          status: string
+        }
+        Insert: {
+          code: string
+          consultant_user_id: string
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          invited_user_id?: string | null
+          organization_id: string
+          redeemed_at?: string | null
+          status?: string
+        }
+        Update: {
+          code?: string
+          consultant_user_id?: string
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invited_user_id?: string | null
+          organization_id?: string
+          redeemed_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_invites_consultant_user_id_fkey"
+            columns: ["consultant_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_invites_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       consultant_assignments: {
         Row: {
           assigned_at: string
@@ -1470,6 +1946,7 @@ export type Database = {
           is_active: boolean
           is_primary: boolean
           organization_id: string
+          work_share: number
         }
         Insert: {
           assigned_at?: string
@@ -1480,6 +1957,7 @@ export type Database = {
           is_active?: boolean
           is_primary?: boolean
           organization_id: string
+          work_share?: number
         }
         Update: {
           assigned_at?: string
@@ -1490,6 +1968,7 @@ export type Database = {
           is_active?: boolean
           is_primary?: boolean
           organization_id?: string
+          work_share?: number
         }
         Relationships: [
           {
@@ -1511,6 +1990,127 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_client_message_reads: {
+        Row: {
+          last_read_at: string
+          organization_id: string
+          user_id: string
+        }
+        Insert: {
+          last_read_at?: string
+          organization_id: string
+          user_id: string
+        }
+        Update: {
+          last_read_at?: string
+          organization_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_client_message_reads_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_client_message_reads_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_client_messages: {
+        Row: {
+          attachments: Json
+          author_kind: string
+          author_user_id: string | null
+          body: string
+          created_at: string
+          id: string
+          organization_id: string
+        }
+        Insert: {
+          attachments?: Json
+          author_kind: string
+          author_user_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          organization_id: string
+        }
+        Update: {
+          attachments?: Json
+          author_kind?: string
+          author_user_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_client_messages_author_user_id_fkey"
+            columns: ["author_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_client_messages_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consultant_partners: {
+        Row: {
+          consultant_user_id: string
+          created_at: string
+          created_by: string | null
+          partner_user_id: string
+        }
+        Insert: {
+          consultant_user_id: string
+          created_at?: string
+          created_by?: string | null
+          partner_user_id: string
+        }
+        Update: {
+          consultant_user_id?: string
+          created_at?: string
+          created_by?: string | null
+          partner_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consultant_partners_consultant_user_id_fkey"
+            columns: ["consultant_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_partners_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_partners_partner_user_id_fkey"
+            columns: ["partner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1917,6 +2517,165 @@ export type Database = {
           },
         ]
       }
+      instagram_image_bank: {
+        Row: {
+          agent_run_id: string | null
+          analysis: Json | null
+          analyzed_at: string | null
+          attempts: number
+          byte_size: number
+          checksum: string
+          content_type: string
+          created_at: string
+          created_by: string
+          error_reason: string | null
+          id: string
+          knowledge_document_id: string | null
+          markdown: string | null
+          organization_id: string
+          original_filename: string
+          public_url: string
+          status: string
+          storage_path: string
+          updated_at: string
+        }
+        Insert: {
+          agent_run_id?: string | null
+          analysis?: Json | null
+          analyzed_at?: string | null
+          attempts?: number
+          byte_size: number
+          checksum: string
+          content_type: string
+          created_at?: string
+          created_by: string
+          error_reason?: string | null
+          id?: string
+          knowledge_document_id?: string | null
+          markdown?: string | null
+          organization_id: string
+          original_filename: string
+          public_url: string
+          status?: string
+          storage_path: string
+          updated_at?: string
+        }
+        Update: {
+          agent_run_id?: string | null
+          analysis?: Json | null
+          analyzed_at?: string | null
+          attempts?: number
+          byte_size?: number
+          checksum?: string
+          content_type?: string
+          created_at?: string
+          created_by?: string
+          error_reason?: string | null
+          id?: string
+          knowledge_document_id?: string | null
+          markdown?: string | null
+          organization_id?: string
+          original_filename?: string
+          public_url?: string
+          status?: string
+          storage_path?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "instagram_image_bank_agent_run_id_fkey"
+            columns: ["agent_run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "instagram_image_bank_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "instagram_image_bank_knowledge_document_id_fkey"
+            columns: ["knowledge_document_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "instagram_image_bank_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      instagram_image_overlays: {
+        Row: {
+          created_at: string
+          created_by: string
+          format: string
+          id: string
+          image_id: string | null
+          layout: Json
+          name: string
+          organization_id: string
+          ratio: string
+          slides: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          format?: string
+          id?: string
+          image_id?: string | null
+          layout?: Json
+          name?: string
+          organization_id: string
+          ratio?: string
+          slides?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          format?: string
+          id?: string
+          image_id?: string | null
+          layout?: Json
+          name?: string
+          organization_id?: string
+          ratio?: string
+          slides?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "instagram_image_overlays_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "instagram_image_overlays_image_id_fkey"
+            columns: ["image_id"]
+            isOneToOne: false
+            referencedRelation: "instagram_image_bank"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "instagram_image_overlays_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       instagram_media: {
         Row: {
           account_id: string
@@ -2256,6 +3015,7 @@ export type Database = {
           name: string | null
           organization_id: string
           raw_data: Json
+          store_id: string | null
           timezone: string | null
           updated_at: string
         }
@@ -2274,6 +3034,7 @@ export type Database = {
           name?: string | null
           organization_id: string
           raw_data?: Json
+          store_id?: string | null
           timezone?: string | null
           updated_at?: string
         }
@@ -2292,6 +3053,7 @@ export type Database = {
           name?: string | null
           organization_id?: string
           raw_data?: Json
+          store_id?: string | null
           timezone?: string | null
           updated_at?: string
         }
@@ -2304,17 +3066,17 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "klaviyo_accounts_conversion_metric_selected_by_fkey"
-            columns: ["conversion_metric_selected_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "klaviyo_accounts_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_accounts_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
           },
         ]
@@ -2368,29 +3130,68 @@ export type Database = {
         Row: {
           campaign_id: string
           channel: string | null
+          created_at: string
           external_message_id: string
+          external_template_id: string | null
+          from_email: string | null
+          from_label: string | null
           id: string
+          label: string | null
+          last_synced_at: string | null
+          name: string | null
           organization_id: string
+          preview_text: string | null
           raw_data: Json
+          reply_to_email: string | null
+          scheduled_at: string | null
+          sent_at: string | null
           status: string | null
+          subject: string | null
+          updated_at: string
         }
         Insert: {
           campaign_id: string
           channel?: string | null
+          created_at?: string
           external_message_id: string
+          external_template_id?: string | null
+          from_email?: string | null
+          from_label?: string | null
           id?: string
+          label?: string | null
+          last_synced_at?: string | null
+          name?: string | null
           organization_id: string
+          preview_text?: string | null
           raw_data?: Json
+          reply_to_email?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
           status?: string | null
+          subject?: string | null
+          updated_at?: string
         }
         Update: {
           campaign_id?: string
           channel?: string | null
+          created_at?: string
           external_message_id?: string
+          external_template_id?: string | null
+          from_email?: string | null
+          from_label?: string | null
           id?: string
+          label?: string | null
+          last_synced_at?: string | null
+          name?: string | null
           organization_id?: string
+          preview_text?: string | null
           raw_data?: Json
+          reply_to_email?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
           status?: string | null
+          subject?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
@@ -2529,33 +3330,108 @@ export type Database = {
           },
         ]
       }
+      klaviyo_email_click_events: {
+        Row: {
+          account_id: string
+          created_at: string
+          external_event_id: string
+          external_message_id: string | null
+          external_profile_id: string | null
+          id: string
+          occurred_at: string
+          organization_id: string
+          raw_data: Json | null
+          url: string | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          external_event_id: string
+          external_message_id?: string | null
+          external_profile_id?: string | null
+          id?: string
+          occurred_at: string
+          organization_id: string
+          raw_data?: Json | null
+          url?: string | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          external_event_id?: string
+          external_message_id?: string | null
+          external_profile_id?: string | null
+          id?: string
+          occurred_at?: string
+          organization_id?: string
+          raw_data?: Json | null
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "klaviyo_email_click_events_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_email_click_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       klaviyo_flow_actions: {
         Row: {
           action_type: string | null
+          created_at: string
           external_action_id: string
+          external_created_at: string | null
+          external_updated_at: string | null
           flow_id: string
           id: string
+          last_synced_at: string | null
           organization_id: string
           position: number | null
           raw_data: Json
+          settings_data: Json | null
+          status: string | null
+          updated_at: string
         }
         Insert: {
           action_type?: string | null
+          created_at?: string
           external_action_id: string
+          external_created_at?: string | null
+          external_updated_at?: string | null
           flow_id: string
           id?: string
+          last_synced_at?: string | null
           organization_id: string
           position?: number | null
           raw_data?: Json
+          settings_data?: Json | null
+          status?: string | null
+          updated_at?: string
         }
         Update: {
           action_type?: string | null
+          created_at?: string
           external_action_id?: string
+          external_created_at?: string | null
+          external_updated_at?: string | null
           flow_id?: string
           id?: string
+          last_synced_at?: string | null
           organization_id?: string
           position?: number | null
           raw_data?: Json
+          settings_data?: Json | null
+          status?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
@@ -2578,35 +3454,68 @@ export type Database = {
         Row: {
           action_id: string | null
           channel: string | null
+          created_at: string
+          external_created_at: string | null
           external_message_id: string
+          external_template_id: string | null
+          external_updated_at: string | null
           flow_id: string
+          from_email: string | null
+          from_label: string | null
           id: string
           last_synced_at: string | null
+          name: string | null
           organization_id: string
+          preview_text: string | null
           raw_data: Json
+          reply_to_email: string | null
           status: string | null
+          subject: string | null
+          updated_at: string
         }
         Insert: {
           action_id?: string | null
           channel?: string | null
+          created_at?: string
+          external_created_at?: string | null
           external_message_id: string
+          external_template_id?: string | null
+          external_updated_at?: string | null
           flow_id: string
+          from_email?: string | null
+          from_label?: string | null
           id?: string
           last_synced_at?: string | null
+          name?: string | null
           organization_id: string
+          preview_text?: string | null
           raw_data?: Json
+          reply_to_email?: string | null
           status?: string | null
+          subject?: string | null
+          updated_at?: string
         }
         Update: {
           action_id?: string | null
           channel?: string | null
+          created_at?: string
+          external_created_at?: string | null
           external_message_id?: string
+          external_template_id?: string | null
+          external_updated_at?: string | null
           flow_id?: string
+          from_email?: string | null
+          from_label?: string | null
           id?: string
           last_synced_at?: string | null
+          name?: string | null
           organization_id?: string
+          preview_text?: string | null
           raw_data?: Json
+          reply_to_email?: string | null
           status?: string | null
+          subject?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
@@ -2764,7 +3673,7 @@ export type Database = {
           id?: string
           list_id: string
           organization_id: string
-          profile_count: number
+          profile_count?: number
           snapshot_date: string
           source?: string
         }
@@ -2865,6 +3774,7 @@ export type Database = {
           name: string
           organization_id: string
           raw_data: Json
+          updated_at: string
         }
         Insert: {
           account_id: string
@@ -2876,6 +3786,7 @@ export type Database = {
           name: string
           organization_id: string
           raw_data?: Json
+          updated_at?: string
         }
         Update: {
           account_id?: string
@@ -2887,6 +3798,7 @@ export type Database = {
           name?: string
           organization_id?: string
           raw_data?: Json
+          updated_at?: string
         }
         Relationships: [
           {
@@ -3051,7 +3963,7 @@ export type Database = {
           created_at?: string
           id?: string
           organization_id: string
-          profile_count: number
+          profile_count?: number
           segment_id: string
           snapshot_date: string
           source?: string
@@ -3132,6 +4044,278 @@ export type Database = {
           },
           {
             foreignKeyName: "klaviyo_segments_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      klaviyo_templates: {
+        Row: {
+          account_id: string
+          created_at: string
+          editor_type: string | null
+          external_created_at: string | null
+          external_template_id: string
+          external_updated_at: string | null
+          html_content: string | null
+          id: string
+          last_synced_at: string | null
+          name: string | null
+          organization_id: string
+          raw_data: Json | null
+          text_content: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          editor_type?: string | null
+          external_created_at?: string | null
+          external_template_id: string
+          external_updated_at?: string | null
+          html_content?: string | null
+          id?: string
+          last_synced_at?: string | null
+          name?: string | null
+          organization_id: string
+          raw_data?: Json | null
+          text_content?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          editor_type?: string | null
+          external_created_at?: string | null
+          external_template_id?: string
+          external_updated_at?: string | null
+          html_content?: string | null
+          id?: string
+          last_synced_at?: string | null
+          name?: string | null
+          organization_id?: string
+          raw_data?: Json | null
+          text_content?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "klaviyo_templates_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      klaviyo_tracking_consents: {
+        Row: {
+          account_id: string
+          channel: string
+          created_at: string
+          id: string
+          occurred_at: string
+          organization_id: string
+          profile_id: string
+          raw_data: Json
+          source: string
+          status: string
+        }
+        Insert: {
+          account_id: string
+          channel: string
+          created_at?: string
+          id?: string
+          occurred_at: string
+          organization_id: string
+          profile_id: string
+          raw_data?: Json
+          source: string
+          status: string
+        }
+        Update: {
+          account_id?: string
+          channel?: string
+          created_at?: string
+          id?: string
+          occurred_at?: string
+          organization_id?: string
+          profile_id?: string
+          raw_data?: Json
+          source?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "klaviyo_tracking_consents_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_tracking_consents_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_tracking_consents_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_tracking_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      klaviyo_tracking_events: {
+        Row: {
+          account_id: string
+          created_at: string
+          currency_code: string | null
+          dedupe_key: string
+          event_name: string
+          id: string
+          occurred_at: string
+          organization_id: string
+          profile_id: string | null
+          properties: Json
+          raw_data: Json
+          source: string
+          source_event_id: string | null
+          value: number | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          currency_code?: string | null
+          dedupe_key: string
+          event_name: string
+          id?: string
+          occurred_at: string
+          organization_id: string
+          profile_id?: string | null
+          properties?: Json
+          raw_data?: Json
+          source: string
+          source_event_id?: string | null
+          value?: number | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          currency_code?: string | null
+          dedupe_key?: string
+          event_name?: string
+          id?: string
+          occurred_at?: string
+          organization_id?: string
+          profile_id?: string | null
+          properties?: Json
+          raw_data?: Json
+          source?: string
+          source_event_id?: string | null
+          value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "klaviyo_tracking_events_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_tracking_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_tracking_events_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_tracking_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      klaviyo_tracking_profiles: {
+        Row: {
+          account_id: string
+          created_at: string
+          email: string | null
+          email_normalized: string | null
+          external_profile_id: string | null
+          first_name: string | null
+          first_seen_at: string
+          id: string
+          last_name: string | null
+          last_seen_at: string
+          organization_id: string
+          phone: string | null
+          phone_normalized: string | null
+          raw_data: Json
+          shopify_customer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          email?: string | null
+          email_normalized?: string | null
+          external_profile_id?: string | null
+          first_name?: string | null
+          first_seen_at?: string
+          id?: string
+          last_name?: string | null
+          last_seen_at?: string
+          organization_id: string
+          phone?: string | null
+          phone_normalized?: string | null
+          raw_data?: Json
+          shopify_customer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          email?: string | null
+          email_normalized?: string | null
+          external_profile_id?: string | null
+          first_name?: string | null
+          first_seen_at?: string
+          id?: string
+          last_name?: string | null
+          last_seen_at?: string
+          organization_id?: string
+          phone?: string | null
+          phone_normalized?: string | null
+          raw_data?: Json
+          shopify_customer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "klaviyo_tracking_profiles_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "klaviyo_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "klaviyo_tracking_profiles_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -3294,101 +4478,133 @@ export type Database = {
           },
         ]
       }
-      marketing_campaign_products: {
+      kpi_snapshots: {
         Row: {
-          campaign_id: string
+          ad_spend: number | null
+          aov: number | null
+          cac: number | null
+          captured_by: string | null
           created_at: string
-          external_product_id: string | null
           id: string
-          organization_id: string
-          quantity: number | null
-          store_product_id: string | null
-        }
-        Insert: {
-          campaign_id: string
-          created_at?: string
-          external_product_id?: string | null
-          id?: string
-          organization_id: string
-          quantity?: number | null
-          store_product_id?: string | null
-        }
-        Update: {
-          campaign_id?: string
-          created_at?: string
-          external_product_id?: string | null
-          id?: string
-          organization_id?: string
-          quantity?: number | null
-          store_product_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "marketing_campaign_products_campaign_id_fkey"
-            columns: ["campaign_id"]
-            isOneToOne: false
-            referencedRelation: "marketing_campaigns"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "marketing_campaign_products_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      marketing_campaigns: {
-        Row: {
-          channel: string
-          created_at: string
-          created_by: string | null
-          ends_at: string | null
-          id: string
-          name: string
+          net_profit: number | null
+          net_sales: number | null
           notes: string | null
+          orders_count: number | null
           organization_id: string
-          starts_at: string | null
-          status: string
+          period: string
+          period_end: string
+          period_start: string
+          roas: number | null
+          store_id: string | null
           updated_at: string
         }
         Insert: {
-          channel?: string
+          ad_spend?: number | null
+          aov?: number | null
+          cac?: number | null
+          captured_by?: string | null
           created_at?: string
-          created_by?: string | null
-          ends_at?: string | null
           id?: string
-          name: string
+          net_profit?: number | null
+          net_sales?: number | null
           notes?: string | null
+          orders_count?: number | null
           organization_id: string
-          starts_at?: string | null
-          status?: string
+          period?: string
+          period_end: string
+          period_start: string
+          roas?: number | null
+          store_id?: string | null
           updated_at?: string
         }
         Update: {
-          channel?: string
+          ad_spend?: number | null
+          aov?: number | null
+          cac?: number | null
+          captured_by?: string | null
           created_at?: string
-          created_by?: string | null
-          ends_at?: string | null
           id?: string
-          name?: string
+          net_profit?: number | null
+          net_sales?: number | null
           notes?: string | null
+          orders_count?: number | null
           organization_id?: string
-          starts_at?: string | null
-          status?: string
+          period?: string
+          period_end?: string
+          period_start?: string
+          roas?: number | null
+          store_id?: string | null
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "marketing_campaigns_created_by_fkey"
-            columns: ["created_by"]
+            foreignKeyName: "kpi_snapshots_captured_by_fkey"
+            columns: ["captured_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "marketing_campaigns_organization_id_fkey"
+            foreignKeyName: "kpi_snapshots_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kpi_snapshots_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketing_content_draft_notes: {
+        Row: {
+          author_kind: string
+          author_user_id: string | null
+          body: string
+          created_at: string
+          draft_id: string
+          id: string
+          organization_id: string
+        }
+        Insert: {
+          author_kind?: string
+          author_user_id?: string | null
+          body: string
+          created_at?: string
+          draft_id: string
+          id?: string
+          organization_id: string
+        }
+        Update: {
+          author_kind?: string
+          author_user_id?: string | null
+          body?: string
+          created_at?: string
+          draft_id?: string
+          id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketing_content_draft_notes_author_user_id_fkey"
+            columns: ["author_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketing_content_draft_notes_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "marketing_content_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketing_content_draft_notes_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -3457,6 +4673,7 @@ export type Database = {
           agent_run_id: string | null
           audience: string
           blocks: Json
+          brand_colors: Json
           compliance_notes: Json
           confidence: string
           content_type: string
@@ -3478,6 +4695,7 @@ export type Database = {
           purpose: string
           reply_to: string | null
           request: Json
+          scheduled_for: string | null
           sources: Json
           status: string
           subject: string
@@ -3485,6 +4703,7 @@ export type Database = {
           template_name: string
           tone: string
           updated_at: string
+          verbatim_texts: Json
           version: number
           warnings: Json
         }
@@ -3493,6 +4712,7 @@ export type Database = {
           agent_run_id?: string | null
           audience: string
           blocks?: Json
+          brand_colors?: Json
           compliance_notes?: Json
           confidence: string
           content_type: string
@@ -3514,6 +4734,7 @@ export type Database = {
           purpose: string
           reply_to?: string | null
           request: Json
+          scheduled_for?: string | null
           sources?: Json
           status?: string
           subject: string
@@ -3521,6 +4742,7 @@ export type Database = {
           template_name: string
           tone: string
           updated_at?: string
+          verbatim_texts?: Json
           version?: number
           warnings?: Json
         }
@@ -3529,6 +4751,7 @@ export type Database = {
           agent_run_id?: string | null
           audience?: string
           blocks?: Json
+          brand_colors?: Json
           compliance_notes?: Json
           confidence?: string
           content_type?: string
@@ -3550,6 +4773,7 @@ export type Database = {
           purpose?: string
           reply_to?: string | null
           request?: Json
+          scheduled_for?: string | null
           sources?: Json
           status?: string
           subject?: string
@@ -3557,6 +4781,7 @@ export type Database = {
           template_name?: string
           tone?: string
           updated_at?: string
+          verbatim_texts?: Json
           version?: number
           warnings?: Json
         }
@@ -3706,6 +4931,69 @@ export type Database = {
           },
         ]
       }
+      meta_account_activities: {
+        Row: {
+          actor_id: string
+          actor_name: string | null
+          ad_account_id: string
+          created_at: string
+          event_time: string
+          event_type: string
+          extra_data: Json | null
+          id: string
+          object_external_id: string
+          object_name: string | null
+          object_type: string | null
+          organization_id: string
+          translated_event_type: string | null
+        }
+        Insert: {
+          actor_id?: string
+          actor_name?: string | null
+          ad_account_id: string
+          created_at?: string
+          event_time: string
+          event_type: string
+          extra_data?: Json | null
+          id?: string
+          object_external_id?: string
+          object_name?: string | null
+          object_type?: string | null
+          organization_id: string
+          translated_event_type?: string | null
+        }
+        Update: {
+          actor_id?: string
+          actor_name?: string | null
+          ad_account_id?: string
+          created_at?: string
+          event_time?: string
+          event_type?: string
+          extra_data?: Json | null
+          id?: string
+          object_external_id?: string
+          object_name?: string | null
+          object_type?: string | null
+          organization_id?: string
+          translated_event_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_account_activities_ad_account_id_fkey"
+            columns: ["ad_account_id"]
+            isOneToOne: false
+            referencedRelation: "meta_ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_account_activities_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       meta_ad_accounts: {
         Row: {
           account_name: string
@@ -3713,6 +5001,7 @@ export type Database = {
           amount_spent: number | null
           balance: number | null
           business_account_id: string | null
+          business_country_code: string | null
           canonical_purchase_action_selected_at: string | null
           canonical_purchase_action_selected_by: string | null
           canonical_purchase_action_type: string
@@ -3722,6 +5011,8 @@ export type Database = {
           disable_reason_code: number | null
           external_ad_account_id: string
           external_created_at: string | null
+          funding_source_details: Json | null
+          has_accepted_terms: boolean | null
           id: string
           is_active: boolean
           is_selected: boolean
@@ -3730,6 +5021,7 @@ export type Database = {
           organization_id: string
           raw_data: Json | null
           spend_cap: number | null
+          store_id: string | null
           timezone_name: string | null
           timezone_offset_hours_utc: number | null
           updated_at: string
@@ -3740,6 +5032,7 @@ export type Database = {
           amount_spent?: number | null
           balance?: number | null
           business_account_id?: string | null
+          business_country_code?: string | null
           canonical_purchase_action_selected_at?: string | null
           canonical_purchase_action_selected_by?: string | null
           canonical_purchase_action_type?: string
@@ -3749,6 +5042,8 @@ export type Database = {
           disable_reason_code?: number | null
           external_ad_account_id: string
           external_created_at?: string | null
+          funding_source_details?: Json | null
+          has_accepted_terms?: boolean | null
           id?: string
           is_active?: boolean
           is_selected?: boolean
@@ -3757,6 +5052,7 @@ export type Database = {
           organization_id: string
           raw_data?: Json | null
           spend_cap?: number | null
+          store_id?: string | null
           timezone_name?: string | null
           timezone_offset_hours_utc?: number | null
           updated_at?: string
@@ -3767,6 +5063,7 @@ export type Database = {
           amount_spent?: number | null
           balance?: number | null
           business_account_id?: string | null
+          business_country_code?: string | null
           canonical_purchase_action_selected_at?: string | null
           canonical_purchase_action_selected_by?: string | null
           canonical_purchase_action_type?: string
@@ -3776,6 +5073,8 @@ export type Database = {
           disable_reason_code?: number | null
           external_ad_account_id?: string
           external_created_at?: string | null
+          funding_source_details?: Json | null
+          has_accepted_terms?: boolean | null
           id?: string
           is_active?: boolean
           is_selected?: boolean
@@ -3784,6 +5083,7 @@ export type Database = {
           organization_id?: string
           raw_data?: Json | null
           spend_cap?: number | null
+          store_id?: string | null
           timezone_name?: string | null
           timezone_offset_hours_utc?: number | null
           updated_at?: string
@@ -3808,6 +5108,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_ad_accounts_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
           },
         ]
@@ -3867,6 +5174,60 @@ export type Database = {
           },
         ]
       }
+      meta_ad_issues: {
+        Row: {
+          ad_id: string
+          created_at: string
+          detected_at: string
+          error_code: number
+          error_message: string | null
+          error_summary: string | null
+          error_type: string | null
+          id: string
+          level: string | null
+          organization_id: string
+        }
+        Insert: {
+          ad_id: string
+          created_at?: string
+          detected_at?: string
+          error_code?: number
+          error_message?: string | null
+          error_summary?: string | null
+          error_type?: string | null
+          id?: string
+          level?: string | null
+          organization_id: string
+        }
+        Update: {
+          ad_id?: string
+          created_at?: string
+          detected_at?: string
+          error_code?: number
+          error_message?: string | null
+          error_summary?: string | null
+          error_type?: string | null
+          id?: string
+          level?: string | null
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_ad_issues_ad_id_fkey"
+            columns: ["ad_id"]
+            isOneToOne: false
+            referencedRelation: "meta_ads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_ad_issues_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       meta_ad_sets: {
         Row: {
           attribution_spec: Json | null
@@ -3887,6 +5248,10 @@ export type Database = {
           id: string
           is_dynamic_creative: boolean
           last_synced_at: string | null
+          learning_conversions: number | null
+          learning_conversions_needed: number | null
+          learning_stage_exit_reason: string | null
+          learning_stage_status: string | null
           lifetime_budget: number | null
           name: string
           optimization_goal: string | null
@@ -3916,6 +5281,10 @@ export type Database = {
           id?: string
           is_dynamic_creative?: boolean
           last_synced_at?: string | null
+          learning_conversions?: number | null
+          learning_conversions_needed?: number | null
+          learning_stage_exit_reason?: string | null
+          learning_stage_status?: string | null
           lifetime_budget?: number | null
           name: string
           optimization_goal?: string | null
@@ -3945,6 +5314,10 @@ export type Database = {
           id?: string
           is_dynamic_creative?: boolean
           last_synced_at?: string | null
+          learning_conversions?: number | null
+          learning_conversions_needed?: number | null
+          learning_stage_exit_reason?: string | null
+          learning_stage_status?: string | null
           lifetime_budget?: number | null
           name?: string
           optimization_goal?: string | null
@@ -4444,6 +5817,96 @@ export type Database = {
           },
         ]
       }
+      meta_custom_audiences: {
+        Row: {
+          ad_account_id: string
+          approximate_count_lower: number | null
+          approximate_count_upper: number | null
+          created_at: string
+          data_source: Json | null
+          delivery_status: Json | null
+          description: string | null
+          external_audience_id: string
+          external_created_at: string | null
+          external_updated_at: string | null
+          id: string
+          is_lookalike: boolean
+          last_synced_at: string | null
+          lookalike_country: string | null
+          lookalike_origin_external_id: string | null
+          lookalike_ratio: number | null
+          name: string | null
+          operation_status: Json | null
+          organization_id: string
+          retention_days: number | null
+          subtype: string | null
+          updated_at: string
+        }
+        Insert: {
+          ad_account_id: string
+          approximate_count_lower?: number | null
+          approximate_count_upper?: number | null
+          created_at?: string
+          data_source?: Json | null
+          delivery_status?: Json | null
+          description?: string | null
+          external_audience_id: string
+          external_created_at?: string | null
+          external_updated_at?: string | null
+          id?: string
+          is_lookalike?: boolean
+          last_synced_at?: string | null
+          lookalike_country?: string | null
+          lookalike_origin_external_id?: string | null
+          lookalike_ratio?: number | null
+          name?: string | null
+          operation_status?: Json | null
+          organization_id: string
+          retention_days?: number | null
+          subtype?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ad_account_id?: string
+          approximate_count_lower?: number | null
+          approximate_count_upper?: number | null
+          created_at?: string
+          data_source?: Json | null
+          delivery_status?: Json | null
+          description?: string | null
+          external_audience_id?: string
+          external_created_at?: string | null
+          external_updated_at?: string | null
+          id?: string
+          is_lookalike?: boolean
+          last_synced_at?: string | null
+          lookalike_country?: string | null
+          lookalike_origin_external_id?: string | null
+          lookalike_ratio?: number | null
+          name?: string | null
+          operation_status?: Json | null
+          organization_id?: string
+          retention_days?: number | null
+          subtype?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_custom_audiences_ad_account_id_fkey"
+            columns: ["ad_account_id"]
+            isOneToOne: false
+            referencedRelation: "meta_ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_custom_audiences_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       meta_insight_action_metrics: {
         Row: {
           action_type: string
@@ -4597,34 +6060,55 @@ export type Database = {
           ad_id: string | null
           ad_set_id: string | null
           attribution_hash: string
+          attribution_setting: string | null
           attribution_windows: Json | null
           breakdown_hash: string
           breakdowns: Json | null
           campaign_id: string | null
           clicks: number
+          conversion_rate_ranking: string | null
+          cost_per_inline_link_click: number | null
+          cost_per_thruplay: number | null
           cpc: number | null
           cpm: number | null
           cpp: number | null
           created_at: string
           ctr: number | null
           device_platform: string | null
+          engagement_rate_ranking: string | null
+          estimated_ad_recall_rate: number | null
+          estimated_ad_recallers: number | null
           external_entity_id: string
           frequency: number | null
+          full_view_impressions: number | null
+          full_view_reach: number | null
           id: string
           impressions: number
+          inline_link_click_ctr: number | null
           inline_link_clicks: number
           level: Database["public"]["Enums"]["meta_insight_level"]
           metric_date: string
           organization_id: string
           outbound_clicks: number
+          outbound_clicks_ctr: number | null
           platform_position: string | null
           publisher_platform: string | null
+          quality_ranking: string | null
           raw_data: Json | null
           reach: number
           spend: number
           synced_at: string
           unique_clicks: number
+          unique_inline_link_clicks: number | null
           updated_at: string
+          video_avg_time_watched_seconds: number | null
+          video_p100_watched: number | null
+          video_p25_watched: number | null
+          video_p50_watched: number | null
+          video_p75_watched: number | null
+          video_p95_watched: number | null
+          video_plays: number | null
+          video_thruplays: number | null
         }
         Insert: {
           action_report_time?: string
@@ -4632,34 +6116,55 @@ export type Database = {
           ad_id?: string | null
           ad_set_id?: string | null
           attribution_hash?: string
+          attribution_setting?: string | null
           attribution_windows?: Json | null
           breakdown_hash?: string
           breakdowns?: Json | null
           campaign_id?: string | null
           clicks?: number
+          conversion_rate_ranking?: string | null
+          cost_per_inline_link_click?: number | null
+          cost_per_thruplay?: number | null
           cpc?: number | null
           cpm?: number | null
           cpp?: number | null
           created_at?: string
           ctr?: number | null
           device_platform?: string | null
+          engagement_rate_ranking?: string | null
+          estimated_ad_recall_rate?: number | null
+          estimated_ad_recallers?: number | null
           external_entity_id: string
           frequency?: number | null
+          full_view_impressions?: number | null
+          full_view_reach?: number | null
           id?: string
           impressions?: number
+          inline_link_click_ctr?: number | null
           inline_link_clicks?: number
           level: Database["public"]["Enums"]["meta_insight_level"]
           metric_date: string
           organization_id: string
           outbound_clicks?: number
+          outbound_clicks_ctr?: number | null
           platform_position?: string | null
           publisher_platform?: string | null
+          quality_ranking?: string | null
           raw_data?: Json | null
           reach?: number
           spend?: number
           synced_at?: string
           unique_clicks?: number
+          unique_inline_link_clicks?: number | null
           updated_at?: string
+          video_avg_time_watched_seconds?: number | null
+          video_p100_watched?: number | null
+          video_p25_watched?: number | null
+          video_p50_watched?: number | null
+          video_p75_watched?: number | null
+          video_p95_watched?: number | null
+          video_plays?: number | null
+          video_thruplays?: number | null
         }
         Update: {
           action_report_time?: string
@@ -4667,34 +6172,55 @@ export type Database = {
           ad_id?: string | null
           ad_set_id?: string | null
           attribution_hash?: string
+          attribution_setting?: string | null
           attribution_windows?: Json | null
           breakdown_hash?: string
           breakdowns?: Json | null
           campaign_id?: string | null
           clicks?: number
+          conversion_rate_ranking?: string | null
+          cost_per_inline_link_click?: number | null
+          cost_per_thruplay?: number | null
           cpc?: number | null
           cpm?: number | null
           cpp?: number | null
           created_at?: string
           ctr?: number | null
           device_platform?: string | null
+          engagement_rate_ranking?: string | null
+          estimated_ad_recall_rate?: number | null
+          estimated_ad_recallers?: number | null
           external_entity_id?: string
           frequency?: number | null
+          full_view_impressions?: number | null
+          full_view_reach?: number | null
           id?: string
           impressions?: number
+          inline_link_click_ctr?: number | null
           inline_link_clicks?: number
           level?: Database["public"]["Enums"]["meta_insight_level"]
           metric_date?: string
           organization_id?: string
           outbound_clicks?: number
+          outbound_clicks_ctr?: number | null
           platform_position?: string | null
           publisher_platform?: string | null
+          quality_ranking?: string | null
           raw_data?: Json | null
           reach?: number
           spend?: number
           synced_at?: string
           unique_clicks?: number
+          unique_inline_link_clicks?: number | null
           updated_at?: string
+          video_avg_time_watched_seconds?: number | null
+          video_p100_watched?: number | null
+          video_p25_watched?: number | null
+          video_p50_watched?: number | null
+          video_p75_watched?: number | null
+          video_p95_watched?: number | null
+          video_plays?: number | null
+          video_thruplays?: number | null
         }
         Relationships: [
           {
@@ -4803,6 +6329,180 @@ export type Database = {
           },
           {
             foreignKeyName: "meta_pages_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_pixel_daily_stats: {
+        Row: {
+          created_at: string
+          event_count: number
+          event_name: string
+          id: string
+          metric_date: string
+          organization_id: string
+          pixel_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          event_count?: number
+          event_name: string
+          id?: string
+          metric_date: string
+          organization_id: string
+          pixel_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          event_count?: number
+          event_name?: string
+          id?: string
+          metric_date?: string
+          organization_id?: string
+          pixel_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_pixel_daily_stats_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_pixel_daily_stats_pixel_id_fkey"
+            columns: ["pixel_id"]
+            isOneToOne: false
+            referencedRelation: "meta_pixels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_pixels: {
+        Row: {
+          ad_account_id: string
+          created_at: string
+          data_use_setting: string | null
+          enable_automatic_matching: boolean | null
+          external_created_at: string | null
+          external_pixel_id: string
+          first_party_cookie_status: string | null
+          id: string
+          is_unavailable: boolean | null
+          last_fired_at: string | null
+          last_synced_at: string | null
+          name: string | null
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          ad_account_id: string
+          created_at?: string
+          data_use_setting?: string | null
+          enable_automatic_matching?: boolean | null
+          external_created_at?: string | null
+          external_pixel_id: string
+          first_party_cookie_status?: string | null
+          id?: string
+          is_unavailable?: boolean | null
+          last_fired_at?: string | null
+          last_synced_at?: string | null
+          name?: string | null
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          ad_account_id?: string
+          created_at?: string
+          data_use_setting?: string | null
+          enable_automatic_matching?: boolean | null
+          external_created_at?: string | null
+          external_pixel_id?: string
+          first_party_cookie_status?: string | null
+          id?: string
+          is_unavailable?: boolean | null
+          last_fired_at?: string | null
+          last_synced_at?: string | null
+          name?: string | null
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_pixels_ad_account_id_fkey"
+            columns: ["ad_account_id"]
+            isOneToOne: false
+            referencedRelation: "meta_ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_pixels_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_recommendations: {
+        Row: {
+          ad_account_id: string
+          code: number
+          confidence: string | null
+          created_at: string
+          detected_at: string
+          entity_external_id: string
+          entity_level: string
+          id: string
+          importance: string | null
+          message: string | null
+          organization_id: string
+          title: string | null
+        }
+        Insert: {
+          ad_account_id: string
+          code?: number
+          confidence?: string | null
+          created_at?: string
+          detected_at?: string
+          entity_external_id: string
+          entity_level: string
+          id?: string
+          importance?: string | null
+          message?: string | null
+          organization_id: string
+          title?: string | null
+        }
+        Update: {
+          ad_account_id?: string
+          code?: number
+          confidence?: string | null
+          created_at?: string
+          detected_at?: string
+          entity_external_id?: string
+          entity_level?: string
+          id?: string
+          importance?: string | null
+          message?: string | null
+          organization_id?: string
+          title?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_recommendations_ad_account_id_fkey"
+            columns: ["ad_account_id"]
+            isOneToOne: false
+            referencedRelation: "meta_ad_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_recommendations_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -4965,6 +6665,66 @@ export type Database = {
           {
             foreignKeyName: "notifications_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      objective_definitions: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          direction: string
+          id: string
+          label: string
+          metric_key: string | null
+          organization_id: string | null
+          owner_user_id: string
+          slug: string
+          source: string
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          direction?: string
+          id?: string
+          label: string
+          metric_key?: string | null
+          organization_id?: string | null
+          owner_user_id: string
+          slug: string
+          source: string
+          unit: string
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          direction?: string
+          id?: string
+          label?: string
+          metric_key?: string | null
+          organization_id?: string | null
+          owner_user_id?: string
+          slug?: string
+          source?: string
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "objective_definitions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "objective_definitions_owner_user_id_fkey"
+            columns: ["owner_user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -5168,9 +6928,12 @@ export type Database = {
           created_at: string
           created_by: string | null
           id: string
+          manual_actual_at: string | null
+          manual_actual_value: number | null
           metric_key: string
           organization_id: string
           period: string
+          store_id: string | null
           target_value: number
           updated_at: string
           valid_from: string
@@ -5180,9 +6943,12 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          manual_actual_at?: string | null
+          manual_actual_value?: number | null
           metric_key: string
           organization_id: string
           period?: string
+          store_id?: string | null
           target_value: number
           updated_at?: string
           valid_from?: string
@@ -5192,9 +6958,12 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          manual_actual_at?: string | null
+          manual_actual_value?: number | null
           metric_key?: string
           organization_id?: string
           period?: string
+          store_id?: string | null
           target_value?: number
           updated_at?: string
           valid_from?: string
@@ -5213,6 +6982,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_metric_targets_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
           },
         ]
@@ -5373,6 +7149,7 @@ export type Database = {
           id: string
           is_active: boolean
           last_login_at: string | null
+          onboarding_completed_at: string | null
           phone: string | null
           platform_role: Database["public"]["Enums"]["platform_role"]
           updated_at: string
@@ -5384,6 +7161,7 @@ export type Database = {
           id: string
           is_active?: boolean
           last_login_at?: string | null
+          onboarding_completed_at?: string | null
           phone?: string | null
           platform_role?: Database["public"]["Enums"]["platform_role"]
           updated_at?: string
@@ -5395,6 +7173,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_login_at?: string | null
+          onboarding_completed_at?: string | null
           phone?: string | null
           platform_role?: Database["public"]["Enums"]["platform_role"]
           updated_at?: string
@@ -5440,6 +7219,7 @@ export type Database = {
           plan_code: string
           starts_at: string | null
           status: Database["public"]["Enums"]["subscription_status"]
+          store_limit: number | null
           updated_at: string
         }
         Insert: {
@@ -5453,6 +7233,7 @@ export type Database = {
           plan_code: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["subscription_status"]
+          store_limit?: number | null
           updated_at?: string
         }
         Update: {
@@ -5466,6 +7247,7 @@ export type Database = {
           plan_code?: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["subscription_status"]
+          store_limit?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -5544,57 +7326,272 @@ export type Database = {
           },
         ]
       }
+      shopify_abandoned_checkout_items: {
+        Row: {
+          checkout_id: string
+          created_at: string
+          external_line_item_id: string
+          id: string
+          organization_id: string
+          product_id: string | null
+          quantity: number
+          title: string
+          unit_price: number
+          updated_at: string
+          variant_id: string | null
+        }
+        Insert: {
+          checkout_id: string
+          created_at?: string
+          external_line_item_id: string
+          id?: string
+          organization_id: string
+          product_id?: string | null
+          quantity?: number
+          title: string
+          unit_price?: number
+          updated_at?: string
+          variant_id?: string | null
+        }
+        Update: {
+          checkout_id?: string
+          created_at?: string
+          external_line_item_id?: string
+          id?: string
+          organization_id?: string
+          product_id?: string | null
+          quantity?: number
+          title?: string
+          unit_price?: number
+          updated_at?: string
+          variant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_abandoned_checkout_items_checkout_id_fkey"
+            columns: ["checkout_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_abandoned_checkouts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_abandoned_checkout_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_abandoned_checkout_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_abandoned_checkout_items_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_variants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_abandoned_checkouts: {
+        Row: {
+          completed_at: string | null
+          country_code: string | null
+          created_at: string
+          currency_code: string | null
+          customer_reference_hash: string | null
+          external_checkout_id: string
+          external_created_at: string | null
+          external_updated_at: string | null
+          id: string
+          organization_id: string
+          recovery_url: string | null
+          store_id: string
+          subtotal_price: number
+          total_items: number
+          total_price: number
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          country_code?: string | null
+          created_at?: string
+          currency_code?: string | null
+          customer_reference_hash?: string | null
+          external_checkout_id: string
+          external_created_at?: string | null
+          external_updated_at?: string | null
+          id?: string
+          organization_id: string
+          recovery_url?: string | null
+          store_id: string
+          subtotal_price?: number
+          total_items?: number
+          total_price?: number
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          country_code?: string | null
+          created_at?: string
+          currency_code?: string | null
+          customer_reference_hash?: string | null
+          external_checkout_id?: string
+          external_created_at?: string | null
+          external_updated_at?: string | null
+          id?: string
+          organization_id?: string
+          recovery_url?: string | null
+          store_id?: string
+          subtotal_price?: number
+          total_items?: number
+          total_price?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_abandoned_checkouts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_abandoned_checkouts_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_collections: {
+        Row: {
+          created_at: string
+          external_collection_id: string
+          external_updated_at: string | null
+          handle: string | null
+          id: string
+          is_automated: boolean
+          organization_id: string
+          products_count: number
+          store_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          external_collection_id: string
+          external_updated_at?: string | null
+          handle?: string | null
+          id?: string
+          is_automated?: boolean
+          organization_id: string
+          products_count?: number
+          store_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          external_collection_id?: string
+          external_updated_at?: string | null
+          handle?: string | null
+          id?: string
+          is_automated?: boolean
+          organization_id?: string
+          products_count?: number
+          store_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_collections_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_collections_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shopify_customers: {
         Row: {
           amount_spent: number
           created_at: string
           currency_code: string | null
           customer_reference_hash: string
+          email_marketing_state: string | null
           external_created_at: string | null
           external_customer_id: string
           external_updated_at: string | null
           id: string
           is_active: boolean
+          last_order_at: string | null
+          locale: string | null
           number_of_orders: number
           organization_id: string
+          sms_marketing_state: string | null
           state: string | null
           store_id: string
           tags: string[]
           updated_at: string
+          verified_email: boolean | null
         }
         Insert: {
           amount_spent?: number
           created_at?: string
           currency_code?: string | null
           customer_reference_hash: string
+          email_marketing_state?: string | null
           external_created_at?: string | null
           external_customer_id: string
           external_updated_at?: string | null
           id?: string
           is_active?: boolean
+          last_order_at?: string | null
+          locale?: string | null
           number_of_orders?: number
           organization_id: string
+          sms_marketing_state?: string | null
           state?: string | null
           store_id: string
           tags?: string[]
           updated_at?: string
+          verified_email?: boolean | null
         }
         Update: {
           amount_spent?: number
           created_at?: string
           currency_code?: string | null
           customer_reference_hash?: string
+          email_marketing_state?: string | null
           external_created_at?: string | null
           external_customer_id?: string
           external_updated_at?: string | null
           id?: string
           is_active?: boolean
+          last_order_at?: string | null
+          locale?: string | null
           number_of_orders?: number
           organization_id?: string
+          sms_marketing_state?: string | null
           state?: string | null
           store_id?: string
           tags?: string[]
           updated_at?: string
+          verified_email?: boolean | null
         }
         Relationships: [
           {
@@ -5606,6 +7603,176 @@ export type Database = {
           },
           {
             foreignKeyName: "shopify_customers_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_discounts: {
+        Row: {
+          applies_once_per_customer: boolean | null
+          code: string | null
+          created_at: string
+          discount_class: string | null
+          ends_at: string | null
+          external_created_at: string | null
+          external_discount_id: string
+          external_updated_at: string | null
+          id: string
+          organization_id: string
+          starts_at: string | null
+          status: string | null
+          store_id: string
+          title: string | null
+          updated_at: string
+          usage_count: number
+          usage_limit: number | null
+          value: number | null
+          value_type: string | null
+        }
+        Insert: {
+          applies_once_per_customer?: boolean | null
+          code?: string | null
+          created_at?: string
+          discount_class?: string | null
+          ends_at?: string | null
+          external_created_at?: string | null
+          external_discount_id: string
+          external_updated_at?: string | null
+          id?: string
+          organization_id: string
+          starts_at?: string | null
+          status?: string | null
+          store_id: string
+          title?: string | null
+          updated_at?: string
+          usage_count?: number
+          usage_limit?: number | null
+          value?: number | null
+          value_type?: string | null
+        }
+        Update: {
+          applies_once_per_customer?: boolean | null
+          code?: string | null
+          created_at?: string
+          discount_class?: string | null
+          ends_at?: string | null
+          external_created_at?: string | null
+          external_discount_id?: string
+          external_updated_at?: string | null
+          id?: string
+          organization_id?: string
+          starts_at?: string | null
+          status?: string | null
+          store_id?: string
+          title?: string | null
+          updated_at?: string
+          usage_count?: number
+          usage_limit?: number | null
+          value?: number | null
+          value_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_discounts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_discounts_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_fulfillments: {
+        Row: {
+          created_at: string
+          delivered_at: string | null
+          display_status: string | null
+          estimated_delivery_at: string | null
+          external_created_at: string | null
+          external_fulfillment_id: string
+          external_updated_at: string | null
+          id: string
+          in_transit_at: string | null
+          location_id: string | null
+          order_id: string
+          organization_id: string
+          status: string | null
+          store_id: string
+          tracking_company: string | null
+          tracking_numbers: string[]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          delivered_at?: string | null
+          display_status?: string | null
+          estimated_delivery_at?: string | null
+          external_created_at?: string | null
+          external_fulfillment_id: string
+          external_updated_at?: string | null
+          id?: string
+          in_transit_at?: string | null
+          location_id?: string | null
+          order_id: string
+          organization_id: string
+          status?: string | null
+          store_id: string
+          tracking_company?: string | null
+          tracking_numbers?: string[]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          delivered_at?: string | null
+          display_status?: string | null
+          estimated_delivery_at?: string | null
+          external_created_at?: string | null
+          external_fulfillment_id?: string
+          external_updated_at?: string | null
+          id?: string
+          in_transit_at?: string | null
+          location_id?: string | null
+          order_id?: string
+          organization_id?: string
+          status?: string | null
+          store_id?: string
+          tracking_company?: string | null
+          tracking_numbers?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_fulfillments_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_fulfillments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_order_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_fulfillments_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_fulfillments_store_id_fkey"
             columns: ["store_id"]
             isOneToOne: false
             referencedRelation: "shopify_stores"
@@ -5885,6 +8052,145 @@ export type Database = {
           },
         ]
       }
+      shopify_marketing_events: {
+        Row: {
+          app_handle: string | null
+          channel_handle: string | null
+          created_at: string
+          description: string | null
+          ended_at: string | null
+          event_type: string | null
+          external_created_at: string | null
+          external_event_id: string
+          id: string
+          organization_id: string
+          started_at: string | null
+          store_id: string
+          updated_at: string
+          utm_campaign: string | null
+          utm_medium: string | null
+          utm_source: string | null
+        }
+        Insert: {
+          app_handle?: string | null
+          channel_handle?: string | null
+          created_at?: string
+          description?: string | null
+          ended_at?: string | null
+          event_type?: string | null
+          external_created_at?: string | null
+          external_event_id: string
+          id?: string
+          organization_id: string
+          started_at?: string | null
+          store_id: string
+          updated_at?: string
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+        }
+        Update: {
+          app_handle?: string | null
+          channel_handle?: string | null
+          created_at?: string
+          description?: string | null
+          ended_at?: string | null
+          event_type?: string | null
+          external_created_at?: string | null
+          external_event_id?: string
+          id?: string
+          organization_id?: string
+          started_at?: string | null
+          store_id?: string
+          updated_at?: string
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_marketing_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_marketing_events_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_order_discount_applications: {
+        Row: {
+          allocation_method: string | null
+          amount: number
+          code: string | null
+          created_at: string
+          discount_id: string | null
+          id: string
+          order_id: string
+          organization_id: string
+          position: number
+          target_type: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          allocation_method?: string | null
+          amount?: number
+          code?: string | null
+          created_at?: string
+          discount_id?: string | null
+          id?: string
+          order_id: string
+          organization_id: string
+          position?: number
+          target_type?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          allocation_method?: string | null
+          amount?: number
+          code?: string | null
+          created_at?: string
+          discount_id?: string | null
+          id?: string
+          order_id?: string
+          organization_id?: string
+          position?: number
+          target_type?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_order_discount_applications_discount_id_fkey"
+            columns: ["discount_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_discounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_order_discount_applications_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_order_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_order_discount_applications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shopify_order_facts: {
         Row: {
           cancel_reason: string | null
@@ -5895,25 +8201,41 @@ export type Database = {
           current_subtotal_price: number
           current_total_price: number
           current_total_tax: number
+          customer_order_index: number | null
           customer_reference_hash: string | null
+          days_to_conversion: number | null
           discounts: number
           external_created_at: string | null
           external_order_id: string
           external_updated_at: string | null
           financial_status: string | null
+          first_visit_at: string | null
+          first_visit_landing_page: string | null
+          first_visit_referrer_url: string | null
+          first_visit_source: string | null
+          first_visit_source_type: string | null
+          first_visit_utm_campaign: string | null
+          first_visit_utm_medium: string | null
+          first_visit_utm_source: string | null
           fulfillment_status: string | null
           gross_sales: number
           id: string
           is_first_customer_order: boolean | null
           is_test_order: boolean
+          last_visit_source: string | null
+          last_visit_source_type: string | null
           net_sales: number
           order_name: string | null
           organization_id: string
+          payment_gateway_names: string[]
           presentment_currency_code: string | null
           processed_at: string | null
           refunds: number
+          return_status: string | null
+          risk_level: string | null
           source_name: string | null
           store_id: string
+          tags: string[]
           total_items: number
           updated_at: string
         }
@@ -5926,25 +8248,41 @@ export type Database = {
           current_subtotal_price?: number
           current_total_price?: number
           current_total_tax?: number
+          customer_order_index?: number | null
           customer_reference_hash?: string | null
+          days_to_conversion?: number | null
           discounts?: number
           external_created_at?: string | null
           external_order_id: string
           external_updated_at?: string | null
           financial_status?: string | null
+          first_visit_at?: string | null
+          first_visit_landing_page?: string | null
+          first_visit_referrer_url?: string | null
+          first_visit_source?: string | null
+          first_visit_source_type?: string | null
+          first_visit_utm_campaign?: string | null
+          first_visit_utm_medium?: string | null
+          first_visit_utm_source?: string | null
           fulfillment_status?: string | null
           gross_sales?: number
           id?: string
           is_first_customer_order?: boolean | null
           is_test_order?: boolean
+          last_visit_source?: string | null
+          last_visit_source_type?: string | null
           net_sales?: number
           order_name?: string | null
           organization_id: string
+          payment_gateway_names?: string[]
           presentment_currency_code?: string | null
           processed_at?: string | null
           refunds?: number
+          return_status?: string | null
+          risk_level?: string | null
           source_name?: string | null
           store_id: string
+          tags?: string[]
           total_items?: number
           updated_at?: string
         }
@@ -5957,25 +8295,41 @@ export type Database = {
           current_subtotal_price?: number
           current_total_price?: number
           current_total_tax?: number
+          customer_order_index?: number | null
           customer_reference_hash?: string | null
+          days_to_conversion?: number | null
           discounts?: number
           external_created_at?: string | null
           external_order_id?: string
           external_updated_at?: string | null
           financial_status?: string | null
+          first_visit_at?: string | null
+          first_visit_landing_page?: string | null
+          first_visit_referrer_url?: string | null
+          first_visit_source?: string | null
+          first_visit_source_type?: string | null
+          first_visit_utm_campaign?: string | null
+          first_visit_utm_medium?: string | null
+          first_visit_utm_source?: string | null
           fulfillment_status?: string | null
           gross_sales?: number
           id?: string
           is_first_customer_order?: boolean | null
           is_test_order?: boolean
+          last_visit_source?: string | null
+          last_visit_source_type?: string | null
           net_sales?: number
           order_name?: string | null
           organization_id?: string
+          payment_gateway_names?: string[]
           presentment_currency_code?: string | null
           processed_at?: string | null
           refunds?: number
+          return_status?: string | null
+          risk_level?: string | null
           source_name?: string | null
           store_id?: string
+          tags?: string[]
           total_items?: number
           updated_at?: string
         }
@@ -6087,6 +8441,131 @@ export type Database = {
             columns: ["variant_id"]
             isOneToOne: false
             referencedRelation: "shopify_variants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_order_transactions: {
+        Row: {
+          amount: number
+          created_at: string
+          currency_code: string | null
+          external_created_at: string | null
+          external_transaction_id: string
+          fee_amount: number | null
+          gateway: string | null
+          id: string
+          kind: string | null
+          net_amount: number | null
+          order_id: string
+          organization_id: string
+          payment_method: string | null
+          processed_at: string | null
+          status: string | null
+          store_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          currency_code?: string | null
+          external_created_at?: string | null
+          external_transaction_id: string
+          fee_amount?: number | null
+          gateway?: string | null
+          id?: string
+          kind?: string | null
+          net_amount?: number | null
+          order_id: string
+          organization_id: string
+          payment_method?: string | null
+          processed_at?: string | null
+          status?: string | null
+          store_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          currency_code?: string | null
+          external_created_at?: string | null
+          external_transaction_id?: string
+          fee_amount?: number | null
+          gateway?: string | null
+          id?: string
+          kind?: string | null
+          net_amount?: number | null
+          order_id?: string
+          organization_id?: string
+          payment_method?: string | null
+          processed_at?: string | null
+          status?: string | null
+          store_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_order_transactions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_order_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_order_transactions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_order_transactions_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_product_collections: {
+        Row: {
+          collection_id: string
+          created_at: string
+          organization_id: string
+          product_id: string
+        }
+        Insert: {
+          collection_id: string
+          created_at?: string
+          organization_id: string
+          product_id: string
+        }
+        Update: {
+          collection_id?: string
+          created_at?: string
+          organization_id?: string
+          product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_product_collections_collection_id_fkey"
+            columns: ["collection_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_collections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_product_collections_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_product_collections_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_products"
             referencedColumns: ["id"]
           },
         ]
@@ -6275,6 +8754,185 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_return_line_items: {
+        Row: {
+          created_at: string
+          external_return_line_item_id: string
+          id: string
+          order_item_id: string | null
+          organization_id: string
+          quantity: number
+          return_id: string
+          return_reason: string | null
+          return_reason_note: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          external_return_line_item_id: string
+          id?: string
+          order_item_id?: string | null
+          organization_id: string
+          quantity?: number
+          return_id: string
+          return_reason?: string | null
+          return_reason_note?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          external_return_line_item_id?: string
+          id?: string
+          order_item_id?: string | null
+          organization_id?: string
+          quantity?: number
+          return_id?: string
+          return_reason?: string | null
+          return_reason_note?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_return_line_items_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_return_line_items_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_return_line_items_return_id_fkey"
+            columns: ["return_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_returns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_returns: {
+        Row: {
+          closed_at: string | null
+          created_at: string
+          external_created_at: string | null
+          external_return_id: string
+          id: string
+          order_id: string
+          organization_id: string
+          status: string | null
+          store_id: string
+          total_quantity: number
+          updated_at: string
+        }
+        Insert: {
+          closed_at?: string | null
+          created_at?: string
+          external_created_at?: string | null
+          external_return_id: string
+          id?: string
+          order_id: string
+          organization_id: string
+          status?: string | null
+          store_id: string
+          total_quantity?: number
+          updated_at?: string
+        }
+        Update: {
+          closed_at?: string | null
+          created_at?: string
+          external_created_at?: string | null
+          external_return_id?: string
+          id?: string
+          order_id?: string
+          organization_id?: string
+          status?: string | null
+          store_id?: string
+          total_quantity?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_returns_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_order_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_returns_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_returns_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_sessions_daily: {
+        Row: {
+          bucket_date: string
+          conversion_rate: number | null
+          created_at: string
+          id: string
+          online_store_visitors: number
+          organization_id: string
+          raw: Json | null
+          sessions: number
+          store_id: string
+          updated_at: string
+        }
+        Insert: {
+          bucket_date: string
+          conversion_rate?: number | null
+          created_at?: string
+          id?: string
+          online_store_visitors?: number
+          organization_id: string
+          raw?: Json | null
+          sessions?: number
+          store_id: string
+          updated_at?: string
+        }
+        Update: {
+          bucket_date?: string
+          conversion_rate?: number | null
+          created_at?: string
+          id?: string
+          online_store_visitors?: number
+          organization_id?: string
+          raw?: Json | null
+          sessions?: number
+          store_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_sessions_daily_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shopify_sessions_daily_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
             referencedColumns: ["id"]
           },
         ]
@@ -6904,6 +9562,38 @@ export type Database = {
       }
     }
     Functions: {
+      admin_agent_runtime_stats: {
+        Args: { since: string }
+        Returns: {
+          agent_code: string
+          agent_name: string
+          avg_latency_ms: number
+          failed_count: number
+          p95_latency_ms: number
+          run_count: number
+          running_count: number
+          total_cost_usd: number
+        }[]
+      }
+      admin_consultant_ai_stats: {
+        Args: { since: string }
+        Returns: {
+          client_count: number
+          consultant_user_id: string
+          run_count: number
+          top_agents: Json
+          total_cost_usd: number
+        }[]
+      }
+      admin_organization_ai_stats: {
+        Args: { since: string }
+        Returns: {
+          organization_id: string
+          run_count: number
+          top_agents: Json
+          total_cost_usd: number
+        }[]
+      }
       agent_sql_gateway: {
         Args: {
           max_rows?: number
@@ -6911,6 +9601,246 @@ export type Database = {
           target_organization_id: string
         }
         Returns: Json
+      }
+      billable_store_count: {
+        Args: { target_organization_id: string }
+        Returns: number
+      }
+      consultant_business_rollup: {
+        Args: { org_ids: string[]; period_end: string; period_start: string }
+        Returns: {
+          meta_purchase_value: number
+          meta_spend: number
+          net_sales: number
+          orders_count: number
+          roas: number
+        }[]
+      }
+      consultant_klaviyo_by_org: {
+        Args: { org_ids: string[]; period_end: string; period_start: string }
+        Returns: {
+          campaigns_sent: number
+          clicks_unique: number
+          last_send_at: string
+          opens_unique: number
+          organization_id: string
+          recipients: number
+          revenue: number
+        }[]
+      }
+      consultant_klaviyo_signals: {
+        Args: { lookback_days?: number; target_organization_ids: string[] }
+        Returns: {
+          campaigns_in_window: number
+          connection_status: string
+          emails_sin_cuerpo: number
+          emails_sin_utm: number
+          emails_total: number
+          flows_active: number
+          last_send_at: string
+          last_sync_at: string
+          lists: number
+          organization_id: string
+          segments: number
+          sync_incomplete: boolean
+        }[]
+      }
+      consultant_meta_by_org: {
+        Args: { org_ids: string[]; period_end: string; period_start: string }
+        Returns: {
+          cac: number
+          clicks: number
+          days_with_data: number
+          impressions: number
+          organization_id: string
+          purchase_value: number
+          purchases: number
+          roas: number
+          spend: number
+        }[]
+      }
+      consultant_meta_signals: {
+        Args: { lookback_days?: number; target_organization_ids: string[] }
+        Returns: {
+          ad_accounts: number
+          ad_sets_learning: number
+          ads_with_issues: number
+          connection_status: string
+          days_with_spend: number
+          last_sync_at: string
+          organization_id: string
+          pixels: number
+          pixels_silent: number
+          recent_changes: number
+          spend: number
+          spend_below_average: number
+          spend_with_verdict: number
+        }[]
+      }
+      consultant_orders_by_org: {
+        Args: { org_ids: string[]; period_end: string; period_start: string }
+        Returns: {
+          net_sales: number
+          orders_count: number
+          organization_id: string
+        }[]
+      }
+      consultant_orders_by_store: {
+        Args: { org_ids: string[]; period_end: string; period_start: string }
+        Returns: {
+          currency_code: string
+          myshopify_domain: string
+          net_sales: number
+          orders_count: number
+          organization_id: string
+          shop_name: string
+          store_id: string
+          units_sold: number
+        }[]
+      }
+      consultant_orders_daily_by_org: {
+        Args: { org_ids: string[]; period_end: string; period_start: string }
+        Returns: {
+          bucket_date: string
+          orders_count: number
+          organization_id: string
+        }[]
+      }
+      consultant_store_signals: {
+        Args: { agent_codes: string[]; target_organization_ids: string[] }
+        Returns: {
+          agent_code: string
+          organization_id: string
+          output: Json
+          ran_at: string
+        }[]
+      }
+      klaviyo_email_inventory: {
+        Args: { target_organization_id: string; target_store_id?: string }
+        Returns: {
+          adds_utm: boolean
+          body_chars: number
+          custom_utm_params: number
+          external_message_id: string
+          external_template_id: string
+          message_id: string
+          parent_id: string
+          parent_name: string
+          parent_status: string
+          position_in_parent: number
+          preview_text: string
+          send_time: string
+          source: string
+          subject: string
+          template_name: string
+          tracks_clicks: boolean
+          tracks_opens: boolean
+          trigger_type: string
+        }[]
+      }
+      klaviyo_email_report: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          bounced: number
+          bucket_month: string
+          clicks_unique: number
+          conversions: number
+          delivered: number
+          entity_id: string
+          entity_name: string
+          entity_type: string
+          opens_unique: number
+          recipients: number
+          revenue: number
+          send_time: string
+          spam_complaints: number
+          subject: string
+          trigger_type: string
+          unsubscribes: number
+        }[]
+      }
+      klaviyo_link_clicks: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          clicks: number
+          mensajes: number
+          personas: number
+          primer_click: string
+          ultimo_click: string
+          url: string
+        }[]
+      }
+      klaviyo_measurement_health: {
+        Args: { target_organization_id: string; target_store_id?: string }
+        Returns: {
+          campanas_enviadas: number
+          emails_sin_asunto: number
+          emails_sin_cuerpo: number
+          emails_sin_seguimiento_clics: number
+          emails_sin_utm: number
+          emails_total: number
+          flujos_activos: number
+          listas: number
+          metrica_conversion: string
+          recursos_no_traidos: string
+          segmentos: number
+          ultimo_sync: string
+          ultimo_sync_estado: string
+        }[]
+      }
+      klaviyo_subject_performance: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          bucket_month: string
+          click_rate: number
+          click_to_open_rate: number
+          clicks_unique: number
+          delivered: number
+          entity_name: string
+          entity_type: string
+          has_emoji: boolean
+          has_number: boolean
+          has_personalization: boolean
+          is_question: boolean
+          open_rate: number
+          opens_unique: number
+          revenue: number
+          revenue_per_delivered: number
+          subject: string
+          subject_chars: number
+          subject_words: number
+          unsubscribe_rate: number
+        }[]
+      }
+      klaviyo_tracking_summary: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+        }
+        Returns: {
+          event_count: number
+          event_name: string
+          first_event_at: string
+          last_event_at: string
+          profiles: number
+          revenue: number
+        }[]
       }
       knowledge_search: {
         Args: {
@@ -6955,11 +9885,195 @@ export type Database = {
           visibility: string
         }[]
       }
+      meta_attribution_window_rank: {
+        Args: { window_name: string }
+        Returns: number
+      }
+      meta_audience_overview: {
+        Args: { target_organization_id: string; target_store_id?: string }
+        Returns: {
+          ad_sets_using: number
+          approximate_count_lower: number
+          approximate_count_upper: number
+          audience_id: string
+          audience_name: string
+          delivery_status_code: number
+          delivery_status_description: string
+          external_updated_at: string
+          is_lookalike: boolean
+          lookalike_country: string
+          lookalike_ratio: number
+          origin_name: string
+          retention_days: number
+          subtype: string
+        }[]
+      }
+      meta_change_impact: {
+        Args: {
+          min_spend?: number
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+          window_days?: number
+        }
+        Returns: {
+          actor_name: string
+          cpa_after: number
+          cpa_before: number
+          days_after: number
+          days_before: number
+          entity_level: string
+          event_time: string
+          event_type: string
+          object_name: string
+          purchase_attribution_window: string
+          purchase_value_after: number
+          purchase_value_before: number
+          purchases_after: number
+          purchases_before: number
+          roas_after: number
+          roas_before: number
+          roas_delta_pct: number
+          spend_after: number
+          spend_before: number
+          translated_event_type: string
+        }[]
+      }
+      meta_creative_performance: {
+        Args: {
+          min_impressions?: number
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          ad_id: string
+          ad_name: string
+          ad_set_name: string
+          campaign_name: string
+          conversion_rate_ranking: string
+          cost_per_purchase: number
+          days_with_data: number
+          effective_status: string
+          engagement_rate_ranking: string
+          enough_volume: boolean
+          has_video: boolean
+          hold_rate: number
+          hook_rate: number
+          impressions: number
+          outbound_clicks: number
+          outbound_ctr: number
+          purchase_attribution_window: string
+          purchase_value: number
+          purchases: number
+          quality_ranking: string
+          roas: number
+          spend: number
+          thruplay_rate: number
+          video_plays: number
+        }[]
+      }
+      meta_creative_ranking_distribution: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          ads: number
+          dimension: string
+          ranking_value: string
+          spend: number
+          spend_share: number
+        }[]
+      }
+      meta_learning_phase_status: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          ad_set_id: string
+          ad_set_name: string
+          campaign_name: string
+          conversions_missing: number
+          daily_budget: number
+          days_since_change: number
+          effective_status: string
+          last_significant_change: string
+          learning_conversions: number
+          learning_conversions_needed: number
+          learning_stage_status: string
+          optimization_goal: string
+          spend_in_period: number
+        }[]
+      }
+      meta_pixel_health: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          avg_daily_events: number
+          days_in_period: number
+          days_missing: number
+          days_with_events: number
+          event_name: string
+          events_total: number
+          external_pixel_id: string
+          hours_since_last_fire: number
+          is_unavailable: boolean
+          last_event_date: string
+          last_fired_at: string
+          pixel_id: string
+          pixel_name: string
+        }[]
+      }
+      meta_spend_by_campaign: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          campaign_id: string
+          campaign_name: string
+          clicks: number
+          days_with_data: number
+          impressions: number
+          purchase_action_type: string
+          purchase_value: number
+          purchases: number
+          roas: number
+          spend: number
+        }[]
+      }
+      meta_spend_daily: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          bucket_date: string
+          spend: number
+        }[]
+      }
       meta_spend_summary: {
         Args: {
           period_end: string
           period_start: string
           target_organization_id: string
+          target_store_id?: string
         }
         Returns: {
           cac: number
@@ -6971,6 +10085,131 @@ export type Database = {
           purchases: number
           roas: number
           spend: number
+        }[]
+      }
+      organization_activity_digest: {
+        Args: { target_organization_id: string }
+        Returns: string
+      }
+      reorder_strategic_milestones: {
+        Args: { p_ordered_ids: string[]; p_phase_id: string }
+        Returns: undefined
+      }
+      reorder_strategic_phases: {
+        Args: { p_ordered_ids: string[]; p_plan_id: string }
+        Returns: undefined
+      }
+      shopify_attribution_by_channel: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          avg_days_to_conversion: number
+          new_customers: number
+          orders: number
+          revenue: number
+          source: string
+          source_type: string
+          utm_campaign: string
+        }[]
+      }
+      shopify_checkout_recovery: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          avg_checkout_value: number
+          avg_hours_to_recover: number
+          checkouts: number
+          lost_value: number
+          recovered: number
+          recovered_value: number
+          recovery_rate: number
+        }[]
+      }
+      shopify_cohorts: {
+        Args: {
+          months_back?: number
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          cohort_customers: number
+          cohort_month: string
+          customers: number
+          month_offset: number
+          orders: number
+          revenue: number
+        }[]
+      }
+      shopify_customer_recurrence: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          new_orders: number
+          new_revenue: number
+          repeat_order_rate: number
+          returning_orders: number
+          returning_revenue: number
+          unknown_orders: number
+        }[]
+      }
+      shopify_customer_value: {
+        Args: { target_organization_id: string; target_store_id: string }
+        Returns: {
+          avg_orders_per_customer: number
+          avg_revenue_per_customer: number
+          customers: number
+          guest_orders: number
+          median_revenue_per_customer: number
+          orders_with_customer: number
+          p90_revenue_per_customer: number
+        }[]
+      }
+      shopify_delivery_times: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          avg_days_to_deliver: number
+          avg_delay_days: number
+          avg_hours_to_ship: number
+          delivered: number
+          fulfillments: number
+          in_transit: number
+          late_deliveries: number
+          with_estimate: number
+        }[]
+      }
+      shopify_discount_cost_by_code: {
+        Args: {
+          period_end: string
+          period_start: string
+          result_limit?: number
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          code: string
+          discount_share: number
+          new_customers: number
+          order_discount_total: number
+          order_revenue: number
+          orders: number
+          orders_with_multiple_codes: number
         }[]
       }
       shopify_financial_summary: {
@@ -6995,6 +10234,32 @@ export type Database = {
           orders_count: number
           payment_fees: number
           shipping_costs: number
+        }[]
+      }
+      shopify_funnel_daily: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          bucket_date: string
+          sessions: number
+        }[]
+      }
+      shopify_funnel_summary: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          conversion_rate_shopify: number
+          days_with_sessions: number
+          online_store_visitors: number
+          sessions: number
         }[]
       }
       shopify_margin_summary:
@@ -7029,6 +10294,38 @@ export type Database = {
               revenue: number
             }[]
           }
+      shopify_return_rate_by_product: {
+        Args: {
+          period_end: string
+          period_start: string
+          result_limit?: number
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          product_id: string
+          refunded_amount: number
+          return_rate: number
+          revenue: number
+          title: string
+          top_return_reason: string
+          units_returned: number
+          units_sold: number
+        }[]
+      }
+      shopify_sales_daily: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          bucket_date: string
+          net_sales: number
+          orders_count: number
+        }[]
+      }
       shopify_sales_summary:
         | {
             Args: {
@@ -7143,6 +10440,29 @@ export type Database = {
         | "pending_approval"
         | "published"
         | "rejected"
+      klaviyo_audience_role: "included" | "excluded"
+      klaviyo_audience_type: "list" | "segment"
+      klaviyo_report_entity_type:
+        | "campaign"
+        | "campaign_message"
+        | "flow"
+        | "flow_message"
+        | "form"
+        | "segment"
+      klaviyo_report_status:
+        | "pending"
+        | "running"
+        | "completed"
+        | "failed"
+        | "succeeded"
+      klaviyo_report_type:
+        | "values"
+        | "series"
+        | "metric_aggregate"
+        | "campaign-values-report"
+        | "flow-values-report"
+        | "form-values-report"
+        | "segment-values-report"
       member_role: "owner" | "manager" | "member" | "readonly"
       meta_creative_asset_type:
         | "image"
@@ -7336,6 +10656,32 @@ export const Constants = {
         "pending_approval",
         "published",
         "rejected",
+      ],
+      klaviyo_audience_role: ["included", "excluded"],
+      klaviyo_audience_type: ["list", "segment"],
+      klaviyo_report_entity_type: [
+        "campaign",
+        "campaign_message",
+        "flow",
+        "flow_message",
+        "form",
+        "segment",
+      ],
+      klaviyo_report_status: [
+        "pending",
+        "running",
+        "completed",
+        "failed",
+        "succeeded",
+      ],
+      klaviyo_report_type: [
+        "values",
+        "series",
+        "metric_aggregate",
+        "campaign-values-report",
+        "flow-values-report",
+        "form-values-report",
+        "segment-values-report",
       ],
       member_role: ["owner", "manager", "member", "readonly"],
       meta_creative_asset_type: [

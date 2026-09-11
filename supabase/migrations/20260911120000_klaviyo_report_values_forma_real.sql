@@ -16,11 +16,25 @@ alter table public.klaviyo_report_values
   add column if not exists metric_id varchar(255),
   add column if not exists created_at timestamptz not null default now();
 
--- El unique que usa el upsert. Indice para poder pedir `if not exists`.
-create unique index if not exists klaviyo_report_values_unique_metric
-  on public.klaviyo_report_values (
-    report_run_id, entity_type, external_entity_id, metric_id, period_start, period_end
-  );
+-- El unique del upsert ya lo crea 20260802151000_db_09_klaviyo_code_contract_alignment
+-- (klaviyo_report_values_code_contract_uidx) con estas mismas columnas. Aqui
+-- solo se comprueba que exista: crear un segundo indice identico duplicaba el
+-- coste de escritura y confundia a quien mirase la tabla.
+do $do$
+begin
+  if not exists (
+    select 1 from pg_indexes
+    where schemaname = 'public'
+      and tablename = 'klaviyo_report_values'
+      and indexname = 'klaviyo_report_values_code_contract_uidx'
+  ) then
+    create unique index klaviyo_report_values_code_contract_uidx
+      on public.klaviyo_report_values (
+        report_run_id, entity_type, external_entity_id, metric_id, period_start, period_end
+      );
+  end if;
+end
+$do$;
 
 -- Restos del diseño que no llego a existir. `if exists` en todo: en produccion
 -- no hay nada que borrar.
