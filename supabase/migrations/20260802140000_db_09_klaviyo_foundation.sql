@@ -441,7 +441,12 @@ drop policy if exists "klaviyo_report_values_select_authorized" on public.klaviy
 create policy "klaviyo_report_values_select_authorized" on public.klaviyo_report_values for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_metrics_select_authorized" on public.klaviyo_metrics;
 create policy "klaviyo_metrics_select_authorized" on public.klaviyo_metrics for select to authenticated using (private.can_access_org(organization_id));
+-- Se sueltan los dos nombres: el `drop` decia `klaviyo_daily_metrics_...` y el
+-- `create` de debajo `klaviyo_daily_account_metrics_...`, asi que reaplicar la
+-- migracion fallaba por politica ya existente. Una base que se creo con el
+-- nombre viejo tampoco debe quedarse con las dos.
 drop policy if exists "klaviyo_daily_metrics_select_authorized" on public.klaviyo_daily_account_metrics;
+drop policy if exists "klaviyo_daily_account_metrics_select_authorized" on public.klaviyo_daily_account_metrics;
 create policy "klaviyo_daily_account_metrics_select_authorized" on public.klaviyo_daily_account_metrics for select to authenticated using (private.can_access_org(organization_id));
 
 grant select on public.klaviyo_accounts, public.klaviyo_lists, public.klaviyo_list_daily_snapshots,

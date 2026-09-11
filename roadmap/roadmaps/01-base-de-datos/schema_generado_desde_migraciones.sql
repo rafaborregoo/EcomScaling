@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (169 archivos).
+-- Regenerado desde supabase/migrations (172 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -301,7 +301,7 @@ revoke all on function private.handle_new_auth_user() from public;
 grant execute on function private.handle_new_auth_user() to postgres;
 grant execute on function private.handle_new_auth_user() to service_role;
 
-drop trigger if exists on_auth_user_created on auth;
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function private.handle_new_auth_user();
@@ -6162,12 +6162,12 @@ drop policy if exists "klaviyo_accounts_select_authorized" on public.klaviyo_acc
 create policy "klaviyo_accounts_select_authorized" on public.klaviyo_accounts for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_lists_select_authorized" on public.klaviyo_lists;
 create policy "klaviyo_lists_select_authorized" on public.klaviyo_lists for select to authenticated using (private.can_access_org(organization_id));
-drop policy if exists "klaviyo_list_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots;
-create policy "klaviyo_list_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_list_daily_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots;
+create policy "klaviyo_list_daily_snapshots_select_authorized" on public.klaviyo_list_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_segments_select_authorized" on public.klaviyo_segments;
 create policy "klaviyo_segments_select_authorized" on public.klaviyo_segments for select to authenticated using (private.can_access_org(organization_id));
-drop policy if exists "klaviyo_segment_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots;
-create policy "klaviyo_segment_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_segment_daily_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots;
+create policy "klaviyo_segment_daily_snapshots_select_authorized" on public.klaviyo_segment_daily_snapshots for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_flows_select_authorized" on public.klaviyo_flows;
 create policy "klaviyo_flows_select_authorized" on public.klaviyo_flows for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_flow_actions_select_authorized" on public.klaviyo_flow_actions;
@@ -6188,8 +6188,13 @@ drop policy if exists "klaviyo_report_values_select_authorized" on public.klaviy
 create policy "klaviyo_report_values_select_authorized" on public.klaviyo_report_values for select to authenticated using (private.can_access_org(organization_id));
 drop policy if exists "klaviyo_metrics_select_authorized" on public.klaviyo_metrics;
 create policy "klaviyo_metrics_select_authorized" on public.klaviyo_metrics for select to authenticated using (private.can_access_org(organization_id));
+-- Se sueltan los dos nombres: el `drop` decia `klaviyo_daily_metrics_...` y el
+-- `create` de debajo `klaviyo_daily_account_metrics_...`, asi que reaplicar la
+-- migracion fallaba por politica ya existente. Una base que se creo con el
+-- nombre viejo tampoco debe quedarse con las dos.
 drop policy if exists "klaviyo_daily_metrics_select_authorized" on public.klaviyo_daily_account_metrics;
-create policy "klaviyo_daily_metrics_select_authorized" on public.klaviyo_daily_account_metrics for select to authenticated using (private.can_access_org(organization_id));
+drop policy if exists "klaviyo_daily_account_metrics_select_authorized" on public.klaviyo_daily_account_metrics;
+create policy "klaviyo_daily_account_metrics_select_authorized" on public.klaviyo_daily_account_metrics for select to authenticated using (private.can_access_org(organization_id));
 
 grant select on public.klaviyo_accounts, public.klaviyo_lists, public.klaviyo_list_daily_snapshots,
   public.klaviyo_segments, public.klaviyo_segment_daily_snapshots, public.klaviyo_flows,
@@ -8534,7 +8539,7 @@ as $$
     rv.entity_type,
     coalesce(c.id::text, f.id::text, rv.external_entity_id),
     (rv.period_end - rv.period_start) desc,
-    rv.created_at desc;
+    rv.captured_at desc;
 $$;
 
 grant execute on function public.klaviyo_email_report(uuid, date, date) to authenticated;
@@ -8755,7 +8760,7 @@ as $$
     rv.entity_type,
     coalesce(c.id::text, f.id::text, rv.external_entity_id),
     (rv.period_end - rv.period_start) desc,
-    rv.created_at desc;
+    rv.captured_at desc;
 $$;
 
 comment on function public.klaviyo_email_report is 'Rendimiento de email Klaviyo por mes y entidad (campanas y flows) con el asunto real de la campana (de klaviyo_campaign_messages.raw_data). Fuente klaviyo_report_values enlazada por id externo. La API deriva rates, ranking de asuntos y deltas.';
@@ -14572,7 +14577,7 @@ as $function$
     rv.entity_type,
     coalesce(c.id::text, f.id::text, rv.external_entity_id),
     (rv.period_end - rv.period_start) desc,
-    rv.created_at desc;
+    rv.captured_at desc;
 $function$;
 
 create index if not exists klaviyo_report_runs_account_idx
@@ -16097,6 +16102,37 @@ alter table public.klaviyo_flow_actions
   add column if not exists last_synced_at timestamptz,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
+
+-- Convergencia de forma (anadido al replicar el esquema en un proyecto nuevo,
+-- 2026-09-11): en produccion esta tabla cuelga del FLUJO -- flow_id +
+-- external_message_id, con action_id como puntero opcional -- y el sync hace
+-- upsert con ese onConflict. Una base creada desde cero solo con estos ficheros
+-- nacia colgando de la accion (flow_action_id not null), asi que el sync no
+-- habria funcionado en desarrollo. Produccion ya tiene esta forma; estas lineas
+-- son para cualquier entorno que se cree de nuevo.
+alter table public.klaviyo_flow_messages
+  add column if not exists flow_id uuid references public.klaviyo_flows (id) on delete cascade,
+  add column if not exists action_id uuid references public.klaviyo_flow_actions (id) on delete set null;
+
+do $do$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'klaviyo_flow_messages'
+      and column_name = 'flow_action_id'
+      and is_nullable = 'NO'
+  ) then
+    alter table public.klaviyo_flow_messages alter column flow_action_id drop not null;
+  end if;
+end
+$do$;
+
+-- El unique real del upsert. Indice en vez de constraint para poder usar
+-- `if not exists` (Postgres no lo admite en add constraint).
+create unique index if not exists klaviyo_flow_messages_unique_flow_external
+  on public.klaviyo_flow_messages (flow_id, external_message_id);
 
 alter table public.klaviyo_flow_messages
   add column if not exists external_template_id varchar(255),
@@ -18640,3 +18676,248 @@ comment on function private.reap_stalled_agent_runs(timestamptz, integer) is
 create index if not exists agent_runs_running_started_idx
   on public.agent_runs (started_at)
   where status = 'running';
+
+-- =============================================================================
+-- Migracion: 20260910120000_ai_04_retrieval_espanol_y_rrf.sql
+-- =============================================================================
+-- AI-04: calidad de retrieval. Dos arreglos sobre knowledge_search_hybrid que
+-- no cambian su contrato (misma firma, mismas columnas de salida) ni su
+-- frontera de aislamiento (el WHERE se copia tal cual de la version anterior).
+--
+-- Se aplica con knowledge_chunks vacia a proposito: cambiar la configuracion
+-- de busqueda de texto obliga a reconstruir el indice GIN, que sobre una tabla
+-- vacia es instantaneo y sobre el corpus completo es un rebuild que hay que
+-- vigilar.
+--
+-- ARREGLO 1 - el lexico estaba en 'simple', que no lematiza.
+--   Con 'simple' cada palabra se indexa tal cual: "envios" no encajaba con
+--   "envio" ni "devoluciones" con "devolucion". La pata lexica del hibrido era
+--   coincidencia exacta de palabra, que sobre castellano (lleno de plurales y
+--   de formas verbales) falla casi siempre. Pasa a 'spanish', que lematiza.
+--
+--   Medido en el proyecto de tests antes de escribir esto:
+--     to_tsvector('spanish','Los envios salen manana') @@ plainto_tsquery('spanish','envio')  -> true
+--     to_tsvector('simple', 'Los envios salen manana') @@ plainto_tsquery('simple','envio')   -> false
+--
+--   NO se añade `unaccent`, aunque "spanish + unaccent" sea el idiom habitual:
+--   el stemmer español usa el acento para decidir. Medido:
+--     spanish_stem('devolución')  -> 'devolu'
+--     spanish_stem('devoluciones')-> 'devolu'      (encajan)
+--     spanish_stem('devolucion')  -> 'devolucion'  (sin acento, otra rama)
+--   Como `unaccent` corre ANTES del stemmer, quitar el acento convierte
+--   'devolución' en 'devolucion' y deja de encajar con 'devoluciones': el
+--   parche habria roto justo el caso que viene a arreglar. Una consulta
+--   escrita sin acentos la recoge la pata semantica, que para eso esta -- los
+--   embeddings son robustos a la ortografia y el lexico esta aqui para la
+--   terminologia exacta.
+--
+-- ARREGLO 2 - la fusion sumaba puntuaciones de escalas distintas.
+--   `0.70 * semantic + 0.25 * lexical + 0.05 * authority` parece un reparto
+--   70/25/5, pero no lo es: la similitud coseno vive en 0..1 y ts_rank_cd
+--   devuelve tipicamente centesimas, asi que el termino lexico aportaba una
+--   fraccion de lo que su peso sugiere y el hibrido era, en la practica, casi
+--   vector puro. Se pasa a fusion por rango reciproca (RRF), que combina las
+--   POSICIONES de cada ranking y por eso no depende de la escala de ninguno.
+
+-- 1. El indice de texto pasa a castellano.
+--    Nota: la funcion indexa titulo || contenido, que cruza dos tablas y por
+--    tanto no puede usar este indice de una sola tabla. Se mantiene alineado
+--    con el contenido del fragmento porque es lo unico indexable aqui, y al
+--    volumen de este corpus (miles de filas, no millones) el escaneo del
+--    termino lexico no es el cuello de botella.
+drop index if exists public.knowledge_chunks_content_fts_idx;
+create index if not exists knowledge_chunks_content_fts_es_idx
+  on public.knowledge_chunks
+  using gin (to_tsvector('pg_catalog.spanish'::regconfig, content));
+
+-- 2. La funcion: castellano en el lexico y fusion por rango.
+drop function if exists public.knowledge_search_hybrid(uuid, extensions.vector(1024), text, text[], uuid, integer);
+create or replace function public.knowledge_search_hybrid(
+  target_organization_id uuid,
+  query_embedding extensions.vector(1024),
+  query_text text,
+  audience_allowed text[],
+  target_store_id uuid default null,
+  match_count integer default 8
+)
+returns table (
+  chunk_id uuid,
+  document_id uuid,
+  document_title varchar,
+  visibility varchar,
+  audience varchar,
+  authority varchar,
+  chunk_index integer,
+  content text,
+  similarity double precision,
+  semantic_similarity double precision,
+  lexical_score double precision
+)
+language sql
+stable
+set search_path = pg_catalog, public, extensions
+as $$
+  with scored as (
+    select
+      c.id as chunk_id,
+      c.document_id,
+      d.title as document_title,
+      d.visibility,
+      d.audience,
+      d.authority,
+      c.chunk_index,
+      c.content,
+      greatest(1 - (c.embedding <=> query_embedding), 0)::double precision as semantic_similarity,
+      least(
+        ts_rank_cd(
+          to_tsvector('pg_catalog.spanish'::regconfig, coalesce(d.title, '') || ' ' || c.content),
+          plainto_tsquery('pg_catalog.spanish'::regconfig, coalesce(query_text, ''))
+        ),
+        1
+      )::double precision as lexical_score,
+      case d.authority
+        when 'canonical' then 1::double precision
+        when 'operational' then 0.65::double precision
+        else 0.35::double precision
+      end as authority_score
+    -- Frontera de aislamiento: identica a la version anterior, palabra por
+    -- palabra. Es lo unico que impide que un tenant lea el conocimiento
+    -- privado de otro, porque la funcion se llama con service_role y no hay
+    -- RLS detras que la respalde (ver el comentario de BE-01 en
+    -- searchKnowledge).
+    from public.knowledge_chunks c
+    join public.knowledge_documents d on d.id = c.document_id
+    where d.status = 'active'
+      and c.embedding is not null
+      and d.audience = any(audience_allowed)
+      and (d.visibility = 'global' or c.organization_id = target_organization_id)
+      and (target_store_id is null or d.store_id is null or d.store_id = target_store_id)
+  ),
+  ranked as (
+    select
+      scored.*,
+      row_number() over (
+        order by scored.semantic_similarity desc, scored.chunk_id
+      ) as semantic_rank,
+      -- Solo entran en el ranking lexico los que casan de verdad. Si los que
+      -- no casan entraran con puntuacion 0, recibirian igualmente su
+      -- 1/(k+rango) y un fragmento sin una sola palabra en comun con la
+      -- pregunta subiria por el mero hecho de existir. El orden pone los que
+      -- casan delante, asi que se quedan con los rangos 1..m y el resto se
+      -- anula.
+      case
+        when scored.lexical_score > 0 then
+          row_number() over (
+            order by
+              (scored.lexical_score > 0) desc,
+              scored.lexical_score desc,
+              scored.chunk_id
+          )
+        else null
+      end as lexical_rank
+    from scored
+  )
+  select
+    ranked.chunk_id,
+    ranked.document_id,
+    ranked.document_title,
+    ranked.visibility,
+    ranked.audience,
+    ranked.authority,
+    ranked.chunk_index,
+    ranked.content,
+    -- RRF con k=60 (el valor convencional: amortigua el peso de los primeros
+    -- puestos para que un unico ranking no domine la fusion).
+    --
+    -- La autoridad entra con un coeficiente deliberadamente pequeño. Dos
+    -- puestos consecutivos de RRF se diferencian en ~0.00026, asi que
+    -- 0.001 x (1 - 0.35) mueve un documento canonico dos o tres puestos
+    -- frente a uno contextual igual de relevante: un desempate, no un
+    -- criterio. Con el 0.05 de la version anterior la autoridad habria
+    -- arrasado la fusion, porque la suma de RRF vive en ~0.03 y no en ~1.
+    (
+      1.0 / (60 + ranked.semantic_rank)
+      + coalesce(1.0 / (60 + ranked.lexical_rank), 0)
+      + 0.001 * ranked.authority_score
+    )::double precision as similarity,
+    ranked.semantic_similarity,
+    ranked.lexical_score
+  from ranked
+  order by similarity desc, ranked.chunk_id
+  limit least(greatest(coalesce(match_count, 8), 1), 50);
+$$;
+
+comment on function public.knowledge_search_hybrid is
+  'Retrieval hibrido AI-04: vector + lexico en castellano (config spanish, con lematizacion), fusionados por rango reciproco (RRF, k=60) con la autoridad documental como desempate. Conserva los filtros de tenant, audiencia y tienda. OJO: la columna "similarity" es la puntuacion RRF (escala ~0.03), no una similitud 0..1 -- para mostrar un porcentaje a una persona hay que usar "semantic_similarity".';
+
+grant execute on function public.knowledge_search_hybrid(uuid, extensions.vector, text, text[], uuid, integer) to service_role;
+
+-- =============================================================================
+-- Migracion: 20260910130000_shopify_customers_drop_location.sql
+-- =============================================================================
+-- Datos protegidos de Shopify: la ubicacion aproximada del cliente
+-- (ciudad/provincia/pais) no la lee nadie en el producto, asi que deja de
+-- pedirse y deja de guardarse. Cuanto menos dato protegido se toca, menos hay
+-- que justificar en la solicitud de acceso y menos hay que proteger despues.
+--
+-- Idempotente (ver CLAUDE.md): el indice se borra antes que las columnas.
+drop index if exists public.shopify_customers_country_idx;
+
+alter table public.shopify_customers
+  drop column if exists default_country_code,
+  drop column if exists default_province_code,
+  drop column if exists default_city;
+
+-- =============================================================================
+-- Migracion: 20260911120000_klaviyo_report_values_forma_real.sql
+-- =============================================================================
+-- Deriva en klaviyo_report_values: el fichero de fundacion describe un diseño
+-- (statistic_name + dimension_hash + punteros a cada entidad) que NUNCA se
+-- construyo. Produccion tiene el diseño que usa el codigo -- una fila por
+-- metrica, con `metric_id` y unique
+-- (report_run_id, entity_type, external_entity_id, metric_id, period_start, period_end),
+-- que es el onConflict de klaviyo-sync.ts -- y ahi se quedo.
+--
+-- Se detecto al levantar el proyecto de desarrollo desde cero (2026-09-11): la
+-- base nueva nacia con la forma del fichero, en la que el sync de informes no
+-- puede escribir (statistic_name not null, unique distinto).
+--
+-- Manda el codigo, que coincide con produccion. Esta migracion converge
+-- cualquier base a esa forma; sobre produccion es practicamente un no-op.
+
+alter table public.klaviyo_report_values
+  add column if not exists metric_id varchar(255),
+  add column if not exists created_at timestamptz not null default now();
+
+-- El unique que usa el upsert. Indice para poder pedir `if not exists`.
+create unique index if not exists klaviyo_report_values_unique_metric
+  on public.klaviyo_report_values (
+    report_run_id, entity_type, external_entity_id, metric_id, period_start, period_end
+  );
+
+-- Restos del diseño que no llego a existir. `if exists` en todo: en produccion
+-- no hay nada que borrar.
+alter table public.klaviyo_report_values
+  drop constraint if exists klaviyo_report_values_entity_target_check,
+  drop constraint if exists klaviyo_report_values_unique_value;
+
+drop index if exists public.klaviyo_report_values_dimension_idx;
+
+alter table public.klaviyo_report_values
+  drop column if exists statistic_name,
+  drop column if exists value_numeric,
+  drop column if exists value_json,
+  drop column if exists dimension_hash,
+  drop column if exists dimensions,
+  drop column if exists channel,
+  drop column if exists interval,
+  drop column if exists captured_at,
+  drop column if exists campaign_id,
+  drop column if exists campaign_message_id,
+  drop column if exists flow_id,
+  drop column if exists flow_message_id,
+  drop column if exists form_id,
+  drop column if exists segment_id;
+
+comment on column public.klaviyo_report_values.metric_id is
+  'Metrica de Klaviyo a la que corresponde el valor. Forma la clave del upsert junto al run, la entidad y el periodo.';

@@ -15,7 +15,7 @@ La medida más eficaz es no tener el dato. Por eso:
   marketing. **No** nombre, email ni teléfono.
 - Pedidos y checkouts no almacenan email ni dirección de envío.
 - La ubicación aproximada del cliente se retiró del esquema por no usarse
-  ([migración](../../supabase/migrations/20260910120000_shopify_customers_drop_location.sql)).
+  ([migración](../../supabase/migrations/20260910130000_shopify_customers_drop_location.sql)).
 
 ## 2. Salidas controladas
 

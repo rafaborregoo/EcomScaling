@@ -27,7 +27,7 @@ Ayuda a la solicitud, porque Shopify aprueba "el mínimo necesario":
 - La ubicación aproximada del cliente (ciudad, provincia, país) **ya no se pide
   ni se guarda**: no la leía nadie y era el único campo de la zona gris de
   Nivel 2 que tocábamos
-  ([migración](../supabase/migrations/20260910120000_shopify_customers_drop_location.sql)).
+  ([migración](../supabase/migrations/20260910130000_shopify_customers_drop_location.sql)).
   Lo que no se pide no hay que justificarlo en la solicitud ni protegerlo después.
 - Pedidos y checkouts no almacenan email ni dirección de envío.
 - `customers/data_request` no genera export automático porque no hay PII directa

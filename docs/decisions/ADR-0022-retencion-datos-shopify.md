@@ -36,7 +36,7 @@ dejaría esas dos cifras mudas o, peor, mintiendo con datos truncados.
    solo tiene `customer_reference_hash`, contadores y estados de marketing
    ([migración](../../supabase/migrations/20260715200000_db_06_shopify_customers.sql));
    la ubicación aproximada se eliminó por innecesaria
-   ([migración](../../supabase/migrations/20260910120000_shopify_customers_drop_location.sql)).
+   ([migración](../../supabase/migrations/20260910130000_shopify_customers_drop_location.sql)).
    Pedidos y checkouts no almacenan email ni dirección de envío.
 5. **El borrado a petición del merchant** no espera a los 30 días: desconectar y
    pedir el borrado inmediato es una operación disponible, y `shop/redact` /
