@@ -36,7 +36,7 @@ if (!folder || Number.isNaN(limit) || limit < 1) {
 const audience = process.env.KNOWLEDGE_AUDIENCE ?? "consultant_only";
 const apiUrl =
   process.env.API_URL ?? `http://localhost:${process.env.API_PORT ?? 4000}`;
-const delayMs = Number(process.env.INGEST_DELAY_MS ?? 2000);
+const delayMs = Number(process.env.INGEST_DELAY_MS ?? 3000);
 
 // Estimacion, no medicion: ~4 chars por token en español, el mismo ratio que
 // usa createKnowledgeDocument para token_count. Sirve para decidir antes de

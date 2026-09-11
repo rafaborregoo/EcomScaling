@@ -1,7 +1,7 @@
 # Despliegue
 
 - **web (Next.js)** -> Vercel. Push a `main` = deploy a produccion. Cada rama/PR = preview URL (entorno de pruebas gratis).
-- **api + worker + redis** -> VPS IONOS (`194.164.161.151`) con Docker Compose. Detras de Caddy (`https://api.noraapp.es`, TLS automatico).
+- **api + worker + redis** -> VPS IONOS (`194.164.161.151`) con Docker Compose. Detras de Caddy (`https://api.ecomscaling.es`, TLS automatico).
 - **DB** -> Supabase (proyecto remoto).
 - CI construye y publica imagenes en GHCR; el deploy entra por SSH y hace `docker compose pull && up -d`.
 
@@ -52,7 +52,7 @@ ssh deploy@194.164.161.151 "mkdir -p ~/.ssh && echo '$(cat ~/.ssh/ecom_deploy_ci
 | `DEPLOY_HOST` | `194.164.161.151` |
 | `DEPLOY_USER` | `deploy` |
 | `DEPLOY_SSH_KEY` | contenido de `~/.ssh/ecom_deploy_ci` (la privada, entera) |
-| `NEXT_PUBLIC_API_URL` | `https://api.noraapp.es` |
+| `NEXT_PUBLIC_API_URL` | `https://api.ecomscaling.es` |
 | `NEXT_PUBLIC_SUPABASE_URL` | URL del proyecto Supabase |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | publishable key de Supabase |
 
@@ -68,7 +68,7 @@ Usa `GITHUB_TOKEN`, no hace falta configurar nada. Solo, la primera vez, en
 
 - Importa el repo en Vercel. Root del proyecto: `apps/web` (o raiz con `Root Directory = apps/web`).
 - Build command: `npm run build -w web`  ·  Install: `npm ci`  ·  Output: por defecto (Next.js).
-- Env vars en Vercel (Production + Preview): `NEXT_PUBLIC_API_URL=https://api.noraapp.es`,
+- Env vars en Vercel (Production + Preview): `NEXT_PUBLIC_API_URL=https://api.ecomscaling.es`,
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 - `main` -> produccion. Ramas -> preview automatica.
 
@@ -112,5 +112,5 @@ docker compose -f docker-compose.prod.yml up -d
 ## Staging (cuando haga falta, no ahora)
 
 Segundo stack en el mismo VPS: `docker-compose.staging.yml` con otro `name:`, otro
-`.env.production`, Caddy sirviendo `staging-api.noraapp.es`, y una rama `staging` que dispara
+`.env.production`, Caddy sirviendo `staging-api.ecomscaling.es`, y una rama `staging` que dispara
 un `deploy-staging.yml`. Coste: ~20 min. No se monta hasta que un deploy malo lo justifique.

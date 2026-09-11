@@ -8,7 +8,7 @@ Ingesta: `npm run conocimiento:ingest -- conocimiento/<carpeta> [--dry-run] [--l
 
 `--dry-run` no llama a Voyage: solo lista documentos, chunks y tokens
 estimados. `--limit=N` ingesta N documentos y para. Entre documento y
-documento espera `INGEST_DELAY_MS` (2000 por defecto) para no encadenar
+documento espera `INGEST_DELAY_MS` (3000 por defecto) para no encadenar
 peticiones a Voyage.
 
 ## Reglas
@@ -28,6 +28,7 @@ peticiones a Voyage.
 | Carpeta | Tema |
 | --- | --- |
 | `fase-01` | Lo funcional del ecommerce: 16 bloques (01..16), ~434k chars, ~341 chunks |
+| `fase-02` | Ciclo de vida y madurez del ecommerce: 12 etapas (E1..E12), ~679k chars, ~529 chunks |
 | `fase-02` | _por definir_ |
 | `fase-03` | _por definir_ |
 | `fase-04` | _por definir_ |
