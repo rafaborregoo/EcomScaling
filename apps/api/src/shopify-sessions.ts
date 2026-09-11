@@ -40,7 +40,8 @@ type ShopifyqlResponse = {
         dataType?: string | null;
         displayName?: string | null;
       }> | null;
-      rows?: unknown[][] | null;
+      /** La doc la describe posicional; la API 2026-07 devuelve objetos. */
+      rows?: Array<unknown[] | Record<string, unknown>> | null;
     } | null;
     parseErrors?: string[] | null;
   } | null;
@@ -74,7 +75,7 @@ function isAccessDenied(message: string): boolean {
 }
 
 /** `{ columns, rows }` -> filas como objetos, indexadas por nombre de columna. */
-function toRecords(
+export function toRecords(
   tableData: NonNullable<
     NonNullable<ShopifyqlResponse["shopifyqlQuery"]>["tableData"]
   >,
@@ -86,7 +87,12 @@ function toRecords(
   return (tableData.rows ?? []).map((row) => {
     const record: Record<string, unknown> = {};
     columns.forEach((column, index) => {
-      record[column.name] = row?.[index] ?? null;
+      // La doc describe `rows` como array posicional, pero la API 2026-07
+      // devuelve cada fila como objeto con las columnas por nombre. Leerla solo
+      // por indice daba 366 filas leidas y 0 escritas (ADR-0006 pto 8).
+      record[column.name] = Array.isArray(row)
+        ? (row[index] ?? null)
+        : ((row as Record<string, unknown>)?.[column.name] ?? null);
     });
     return record;
   });

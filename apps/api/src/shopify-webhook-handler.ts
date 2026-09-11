@@ -76,20 +76,29 @@ type ConnectionContext = {
   storeId: string;
 };
 
+/**
+ * Una conexion marcada para borrado o ya desinstalada no debe seguir
+ * ingiriendo: Shopify sigue enviando webhooks hasta que la app se desinstala,
+ * y sin este filtro los datos se repoblaban solos despues de pedir el borrado.
+ */
+export function acceptsWebhookIngest(status: string | null | undefined) {
+  return status === "connected" || status === "error" || status === "syncing";
+}
+
 async function resolveConnectionContext(
   supabase: SupabaseClient,
   shopDomain: string,
 ): Promise<ConnectionContext | null> {
   const { data: connection } = await supabase
     .from("integration_connections")
-    .select("id, organization_id")
+    .select("id, organization_id, status")
     .eq("provider", "shopify")
     .eq("provider_account_id", shopDomain)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (!connection) {
+  if (!connection || !acceptsWebhookIngest(connection.status)) {
     return null;
   }
 
