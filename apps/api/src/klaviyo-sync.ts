@@ -336,13 +336,49 @@ export async function runKlaviyoSync(
     // llego": es una casilla sin marcar en Klaviyo, y hay que decirlo con ese
     // nombre o nadie sabe que tocar.
     const deniedPermissions: KlaviyoCapability[] = [];
+    /**
+     * Una fila por bloque en `integration_sync_runs` (ADR-0006 punto 2).
+     *
+     * Hasta ahora la pasada entera escribia UNA fila con `sync_scope` null, y
+     * los bloques best-effort solo dejaban un `console.warn`: cuando un recurso
+     * no llegaba, en la base no quedaba ni rastro de cual. La fila de la pasada
+     * sigue estando -- es el paraguas --, estas son las de dentro.
+     */
+    const recordBlockRun = async (
+      scope: string,
+      startedAt: string,
+      result: { read: number; error?: string },
+    ) => {
+      await client.from("integration_sync_runs").upsert(
+        {
+          connection_id: connectionId,
+          organization_id: connection.organization_id,
+          provider: "klaviyo",
+          sync_type: mode === "initial" ? "initial_import" : "incremental",
+          sync_scope: scope,
+          idempotency_key: `${idempotencyKey}:${scope}`,
+          started_at: startedAt,
+          finished_at: new Date().toISOString(),
+          status: result.error ? "failed" : "succeeded",
+          records_read: result.read,
+          records_written: result.read,
+          records_failed: result.error ? 1 : 0,
+          error_message: result.error?.slice(0, 500) ?? null,
+        },
+        { onConflict: "provider,idempotency_key" },
+      );
+    };
+
     const fetchResource = async (
       label: string,
       fetcher: () => Promise<KlaviyoResource[]>,
       capabilityKey?: string,
     ): Promise<KlaviyoResource[]> => {
+      const startedAt = new Date().toISOString();
       try {
-        return await fetcher();
+        const rows = await fetcher();
+        await recordBlockRun(label, startedAt, { read: rows.length });
+        return rows;
       } catch (error) {
         skipped.push(label);
         const message =
@@ -352,6 +388,7 @@ export async function runKlaviyoSync(
           deniedPermissions.push(capability);
         }
         console.warn(`klaviyo_resource_skipped:${label}:${message}`);
+        await recordBlockRun(label, startedAt, { read: 0, error: message });
         return [];
       }
     };
@@ -510,6 +547,7 @@ export async function runKlaviyoSync(
     // endpoint o la forma de la respuesta cambian, se registra y NO se tumba el
     // resto del sync (que ya funciona).
     let campaignMessagesWritten = 0;
+    const campaignMessagesStartedAt = new Date().toISOString();
     try {
       const { data: storedCampaigns } = await client
         .from("klaviyo_campaigns")
@@ -554,6 +592,9 @@ export async function runKlaviyoSync(
         "campaign_id,external_message_id",
       );
       campaignMessagesWritten = campaignMessageRows.length;
+      await recordBlockRun("campaign_messages", campaignMessagesStartedAt, {
+        read: campaignMessagesWritten,
+      });
       for (const row of campaignMessageRows) {
         if (row.external_template_id) templateIds.add(row.external_template_id);
       }
@@ -616,6 +657,10 @@ export async function runKlaviyoSync(
           error instanceof Error ? error.message : "unknown_error"
         }`,
       );
+      await recordBlockRun("campaign_messages", campaignMessagesStartedAt, {
+        read: 0,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
     }
 
     // Acciones y mensajes de los flujos. En ecommerce la mayor parte del
@@ -627,6 +672,7 @@ export async function runKlaviyoSync(
     // Mismo patron que los mensajes de campana: best-effort, un fallo aqui no
     // tumba el resto de la pasada.
     let flowMessagesWritten = 0;
+    const flowMessagesStartedAt = new Date().toISOString();
     try {
       const { data: storedFlows } = await client
         .from("klaviyo_flows")
@@ -722,6 +768,12 @@ export async function runKlaviyoSync(
             "flow_id,external_message_id",
           );
           flowMessagesWritten = flowMessageRows.length;
+
+          await recordBlockRun("flow_messages", flowMessagesStartedAt, {
+
+            read: flowMessageRows.length,
+
+          });
           for (const row of flowMessageRows) {
             if (row.external_template_id)
               templateIds.add(row.external_template_id);
@@ -742,12 +794,17 @@ export async function runKlaviyoSync(
           error instanceof Error ? error.message : "unknown_error"
         }`,
       );
+      await recordBlockRun("flow_messages", flowMessagesStartedAt, {
+        read: 0,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
     }
 
     // Audiencias de cada campana: a quien se le mando y a quien se excluyo.
     // No hace falta ninguna llamada -- vienen dentro de la campana que ya
     // tenemos (raw_data.audiences), y la tabla llevaba vacia desde agosto
     // simplemente porque nadie la escribia.
+    const campaignAudiencesStartedAt = new Date().toISOString();
     try {
       const { data: campanasGuardadas } = await client
         .from("klaviyo_campaigns")
@@ -808,12 +865,19 @@ export async function runKlaviyoSync(
         audienceRows,
         "campaign_id,audience_type,external_audience_id",
       );
+      await recordBlockRun("campaign_audiences", campaignAudiencesStartedAt, {
+        read: audienceRows.length,
+      });
     } catch (error) {
       console.warn(
         `klaviyo_campaign_audiences_sync_skipped:${
           error instanceof Error ? error.message : "unknown_error"
         }`,
       );
+      await recordBlockRun("campaign_audiences", campaignAudiencesStartedAt, {
+        read: 0,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
     }
 
     // Tamano de listas y segmentos, un snapshot por dia.
@@ -823,6 +887,7 @@ export async function runKlaviyoSync(
     // recurso suelto. Comprobado contra la cuenta real. Por eso es una
     // peticion por lista y por segmento en vez de dos en total: con un puñado
     // de cada uno es asumible, y es la unica forma de tener el dato.
+    const audienceSnapshotsStartedAt = new Date().toISOString();
     try {
       const snapshotDate = now.slice(0, 10);
 
@@ -914,15 +979,23 @@ export async function runKlaviyoSync(
         segmentSnapshots,
         "segment_id,snapshot_date",
       );
+      await recordBlockRun("audience_snapshots", audienceSnapshotsStartedAt, {
+        read: segmentSnapshots.length,
+      });
     } catch (error) {
       console.warn(
         `klaviyo_audience_snapshots_skipped:${
           error instanceof Error ? error.message : "unknown_error"
         }`,
       );
+      await recordBlockRun("audience_snapshots", audienceSnapshotsStartedAt, {
+        read: 0,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
     }
 
     let clicksWritten = 0;
+    const clicksStartedAt = new Date().toISOString();
     // Clicks en enlaces: que CTA se pulsa, no solo cuanta gente pulsa algo.
     //
     // Los eventos "Clicked Email" son los unicos que llevan la URL. Se piden
@@ -972,6 +1045,12 @@ export async function runKlaviyoSync(
         );
         clicksWritten = clickRows.length;
 
+        await recordBlockRun("click_events", clicksStartedAt, {
+
+          read: clickRows.length,
+
+        });
+
         // Sin URL el click no sirve para nada de lo que existe esta tabla.
         // Si pasa, hay que ver la clave real antes de suponerla.
         const sinUrl = clickRows.filter((row) => row.url === null);
@@ -997,6 +1076,10 @@ export async function runKlaviyoSync(
           error instanceof Error ? error.message : "unknown_error"
         }`,
       );
+      await recordBlockRun("click_events", clicksStartedAt, {
+        read: 0,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
     }
 
     // Plantillas (el cuerpo del email), resueltas UNA A UNA por id.
@@ -1008,6 +1091,7 @@ export async function runKlaviyoSync(
     // recuperan sin problema. Ademas asi solo se pide lo que algun mensaje
     // referencia, que es mas barato en cuota que listar.
     let templatesWritten = 0;
+    const templatesStartedAt = new Date().toISOString();
     if (templateIds.size > 0) {
       try {
         const templateRows = (
@@ -1054,6 +1138,12 @@ export async function runKlaviyoSync(
         );
         templatesWritten = templateRows.length;
 
+        await recordBlockRun("templates", templatesStartedAt, {
+
+          read: templateRows.length,
+
+        });
+
         if (templateRows.length < templateIds.size) {
           console.warn(
             `klaviyo_templates_partial:${templateRows.length}/${templateIds.size} plantillas resueltas`,
@@ -1065,6 +1155,10 @@ export async function runKlaviyoSync(
             error instanceof Error ? error.message : "unknown_error"
           }`,
         );
+        await recordBlockRun("templates", templatesStartedAt, {
+          read: 0,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
       }
     }
 
