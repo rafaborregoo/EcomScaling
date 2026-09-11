@@ -484,6 +484,7 @@ export function AiDiagnosticSection({
   const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notReady, setNotReady] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isCreatingTasks, setIsCreatingTasks] = useState(false);
   const [tasksFeedback, setTasksFeedback] = useState<string | null>(null);
@@ -510,9 +511,15 @@ export function AiDiagnosticSection({
 
         if (response.ok) {
           setDiagnostic((await response.json()) as Diagnostic);
+          setNotReady(false);
         } else {
           setDiagnostic(null);
-          setError(await readApiError(response));
+          const message = await readApiError(response);
+          // Una organizacion sin datos no es un fallo: es que todavia no toca.
+          // Se cuenta como estado normal, no como error rojo.
+          const sinDatos = message.startsWith("agent_sin_datos");
+          setNotReady(sinDatos);
+          setError(sinDatos ? null : message);
         }
       } catch {
         setDiagnostic(null);
@@ -620,6 +627,11 @@ export function AiDiagnosticSection({
   const body =
     isLoading ? (
       <LoadingBlock label={loadingLabel} />
+    ) : notReady ? (
+      <p className="text-sm leading-6 text-muted">
+        Conecta tu tienda para que la IA empiece a analizarla. El primer
+        análisis llega tras la primera sincronización.
+      </p>
     ) : error ? (
       <ErrorBlock>{error}</ErrorBlock>
     ) : diagnostic ? (

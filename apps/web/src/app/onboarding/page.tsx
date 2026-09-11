@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { AvatarPicker } from "@/components/avatar-picker";
 import {
-  Badge,
   Button,
   Card,
   ErrorBlock,
@@ -16,30 +15,13 @@ import {
   cn,
 } from "@/components/ui";
 
-type Step = 1 | 2 | 3 | 4 | 5;
+// El onboarding solo cubre contraseña y perfil. Las integraciones se conectan
+// desde /integraciones: OAuth saca al usuario de la pagina hacia el proveedor y
+// el callback vuelve siempre a /integraciones, asi que meterlas aqui rompia el
+// recorrido a mitad (se abandonaba en el paso 3 y nunca se veian el 4 y el 5).
+type Step = 1 | 2;
 
-const TOTAL_STEPS = 5;
-
-const PROVIDER_STEPS: Record<
-  3 | 4 | 5,
-  { name: string; blurb: string }
-> = {
-  3: {
-    name: "Shopify",
-    blurb:
-      "Conecta la tienda para traer ventas, pedidos y productos. Es la base de todos los datos.",
-  },
-  4: {
-    name: "Meta Ads",
-    blurb:
-      "Conecta la cuenta publicitaria para ver inversión y resultados de campañas junto a las ventas.",
-  },
-  5: {
-    name: "Klaviyo",
-    blurb:
-      "Conecta Klaviyo para medir el rendimiento del email y los flujos automatizados.",
-  },
-};
+const TOTAL_STEPS = 2;
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -114,20 +96,7 @@ export default function OnboardingPage() {
               <ProfileStep
                 supabase={supabase}
                 userId={userId}
-                onDone={() => setStep(3)}
-              />
-            ) : null}
-
-            {step === 3 || step === 4 || step === 5 ? (
-              <ProviderStep
-                info={PROVIDER_STEPS[step]}
-                isLast={step === 5}
-                onConnect={() => router.push("/integraciones")}
-                onSkip={() =>
-                  step === 5
-                    ? router.replace("/dashboard")
-                    : setStep((s) => (s + 1) as Step)
-                }
+                onDone={() => router.replace("/dashboard")}
               />
             ) : null}
           </>
@@ -272,36 +241,10 @@ function ProfileStep({
 
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
         <Button disabled={busy} onClick={() => void submit()}>
-          {busy ? "Guardando..." : "Continuar"}
+          {busy ? "Guardando..." : "Finalizar"}
         </Button>
       </div>
     </Card>
   );
 }
 
-function ProviderStep({
-  info,
-  isLast,
-  onConnect,
-  onSkip,
-}: {
-  info: { name: string; blurb: string };
-  isLast: boolean;
-  onConnect: () => void;
-  onSkip: () => void;
-}) {
-  return (
-    <Card
-      title={`Conecta ${info.name}`}
-      description={info.blurb}
-      actions={<Badge tone="neutral">Opcional</Badge>}
-    >
-      <div className="mt-4 flex flex-wrap gap-3">
-        <Button onClick={onConnect}>Conectar {info.name}</Button>
-        <Button variant="ghost" onClick={onSkip}>
-          {isLast ? "Finalizar" : "Omitir"}
-        </Button>
-      </div>
-    </Card>
-  );
-}

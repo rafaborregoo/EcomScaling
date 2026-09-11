@@ -3517,6 +3517,26 @@ export function isAgentAutorunEnabled(env: ApiEnv): boolean {
   return env.AI_AUTORUN_ENABLED !== "false";
 }
 
+/**
+ * Una organizacion recien creada no tiene nada que analizar: sin conexion y
+ * sin datos ingeridos, lanzar el agente solo produce gasto y un error del
+ * proveedor en la cara del usuario (el circuito abierto que veia una cuenta
+ * nueva al entrar). Hace falta una conexion viva Y que haya sincronizado al
+ * menos una vez -- conectar no es tener datos.
+ */
+export function organizationHasIngestedData(
+  connections: ReadonlyArray<{
+    status?: string | null;
+    last_sync_at?: string | null;
+  }>,
+): boolean {
+  return connections.some(
+    (connection) =>
+      (connection.status === "connected" || connection.status === "syncing") &&
+      Boolean(connection.last_sync_at),
+  );
+}
+
 async function getCachedDiagnostic(
   env: ApiEnv,
   context: AuthContext,
@@ -3644,6 +3664,24 @@ async function getCachedDiagnostic(
       error: "agent_autorun_disabled",
       detail:
         "AI_AUTORUN_ENABLED=false: los agentes no se ejecutan solos. Lanza este analisis a mano desde su boton.",
+    };
+  }
+
+  // Sin datos no hay analisis posible: se corta ANTES de gastar un turno de
+  // LLM. Solo se comprueba cuando no hay cache que servir, para no meter una
+  // consulta extra en el camino barato.
+  const { data: orgConnections } = await supabase
+    .from("integration_connections")
+    .select("status, last_sync_at")
+    .eq("organization_id", organizationId);
+
+  if (!organizationHasIngestedData(orgConnections ?? [])) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "agent_sin_datos",
+      detail:
+        "Conecta una tienda y espera a la primera sincronizacion: los agentes no se ejecutan sin datos.",
     };
   }
 
@@ -6479,12 +6517,15 @@ async function runDiagnosticOrchestratorTickInner(
   }
   const context = ctxResult.context;
 
-  // 3. Orgs candidatas: las que tienen una conexion Shopify activa.
+  // 3. Orgs candidatas: las que tienen una conexion Shopify activa Y que ya ha
+  // sincronizado al menos una vez. Conectar no es tener datos: sin la segunda
+  // mitad, una tienda recien conectada se analizaba en vacio.
   const { data: connections } = await supabase
     .from("integration_connections")
     .select("organization_id")
     .eq("provider", "shopify")
-    .in("status", ["connected", "syncing"]);
+    .in("status", ["connected", "syncing"])
+    .not("last_sync_at", "is", null);
   const orgIds = [
     ...new Set((connections ?? []).map((row) => row.organization_id as string)),
   ];
