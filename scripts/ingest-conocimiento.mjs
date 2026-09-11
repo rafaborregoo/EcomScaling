@@ -16,6 +16,7 @@
 // secuencial, pausa entre documentos (INGEST_DELAY_MS) y `--limit` para
 // ingestar de N en N en vez de soltar la carpeta entera.
 import { readdir, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -43,16 +44,53 @@ const delayMs = Number(process.env.INGEST_DELAY_MS ?? 2000);
 const estimateTokens = (chars) => Math.ceil(chars / 4);
 const estimateChunks = (chars) => Math.ceil(chars / 1300);
 
-function titleOf(markdown, file) {
-  const heading = markdown.split("\n").find((line) => /^#\s+\S/.test(line));
-  const raw = heading ? heading.replace(/^#\s+/, "") : path.basename(file, ".md");
-  // El titulo va a una columna, no a un render markdown: fuera enfasis
-  // (**2. Producto**) y escapes de markdown (2\. Producto).
+// El titulo va a una columna, no a un render markdown: fuera enfasis
+// (**2. Producto**) y escapes de markdown (2\. Producto).
+function limpia(raw) {
   return raw
+    .replace(/^#{1,6}\s+/, "")
     .replace(/[*_`]/g, "")
     .replace(/\\([.\-#])/g, "$1")
-    .trim()
-    .slice(0, 255);
+    .trim();
+}
+
+function encabezados(markdown) {
+  return markdown
+    .split("\n")
+    .filter((line) => /^#{1,6}\s+\S/.test(line))
+    .map(limpia)
+    .filter((title) => title.length > 0);
+}
+
+/**
+ * Titula cada documento con su primer encabezado, PERO una carpeta puede tener
+ * varios ficheros que comparten el primero (fase-02: los 12 ficheros abren con
+ * "FASE 2 - CICLO DE VIDA..." y lo que los distingue es el segundo, "E1 -
+ * NACIMIENTO"). Con el titulo repetido, el dedupe por titulo se comeria once
+ * de los doce, asi que a los que chocan se les anade el primer encabezado que
+ * no comparten.
+ */
+function titula(documentos) {
+  const porTitulo = new Map();
+  for (const doc of documentos) {
+    const base = doc.headings[0] ?? path.basename(doc.file, ".md");
+    if (!porTitulo.has(base)) porTitulo.set(base, []);
+    porTitulo.get(base).push(doc);
+  }
+
+  for (const [base, grupo] of porTitulo) {
+    if (grupo.length === 1) {
+      grupo[0].title = base.slice(0, 255);
+      continue;
+    }
+    for (const doc of grupo) {
+      const distintivo = doc.headings.slice(1).find((heading) => heading !== base);
+      doc.title = (distintivo ? `${base} — ${distintivo}` : path.basename(doc.file, ".md"))
+        .slice(0, 255);
+    }
+  }
+
+  return documentos;
 }
 
 async function resolveToken() {
@@ -85,6 +123,26 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+const leidos = [];
+const porChecksum = new Map();
+
+for (const file of files) {
+  const content = await readFile(path.join(folder, file), "utf8");
+  // Ficheros identicos en la misma carpeta (una descarga repetida) son UN
+  // documento: ingerirlos dos veces duplica el corpus y reparte la busqueda
+  // entre dos copias del mismo texto.
+  const checksum = createHash("sha256").update(content).digest("hex");
+  const gemelo = porChecksum.get(checksum);
+  if (gemelo) {
+    console.log(`IDENTICO a "${gemelo}", se ignora: ${file}`);
+    continue;
+  }
+  porChecksum.set(checksum, file);
+  leidos.push({ file, content, headings: encabezados(content) });
+}
+
+const documentos = titula(leidos);
+
 if (dryRun) {
   let totalChars = 0;
   let totalChunks = 0;
@@ -92,22 +150,21 @@ if (dryRun) {
   // embebe aparte, asi que las peticiones se suman por documento.
   let requests = 0;
 
-  for (const file of files) {
-    const content = await readFile(path.join(folder, file), "utf8");
-    totalChars += content.length;
-    totalChunks += estimateChunks(content.length);
-    requests += Math.ceil(estimateChunks(content.length) / 64);
+  for (const doc of documentos) {
+    totalChars += doc.content.length;
+    totalChunks += estimateChunks(doc.content.length);
+    requests += Math.ceil(estimateChunks(doc.content.length) / 64);
     console.log(
-      `${String(content.length).padStart(7)} chars  ~${String(
-        estimateChunks(content.length),
-      ).padStart(3)} chunks  ~${String(estimateTokens(content.length)).padStart(
-        6,
-      )} tokens  ${titleOf(content, file)}`,
+      `${String(doc.content.length).padStart(7)} chars  ~${String(
+        estimateChunks(doc.content.length),
+      ).padStart(3)} chunks  ~${String(
+        estimateTokens(doc.content.length),
+      ).padStart(6)} tokens  ${doc.title}`,
     );
   }
 
   console.log(
-    `\nTOTAL ${files.length} documentos, ${totalChars} chars, ~${totalChunks} chunks,` +
+    `\nTOTAL ${documentos.length} documentos, ${totalChars} chars, ~${totalChunks} chunks,` +
       ` ~${estimateTokens(totalChars)} tokens de embedding.` +
       `\nVoyage: ~${requests} peticiones a /contextualizedembeddings` +
       ` (max 64 fragmentos por ventana), 1 documento cada ${delayMs}ms.`,
@@ -136,10 +193,7 @@ const existing = new Set(
 let ingested = 0;
 let skipped = 0;
 
-for (const file of files) {
-  const content = await readFile(path.join(folder, file), "utf8");
-  const title = titleOf(content, file);
-
+for (const { file, content, title } of documentos) {
   if (existing.has(title)) {
     skipped += 1;
     console.log(`SALTADO ${file} (ya existe: "${title}")`);
