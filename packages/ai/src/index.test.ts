@@ -41,7 +41,7 @@ import {
 
 test("el perfil RAG centraliza el contrato de embeddings y chunking", () => {
   assert.deepEqual(RAG_EMBEDDING_PROFILE, {
-    version: "structural-v3",
+    version: "structural-v4",
     model: "voyage-context-4",
     dimensions: 1024,
     maxChars: 1500,
@@ -61,6 +61,20 @@ test("chunking conserva contexto de secciones y estructura de tablas", () => {
     chunks.some((chunk) => chunk.includes("| Canal | ROAS | Acción |")),
   );
   assert.ok(chunks.some((chunk) => chunk.includes("La decisión")));
+});
+
+test("el encabezado arrastrado no se repite dos veces en el mismo fragmento", () => {
+  const chunks = chunkText(
+    "# 1. Modelo de Negocio\n\n## 1.1 Qué es\n\nEl modelo de negocio describe cómo se gana dinero.\n\nY cómo se sostiene en el tiempo.",
+  );
+
+  assert.ok(chunks.length > 0);
+  for (const chunk of chunks) {
+    const veces = chunk.split("## 1.1 Qué es").length - 1;
+    assert.ok(veces <= 1, `encabezado repetido ${veces} veces en:\n${chunk}`);
+  }
+  // Sigue llegando a los bloques que lo necesitan para no perder contexto.
+  assert.ok(chunks.some((chunk) => chunk.includes("## 1.1 Qué es")));
 });
 
 test("la politica comun de prompts fuerza evidencia, abstencion y aprobacion", () => {

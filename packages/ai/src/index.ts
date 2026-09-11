@@ -2916,10 +2916,16 @@ export const RAG_EMBEDDING_PROFILE = Object.freeze({
   //   chunkText repitiendo el encabezado de seccion: un fragmento que dice
   //   "esto se revisa cada semana" sin decir que es "esto".
   //
-  // Los tres cambios salieron gratis porque el indice estaba vacio (0 chunks).
-  // Con el corpus dentro, cambiar de modelo cuesta una reingesta completa: no
-  // se pueden mezclar embeddings de dos modelos en la misma columna.
-  version: "structural-v3",
+  // - v4: mismo modelo, chunking corregido (2026-09-11). Un bloque que era
+  //   SOLO el encabezado se emitia ademas de repetirse al principio del
+  //   bloque siguiente, asi que el encabezado salia dos veces seguidas dentro
+  //   del mismo fragmento. Se detecto al ingestar el primer documento real.
+  //
+  // Los cuatro cambios salieron gratis porque el indice estaba practicamente
+  // vacio. Con el corpus dentro, cambiar de modelo cuesta una reingesta
+  // completa: no se pueden mezclar embeddings de dos modelos en la misma
+  // columna.
+  version: "structural-v4",
   model: "voyage-context-4" as string,
   dimensions: 1024,
   maxChars: 1500,
@@ -3300,7 +3306,23 @@ export function chunkText(
       chunks.push(current);
       current = current.slice(Math.max(0, current.length - overlapChars));
     }
-    current = current ? `${current}\n\n${paragraph}` : paragraph;
+
+    // El encabezado se arrastra por parrafo (arriba), pero un fragmento junta
+    // varios parrafos de la MISMA seccion: sin esto el encabezado sale una vez
+    // por parrafo dentro del mismo fragmento. Se quita solo si el fragmento en
+    // curso ya lo lleva -- se comprueba despues del corte, para que el
+    // fragmento nuevo si lo reciba.
+    const newlineIndex = paragraph.indexOf("\n");
+    const firstLine =
+      newlineIndex === -1 ? paragraph : paragraph.slice(0, newlineIndex);
+    const piece =
+      newlineIndex !== -1 &&
+      /^#{1,6}\s+\S/.test(firstLine) &&
+      current.includes(firstLine)
+        ? paragraph.slice(newlineIndex + 1)
+        : paragraph;
+
+    current = current ? `${current}\n\n${piece}` : piece;
   }
 
   if (current) {

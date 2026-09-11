@@ -25,6 +25,7 @@
     "seed:shopify-store": "dotenv -e .env.local -- tsx scripts/seed-shopify-store.ts",
     "seed:meta-history": "dotenv -e .env.local -- tsx scripts/seed-meta-history.ts",
     "seed:klaviyo-history": "dotenv -e .env.local -- tsx scripts/seed-klaviyo-history.ts",
+    "db:types": "dotenv -e .env.local -- node scripts/db-types.mjs",
     "db:push": "dotenv -e .env.local -- node scripts/db-push.mjs",
     "db:push:dry": "dotenv -e .env.local -- node scripts/db-push.mjs --dry-run",
     "db:push:prod": "dotenv -e .env.production.local -- node scripts/db-push.mjs --prod",
@@ -34,7 +35,12 @@
     "supabase:init": "supabase init",
     "supabase:link": "supabase link --project-ref cthjwpeygpzwdmjkxeqa",
     "supabase:start": "supabase start",
-    "supabase:reset": "supabase db reset"
+    "supabase:reset": "supabase db reset",
+    "conocimiento:ingest": "dotenv -e .env.local -- node scripts/ingest-conocimiento.mjs",
+    "conocimiento:archiva": "dotenv -e .env.local -- node scripts/archiva-conocimiento-global.mjs",
+    "conocimiento:ingest:prod": "dotenv -e .env.production.local -- node scripts/ingest-conocimiento.mjs",
+    "conocimiento:archiva:prod": "dotenv -e .env.production.local -- node scripts/archiva-conocimiento-global.mjs",
+    "api:contra-produccion": "dotenv -e .env.production.local -- npm run dev -w @ecomscaling/api"
   },
   "devDependencies": {
     "concurrently": "^9.2.4",
