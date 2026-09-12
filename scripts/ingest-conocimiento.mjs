@@ -33,6 +33,18 @@ if (!folder || Number.isNaN(limit) || limit < 1) {
   process.exit(1);
 }
 
+// Cada fase tiene dos carpetas y solo una es corpus: `contexto-RAG/` se
+// indexa, `contratos-IA/` NO. Los contratos son la especificacion de lo que
+// la IA debe hacer, no material que el copiloto deba recuperar y citar como
+// si fuera metodologia. Se rechaza aqui en vez de confiar en no equivocarse
+// de ruta: el error costaria embeddings y, peor, ensuciaria el indice.
+if (/contratos?-IA/i.test(folder)) {
+  console.error(
+    `${folder} es una carpeta de contratos de IA: no se indexa. Solo se ingesta contexto-RAG/.`,
+  );
+  process.exit(1);
+}
+
 const audience = process.env.KNOWLEDGE_AUDIENCE ?? "consultant_only";
 const apiUrl =
   process.env.API_URL ?? `http://localhost:${process.env.API_PORT ?? 4000}`;
@@ -192,6 +204,12 @@ const existing = new Set(
 
 let ingested = 0;
 let skipped = 0;
+// Una clave invalida o un limite de Voyage no se arreglan solos a mitad de
+// carpeta: sin este corte, un 401 en el primer documento se repetia en los
+// otros quince, gastando peticiones para recibir el mismo error dieciseis
+// veces. Tres seguidos y se para.
+let fallosSeguidos = 0;
+const MAX_FALLOS_SEGUIDOS = 3;
 
 for (const { file, content, title } of documentos) {
   if (existing.has(title)) {
@@ -216,8 +234,17 @@ for (const { file, content, title } of documentos) {
 
   if (!response.ok) {
     console.error(`FALLO ${file}: ${response.status} ${JSON.stringify(body)}`);
+    fallosSeguidos += 1;
+    if (fallosSeguidos >= MAX_FALLOS_SEGUIDOS) {
+      console.error(
+        `\n${fallosSeguidos} fallos seguidos: se para para no gastar mas peticiones.`,
+      );
+      break;
+    }
     continue;
   }
+
+  fallosSeguidos = 0;
 
   existing.add(title);
   ingested += 1;

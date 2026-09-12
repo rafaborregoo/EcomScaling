@@ -11,6 +11,13 @@ estimados. `--limit=N` ingesta N documentos y para. Entre documento y
 documento espera `INGEST_DELAY_MS` (3000 por defecto) para no encadenar
 peticiones a Voyage.
 
+## Dos carpetas por fase, solo una se indexa
+
+- **`contexto-RAG/`** — el corpus. Esto es lo que se ingesta.
+- **`contratos-IA/`** — la especificacion de lo que la IA debe hacer. **No se
+  indexa nunca**: no es metodologia que el copiloto deba recuperar y citar.
+  El script rechaza esa ruta, no depende de acordarse.
+
 ## Reglas
 
 - **Un `.md` = un documento** en el catalogo. El titulo sale de su primer encabezado `#`.
@@ -29,6 +36,7 @@ peticiones a Voyage.
 | --- | --- |
 | `fase-01` | Lo funcional del ecommerce: 16 bloques (01..16), ~434k chars, ~341 chunks |
 | `fase-02` | Ciclo de vida y madurez del ecommerce: 12 etapas (E1..E12), ~679k chars, ~529 chunks |
+| `fase-03` | Sistema de diagnostico: 11 bloques (D1..D11), ~349k chars, ~286 chunks |
 | `fase-02` | _por definir_ |
 | `fase-03` | _por definir_ |
 | `fase-04` | _por definir_ |
