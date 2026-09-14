@@ -393,14 +393,18 @@ export async function listKnowledgeDocuments(
       env,
       authorization.slice("Bearer ".length),
     );
+    // Sin .limit(): es el catalogo de metodologia de plataforma, acotado por
+    // cuanto .md exista en conocimiento/ (editorial, no crecimiento de
+    // usuario) -- con 100 aqui, scripts/ingest-conocimiento.mjs dejaba de ver
+    // los titulos mas antiguos al pasar de 100 documentos globales y los
+    // reintentaba, chocando con el indice unico de titulo.
     const { data, error } = await globalClient
       .from("knowledge_documents")
       .select(
         "id, organization_id, title, description, source_type, visibility, version, status, audience, origin, authority, created_at, updated_at",
       )
       .eq("visibility", "global")
-      .order("created_at", { ascending: false })
-      .limit(100);
+      .order("created_at", { ascending: false });
 
     if (error) {
       return {
