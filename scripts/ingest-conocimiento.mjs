@@ -33,14 +33,23 @@ if (!folder || Number.isNaN(limit) || limit < 1) {
   process.exit(1);
 }
 
-// Cada fase tiene dos carpetas y solo una es corpus: `contexto-RAG/` se
-// indexa, `contratos-IA/` NO. Los contratos son la especificacion de lo que
-// la IA debe hacer, no material que el copiloto deba recuperar y citar como
-// si fuera metodologia. Se rechaza aqui en vez de confiar en no equivocarse
-// de ruta: el error costaria embeddings y, peor, ensuciaria el indice.
-if (/contratos?-IA/i.test(folder)) {
+// Cada fase tiene ocho subcarpetas y solo dos son corpus. Lista blanca, no
+// negra: con seis que NO se indexan (contratos, runtime, policies,
+// experience, tenant, auditoria) y mas que puedan crearse, prohibir una a una
+// deja el hueco abierto a la siguiente. Equivocarse de ruta cuesta embeddings
+// y, peor, mete en el indice material que el copiloto citaria como si fuera
+// metodologia.
+const CARPETAS_INDEXABLES = [
+  "00-corpus-maestro",
+  "01-rag-produccion",
+  "contexto-RAG", // nombre anterior a la reestructuracion
+];
+
+const hoja = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+if (!CARPETAS_INDEXABLES.includes(hoja)) {
   console.error(
-    `${folder} es una carpeta de contratos de IA: no se indexa. Solo se ingesta contexto-RAG/.`,
+    `${folder} no es una carpeta indexable.\n` +
+      `Solo se ingesta: ${CARPETAS_INDEXABLES.join(", ")}.`,
   );
   process.exit(1);
 }

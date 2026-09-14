@@ -1,0 +1,3322 @@
+# **C6.1 — METRIC SEMANTICS & OBSERVATION CONTRACT**
+
+## **EcomScaling IA — Fase 6: Benchmarks & Guardrails**
+
+---
+
+# **1\. PROPÓSITO**
+
+El Metric Semantics & Observation Contract define cómo debe representarse de manera canónica cualquier métrica u observación cuantitativa que vaya a ser utilizada por la Fase 6\.
+
+Su misión es responder:
+
+> **¿Qué estamos midiendo exactamente y qué significa exactamente el número que estamos observando?**
+
+C6.1 existe para impedir que el sistema trate como equivalentes métricas que comparten nombre pero cuya semántica es diferente.
+
+Ejemplo:
+
+ROAS \= 3
+
+es insuficiente.
+
+Antes de evaluar ese valor debemos saber, entre otras cosas:
+
+¿ROAS de qué canal?
+
+¿Atribuido por plataforma o incremental?
+
+¿Blended o segmentado?
+
+¿Prospecting o retargeting?
+
+¿Clientes nuevos o todos?
+
+¿Observed o modeled?
+
+¿Qué ventana temporal?
+
+¿Qué ventana de atribución?
+
+¿Revenue bruto, neto o reconocido?
+
+¿Incluye devoluciones?
+
+¿Qué moneda?
+
+¿Qué fórmula se utilizó?
+
+C6.1 transforma números ambiguos en observaciones semánticamente explícitas.
+
+---
+
+# **2\. RESPONSABILIDAD**
+
+C6.1 debe definir:
+
+WHAT metric?
+
+WHICH definition?
+
+WHICH formula?
+
+WHICH semantic variant?
+
+WHICH scope?
+
+WHICH time window?
+
+WHICH aggregation?
+
+WHICH population?
+
+WHICH measurement basis?
+
+WHICH attribution basis?
+
+WHICH economic basis?
+
+WHICH value?
+
+WHICH unit?
+
+No debe decidir:
+
+GOOD  
+BAD  
+NORMAL  
+RISK  
+CRITICAL
+
+Eso pertenece a contratos posteriores.
+
+---
+
+# **3\. PRINCIPIO FUNDAMENTAL**
+
+No puede evaluarse correctamente una métrica cuya semántica no esté suficientemente definida.
+
+Invariante:
+
+No evaluation  
+without semantic identity.
+
+Y además:
+
+same label  
+does not imply  
+same metric.
+
+Ejemplo:
+
+CAC
+
+podría significar:
+
+blended CAC
+
+paid CAC
+
+new-customer CAC
+
+platform-attributed CAC
+
+incremental CAC
+
+average CAC
+
+marginal CAC
+
+first-order CAC
+
+Estas variantes NO son intercambiables.
+
+---
+
+# **4\. PROBLEMA QUE RESUELVE**
+
+Sin C6.1 podría ocurrir:
+
+Meta ROAS \= 4.2
+
+comparado contra:
+
+Blended ROAS benchmark \= 3.0
+
+y concluir:
+
+performance \= excellent
+
+La comparación sería inválida.
+
+También:
+
+predicted LTV \= €240
+
+podría compararse contra:
+
+observed historical LTV \= €180
+
+sin señalar que uno es una predicción y el otro una observación.
+
+O:
+
+average CAC \= €38
+
+podría ocultar:
+
+marginal CAC \= €61
+
+durante una decisión de escalado.
+
+C6.1 debe hacer estas confusiones estructuralmente difíciles.
+
+---
+
+# **5\. SEPARACIÓN FUNDAMENTAL**
+
+Debe distinguirse:
+
+METRIC DEFINITION
+
+de:
+
+METRIC OBSERVATION
+
+La definición responde:
+
+> ¿Qué significa esta métrica?
+
+La observación responde:
+
+> ¿Qué valor tuvo esta métrica en unas condiciones concretas?
+
+Ejemplo:
+
+Metric Definition:  
+new\_customer\_cac
+
+Formula:  
+acquisition\_spend / acquired\_new\_customers
+
+frente a:
+
+Metric Observation:  
+new\_customer\_cac \= €48.20  
+period \= August 2026  
+channel \= Meta  
+market \= Spain
+
+---
+
+# **6\. METRIC REGISTRY**
+
+Todas las métricas materiales deberían estar definidas dentro de un registro canónico.
+
+Conceptualmente:
+
+METRIC\_REGISTRY
+
+Cada definición debe tener:
+
+metric\_id
+
+metric\_version
+
+Ejemplo:
+
+metric\_id:  
+acquisition.new\_customer\_cac
+
+metric\_version:  
+2.1.0
+
+---
+
+# **7\. POR QUÉ VERSIONAR MÉTRICAS**
+
+Una métrica puede cambiar de definición.
+
+Ejemplo:
+
+Versión 1:
+
+CAC \=  
+paid\_media\_spend /  
+new\_customers
+
+Versión 2:
+
+CAC \=  
+paid\_media\_spend \+  
+agency\_variable\_cost \+  
+affiliate\_commissions  
+/  
+new\_customers
+
+Si cambia la fórmula, históricamente debemos saber qué definición se utilizó.
+
+Por tanto:
+
+metric\_version
+
+forma parte de la identidad semántica.
+
+---
+
+# **8\. METRIC\_ID**
+
+`metric_id` debe ser:
+
+* estable;  
+* canónico;  
+* legible técnicamente;  
+* independiente del idioma de presentación;  
+* suficientemente específico.
+
+Ejemplo:
+
+acquisition.new\_customer\_cac
+
+Mejor que:
+
+CAC
+
+---
+
+# **9\. DISPLAY NAME**
+
+Puede existir un nombre de presentación:
+
+display\_name:  
+New Customer CAC
+
+Pero:
+
+display\_name
+
+NO debe utilizarse como identidad técnica.
+
+---
+
+# **10\. METRIC FAMILY**
+
+Toda métrica debería poder clasificarse.
+
+Ejemplos:
+
+acquisition
+
+paid\_media
+
+conversion
+
+revenue
+
+pricing
+
+merchandising
+
+retention
+
+crm
+
+unit\_economics
+
+profitability
+
+operations
+
+customer\_experience
+
+inventory
+
+scalability
+
+Esto facilita:
+
+* retrieval;  
+* routing;  
+* observabilidad;  
+* policies;  
+* organización del catálogo.
+
+---
+
+# **11\. METRIC TYPE**
+
+Debe poder declararse la naturaleza matemática de la métrica.
+
+Ejemplos:
+
+count
+
+currency
+
+ratio
+
+percentage
+
+rate
+
+duration
+
+index
+
+score
+
+quantity
+
+boolean
+
+---
+
+# **12\. UNIT**
+
+Debe declararse explícitamente la unidad.
+
+Ejemplos:
+
+EUR
+
+USD
+
+percentage
+
+ratio
+
+orders
+
+customers
+
+days
+
+hours
+
+units
+
+Nunca asumir la unidad únicamente por el nombre.
+
+---
+
+# **13\. CURRENCY**
+
+Cuando la métrica monetaria lo requiera debe existir:
+
+currency
+
+Ejemplo:
+
+value \= 48.20  
+currency \= EUR
+
+No:
+
+value \= 48.20
+
+sin saber si representa EUR, USD o GBP.
+
+---
+
+# **14\. NORMALIZACIÓN DE PORCENTAJES**
+
+Debe existir una convención interna única.
+
+Ejemplo recomendado conceptualmente:
+
+0.035
+
+representa:
+
+3.5%
+
+y no:
+
+3.5
+
+Debe impedirse que distintas fuentes interpreten porcentajes de forma diferente.
+
+---
+
+# **15\. RAW VALUE VS NORMALIZED VALUE**
+
+Debe poder distinguirse:
+
+raw\_value
+
+de:
+
+normalized\_value
+
+Ejemplo:
+
+Fuente:
+
+"3,45 %"
+
+Normalización:
+
+0.0345
+
+C6.1 debe preservar semánticamente esa transformación cuando sea relevante.
+
+La trazabilidad completa pertenecerá a C6.12.
+
+---
+
+# **16\. DISPLAY VALUE**
+
+El valor utilizado para interfaces o respuestas humanas puede diferir del valor interno.
+
+Ejemplo:
+
+normalized\_value:  
+0.0345728
+
+Display:
+
+3.46%
+
+La evaluación debe operar sobre:
+
+normalized\_value
+
+no necesariamente sobre el valor redondeado de presentación.
+
+---
+
+# **17\. PRECISION**
+
+Puede existir metadata sobre:
+
+precision
+
+para indicar la precisión conservada.
+
+No debe confundirse precisión matemática con calidad del dato.
+
+La calidad pertenece a C6.3.
+
+---
+
+# **18\. ROUNDING**
+
+Las reglas de redondeo deben ser explícitas cuando puedan afectar evaluaciones cercanas a límites.
+
+Ejemplo:
+
+actual:  
+42.996
+
+no debe convertirse prematuramente en:
+
+43
+
+si existe un guardrail:
+
+43
+
+La comparación debe utilizar la precisión adecuada.
+
+---
+
+# **19\. FORMULA\_ID**
+
+Cuando la métrica sea derivada debe referenciar una fórmula canónica.
+
+Ejemplo:
+
+formula\_id:  
+formula.new\_customer\_cac
+
+---
+
+# **20\. FORMULA\_VERSION**
+
+También debe versionarse:
+
+formula\_version:  
+2.0.0
+
+Esto permite reproducir históricos.
+
+---
+
+# **21\. NUMERATOR**
+
+Cuando tenga sentido debe poder registrarse el numerador.
+
+Ejemplo:
+
+CAC
+
+numerator:  
+acquisition\_spend
+
+---
+
+# **22\. DENOMINATOR**
+
+También el denominador.
+
+Ejemplo:
+
+denominator:  
+new\_customers
+
+Esto es especialmente importante para:
+
+* rates;  
+* ratios;  
+* conversion;  
+* CAC;  
+* ROAS;  
+* repeat rate;  
+* return rate.
+
+---
+
+# **23\. DENOMINATOR VALUE**
+
+Debe poder conservarse el valor del denominador utilizado.
+
+Ejemplo:
+
+new\_customers \= 843
+
+porque:
+
+CAC \= €48
+
+calculado sobre:
+
+843 customers
+
+no tiene necesariamente la misma robustez estadística que sobre:
+
+8 customers
+
+La evaluación de suficiencia corresponderá posteriormente a C6.3.
+
+---
+
+# **24\. ZERO DENOMINATOR**
+
+Debe existir tratamiento explícito para:
+
+denominator \= 0
+
+Nunca producir silenciosamente:
+
+0
+
+o:
+
+infinity
+
+como si fueran observaciones válidas.
+
+---
+
+# **25\. VALUE STATE**
+
+Toda observación debe diferenciar el estado del valor.
+
+Estados conceptuales:
+
+available
+
+missing
+
+not\_applicable
+
+undefined
+
+suppressed
+
+---
+
+# **26\. MISSING ≠ ZERO**
+
+Regla crítica:
+
+missing  
+≠  
+0
+
+Ejemplo:
+
+refund\_rate \= 0
+
+significa:
+
+> no se registraron devoluciones.
+
+Mientras:
+
+refund\_rate \= missing
+
+significa:
+
+> no disponemos de información suficiente.
+
+No son equivalentes.
+
+---
+
+# **27\. NOT APPLICABLE**
+
+Debe poder representarse:
+
+not\_applicable
+
+Ejemplo:
+
+Un ecommerce sin suscripción no necesita una métrica específica de:
+
+subscription\_churn
+
+No debe aparecer como:
+
+0%
+
+---
+
+# **28\. UNDEFINED**
+
+Debe utilizarse cuando matemáticamente no puede calcularse.
+
+Ejemplo:
+
+0 orders
+
+puede hacer que algunas ratios sean:
+
+undefined
+
+---
+
+# **29\. OBSERVATION\_ID**
+
+Cada observación material debe poder identificarse mediante:
+
+observation\_id
+
+Este ID es diferente de:
+
+metric\_id
+
+Ejemplo:
+
+metric\_id:  
+acquisition.new\_customer\_cac
+
+observation\_id:  
+obs\_89281
+
+---
+
+# **30\. RUN RELATION**
+
+Toda observación material de Fase 6 debe relacionarse con el runtime.
+
+Debe poder conservar:
+
+run\_id
+
+o la referencia correspondiente al envelope C6.0.
+
+---
+
+# **31\. OBSERVATION WINDOW**
+
+Debe definirse el período que representa el valor.
+
+Conceptualmente:
+
+observation\_window:  
+    start  
+    end
+
+Ejemplo:
+
+2026-08-01  
+→  
+2026-08-31
+
+---
+
+# **32\. TIME GRAIN**
+
+Debe declararse la granularidad.
+
+Ejemplos:
+
+hour
+
+day
+
+week
+
+month
+
+quarter
+
+year
+
+rolling\_window
+
+cohort\_window
+
+lifetime
+
+---
+
+# **33\. ROLLING WINDOWS**
+
+Debe distinguirse:
+
+calendar\_month
+
+de:
+
+rolling\_30d
+
+Aunque ambos tengan aproximadamente 30 días.
+
+Ejemplo:
+
+August CAC
+
+no es idéntico a:
+
+last\_30\_days CAC
+
+---
+
+# **34\. COHORT WINDOW**
+
+Algunas métricas deben asociarse a cohortes.
+
+Ejemplo:
+
+90-day repeat purchase rate  
+for January acquired customers
+
+debe distinguir:
+
+acquisition\_cohort:  
+January
+
+measurement\_horizon:  
+90 days
+
+---
+
+# **35\. OBSERVATION TIME VS CALCULATION TIME**
+
+Debe distinguirse:
+
+observation period
+
+de:
+
+calculated\_at
+
+Una métrica de agosto puede calcularse en septiembre.
+
+---
+
+# **36\. SEMANTIC AXES**
+
+Las diferencias importantes entre métricas no deben resolverse creando miles de nombres ad hoc.
+
+C6.1 debe disponer de dimensiones semánticas explícitas.
+
+Entre las fundamentales:
+
+measurement\_basis
+
+estimation\_basis
+
+attribution\_basis
+
+economic\_scope
+
+aggregation\_scope
+
+customer\_scope
+
+acquisition\_scope
+
+marginality\_scope
+
+segmentation\_scope
+
+revenue\_basis
+
+---
+
+# **37\. OBSERVED VS PREDICTED**
+
+Debe existir una distinción explícita.
+
+Valores conceptuales:
+
+observed
+
+predicted
+
+Ejemplo:
+
+observed\_ltv
+
+no puede tratarse como idéntico a:
+
+predicted\_ltv
+
+---
+
+# **38\. OBSERVED**
+
+Representa un resultado basado en acontecimientos ya realizados.
+
+Ejemplo:
+
+customers acquired Jan 2026  
+actual revenue observed through Sep 2026
+
+---
+
+# **39\. PREDICTED**
+
+Representa una estimación futura.
+
+Ejemplo:
+
+predicted\_12m\_ltv
+
+Debe conservar necesariamente:
+
+prediction\_horizon
+
+cuando aplique.
+
+---
+
+# **40\. MODELED**
+
+Además de observed/predicted puede existir:
+
+modeled
+
+cuando un valor sea producido mediante un modelo aunque no sea estrictamente una predicción futura.
+
+Ejemplo:
+
+modeled\_incremental\_revenue
+
+---
+
+# **41\. INFERRED**
+
+Puede existir:
+
+inferred
+
+cuando se derive de señales indirectas.
+
+La confianza de esa inferencia pertenece a C6.8/C6.3, no a C6.1.
+
+C6.1 únicamente declara su naturaleza.
+
+---
+
+# **42\. MEASUREMENT BASIS**
+
+La dimensión conceptual puede admitir inicialmente:
+
+observed
+
+predicted
+
+modeled
+
+inferred
+
+Estas categorías deben mantenerse semánticamente separadas.
+
+---
+
+# **43\. ATTRIBUTED VS INCREMENTAL**
+
+Debe existir otra dimensión independiente:
+
+attribution\_basis
+
+Valores conceptuales:
+
+attributed
+
+incremental
+
+unattributed
+
+blended
+
+---
+
+# **44\. ATTRIBUTED**
+
+Significa:
+
+> el resultado ha sido asignado a un canal o acción mediante un modelo de atribución.
+
+Ejemplo:
+
+Meta attributed revenue
+
+Esto NO significa automáticamente:
+
+revenue caused by Meta
+
+---
+
+# **45\. INCREMENTAL**
+
+Significa conceptualmente:
+
+> resultado estimado como consecuencia causal adicional de una intervención.
+
+Ejemplo:
+
+incremental revenue
+
+No debe intercambiarse con attributed revenue.
+
+---
+
+# **46\. ATTRIBUTION MODEL**
+
+Cuando exista atribución debe poder especificarse:
+
+attribution\_model
+
+Ejemplos:
+
+platform\_reported
+
+last\_click
+
+first\_click
+
+data\_driven
+
+linear
+
+position\_based
+
+custom
+
+---
+
+# **47\. ATTRIBUTION WINDOW**
+
+Debe poder representarse:
+
+attribution\_window
+
+Ejemplo:
+
+7d\_click\_1d\_view
+
+porque:
+
+ROAS 7-day click
+
+no es semánticamente equivalente a:
+
+ROAS 28-day click
+
+---
+
+# **48\. PLATFORM-REPORTED**
+
+Cuando el valor proceda de una plataforma con su propia metodología debe poder declararse.
+
+Ejemplo:
+
+measurement\_origin:  
+platform\_reported
+
+No significa que el valor sea falso.
+
+Significa que su semántica depende del sistema de medición de esa plataforma.
+
+---
+
+# **49\. AVERAGE VS MARGINAL**
+
+Debe existir:
+
+marginality\_scope
+
+con valores conceptuales:
+
+average
+
+marginal
+
+---
+
+# **50\. AVERAGE**
+
+Ejemplo:
+
+average\_cac \= €38
+
+puede representar la media sobre todo el gasto.
+
+---
+
+# **51\. MARGINAL**
+
+Ejemplo:
+
+marginal\_cac \= €61
+
+representa el coste asociado al incremento adicional de adquisición.
+
+Esto es crítico para escalabilidad.
+
+---
+
+# **52\. PROHIBICIÓN DE SUSTITUCIÓN**
+
+Nunca utilizar automáticamente:
+
+average CAC
+
+como sustituto de:
+
+marginal CAC
+
+cuando la pregunta requiera economía marginal.
+
+Si el dato marginal no existe:
+
+marginal CAC \= missing
+
+no:
+
+marginal CAC \= average CAC
+
+---
+
+# **53\. BLENDED VS SEGMENTED**
+
+Debe existir:
+
+segmentation\_scope
+
+Valores:
+
+blended
+
+segmented
+
+---
+
+# **54\. BLENDED**
+
+Representa un valor agregado sobre varios segmentos.
+
+Ejemplo:
+
+blended CVR \= 3.1%
+
+---
+
+# **55\. SEGMENTED**
+
+Puede representar:
+
+mobile CVR \= 2.1%
+
+desktop CVR \= 4.8%
+
+o:
+
+new\_customer CVR
+
+returning\_customer CVR
+
+---
+
+# **56\. SEGMENT DEFINITIONS**
+
+Cuando una métrica esté segmentada debe conservarse:
+
+segment\_dimensions
+
+Ejemplo:
+
+device \= mobile  
+customer\_type \= new  
+geo \= Spain  
+channel \= Meta
+
+---
+
+# **57\. NO PROMEDIAR CIEGAMENTE**
+
+El sistema no debe asumir:
+
+overall metric  
+\=  
+simple average of segments
+
+Los segmentos pueden tener pesos diferentes.
+
+Los agregados deben preservar su metodología real.
+
+---
+
+# **58\. SIMPSON'S PARADOX PREPARATION**
+
+C6.1 no detecta Simpson's paradox.
+
+Pero debe conservar suficiente segmentación para que C6.11 pueda detectarlo.
+
+Ejemplo:
+
+overall CVR ↑
+
+new customer CVR ↓
+
+returning customer CVR ↑
+
+mix shifted toward returning customers
+
+Sin dimensiones semánticas correctas este patrón sería invisible.
+
+---
+
+# **59\. CUSTOMER SCOPE**
+
+Debe poder declararse:
+
+all\_customers
+
+new\_customers
+
+returning\_customers
+
+reactivated\_customers
+
+subscribers
+
+non\_subscribers
+
+La lista debe ser extensible.
+
+---
+
+# **60\. NEW CUSTOMER DEFINITION**
+
+La definición de:
+
+new\_customer
+
+debe proceder de una convención registrada.
+
+No debe asumirse que todas las plataformas utilizan la misma definición.
+
+Puede existir:
+
+customer\_definition\_id
+
+---
+
+# **61\. ACQUISITION SCOPE**
+
+Debe poder distinguirse:
+
+all\_acquisition
+
+paid\_acquisition
+
+organic\_acquisition
+
+prospecting
+
+retargeting
+
+affiliate
+
+influencer
+
+crm\_reactivation
+
+según la métrica.
+
+---
+
+# **62\. CHANNEL SCOPE**
+
+Debe poder representar:
+
+all\_channels
+
+channel-specific
+
+y, cuando corresponda:
+
+channel\_id
+
+Ejemplo:
+
+Meta  
+Google Ads  
+TikTok  
+Email  
+Organic Search
+
+La identidad técnica del canal debe ser estable.
+
+---
+
+# **63\. CAMPAIGN / ADSET / CREATIVE SCOPE**
+
+Cuando una observación opere a granularidad inferior debe poder referenciar:
+
+campaign\_id
+
+adset\_id
+
+creative\_id
+
+sin obligar a todas las métricas a incluirlos.
+
+---
+
+# **64\. PRODUCT SCOPE**
+
+Debe permitirse:
+
+all\_products
+
+category
+
+collection
+
+sku
+
+product
+
+bundle
+
+Ejemplo:
+
+gross\_margin
+
+puede ser:
+
+blended business gross margin
+
+o:
+
+SKU-specific gross margin
+
+No son equivalentes.
+
+---
+
+# **65\. GEO SCOPE**
+
+Debe poder representar:
+
+global
+
+country
+
+region
+
+market
+
+Ejemplo:
+
+Spain CVR
+
+no debe compararse accidentalmente con:
+
+US CVR
+
+sin que C6.2 evalúe su comparabilidad.
+
+---
+
+# **66\. DEVICE SCOPE**
+
+Valores iniciales:
+
+all
+
+mobile
+
+desktop
+
+tablet
+
+other
+
+---
+
+# **67\. TRAFFIC TEMPERATURE**
+
+Cuando sea relevante:
+
+cold
+
+warm
+
+hot
+
+mixed
+
+o taxonomy equivalente configurada.
+
+C6.1 registra el scope.
+
+C6.2 decidirá cómo afecta a comparabilidad.
+
+---
+
+# **68\. REVENUE BASIS**
+
+Revenue es especialmente ambiguo.
+
+Debe poder distinguirse al menos conceptualmente:
+
+gross\_revenue
+
+net\_revenue
+
+recognized\_revenue
+
+attributed\_revenue
+
+incremental\_revenue
+
+---
+
+# **69\. GROSS VS NET REVENUE**
+
+Debe declararse si revenue:
+
+includes taxes?
+
+includes shipping?
+
+includes discounts?
+
+includes refunds?
+
+includes cancellations?
+
+No es aceptable comparar métricas económicas basadas en definiciones distintas sin reconocerlo.
+
+---
+
+# **70\. COST BASIS**
+
+Las métricas de costes también deben ser explícitas.
+
+Ejemplo:
+
+COGS
+
+puede incluir o no:
+
+* packaging;  
+* fulfillment;  
+* payment fees;  
+* freight;  
+* duties.
+
+Debe poder referenciarse una definición económica.
+
+---
+
+# **71\. CONTRIBUTION BASIS**
+
+Métricas como:
+
+contribution\_margin
+
+deben referenciar una definición canónica.
+
+Ejemplo:
+
+contribution\_margin\_level\_1
+
+contribution\_margin\_level\_2
+
+si el negocio diferencia niveles de contribución.
+
+No utilizar simplemente:
+
+margin
+
+cuando pueda ser ambiguo.
+
+---
+
+# **72\. LTV SEMANTICS**
+
+LTV debe declarar al menos:
+
+basis
+
+horizon
+
+customer cohort
+
+observed/predicted
+
+revenue/profit/contribution basis
+
+Ejemplo:
+
+predicted\_12m\_contribution\_ltv
+
+no es equivalente a:
+
+lifetime\_revenue\_ltv
+
+---
+
+# **73\. ROAS SEMANTICS**
+
+Un ROAS válido debería poder determinar:
+
+revenue\_basis
+
+ad\_spend\_basis
+
+attribution\_basis
+
+attribution\_model
+
+attribution\_window
+
+channel\_scope
+
+customer\_scope
+
+time\_window
+
+---
+
+# **74\. CAC SEMANTICS**
+
+CAC debe poder determinar:
+
+cost\_basis
+
+customer\_definition
+
+customer\_scope
+
+channel\_scope
+
+average\_or\_marginal
+
+time\_window
+
+---
+
+# **75\. CVR SEMANTICS**
+
+CVR debe poder determinar:
+
+numerator\_event
+
+denominator\_event
+
+session/user basis
+
+channel scope
+
+device scope
+
+customer scope
+
+time period
+
+Ejemplo:
+
+orders / sessions
+
+no es necesariamente equivalente a:
+
+buyers / users
+
+---
+
+# **76\. RETURN RATE SEMANTICS**
+
+Debe determinar:
+
+returned orders?
+
+returned units?
+
+returned revenue?
+
+porque todos podrían denominarse informalmente:
+
+return rate
+
+---
+
+# **77\. INVENTORY SEMANTICS**
+
+Métricas como stock coverage deben declarar:
+
+inventory basis
+
+demand basis
+
+forecast horizon
+
+aggregation level
+
+Ejemplo:
+
+30 days stock coverage
+
+puede ocultar:
+
+hero SKU coverage \= 3 days
+
+si solo se observa blended inventory.
+
+---
+
+# **78\. AGGREGATION METHOD**
+
+Debe poder registrarse:
+
+sum
+
+average
+
+weighted\_average
+
+median
+
+percentile
+
+min
+
+max
+
+ratio\_of\_sums
+
+custom
+
+---
+
+# **79\. RATIO OF SUMS VS AVERAGE OF RATIOS**
+
+Esta diferencia debe preservarse.
+
+Ejemplo:
+
+total conversions / total sessions
+
+no siempre equivale a:
+
+average(daily CVR)
+
+Especialmente cuando los volúmenes diarios son diferentes.
+
+---
+
+# **80\. WEIGHTING**
+
+Cuando exista weighted average debe poder referenciarse:
+
+weighting\_basis
+
+Ejemplo:
+
+weighted by revenue  
+weighted by orders  
+weighted by sessions
+
+---
+
+# **81\. SAMPLE POPULATION**
+
+La observación debe poder identificar conceptualmente su población.
+
+Ejemplo:
+
+all sessions
+
+paid sessions
+
+new customers
+
+January cohort
+
+orders delivered in Spain
+
+Esto no sustituye la definición completa de cohortes de C6.2.
+
+---
+
+# **82\. FILTERS**
+
+Debe poder conservarse qué filtros produjeron la observación.
+
+Ejemplo:
+
+country \= ES
+
+device \= mobile
+
+customer \= new
+
+channel \= Meta
+
+Los filtros deberán representarse de forma estructurada.
+
+No como descripción humana únicamente.
+
+---
+
+# **83\. EXCLUSIONS**
+
+También deben poder declararse exclusiones relevantes.
+
+Ejemplo:
+
+excluded:  
+internal orders
+
+test orders
+
+fraud orders
+
+---
+
+# **84\. COMPARABILITY NO PERTENECE A C6.1**
+
+C6.1 describe:
+
+> qué es el dato.
+
+C6.2 determinará:
+
+> si este dato es comparable con otro.
+
+Por tanto C6.1 NO debe generar:
+
+comparability \= high
+
+---
+
+# **85\. DATA QUALITY NO PERTENECE A C6.1**
+
+C6.1 puede registrar:
+
+denominator  
+source reference  
+measurement basis
+
+pero NO debe decidir:
+
+data\_quality \= poor
+
+Eso pertenece a C6.3.
+
+---
+
+# **86\. BENCHMARK NO PERTENECE A C6.1**
+
+No debe existir:
+
+benchmark\_value
+
+dentro de Metric Observation.
+
+Eso pertenece a C6.4/C6.9.
+
+---
+
+# **87\. TARGET NO PERTENECE A C6.1**
+
+No debe incluir:
+
+target\_value
+
+como parte semántica de la observación.
+
+El objetivo puede vincularse posteriormente mediante policy.
+
+---
+
+# **88\. GUARDRAIL NO PERTENECE A C6.1**
+
+No debe incluir:
+
+maximum\_allowed
+
+El límite pertenece a C6.5/C6.6.
+
+---
+
+# **89\. STATUS NO PERTENECE A C6.1**
+
+C6.1 no produce:
+
+healthy
+
+warning
+
+risk
+
+critical
+
+Solo representa el dato.
+
+---
+
+# **90\. CONFIDENCE NO DEBE CONFUNDIRSE**
+
+La semántica puede indicar:
+
+modeled
+
+pero no:
+
+confidence \= low
+
+La confianza pertenece a C6.8.
+
+---
+
+# **91\. SOURCE REFERENCE**
+
+Una observación puede contener una referencia técnica a su origen:
+
+source\_ref
+
+Ejemplo:
+
+shopify\_orders\_dataset\_2026\_09
+
+Pero la provenance completa pertenecerá a C6.12.
+
+---
+
+# **92\. SOURCE SYSTEM**
+
+También puede registrar conceptualmente:
+
+source\_system
+
+Ejemplos:
+
+Shopify
+
+GA4
+
+Meta Ads
+
+Google Ads
+
+Klaviyo
+
+ERP
+
+Warehouse
+
+Finance system
+
+manual upload
+
+Esto ayuda a identificar semántica.
+
+No determina automáticamente calidad.
+
+---
+
+# **93\. SOURCE FIELD**
+
+Cuando sea útil puede conservarse:
+
+source\_metric\_name
+
+Ejemplo:
+
+Meta:  
+purchase\_roas
+
+frente a nuestro:
+
+canonical metric:  
+paid\_media.platform\_attributed\_roas
+
+---
+
+# **94\. CANONICALIZATION**
+
+El sistema debe poder mapear:
+
+source metric  
+        ↓  
+canonical metric
+
+Ejemplo:
+
+Meta purchase\_roas  
+        ↓  
+paid\_media.platform\_attributed\_roas
+
+El mapping debe ser versionable.
+
+---
+
+# **95\. NO SILENT CANONICALIZATION**
+
+Si el sistema no sabe cómo mapear una métrica externa:
+
+do not guess.
+
+Debe producir conceptualmente:
+
+unmapped\_metric
+
+o:
+
+semantic\_resolution\_required
+
+---
+
+# **96\. SEMANTIC COMPLETENESS**
+
+Una observación puede ser:
+
+semantically\_complete
+
+o:
+
+semantically\_incomplete
+
+Esto NO significa que el dato sea bueno o malo.
+
+Significa si tenemos suficiente información para saber qué representa.
+
+---
+
+# **97\. REQUIRED SEMANTICS**
+
+Cada definición de métrica puede declarar dimensiones obligatorias.
+
+Ejemplo:
+
+`platform_roas` puede requerir:
+
+channel  
+attribution\_model  
+attribution\_window  
+revenue\_basis
+
+Mientras:
+
+`orders_count` podría requerir muchas menos.
+
+---
+
+# **98\. SEMANTIC VALIDATION**
+
+El sistema debe validar que la observación cumpla los requisitos de su definición.
+
+Ejemplo:
+
+Incorrecto:
+
+metric:  
+platform\_attributed\_roas
+
+attribution\_model:  
+null
+
+si el contrato exige dicha dimensión.
+
+---
+
+# **99\. SEMANTIC FINGERPRINT**
+
+Sería útil poder construir un identificador derivado de la semántica efectiva de una observación.
+
+Conceptualmente:
+
+semantic\_fingerprint
+
+Ejemplo:
+
+metric  
+\+  
+version  
+\+  
+scope  
+\+  
+measurement basis  
+\+  
+attribution basis  
+\+  
+aggregation  
+\+  
+unit
+
+Dos observaciones con fingerprints incompatibles no deben asumirse comparables.
+
+La decisión final corresponde a C6.2.
+
+---
+
+# **100\. OBSERVATION SHAPE CONCEPTUAL**
+
+La forma conceptual sería:
+
+metric\_observation:
+
+    identity:  
+        observation\_id  
+        run\_id
+
+    metric:  
+        metric\_id  
+        metric\_version  
+        metric\_family  
+        metric\_type
+
+    definition:  
+        formula\_id  
+        formula\_version
+
+    value:  
+        value\_state  
+        raw\_value  
+        normalized\_value  
+        unit  
+        currency  
+        precision
+
+    calculation:  
+        numerator  
+        numerator\_value
+
+        denominator  
+        denominator\_value
+
+        aggregation\_method  
+        weighting\_basis
+
+    semantics:  
+        measurement\_basis  
+        attribution\_basis  
+        attribution\_model  
+        attribution\_window
+
+        marginality\_scope  
+        segmentation\_scope
+
+        customer\_scope  
+        acquisition\_scope
+
+        revenue\_basis  
+        cost\_basis
+
+    scope:  
+        channel  
+        campaign  
+        product  
+        category  
+        geo  
+        device  
+        traffic\_temperature  
+        segment\_dimensions
+
+    time:  
+        observation\_start  
+        observation\_end  
+        time\_grain  
+        measurement\_horizon
+
+    population:  
+        population\_definition  
+        filters  
+        exclusions
+
+    source:  
+        source\_system  
+        source\_ref  
+        source\_metric\_name
+
+    semantic\_status:  
+        semantic\_completeness  
+        semantic\_fingerprint
+
+Esta estructura sigue siendo conceptual.
+
+No constituye todavía el schema técnico definitivo.
+
+---
+
+# **101\. EJEMPLO — CAC PROMEDIO**
+
+metric\_id:  
+acquisition.new\_customer\_cac
+
+metric\_version:  
+2.1
+
+normalized\_value:  
+38.00
+
+unit:  
+currency
+
+currency:  
+EUR
+
+measurement\_basis:  
+observed
+
+marginality\_scope:  
+average
+
+customer\_scope:  
+new\_customers
+
+acquisition\_scope:  
+paid\_acquisition
+
+channel:  
+all\_paid
+
+observation\_window:  
+August 2026
+
+numerator:  
+paid\_acquisition\_cost
+
+denominator:  
+new\_customers
+
+denominator\_value:  
+1,248
+
+---
+
+# **102\. EJEMPLO — CAC MARGINAL**
+
+metric\_id:  
+acquisition.new\_customer\_cac
+
+normalized\_value:  
+61.00
+
+currency:  
+EUR
+
+measurement\_basis:  
+modeled
+
+marginality\_scope:  
+marginal
+
+customer\_scope:  
+new\_customers
+
+acquisition\_scope:  
+paid\_acquisition
+
+Aunque ambos se llamen CAC:
+
+38
+
+y:
+
+61
+
+NO representan lo mismo.
+
+---
+
+# **103\. EJEMPLO — META ROAS**
+
+metric\_id:  
+paid\_media.roas
+
+normalized\_value:  
+4.2
+
+unit:  
+ratio
+
+measurement\_basis:  
+observed
+
+attribution\_basis:  
+attributed
+
+attribution\_model:  
+platform\_reported
+
+attribution\_window:  
+7d\_click\_1d\_view
+
+channel:  
+meta
+
+customer\_scope:  
+all\_customers
+
+revenue\_basis:  
+platform\_attributed\_purchase\_value
+
+marginality\_scope:  
+average
+
+---
+
+# **104\. EJEMPLO — INCREMENTAL ROAS**
+
+metric\_id:  
+paid\_media.roas
+
+normalized\_value:  
+1.7
+
+attribution\_basis:  
+incremental
+
+measurement\_basis:  
+modeled
+
+channel:  
+meta
+
+El sistema nunca debe comparar:
+
+4.2 attributed
+
+contra:
+
+1.7 incremental
+
+como si existiera una contradicción directa.
+
+Son construcciones diferentes.
+
+---
+
+# **105\. EJEMPLO — LTV**
+
+metric\_id:  
+retention.customer\_ltv
+
+normalized\_value:  
+226
+
+currency:  
+EUR
+
+measurement\_basis:  
+predicted
+
+measurement\_horizon:  
+12\_months
+
+customer\_scope:  
+new\_customers
+
+revenue\_basis:  
+contribution
+
+cohort:  
+customers\_acquired\_2026\_Q2
+
+Esto es:
+
+predicted 12m contribution LTV
+
+y no simplemente:
+
+LTV \= €226
+
+---
+
+# **106\. EJEMPLO — CVR SEGMENTADO**
+
+metric\_id:  
+conversion.purchase\_cvr
+
+normalized\_value:  
+0.021
+
+measurement\_basis:  
+observed
+
+segmentation\_scope:  
+segmented
+
+device:  
+mobile
+
+customer\_scope:  
+new\_customers
+
+geo:  
+Spain
+
+denominator:  
+sessions
+
+numerator:  
+orders
+
+---
+
+# **107\. INVARIANTES DE C6.1**
+
+## **INV-C6.1-001**
+
+Toda observación debe tener:
+
+metric\_id
+
+---
+
+## **INV-C6.1-002**
+
+Toda observación debe conocer la versión semántica aplicable.
+
+---
+
+## **INV-C6.1-003**
+
+missing ≠ zero
+
+---
+
+## **INV-C6.1-004**
+
+observed ≠ predicted
+
+---
+
+## **INV-C6.1-005**
+
+attributed ≠ incremental
+
+---
+
+## **INV-C6.1-006**
+
+average ≠ marginal
+
+---
+
+## **INV-C6.1-007**
+
+blended ≠ segmented
+
+---
+
+## **INV-C6.1-008**
+
+Una métrica monetaria debe conocer su moneda.
+
+---
+
+## **INV-C6.1-009**
+
+Una ratio derivada debe preservar suficientemente su fórmula.
+
+---
+
+## **INV-C6.1-010**
+
+No debe inferirse silenciosamente una semántica ausente.
+
+---
+
+## **INV-C6.1-011**
+
+Una observación debe tener período temporal o significado temporal identificable.
+
+---
+
+## **INV-C6.1-012**
+
+Un valor simulado no puede representarse como observado.
+
+---
+
+## **INV-C6.1-013**
+
+Un valor modelado no puede presentarse como medición directa.
+
+---
+
+## **INV-C6.1-014**
+
+No utilizar una métrica blended como sustitución silenciosa de una métrica segmentada requerida.
+
+---
+
+## **INV-C6.1-015**
+
+No utilizar average como sustitución silenciosa de marginal.
+
+---
+
+## **INV-C6.1-016**
+
+Una métrica atribuida por plataforma debe conservar su base de atribución cuando sea relevante.
+
+---
+
+## **INV-C6.1-017**
+
+No comparar porcentajes con escalas internas incompatibles.
+
+---
+
+## **INV-C6.1-018**
+
+No dividir por cero y producir un valor aparentemente válido.
+
+---
+
+## **INV-C6.1-019**
+
+Toda observación material debe relacionarse con una ejecución.
+
+---
+
+## **INV-C6.1-020**
+
+El nombre visible de la métrica no constituye su identidad técnica.
+
+---
+
+# **108\. VALIDACIONES MÍNIMAS**
+
+Antes de aceptar una observación:
+
+metric exists?
+
+metric version exists?
+
+value state valid?
+
+unit compatible?
+
+currency present if monetary?
+
+time window coherent?
+
+semantic dimensions compatible?
+
+required dimensions present?
+
+formula version valid?
+
+numerator/denominator coherent?
+
+scope valid?
+
+source mapping known?
+
+measurement basis declared?
+
+attribution semantics sufficient?
+
+---
+
+# **109\. SEMANTIC CONFLICT**
+
+Debe poder detectarse:
+
+semantic\_conflict
+
+Ejemplo:
+
+metric definition:  
+new\_customer\_cac
+
+customer\_scope:  
+all\_customers
+
+La observación no debería aceptarse silenciosamente.
+
+---
+
+# **110\. UNIT CONFLICT**
+
+Ejemplo:
+
+metric:  
+conversion\_rate
+
+unit:  
+EUR
+
+Debe rechazarse.
+
+---
+
+# **111\. CURRENCY CONFLICT**
+
+Si se agregan observaciones en distintas monedas:
+
+EUR  
+USD
+
+no puede producirse una única métrica monetaria sin conversión explícita.
+
+---
+
+# **112\. TEMPORAL CONFLICT**
+
+Ejemplo:
+
+start:  
+2026-09-30
+
+end:  
+2026-09-01
+
+debe rechazarse.
+
+---
+
+# **113\. SEMANTIC INCOMPLETENESS**
+
+No toda incompletitud obliga necesariamente a descartar el dato.
+
+Ejemplo:
+
+orders \= 1,500
+
+puede ser válido sin attribution window.
+
+Pero:
+
+platform ROAS \= 4.2
+
+sin saber su atribución puede ser insuficiente para ciertas comparaciones.
+
+Por tanto los requisitos son:
+
+metric-specific
+
+---
+
+# **114\. INTERACCIÓN CON C6.0**
+
+C6.0 proporciona:
+
+tenant
+
+business
+
+run
+
+trace
+
+versions
+
+time context
+
+C6.1 proporciona:
+
+metric semantics
+
+observation
+
+Relación:
+
+C6.0 Runtime  
+        ↓  
+C6.1 Observation
+
+---
+
+# **115\. INTERACCIÓN CON C6.2**
+
+C6.2 recibirá la observación y determinará:
+
+what context surrounds it?
+
+what cohort does it belong to?
+
+what references are comparable?
+
+C6.1 únicamente describe el dato.
+
+---
+
+# **116\. INTERACCIÓN CON C6.3**
+
+C6.3 podrá utilizar:
+
+source
+
+denominator
+
+sample population
+
+measurement basis
+
+semantic completeness
+
+para evaluar calidad.
+
+Pero:
+
+C6.1 describes.
+
+C6.3 judges reliability.
+
+---
+
+# **117\. INTERACCIÓN CON C6.4**
+
+C6.4 utilizará la identidad semántica para evitar benchmarks incompatibles.
+
+Ejemplo:
+
+observed mobile new-customer CVR
+
+debe intentar encontrar una referencia con suficiente equivalencia semántica.
+
+---
+
+# **118\. INTERACCIÓN CON C6.5**
+
+Los guardrails deberán declarar a qué semántica métrica aplican.
+
+Un límite de:
+
+maximum marginal CAC
+
+no debe aplicarse automáticamente a:
+
+average CAC
+
+---
+
+# **119\. INTERACCIÓN CON C6.6**
+
+Las policies podrán definir reglas para métricas concretas mediante:
+
+metric\_id
+
+y condiciones semánticas.
+
+---
+
+# **120\. INTERACCIÓN CON C6.7**
+
+El resolver utilizará C6.1 para filtrar referencias incompatibles.
+
+Conceptualmente:
+
+Metric semantic fingerprint  
+        ↓  
+candidate benchmarks  
+        ↓  
+semantic compatibility filter
+
+---
+
+# **121\. INTERACCIÓN CON C6.8**
+
+Confidence podrá diferenciar:
+
+semantic certainty
+
+de otras formas de confianza.
+
+Ejemplo:
+
+Sabemos exactamente qué métrica es:
+
+semantic confidence \= high
+
+aunque los datos subyacentes sean defectuosos:
+
+data confidence \= low
+
+---
+
+# **122\. INTERACCIÓN CON C6.9**
+
+C6.9 no debería evaluar una métrica hasta recibir una observación C6.1 suficientemente válida.
+
+Pipeline:
+
+Metric Observation  
+        ↓  
+Context  
+        ↓  
+Quality  
+        ↓  
+Reference Resolution  
+        ↓  
+Evaluation
+
+---
+
+# **123\. INTERACCIÓN CON C6.10 Y C6.11**
+
+Las anomalías y patterns deben operar sobre métricas semánticamente consistentes.
+
+No tiene sentido detectar:
+
+ROAS dropped from 4.2 to 1.8
+
+si:
+
+4.2 \= platform attributed
+
+1.8 \= incremental
+
+Eso no representa necesariamente deterioro.
+
+---
+
+# **124\. INTERACCIÓN CON C6.12**
+
+C6.12 conservará:
+
+how raw source  
+became canonical observation.
+
+Ejemplo:
+
+Meta API  
+↓  
+purchase\_roas  
+↓  
+canonical mapping  
+↓  
+normalized value  
+↓  
+metric observation
+
+---
+
+# **125\. INTERACCIÓN CON C6.13**
+
+El Finding podrá referenciar la observación mediante:
+
+observation\_id
+
+sin duplicar necesariamente todo su contenido.
+
+---
+
+# **126\. TESTS MÍNIMOS**
+
+## **TEST 1 — Missing vs Zero**
+
+value \= 0
+
+y:
+
+value \= missing
+
+deben producir observaciones distintas.
+
+---
+
+## **TEST 2 — Observed vs Predicted LTV**
+
+Deben considerarse semánticamente distintas.
+
+---
+
+## **TEST 3 — Attributed vs Incremental ROAS**
+
+No deben tratarse como equivalentes.
+
+---
+
+## **TEST 4 — Average vs Marginal CAC**
+
+No deben compartir el mismo semantic fingerprint.
+
+---
+
+## **TEST 5 — Blended vs Mobile CVR**
+
+Deben conservar scopes distintos.
+
+---
+
+## **TEST 6 — Currency Required**
+
+Un CAC monetario sin currency debe fallar validación.
+
+---
+
+## **TEST 7 — Percentage Normalization**
+
+3.5%
+
+debe normalizarse inequívocamente.
+
+---
+
+## **TEST 8 — Zero Denominator**
+
+Debe producir:
+
+undefined
+
+cuando corresponda.
+
+---
+
+## **TEST 9 — Unknown Metric**
+
+No debe inventarse automáticamente una definición.
+
+---
+
+## **TEST 10 — Unknown Source Mapping**
+
+Debe requerir semantic resolution.
+
+---
+
+## **TEST 11 — Formula Version Change**
+
+Observaciones calculadas con fórmulas diferentes deben mantener versiones diferentes.
+
+---
+
+## **TEST 12 — Attribution Window**
+
+7d click
+
+y:
+
+28d click
+
+deben distinguirse.
+
+---
+
+## **TEST 13 — Revenue Basis**
+
+Gross revenue y net revenue deben diferenciarse.
+
+---
+
+## **TEST 14 — Ratio Aggregation**
+
+Ratio of sums y average of ratios no deben tratarse como idénticos.
+
+---
+
+## **TEST 15 — New vs All Customers**
+
+Las observaciones deben conservar scopes diferentes.
+
+---
+
+## **TEST 16 — Simulation**
+
+Un valor simulado nunca debe convertirse en observed.
+
+---
+
+## **TEST 17 — Source Canonicalization**
+
+Debe poder transformar correctamente una métrica externa conocida en su métrica canónica.
+
+---
+
+## **TEST 18 — Semantic Conflict**
+
+Una métrica `new_customer_cac` con scope `all_customers` debe generar error o requerir resolución.
+
+---
+
+# **127\. ANTI-PATRÓN — MÉTRICA COMO STRING**
+
+Incorrecto:
+
+metric \= "CAC"
+
+Correcto conceptualmente:
+
+metric\_id  
+metric\_version  
+semantics  
+scope  
+value  
+time
+
+---
+
+# **128\. ANTI-PATRÓN — VALUE ONLY**
+
+Incorrecto:
+
+ROAS \= 3.4
+
+Un número sin semántica no debe convertirse automáticamente en una evaluación.
+
+---
+
+# **129\. ANTI-PATRÓN — OBSERVED/PREDICTED IMPLÍCITO**
+
+Incorrecto:
+
+LTV \= 240
+
+sin saber si:
+
+observed  
+predicted  
+modeled
+
+---
+
+# **130\. ANTI-PATRÓN — ATTRIBUTION AS CAUSALITY**
+
+Incorrecto:
+
+Meta reports €100k revenue  
+therefore Meta generated €100k incremental revenue
+
+C6.1 debe conservar la diferencia semántica.
+
+---
+
+# **131\. ANTI-PATRÓN — BLENDED HIDING SEGMENTS**
+
+Incorrecto utilizar:
+
+overall CVR
+
+como única representación cuando la evaluación requiere:
+
+device  
+customer type  
+channel
+
+---
+
+# **132\. ANTI-PATRÓN — AVERAGE HIDING MARGINAL**
+
+Incorrecto:
+
+average CAC healthy  
+therefore scaling CAC healthy
+
+Sin conocer marginal CAC esa inferencia puede ser inválida.
+
+---
+
+# **133\. ANTI-PATRÓN — FORMULA DESCONOCIDA**
+
+No almacenar:
+
+contribution margin \= 24%
+
+sin poder determinar qué definición de contribution se utilizó.
+
+---
+
+# **134\. ANTI-PATRÓN — CURRENCY ASSUMPTION**
+
+No asumir EUR porque el tenant opere principalmente en España.
+
+Una observación debe conocer su moneda.
+
+---
+
+# **135\. ANTI-PATRÓN — NULL COMO CERO**
+
+Nunca:
+
+null → 0
+
+por comodidad técnica.
+
+---
+
+# **136\. ANTI-PATRÓN — SEMANTIC GUESSING**
+
+Si llega:
+
+"conversion \= 2.8"
+
+sin saber si:
+
+2.8%  
+0.028  
+2.8 ratio
+
+el sistema no debe adivinar silenciosamente.
+
+---
+
+# **137\. ACCEPTANCE CRITERIA**
+
+Para cualquier observación material debemos poder responder:
+
+1\. ¿Qué métrica exacta es?
+
+2\. ¿Qué versión de esa métrica utilizamos?
+
+3\. ¿Qué fórmula representa?
+
+4\. ¿Qué valor tiene?
+
+5\. ¿Qué unidad utiliza?
+
+6\. ¿Qué moneda utiliza si procede?
+
+7\. ¿Qué período representa?
+
+8\. ¿Es observed, predicted, modeled o inferred?
+
+9\. ¿Es attributed o incremental?
+
+10\. ¿Qué attribution model utiliza?
+
+11\. ¿Qué attribution window utiliza?
+
+12\. ¿Es average o marginal?
+
+13\. ¿Es blended o segmentada?
+
+14\. ¿Qué clientes incluye?
+
+15\. ¿Qué canal incluye?
+
+16\. ¿Qué geo incluye?
+
+17\. ¿Qué dispositivo incluye?
+
+18\. ¿Qué productos incluye?
+
+19\. ¿Qué población representa?
+
+20\. ¿Qué numerador y denominador utiliza?
+
+21\. ¿Cómo se agrega?
+
+22\. ¿Cuál es su source system?
+
+23\. ¿Cómo se mapeó a nuestra métrica canónica?
+
+24\. ¿Está semánticamente completa?
+
+25\. ¿A qué ejecución pertenece?
+
+Si no podemos responder las dimensiones que sean necesarias para esa métrica, todavía no tenemos una observación apta para evaluación.
+
+---
+
+# **138\. DEFINITION OF DONE**
+
+C6.1 estará formalmente definido cuando exista:
+
+Metric Registry
+
+Metric Identity
+
+Metric Versioning
+
+Metric Families
+
+Metric Types
+
+Unit Model
+
+Currency Model
+
+Value State Model
+
+Normalization Rules
+
+Formula Identity
+
+Numerator / Denominator Model
+
+Observation Identity
+
+Temporal Window Model
+
+Measurement Basis
+
+Attribution Semantics
+
+Observed / Predicted Separation
+
+Attributed / Incremental Separation
+
+Average / Marginal Separation
+
+Blended / Segmented Separation
+
+Customer Scope
+
+Channel Scope
+
+Product Scope
+
+Geo Scope
+
+Device Scope
+
+Revenue Basis
+
+Cost Basis
+
+Aggregation Model
+
+Population Model
+
+Source Mapping
+
+Canonicalization
+
+Semantic Completeness
+
+Semantic Validation
+
+Semantic Fingerprint
+
+Runtime Relation
+
+Validation Rules
+
+Test Fixtures
+
+---
+
+# **139\. RESULTADO ARQUITECTÓNICO**
+
+Antes de C6.1:
+
+CAC \= €48
+
+Después de C6.1:
+
+Metric:  
+New Customer CAC
+
+Value:  
+€48
+
+Measurement:  
+Observed
+
+Scope:  
+Paid acquisition  
+New customers  
+Spain
+
+Marginality:  
+Average
+
+Period:  
+August 2026
+
+Formula:  
+Paid acquisition cost  
+/  
+New customers acquired
+
+Currency:  
+EUR
+
+Aggregation:  
+Ratio of sums
+
+Source:  
+Canonicalized business data
+
+Runtime:  
+run\_B72
+
+Todavía NO sabemos:
+
+si €48 es bueno
+
+si €48 es malo
+
+si €48 está empeorando
+
+si viola economics
+
+si el dato es fiable
+
+contra qué debería compararse
+
+Y eso es correcto.
+
+Esas preguntas pertenecen a contratos posteriores.
+
+---
+
+# **140\. PRINCIPIO FINAL DE C6.1**
+
+C6.1 debe imponer:
+
+A metric is not just a number.
+
+A metric is:
+
+definition  
+\+  
+formula  
+\+  
+value  
+\+  
+unit  
+\+  
+time  
+\+  
+scope  
+\+  
+measurement basis  
+\+  
+economic semantics  
+\+  
+aggregation  
+\+  
+population  
+\+  
+source
+
+Por tanto:
+
+No semantic identity  
+\=  
+No trustworthy comparison.
+
+Y especialmente:
+
+OBSERVED  
+≠  
+PREDICTED
+
+ATTRIBUTED  
+≠  
+INCREMENTAL
+
+AVERAGE  
+≠  
+MARGINAL
+
+BLENDED  
+≠  
+SEGMENTED
+
+Estas diferencias deben existir en la estructura del sistema y no depender únicamente de que un modelo de IA recuerde explicarlas.
+
+---
+
+# **141\. SALIDA FORMAL DE C6.1**
+
+C6.1 produce conceptualmente:
+
+METRIC\_DEFINITION
+
+y:
+
+METRIC\_OBSERVATION
+
+que serán consumidos posteriormente por:
+
+C6.2 Context & Comparable Cohort
+
+C6.3 Data Quality
+
+C6.4 Benchmark Reference
+
+C6.5 Guardrails
+
+C6.7 Resolution
+
+C6.9 Benchmark Evaluation
+
+C6.10 Anomaly Detection
+
+C6.11 Pattern Detection
+
+C6.1 no produce:
+
+STATUS
+
+SEVERITY
+
+CONFIDENCE
+
+BENCHMARK
+
+GUARDRAIL BREACH
+
+ANOMALY
+
+RED FLAG
+
+FINDING
+
+PRIORITY
+
+RECOMMENDATION
+
+---
+
+# **C6.1 — ESTADO**
+
+CONTRACT:  
+C6.1 Metric Semantics & Observation
+
+TYPE:  
+Semantic Foundation / Metric Observation
+
+PHASE:  
+6 — Benchmarks & Guardrails
+
+STATUS:  
+Architecture Defined
+
+IMPLEMENTATION:  
+Not yet implemented
+
+DEPENDS ON:  
+C6.0 Runtime Envelope & Identity
+
+NEXT CONTRACT:  
+C6.2 Context & Comparable Cohort Contract
+
