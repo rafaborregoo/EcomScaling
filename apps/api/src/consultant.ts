@@ -4478,6 +4478,23 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
 
 const CONSULTANT_ROLE = "consultant" as const;
 
+/**
+ * Plan con el que nace una tienda propia del consultor. No es el "trial" de un
+ * cliente: la tienda es suya y no caduca, por eso `active` y plan aparte -- en
+ * facturacion hay que poder separar lo que lleva el consultor de lo que llevan
+ * sus clientes.
+ *
+ * El tope importa: `assertStoreLimit` trata "sin fila de suscripcion" como
+ * "sin limite", asi que una tienda sin plan podia conectar Shopify sin tope
+ * alguno. El tramo de 2 tiendas es el de 100 EUR del pricing.
+ *
+ * Si cambia el tope, cambia tambien la migracion
+ * 20261002090000_plan_de_tienda_propia.sql, que rellena las que ya existian.
+ */
+const OWN_STORE_PLAN_CODE = "consultant" as const;
+const OWN_STORE_PLAN_STATUS = "active" as const;
+const OWN_STORE_PLAN_STORE_LIMIT = 2;
+
 function slugify(input: string): string {
   return (
     input
@@ -5452,6 +5469,29 @@ export async function createOwnStore(
       statusCode: 500,
       error: "owner_member_create_failed",
       detail: memberError.message,
+    };
+  }
+
+  // Sin esta fila la tienda nace "sin plan" y `assertStoreLimit` la deja
+  // conectar tiendas Shopify sin tope, porque interpreta la ausencia de
+  // suscripcion como ausencia de limite. Si falla se deshace el alta: una
+  // organizacion a medias sin plan es justo el estado que hay que evitar.
+  const { error: subscriptionError } = await supabase
+    .from("service_subscriptions")
+    .insert({
+      organization_id: organization.id,
+      plan_code: OWN_STORE_PLAN_CODE,
+      status: OWN_STORE_PLAN_STATUS,
+      store_limit: OWN_STORE_PLAN_STORE_LIMIT,
+      starts_at: new Date().toISOString(),
+    });
+  if (subscriptionError) {
+    await supabase.from("organizations").delete().eq("id", organization.id);
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "own_store_subscription_create_failed",
+      detail: subscriptionError.message,
     };
   }
 
