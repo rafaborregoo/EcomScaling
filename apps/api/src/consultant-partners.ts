@@ -245,7 +245,12 @@ export async function addConsultantPartner(
   const email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!EMAIL.test(email)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_email" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_email",
+      message: "Ese correo no tiene un formato válido. Revísalo.",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -257,12 +262,18 @@ export async function addConsultantPartner(
       statusCode: 404,
       error: "consultant_not_found",
       message:
-        "Ese correo no tiene cuenta en la plataforma. Un platform admin tiene que darle de alta como consultor primero.",
+        "No hay ninguna cuenta con ese correo. Comprueba que está bien escrito; si lo está, pide a la dirección de EcomScaling que le den de alta como consultor y vuelve a intentarlo.",
     };
   }
 
   if (partnerId === context.user.id) {
-    return { ok: false as const, statusCode: 400, error: "cannot_pair_self" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "cannot_pair_self",
+      message:
+        "Ese es tu propio correo. Aquí se añade a otra persona con la que compartes cartera.",
+    };
   }
 
   const { data: partnerProfile } = await supabase
@@ -283,7 +294,8 @@ export async function addConsultantPartner(
       ok: false as const,
       statusCode: 409,
       error: "not_a_consultant",
-      message: "Esa cuenta existe pero no es de un consultor.",
+      message:
+        "Esa cuenta existe, pero no es de consultor: puede ser la de un cliente. Si va a llevar tiendas contigo, pide a la dirección de EcomScaling que le cambien el rol a consultor.",
     };
   }
   if (!partnerProfile.is_active) {
@@ -291,7 +303,8 @@ export async function addConsultantPartner(
       ok: false as const,
       statusCode: 409,
       error: "consultant_inactive",
-      message: "Esa cuenta de consultor está desactivada.",
+      message:
+        "Esa cuenta de consultor está desactivada y no puede llevar tiendas. Pide a la dirección de EcomScaling que la reactiven.",
     };
   }
 

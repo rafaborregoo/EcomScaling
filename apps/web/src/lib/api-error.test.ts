@@ -30,10 +30,30 @@ test("el mensaje incluye la referencia cuando el API la devuelve", async () => {
     ),
   );
 
-  assert.equal(
-    message,
-    "shopify_sync_failed - No se pudo sincronizar. (ref: req-abc-123)",
+  assert.equal(message, "No se pudo sincronizar. (ref: req-abc-123)");
+});
+
+test("con mensaje humano no se cuela el codigo ni el detalle interno", async () => {
+  const message = await readApiError(
+    jsonResponse({
+      error: "consultant_not_found",
+      message: "No hay ninguna cuenta con ese correo.",
+      detail: 'relation "profiles" does not exist',
+    }),
   );
+
+  assert.equal(message, "No hay ninguna cuenta con ese correo.");
+});
+
+test("sin mensaje humano sigue saliendo el codigo con su detalle", async () => {
+  const message = await readApiError(
+    jsonResponse(
+      { error: "shopify_sync_failed", detail: "timeout" },
+      { requestId: "req-9" },
+    ),
+  );
+
+  assert.equal(message, "shopify_sync_failed - timeout (ref: req-9)");
 });
 
 test("sin cabecera de referencia el mensaje no gana ruido", async () => {
