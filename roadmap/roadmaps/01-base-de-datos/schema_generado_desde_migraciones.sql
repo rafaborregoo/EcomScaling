@@ -28618,6 +28618,8 @@ create unique index if not exists context_assessments_caso_scope_idx
 -- llama, igual que el resto de metricas del repo.
 -- ---------------------------------------------------------------------------
 
+drop function if exists public.context_order_mix(uuid, timestamptz, timestamptz, uuid);
+
 create or replace function public.context_order_mix(
   target_organization_id uuid,
   period_start timestamptz,
