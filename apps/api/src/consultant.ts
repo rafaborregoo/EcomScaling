@@ -6913,6 +6913,103 @@ export async function listConsultantSymptomMap(
 }
 
 /**
+ * FASE 3 / D10 — cuanto dano hay, medido.
+ *
+ * Solo consultor, y por el motivo de siempre en esta fase llevado un paso mas:
+ * una cifra de perdida sin causa y sin severidad, delante de un cliente, es un
+ * susto con factura y sin salida. La matriz de audiencia dice que el cliente
+ * vera "la cifra y el alcance, no el orden" **cuando haya redaccion para
+ * ensenarlo**; hasta entonces, consultor.
+ *
+ * Lo que aporta en una linea: convierte "las ventas netas bajan un 18%" en
+ * **"-2.400 EUR en la semana, el 3,1% del revenue del periodo"** -- y dice sobre
+ * que base se juzgo eso y por que, que segun los guardrails 15 a 18 es donde se
+ * exagera o se quita importancia a casi todo.
+ *
+ * SOLO LAS VIGENTES. `assessment_status` distingue `current` de `superseded`, y
+ * la pantalla ensena las primeras: mezclar la medida de hoy con la de la semana
+ * pasada se lee como si el dano se hubiera duplicado.
+ */
+export async function listConsultantSeverity(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: evaluaciones, error } = await supabase
+    .from("severity_assessments")
+    .select(
+      "id, organization_id, case_id, target, scope, acute_severity, cumulative_severity, forward_risk_severity, structural_severity, overall_severity, cause_confidence, impact_confidence, severity_confidence, trajectory, velocity, recurrence, measurement_compromised, material_exposure, escalation_signal, summary, limitations, assessed_at",
+    )
+    .in("organization_id", safeIds)
+    .eq("assessment_status", "current")
+    .order("assessed_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_severity_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const evaluacionIds = (evaluaciones ?? []).map((e) => e.id as string);
+  if (evaluacionIds.length === 0) {
+    return { ok: true as const, data: { assessments: [] } };
+  }
+
+  const { data: medidas } = await supabase
+    .from("impact_measurements")
+    .select(
+      "assessment_id, dimension, dimension_severity, nature, timing, evidence_type, quantification, metric, value, value_low, value_high, unit, period_start, period_end, method, assumptions, impact_confidence, note",
+    )
+    .in("assessment_id", evaluacionIds);
+
+  // Guardrails 15 a 18: la cuota sin denominador no dice nada, asi que las
+  // exposiciones viajan con la evaluacion y no como un detalle opcional.
+  const { data: exposiciones } = await supabase
+    .from("impact_exposures")
+    .select(
+      "assessment_id, denominator, denominator_value, denominator_note, exposure_share, affected_segment, is_chosen_denominator, confidence, rationale",
+    )
+    .in("assessment_id", evaluacionIds);
+
+  const assessments = (evaluaciones ?? []).map((evaluacion) => ({
+    ...evaluacion,
+    organization_name:
+      nombrePorOrg.get(evaluacion.organization_id as string) ?? null,
+    measurements: (medidas ?? []).filter(
+      (m) => m.assessment_id === evaluacion.id,
+    ),
+    exposures: (exposiciones ?? []).filter(
+      (e) => e.assessment_id === evaluacion.id,
+    ),
+  }));
+
+  return { ok: true as const, data: { assessments } };
+}
+
+/**
  * FASE 3 / D04 — como esta cada capacidad hoy.
  *
  * Solo consultor. El estado de una capacidad ("tu operativa esta BAD") es una

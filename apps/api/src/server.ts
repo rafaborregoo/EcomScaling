@@ -40,6 +40,7 @@ import {
   listConsultantContextReadings,
   listConsultantMaturity,
   listConsultantCapabilityHealth,
+  listConsultantSeverity,
   listConsultantSignals,
   listConsultantSymptomMap,
   listConsultantDataQuality,
@@ -116,6 +117,7 @@ import { exportOrganizationData } from "./organization-export.js";
 import {
   listProductCosts,
   upsertProductCost,
+  importProductCosts,
 } from "./shopify-product-costs.js";
 import {
   createFixedExpense,
@@ -1647,6 +1649,30 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  // F3/D10. Cuanto dano hay, medido: cuanto se movio, sobre que base y con que
+  // supuestos. **Ninguna severidad**: la fuente no define formula ni umbral.
+  // Solo consultor -- una cifra de perdida sin causa es un susto sin salida.
+  app.get("/v1/consultant/severity", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantSeverity(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
   // F3/D04. Como esta cada capacidad hoy, y cuando no se puede saber, que falta
   // declarar para poder saberlo. Solo consultor: el estado de una capacidad es
   // una etiqueta sin la conversacion que la acompana.
@@ -3078,6 +3104,38 @@ export async function buildApp(): Promise<FastifyInstance> {
         return sendServiceFailure(reply, result);
       }
 
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: {
+      rows?: Array<{ sku?: string; unitCost?: number; currencyCode?: string }>;
+      dryRun?: boolean;
+    };
+  }>(
+    "/v1/organizations/:organizationId/shopify/product-costs/import",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await importProductCosts(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      // 200 y no 201: con `dryRun` no se crea nada, y sin el la respuesta
+      // interesante es el desglose por linea, no un recurso nuevo.
       return result.data;
     },
   );
