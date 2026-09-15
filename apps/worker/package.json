@@ -24,6 +24,8 @@
     "start": "node dist/worker.js",
     "start:shopify-reconcile": "node dist/shopify-reconcile-once.js",
     "start:context": "node dist/context-once.js",
+    "start:severity": "node dist/severity-once.js",
+    "start:health": "node dist/health-once.js",
     "start:maturity": "node dist/maturity-once.js",
     "start:symptoms": "node dist/symptoms-once.js",
     "start:data-quality": "node dist/data-quality-once.js",

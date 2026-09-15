@@ -564,3 +564,364 @@ export function checkSeverityInvariants(
 
   return violations;
 }
+
+// --- El motor ---------------------------------------------------------------
+
+/**
+ * EL MOTOR DE SEVERIDAD. Y lo primero que hay que entender es **lo que no
+ * hace**: no pone ni una severidad.
+ *
+ * Las cinco columnas de severidad salen todas en `unknown`, a proposito. El
+ * apartado 29 dice que la fuente **no define formula de severidad, ni
+ * ponderacion de impacto, ni modelo monetario, ni modelo de probabilidad**, y el
+ * guardrail 17 anade que un scope pequeno puede ser material -- o sea que
+ * tampoco hay umbral por cuota. Poner "3% del revenue = moderate" seria
+ * inventarse el umbral que el documento se niega a dar, y presentarlo como
+ * derivado de el.
+ *
+ * Lo que si se puede hacer, y es justo lo que el artefacto llama la rama de
+ * cuantificacion: **medir**. Cuanto dinero se movio, sobre que base, en que
+ * periodo, con que metodo y con que supuestos. Eso convierte "las ventas netas
+ * bajan un 18%" en "-2.400 EUR en la semana, que es el 3,1% del revenue del
+ * periodo" -- y elegir mal ese denominador es, segun los guardrails 15 a 18, la
+ * forma mas comun de exagerar un problema o de quitarle importancia.
+ *
+ * LA CUENTA NO ES OBSERVADA, ES ESTIMADA. El valor de hoy se observa; la
+ * perdida es la diferencia contra un baseline, y un baseline es un modelo. Por
+ * eso `evidence_type` es `estimated` y los supuestos se escriben (guardrail 22).
+ * Decir `observed` ahi seria presentar un calculo como una medicion.
+ */
+
+export type CaseForSeverity = {
+  case_id: string;
+  target_metric: string;
+  scope: string;
+  analysis_period_start: string;
+  analysis_period_end: string;
+};
+
+export type SignalForSeverity = {
+  metric: string;
+  direction: string;
+  observed_value: number | null;
+  baseline_value: number | null;
+  magnitude_absolute: number | null;
+  trajectory: string | null;
+  persistence: string;
+  business_exposure: string | null;
+  window_start: string;
+  window_end: string;
+};
+
+/** Una base contra la que medir la cuota. Medida, no declarada. */
+export type DenominatorReading = {
+  denominator: "revenue" | "orders" | "customers" | "traffic" | "spend";
+  value: number;
+};
+
+export type SeverityCaseInput = {
+  diagnosticCase: CaseForSeverity;
+  signal: SignalForSeverity | null;
+  denominators: DenominatorReading[];
+  currency: string;
+  /** De D01. Medir mal no es perder dinero, pero si compromete la cifra. */
+  dataReliability?: string | null;
+  /** De D06: cuantas veces ha pasado esto antes. */
+  symptomRecurrence?: { persistence: string; recurrence_count: number } | null;
+};
+
+export type ImpactMeasurementDraft = {
+  dimension: string;
+  dimension_severity: "unknown";
+  nature: string;
+  timing: string;
+  evidence_type: string;
+  quantification: string;
+  metric: string | null;
+  value: number | null;
+  unit: string | null;
+  period_start: string;
+  period_end: string;
+  period_open: boolean;
+  method: string;
+  baseline_reference: string;
+  assumptions: string;
+  impact_confidence: string;
+  note: string | null;
+};
+
+export type ImpactExposureDraft = {
+  denominator: string;
+  denominator_value: number;
+  denominator_note: string | null;
+  exposure_share: number | null;
+  affected_segment: string | null;
+  is_chosen_denominator: boolean;
+  confidence: string;
+  rationale: string | null;
+};
+
+export type SeverityAssessmentDraft = {
+  case_id: string;
+  target: string;
+  scope: string;
+  acute_severity: "unknown";
+  cumulative_severity: "unknown";
+  forward_risk_severity: "unknown";
+  structural_severity: "unknown";
+  overall_severity: "unknown";
+  cause_confidence: string;
+  impact_confidence: string;
+  severity_confidence: string;
+  trajectory: string;
+  velocity: string;
+  recurrence: string;
+  measurement_compromised: boolean;
+  material_exposure: boolean;
+  escalation_signal: string;
+  summary: string;
+  assumptions: string | null;
+  limitations: string;
+  measurements: ImpactMeasurementDraft[];
+  exposures: ImpactExposureDraft[];
+};
+
+const DENOMINADOR_POR_METRICA: Record<
+  string,
+  { denominator: DenominatorReading["denominator"]; rationale: string }
+> = {
+  net_sales: {
+    denominator: "revenue",
+    rationale:
+      "Se juzga sobre el revenue del periodo porque la metrica afectada es dinero facturado. Sobre la contribucion la cuota seria mayor, pero no hay coste por referencia para calcularla.",
+  },
+  orders_count: {
+    denominator: "orders",
+    rationale:
+      "Se juzga sobre los pedidos del periodo porque lo que se movio es el numero de pedidos, no su valor. Medirlo sobre revenue mezclaria la caida de volumen con la de ticket medio.",
+  },
+  average_order_value: {
+    denominator: "revenue",
+    rationale:
+      "Se juzga sobre el revenue del periodo: el ticket medio no tiene base propia, su efecto se ve en lo facturado.",
+  },
+  sessions: {
+    denominator: "traffic",
+    rationale:
+      "Se juzga sobre las sesiones del periodo. Llevarlo a revenue exigiria suponer una conversion constante, que es justo lo que no se sabe.",
+  },
+};
+
+/**
+ * Sobre que base se juzga esta metrica, y por que.
+ *
+ * El guardrail 16 dice que elegir un denominador en vez de otro es un juicio y
+ * se razona -- el esquema ni siquiera deja marcar el elegido sin escribir el
+ * motivo. El mismo incidente es un 3 % del revenue y un 30 % de la contribucion.
+ */
+export function chooseDenominator(targetMetric: string): {
+  denominator: DenominatorReading["denominator"];
+  rationale: string;
+} | null {
+  return DENOMINADOR_POR_METRICA[targetMetric] ?? null;
+}
+
+/**
+ * La cuota, solo cuando significa algo.
+ *
+ * Si la perdida sale mayor que la base, la cuota no es "100 %": es que la base
+ * esta mal elegida o mal medida. Devolver 1 seria tapar un error de medicion con
+ * una cifra creible, asi que devuelve `null` y quien lo lea ve el hueco.
+ */
+export function exposureShare(loss: number, denominator: number): number | null {
+  if (!Number.isFinite(loss) || !Number.isFinite(denominator) || denominator <= 0) {
+    return null;
+  }
+  const cuota = Math.abs(loss) / denominator;
+  return cuota >= 0 && cuota <= 1 ? cuota : null;
+}
+
+/**
+ * De la trayectoria de D05 a la velocidad de D10.
+ *
+ * Son vocabularios distintos y no se copian: `volatile` no es una velocidad, y
+ * mapearlo a "empeorando" convertiria el vaiven en una direccion.
+ */
+export function velocityFrom(trajectory: string | null): string {
+  switch (trajectory) {
+    case "deteriorating":
+      return "worsening";
+    case "rapidly_deteriorating":
+      return "rapidly_deteriorating";
+    case "improving":
+    case "recovering":
+      return "recovering";
+    case "stable":
+      return "stable";
+    default:
+      return "unknown";
+  }
+}
+
+/** Cuantas veces ha pasado esto. Sin sintoma detras, no se sabe. */
+export function recurrenceFrom(
+  symptom: { persistence: string; recurrence_count: number } | null | undefined,
+): string {
+  if (!symptom) return "unknown";
+  if (symptom.persistence === "chronic") return "chronic";
+  if (symptom.recurrence_count > 1) return "recurrent";
+  return "first_time";
+}
+
+/**
+ * Lo que esta evaluacion **no** puede decir, escrito.
+ *
+ * El guardrail 54 lo exige cuando la confianza en la causa es baja, y aqui lo es
+ * siempre: no hay motor de causa raiz. Una evaluacion de severidad sin esta
+ * frase se leeria como si alguien hubiera decidido que el dano es desconocido,
+ * cuando lo que pasa es que nadie ha definido como medirlo.
+ */
+export function limitationsFor(input: SeverityCaseInput): string {
+  const faltas: string[] = [
+    "Las cinco severidades quedan en `unknown` porque la fuente no define formula de severidad ni umbral de cuota (apartado 29, guardrail 17): decidir que un 3 % es moderado seria inventarse el umbral.",
+    "No hay causa raiz ni constraint: D07 a D09 no tienen motor, asi que la confianza en la causa es insuficiente por construccion.",
+    "Reversibilidad y recuperabilidad quedan sin evaluar: dependen de D09.",
+  ];
+
+  if (!input.signal) {
+    faltas.push("No hay senal en la ventana del caso, asi que no hay nada que cuantificar.");
+  }
+  // Siempre, hoy: 43 de 44 referencias no tienen coste, asi que la contribucion
+  // no se puede calcular en ninguna tienda. Cuando se pueda, esta linea sobra.
+  faltas.push(
+    "No se mide el impacto sobre la contribucion: no hay coste por referencia para calcularla.",
+  );
+  if (input.dataReliability && ["low", "unusable"].includes(input.dataReliability)) {
+    faltas.push(
+      "D01 da la fuente por degradada, asi que la cifra economica se declara comprometida (guardrail 51).",
+    );
+  }
+
+  return faltas.join(" ");
+}
+
+/**
+ * La evaluacion de severidad de un caso: la medida, no el juicio.
+ */
+export function assessSeverity(input: SeverityCaseInput): SeverityAssessmentDraft {
+  const { diagnosticCase, signal, denominators, currency } = input;
+
+  const comprometida = Boolean(
+    input.dataReliability && ["low", "unusable"].includes(input.dataReliability),
+  );
+
+  const perdida =
+    signal && typeof signal.magnitude_absolute === "number"
+      ? Math.abs(signal.magnitude_absolute)
+      : null;
+
+  const eleccion = chooseDenominator(diagnosticCase.target_metric);
+
+  // Guardrail 21: lo inferido no sostiene confianza alta. Y si D01 degrado la
+  // fuente, la confianza en el impacto baja aunque la cuenta este bien hecha:
+  // una resta exacta sobre un dato malo sigue siendo un dato malo.
+  const impactConfidence = perdida === null ? "insufficient" : comprometida ? "low" : "medium";
+
+  const measurements: ImpactMeasurementDraft[] = [];
+  if (perdida !== null && signal) {
+    const esDinero = ["net_sales", "average_order_value"].includes(signal.metric);
+    measurements.push({
+      dimension: esDinero ? "revenue" : "operations",
+      // La severidad por dimension forma el vector, y tampoco hay formula para
+      // ella. Sale `unknown` como las otras cinco.
+      dimension_severity: "unknown",
+      nature: "realized_loss",
+      timing: "realized",
+      // La resta contra un baseline no es una observacion: el baseline es un
+      // modelo. Llamarlo `observed` seria presentar un calculo como medicion.
+      evidence_type: "estimated",
+      quantification: "estimated",
+      metric: signal.metric,
+      value: perdida,
+      unit: esDinero ? currency : "unidades",
+      period_start: signal.window_start,
+      period_end: signal.window_end,
+      period_open: false,
+      method:
+        "Diferencia entre el valor observado en la ventana y el baseline con el que D05 emitio la senal.",
+      baseline_reference: `Baseline de D05 para ${signal.metric} (${signal.baseline_value ?? "sin valor"}).`,
+      assumptions:
+        "Supone que el baseline habria seguido vigente en la ventana medida, es decir que sin el movimiento detectado la metrica habria seguido su nivel previo. No ajusta por estacionalidad ni por calendario comercial, que D05 todavia no aplica.",
+      impact_confidence: impactConfidence,
+      note: comprometida
+        ? "D01 da la fuente por degradada: la cifra se declara comprometida."
+        : null,
+    });
+  }
+
+  const exposures: ImpactExposureDraft[] = denominators
+    .filter((d) => d.value > 0)
+    .map((d) => {
+      const elegido = eleccion?.denominator === d.denominator;
+      const cuota = perdida === null ? null : exposureShare(perdida, d.value);
+      return {
+        denominator: d.denominator,
+        denominator_value: d.value,
+        denominator_note:
+          perdida !== null && cuota === null
+            ? "La perdida calculada supera esta base: la base esta mal elegida o mal medida, y la cuota no se escribe."
+            : null,
+        exposure_share: cuota,
+        // El esquema exige que la fila diga algo: si no hay cuota, dice al menos
+        // sobre que parte del negocio se mira.
+        affected_segment: cuota === null ? diagnosticCase.scope : null,
+        is_chosen_denominator: elegido,
+        confidence: comprometida ? "low" : "medium",
+        rationale: elegido ? (eleccion?.rationale ?? null) : null,
+      };
+    });
+
+  const cuotaElegida = exposures.find((e) => e.is_chosen_denominator)?.exposure_share;
+
+  return {
+    case_id: diagnosticCase.case_id,
+    target: diagnosticCase.target_metric,
+    scope: diagnosticCase.scope === "business_global" ? "business" : "capability",
+    acute_severity: "unknown",
+    cumulative_severity: "unknown",
+    forward_risk_severity: "unknown",
+    structural_severity: "unknown",
+    overall_severity: "unknown",
+    // Guardrail 13: se puede estar seguro del dano y no tener ni idea de por
+    // que. Aqui la causa es insuficiente siempre, porque no hay motor causal.
+    cause_confidence: "insufficient",
+    impact_confidence: impactConfidence,
+    severity_confidence: "insufficient",
+    trajectory: signal?.trajectory ?? "unknown",
+    velocity: velocityFrom(signal?.trajectory ?? null),
+    recurrence: recurrenceFrom(input.symptomRecurrence),
+    measurement_compromised: comprometida,
+    // Guardrail 14: para que lo local sea global hay que **declarar** que la
+    // exposicion es material. Nadie lo ha declarado, asi que no.
+    material_exposure: false,
+    // Guardrail 56: D10 no define a quien se avisa. Esto es una lectura del
+    // estado, no una orden, y sin severidad no hay lectura que dar.
+    escalation_signal: "none",
+    summary:
+      perdida === null
+        ? `Sin senal en la ventana del caso: no hay impacto que cuantificar sobre ${diagnosticCase.target_metric}.`
+        : `${diagnosticCase.target_metric} se movio ${perdida.toFixed(2)} ${
+            ["net_sales", "average_order_value"].includes(signal?.metric ?? "")
+              ? currency
+              : "unidades"
+          } frente a su baseline en la ventana medida${
+            typeof cuotaElegida === "number"
+              ? `, lo que supone un ${(cuotaElegida * 100).toFixed(1)}% de la base elegida`
+              : ""
+          }.`,
+    assumptions: null,
+    limitations: limitationsFor(input),
+    measurements,
+    exposures,
+  };
+}

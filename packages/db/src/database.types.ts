@@ -224,6 +224,62 @@ export type Database = {
   }
   public: {
     Tables: {
+      absorption_buffers: {
+        Row: {
+          activated: boolean
+          activated_at: string | null
+          buffer_type: string
+          capability: string | null
+          created_at: string
+          description: string
+          exhaustion_horizon_days: number | null
+          headroom: string | null
+          id: string
+          last_assessed_at: string
+          organization_id: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          activated?: boolean
+          activated_at?: string | null
+          buffer_type: string
+          capability?: string | null
+          created_at?: string
+          description: string
+          exhaustion_horizon_days?: number | null
+          headroom?: string | null
+          id?: string
+          last_assessed_at?: string
+          organization_id: string
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          activated?: boolean
+          activated_at?: string | null
+          buffer_type?: string
+          capability?: string | null
+          created_at?: string
+          description?: string
+          exhaustion_horizon_days?: number | null
+          headroom?: string | null
+          id?: string
+          last_assessed_at?: string
+          organization_id?: string
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "absorption_buffers_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_approvals: {
         Row: {
           decided_at: string
@@ -1307,6 +1363,108 @@ export type Database = {
           },
         ]
       }
+      business_constraints: {
+        Row: {
+          arrangement: string
+          binding_status: string
+          blast_radius: string | null
+          capacity: string | null
+          case_id: string | null
+          code: string
+          confidence: string
+          constraint_type: string
+          counterfactual_question: string | null
+          counterfactual_result: string | null
+          created_at: string
+          demand_on_capacity: string | null
+          exposure: string
+          falsifier: string | null
+          id: string
+          limits_target: boolean
+          nature: string
+          organization_id: string
+          resolved_at: string | null
+          scope: string
+          scope_detail: Json
+          statement: string
+          status: string
+          target: string
+          timing: string
+          updated_at: string
+        }
+        Insert: {
+          arrangement?: string
+          binding_status?: string
+          blast_radius?: string | null
+          capacity?: string | null
+          case_id?: string | null
+          code: string
+          confidence?: string
+          constraint_type: string
+          counterfactual_question?: string | null
+          counterfactual_result?: string | null
+          created_at?: string
+          demand_on_capacity?: string | null
+          exposure?: string
+          falsifier?: string | null
+          id?: string
+          limits_target?: boolean
+          nature?: string
+          organization_id: string
+          resolved_at?: string | null
+          scope?: string
+          scope_detail?: Json
+          statement: string
+          status?: string
+          target: string
+          timing?: string
+          updated_at?: string
+        }
+        Update: {
+          arrangement?: string
+          binding_status?: string
+          blast_radius?: string | null
+          capacity?: string | null
+          case_id?: string | null
+          code?: string
+          confidence?: string
+          constraint_type?: string
+          counterfactual_question?: string | null
+          counterfactual_result?: string | null
+          created_at?: string
+          demand_on_capacity?: string | null
+          exposure?: string
+          falsifier?: string | null
+          id?: string
+          limits_target?: boolean
+          nature?: string
+          organization_id?: string
+          resolved_at?: string | null
+          scope?: string
+          scope_detail?: Json
+          statement?: string
+          status?: string
+          target?: string
+          timing?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_constraints_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_constraints_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_ai_summaries: {
         Row: {
           agreed_actions: Json | null
@@ -1815,6 +1973,798 @@ export type Database = {
           },
         ]
       }
+      capability_dependencies: {
+        Row: {
+          capability: string
+          created_at: string
+          depends_on: string
+          id: string
+          rationale: string
+          relation: string
+        }
+        Insert: {
+          capability: string
+          created_at?: string
+          depends_on: string
+          id?: string
+          rationale: string
+          relation?: string
+        }
+        Update: {
+          capability?: string
+          created_at?: string
+          depends_on?: string
+          id?: string
+          rationale?: string
+          relation?: string
+        }
+        Relationships: []
+      }
+      capability_health: {
+        Row: {
+          assessed_at: string
+          assessment_blocker: string | null
+          capability: string
+          chronicity: string | null
+          confidence: string
+          contradiction_resolution: string | null
+          created_at: string
+          current_failure: string | null
+          has_leading_signals: boolean
+          health_state: string
+          id: string
+          impact_vector: string[]
+          issue_role: string | null
+          maturity_profile_id: string | null
+          near_term_risk: string
+          organization_id: string
+          parent_id: string | null
+          risk_horizon: string | null
+          scope: string
+          scope_detail: Json
+          state_justification: string | null
+          store_id: string | null
+          structural_risk: string
+          suspected_downstream_of: string | null
+          trajectory: string | null
+          updated_at: string
+        }
+        Insert: {
+          assessed_at?: string
+          assessment_blocker?: string | null
+          capability: string
+          chronicity?: string | null
+          confidence?: string
+          contradiction_resolution?: string | null
+          created_at?: string
+          current_failure?: string | null
+          has_leading_signals?: boolean
+          health_state: string
+          id?: string
+          impact_vector?: string[]
+          issue_role?: string | null
+          maturity_profile_id?: string | null
+          near_term_risk?: string
+          organization_id: string
+          parent_id?: string | null
+          risk_horizon?: string | null
+          scope?: string
+          scope_detail?: Json
+          state_justification?: string | null
+          store_id?: string | null
+          structural_risk?: string
+          suspected_downstream_of?: string | null
+          trajectory?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assessed_at?: string
+          assessment_blocker?: string | null
+          capability?: string
+          chronicity?: string | null
+          confidence?: string
+          contradiction_resolution?: string | null
+          created_at?: string
+          current_failure?: string | null
+          has_leading_signals?: boolean
+          health_state?: string
+          id?: string
+          impact_vector?: string[]
+          issue_role?: string | null
+          maturity_profile_id?: string | null
+          near_term_risk?: string
+          organization_id?: string
+          parent_id?: string | null
+          risk_horizon?: string | null
+          scope?: string
+          scope_detail?: Json
+          state_justification?: string | null
+          store_id?: string | null
+          structural_risk?: string
+          suspected_downstream_of?: string | null
+          trajectory?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capability_health_maturity_profile_id_fkey"
+            columns: ["maturity_profile_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "capability_health_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "capability_health_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "capability_health"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "capability_health_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "capability_health_suspected_downstream_of_fkey"
+            columns: ["suspected_downstream_of"]
+            isOneToOne: false
+            referencedRelation: "capability_health"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      capability_maturity: {
+        Row: {
+          capability: string
+          confidence: string
+          created_at: string
+          current_level: string
+          expectation_band: string | null
+          finding: string | null
+          gap_interpretation: string | null
+          has_automation: boolean
+          has_consistency: boolean
+          has_existence: boolean
+          has_learning: boolean
+          has_measurement: boolean
+          has_optimization: boolean
+          has_ownership: boolean
+          has_predictability: boolean
+          has_repeatability: boolean
+          has_resilience: boolean
+          id: string
+          influences_decisions: boolean
+          key_person_dependency: boolean
+          owner_role: string | null
+          profile_id: string
+          required_level: string | null
+          updated_at: string
+        }
+        Insert: {
+          capability: string
+          confidence?: string
+          created_at?: string
+          current_level: string
+          expectation_band?: string | null
+          finding?: string | null
+          gap_interpretation?: string | null
+          has_automation?: boolean
+          has_consistency?: boolean
+          has_existence?: boolean
+          has_learning?: boolean
+          has_measurement?: boolean
+          has_optimization?: boolean
+          has_ownership?: boolean
+          has_predictability?: boolean
+          has_repeatability?: boolean
+          has_resilience?: boolean
+          id?: string
+          influences_decisions?: boolean
+          key_person_dependency?: boolean
+          owner_role?: string | null
+          profile_id: string
+          required_level?: string | null
+          updated_at?: string
+        }
+        Update: {
+          capability?: string
+          confidence?: string
+          created_at?: string
+          current_level?: string
+          expectation_band?: string | null
+          finding?: string | null
+          gap_interpretation?: string | null
+          has_automation?: boolean
+          has_consistency?: boolean
+          has_existence?: boolean
+          has_learning?: boolean
+          has_measurement?: boolean
+          has_optimization?: boolean
+          has_ownership?: boolean
+          has_predictability?: boolean
+          has_repeatability?: boolean
+          has_resilience?: boolean
+          id?: string
+          influences_decisions?: boolean
+          key_person_dependency?: boolean
+          owner_role?: string | null
+          profile_id?: string
+          required_level?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capability_maturity_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      capability_time_profiles: {
+        Row: {
+          baseline_horizon_days: number | null
+          capability: string
+          created_at: string
+          evaluation_window_hours: number
+          expected_lag_hours: number | null
+          id: string
+          minimum_observation_window_hours: number
+          organization_id: string
+          rationale: string | null
+          recurrence_horizon_days: number | null
+          settlement_delay_hours: number | null
+          updated_at: string
+        }
+        Insert: {
+          baseline_horizon_days?: number | null
+          capability: string
+          created_at?: string
+          evaluation_window_hours: number
+          expected_lag_hours?: number | null
+          id?: string
+          minimum_observation_window_hours: number
+          organization_id: string
+          rationale?: string | null
+          recurrence_horizon_days?: number | null
+          settlement_delay_hours?: number | null
+          updated_at?: string
+        }
+        Update: {
+          baseline_horizon_days?: number | null
+          capability?: string
+          created_at?: string
+          evaluation_window_hours?: number
+          expected_lag_hours?: number | null
+          id?: string
+          minimum_observation_window_hours?: number
+          organization_id?: string
+          rationale?: string | null
+          recurrence_horizon_days?: number | null
+          settlement_delay_hours?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capability_time_profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      causal_case_evidence: {
+        Row: {
+          assumptions: string | null
+          control_comparable: boolean | null
+          counterfactual_source: string | null
+          created_at: string
+          evidence_level: string
+          id: string
+          observation: string
+          organization_id: string
+          path_id: string
+          stance: string
+          step_id: string | null
+        }
+        Insert: {
+          assumptions?: string | null
+          control_comparable?: boolean | null
+          counterfactual_source?: string | null
+          created_at?: string
+          evidence_level: string
+          id?: string
+          observation: string
+          organization_id: string
+          path_id: string
+          stance?: string
+          step_id?: string | null
+        }
+        Update: {
+          assumptions?: string | null
+          control_comparable?: boolean | null
+          counterfactual_source?: string | null
+          created_at?: string
+          evidence_level?: string
+          id?: string
+          observation?: string
+          organization_id?: string
+          path_id?: string
+          stance?: string
+          step_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "causal_case_evidence_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_case_evidence_path_id_fkey"
+            columns: ["path_id"]
+            isOneToOne: false
+            referencedRelation: "causal_paths"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_case_evidence_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "causal_path_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      causal_edges: {
+        Row: {
+          conditions: string | null
+          created_at: string
+          diagnostic_rationale: string | null
+          edge_kind: string
+          evidence_level: string
+          expected_lag_days: number | null
+          expected_sign: string
+          from_node_id: string
+          id: string
+          interaction_group: string | null
+          knowledge_source: string
+          mechanism: string | null
+          non_linear: boolean
+          organization_id: string | null
+          relation_type: string
+          scope_constraint: Json
+          strength: string
+          threshold_note: string | null
+          to_node_id: string
+          updated_at: string
+        }
+        Insert: {
+          conditions?: string | null
+          created_at?: string
+          diagnostic_rationale?: string | null
+          edge_kind?: string
+          evidence_level?: string
+          expected_lag_days?: number | null
+          expected_sign?: string
+          from_node_id: string
+          id?: string
+          interaction_group?: string | null
+          knowledge_source?: string
+          mechanism?: string | null
+          non_linear?: boolean
+          organization_id?: string | null
+          relation_type: string
+          scope_constraint?: Json
+          strength?: string
+          threshold_note?: string | null
+          to_node_id: string
+          updated_at?: string
+        }
+        Update: {
+          conditions?: string | null
+          created_at?: string
+          diagnostic_rationale?: string | null
+          edge_kind?: string
+          evidence_level?: string
+          expected_lag_days?: number | null
+          expected_sign?: string
+          from_node_id?: string
+          id?: string
+          interaction_group?: string | null
+          knowledge_source?: string
+          mechanism?: string | null
+          non_linear?: boolean
+          organization_id?: string | null
+          relation_type?: string
+          scope_constraint?: Json
+          strength?: string
+          threshold_note?: string | null
+          to_node_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "causal_edges_from_node_id_fkey"
+            columns: ["from_node_id"]
+            isOneToOne: false
+            referencedRelation: "causal_nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_edges_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_edges_to_node_id_fkey"
+            columns: ["to_node_id"]
+            isOneToOne: false
+            referencedRelation: "causal_nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      causal_nodes: {
+        Row: {
+          business_layer: string | null
+          capability: string | null
+          code: string
+          created_at: string
+          id: string
+          label: string
+          measurement_layer: string
+          node_type: string
+          notes: string | null
+          observability: string
+          organization_id: string | null
+          provenance: string
+          scope: string
+          scope_detail: Json
+          updated_at: string
+        }
+        Insert: {
+          business_layer?: string | null
+          capability?: string | null
+          code: string
+          created_at?: string
+          id?: string
+          label: string
+          measurement_layer?: string
+          node_type: string
+          notes?: string | null
+          observability?: string
+          organization_id?: string | null
+          provenance?: string
+          scope?: string
+          scope_detail?: Json
+          updated_at?: string
+        }
+        Update: {
+          business_layer?: string | null
+          capability?: string | null
+          code?: string
+          created_at?: string
+          id?: string
+          label?: string
+          measurement_layer?: string
+          node_type?: string
+          notes?: string | null
+          observability?: string
+          organization_id?: string | null
+          provenance?: string
+          scope?: string
+          scope_detail?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "causal_nodes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      causal_path_steps: {
+        Row: {
+          case_support: string
+          cause_onset: string | null
+          cause_role: string | null
+          confounder_id: string | null
+          contribution_note: string | null
+          created_at: string
+          edge_id: string
+          effect_onset: string | null
+          id: string
+          is_mediator: boolean
+          magnitude_fit: string
+          observed_lag_days: number | null
+          organization_id: string
+          path_id: string
+          scope_fit: string
+          step_order: number
+          temporal_fit: string
+        }
+        Insert: {
+          case_support?: string
+          cause_onset?: string | null
+          cause_role?: string | null
+          confounder_id?: string | null
+          contribution_note?: string | null
+          created_at?: string
+          edge_id: string
+          effect_onset?: string | null
+          id?: string
+          is_mediator?: boolean
+          magnitude_fit?: string
+          observed_lag_days?: number | null
+          organization_id: string
+          path_id: string
+          scope_fit?: string
+          step_order: number
+          temporal_fit?: string
+        }
+        Update: {
+          case_support?: string
+          cause_onset?: string | null
+          cause_role?: string | null
+          confounder_id?: string | null
+          contribution_note?: string | null
+          created_at?: string
+          edge_id?: string
+          effect_onset?: string | null
+          id?: string
+          is_mediator?: boolean
+          magnitude_fit?: string
+          observed_lag_days?: number | null
+          organization_id?: string
+          path_id?: string
+          scope_fit?: string
+          step_order?: number
+          temporal_fit?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "causal_path_steps_confounder_id_fkey"
+            columns: ["confounder_id"]
+            isOneToOne: false
+            referencedRelation: "context_confounders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_path_steps_edge_id_fkey"
+            columns: ["edge_id"]
+            isOneToOne: false
+            referencedRelation: "causal_edges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_path_steps_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_path_steps_path_id_fkey"
+            columns: ["path_id"]
+            isOneToOne: false
+            referencedRelation: "causal_paths"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      causal_paths: {
+        Row: {
+          case_id: string | null
+          confounders_reviewed: boolean
+          created_at: string
+          id: string
+          measurement_validated: boolean
+          missing_evidence: string[]
+          next_evidence: string | null
+          organization_id: string
+          path_confidence: string
+          status: string
+          symptom_id: string | null
+          target_node_id: string
+          target_scope_detail: Json
+          updated_at: string
+        }
+        Insert: {
+          case_id?: string | null
+          confounders_reviewed?: boolean
+          created_at?: string
+          id?: string
+          measurement_validated?: boolean
+          missing_evidence?: string[]
+          next_evidence?: string | null
+          organization_id: string
+          path_confidence?: string
+          status?: string
+          symptom_id?: string | null
+          target_node_id: string
+          target_scope_detail?: Json
+          updated_at?: string
+        }
+        Update: {
+          case_id?: string | null
+          confounders_reviewed?: boolean
+          created_at?: string
+          id?: string
+          measurement_validated?: boolean
+          missing_evidence?: string[]
+          next_evidence?: string | null
+          organization_id?: string
+          path_confidence?: string
+          status?: string
+          symptom_id?: string | null
+          target_node_id?: string
+          target_scope_detail?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "causal_paths_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_paths_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_paths_symptom_id_fkey"
+            columns: ["symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "causal_paths_target_node_id_fkey"
+            columns: ["target_node_id"]
+            isOneToOne: false
+            referencedRelation: "causal_nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claim_confidence: {
+        Row: {
+          alternative_separation: string
+          assessed_at: string
+          assumptions: string | null
+          cap_reason: string | null
+          capped_at: string | null
+          case_id: string
+          claim: string
+          claim_layer: string
+          completeness: string
+          confidence_level: string
+          contradiction_level: string
+          coverage_declared: string | null
+          created_at: string
+          decay_reason: string | null
+          desired_level: string | null
+          epistemic_state: string
+          error_cost: string
+          explanatory_coverage: string
+          id: string
+          is_stale: boolean
+          limitations: string | null
+          missing_evidence: string | null
+          negative_claim_state: string | null
+          next_evidence_required: string | null
+          organization_id: string
+          recency_domain: string | null
+          subject_id: string | null
+          subject_kind: string | null
+          target_question: string
+          updated_at: string
+        }
+        Insert: {
+          alternative_separation?: string
+          assessed_at?: string
+          assumptions?: string | null
+          cap_reason?: string | null
+          capped_at?: string | null
+          case_id: string
+          claim: string
+          claim_layer: string
+          completeness?: string
+          confidence_level?: string
+          contradiction_level?: string
+          coverage_declared?: string | null
+          created_at?: string
+          decay_reason?: string | null
+          desired_level?: string | null
+          epistemic_state?: string
+          error_cost?: string
+          explanatory_coverage?: string
+          id?: string
+          is_stale?: boolean
+          limitations?: string | null
+          missing_evidence?: string | null
+          negative_claim_state?: string | null
+          next_evidence_required?: string | null
+          organization_id: string
+          recency_domain?: string | null
+          subject_id?: string | null
+          subject_kind?: string | null
+          target_question: string
+          updated_at?: string
+        }
+        Update: {
+          alternative_separation?: string
+          assessed_at?: string
+          assumptions?: string | null
+          cap_reason?: string | null
+          capped_at?: string | null
+          case_id?: string
+          claim?: string
+          claim_layer?: string
+          completeness?: string
+          confidence_level?: string
+          contradiction_level?: string
+          coverage_declared?: string | null
+          created_at?: string
+          decay_reason?: string | null
+          desired_level?: string | null
+          epistemic_state?: string
+          error_cost?: string
+          explanatory_coverage?: string
+          id?: string
+          is_stale?: boolean
+          limitations?: string | null
+          missing_evidence?: string | null
+          negative_claim_state?: string | null
+          next_evidence_required?: string | null
+          organization_id?: string
+          recency_domain?: string | null
+          subject_id?: string | null
+          subject_kind?: string | null
+          target_question?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claim_confidence_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claim_confidence_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_constraints: {
         Row: {
           category: string
@@ -1929,6 +2879,261 @@ export type Database = {
           },
           {
             foreignKeyName: "client_invites_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      confidence_caps: {
+        Row: {
+          cap_source: string
+          capped_level: string
+          claim_id: string
+          created_at: string
+          id: string
+          organization_id: string
+          reason: string
+        }
+        Insert: {
+          cap_source: string
+          capped_level: string
+          claim_id: string
+          created_at?: string
+          id?: string
+          organization_id: string
+          reason: string
+        }
+        Update: {
+          cap_source?: string
+          capped_level?: string
+          claim_id?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "confidence_caps_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claim_confidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "confidence_caps_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      confidence_dimensions: {
+        Row: {
+          claim_id: string
+          created_at: string
+          dimension: string
+          id: string
+          organization_id: string
+          rating: string
+          reason: string
+        }
+        Insert: {
+          claim_id: string
+          created_at?: string
+          dimension: string
+          id?: string
+          organization_id: string
+          rating: string
+          reason: string
+        }
+        Update: {
+          claim_id?: string
+          created_at?: string
+          dimension?: string
+          id?: string
+          organization_id?: string
+          rating?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "confidence_dimensions_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claim_confidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "confidence_dimensions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      confidence_history: {
+        Row: {
+          changed_at: string
+          claim_id: string
+          evidence_ref: string | null
+          id: string
+          new_level: string
+          new_state: string | null
+          organization_id: string
+          previous_level: string | null
+          previous_state: string | null
+          reason: string
+        }
+        Insert: {
+          changed_at?: string
+          claim_id: string
+          evidence_ref?: string | null
+          id?: string
+          new_level: string
+          new_state?: string | null
+          organization_id: string
+          previous_level?: string | null
+          previous_state?: string | null
+          reason: string
+        }
+        Update: {
+          changed_at?: string
+          claim_id?: string
+          evidence_ref?: string | null
+          id?: string
+          new_level?: string
+          new_state?: string | null
+          organization_id?: string
+          previous_level?: string | null
+          previous_state?: string | null
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "confidence_history_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claim_confidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "confidence_history_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      confounder_tests: {
+        Row: {
+          confounder_id: string
+          control_kind: string
+          created_at: string
+          effect_on_diagnosis: string | null
+          expected_pattern: string
+          id: string
+          organization_id: string
+          required_data: string
+          result: string
+          updated_at: string
+        }
+        Insert: {
+          confounder_id: string
+          control_kind?: string
+          created_at?: string
+          effect_on_diagnosis?: string | null
+          expected_pattern: string
+          id?: string
+          organization_id: string
+          required_data: string
+          result?: string
+          updated_at?: string
+        }
+        Update: {
+          confounder_id?: string
+          control_kind?: string
+          created_at?: string
+          effect_on_diagnosis?: string | null
+          expected_pattern?: string
+          id?: string
+          organization_id?: string
+          required_data?: string
+          result?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "confounder_tests_confounder_id_fkey"
+            columns: ["confounder_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_confounders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "confounder_tests_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      constraint_tests: {
+        Row: {
+          constraint_id: string
+          counterfactual_question: string
+          created_at: string
+          expected_if_binding: string
+          expected_if_not_binding: string
+          id: string
+          interpretation: string | null
+          organization_id: string
+          result: string
+          target: string
+          updated_at: string
+        }
+        Insert: {
+          constraint_id: string
+          counterfactual_question: string
+          created_at?: string
+          expected_if_binding: string
+          expected_if_not_binding: string
+          id?: string
+          interpretation?: string | null
+          organization_id: string
+          result?: string
+          target: string
+          updated_at?: string
+        }
+        Update: {
+          constraint_id?: string
+          counterfactual_question?: string
+          created_at?: string
+          expected_if_binding?: string
+          expected_if_not_binding?: string
+          id?: string
+          interpretation?: string | null
+          organization_id?: string
+          result?: string
+          target?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "constraint_tests_constraint_id_fkey"
+            columns: ["constraint_id"]
+            isOneToOne: false
+            referencedRelation: "business_constraints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "constraint_tests_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -2194,6 +3399,2455 @@ export type Database = {
           },
         ]
       }
+      context_assessment_change_events: {
+        Row: {
+          assessment_id: string
+          change_event_id: string
+          considered_as: string
+          created_at: string
+          lag_days: number | null
+          rule_out_reason: string | null
+          temporal_relation: string
+        }
+        Insert: {
+          assessment_id: string
+          change_event_id: string
+          considered_as?: string
+          created_at?: string
+          lag_days?: number | null
+          rule_out_reason?: string | null
+          temporal_relation: string
+        }
+        Update: {
+          assessment_id?: string
+          change_event_id?: string
+          considered_as?: string
+          created_at?: string
+          lag_days?: number | null
+          rule_out_reason?: string | null
+          temporal_relation?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "context_assessment_change_events_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "context_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "context_assessment_change_events_change_event_id_fkey"
+            columns: ["change_event_id"]
+            isOneToOne: false
+            referencedRelation: "context_change_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      context_assessments: {
+        Row: {
+          aggregate_interpretation: string
+          assessed_at: string
+          baseline_period_end: string | null
+          baseline_period_start: string | null
+          baseline_rationale: string | null
+          baseline_type: string | null
+          case_id: string
+          comparability: string
+          comparability_reasons: string[]
+          context_depth: string
+          context_snapshot: Json
+          context_sufficient: boolean
+          created_at: string
+          critical_unknowns: string[]
+          declared_contradictions: string[]
+          id: string
+          missing_context: string[]
+          primary_factors: string[]
+          scope: string
+          scope_detail: Json
+          uncertainty_notes: string | null
+          updated_at: string
+        }
+        Insert: {
+          aggregate_interpretation?: string
+          assessed_at?: string
+          baseline_period_end?: string | null
+          baseline_period_start?: string | null
+          baseline_rationale?: string | null
+          baseline_type?: string | null
+          case_id: string
+          comparability?: string
+          comparability_reasons?: string[]
+          context_depth?: string
+          context_snapshot?: Json
+          context_sufficient?: boolean
+          created_at?: string
+          critical_unknowns?: string[]
+          declared_contradictions?: string[]
+          id?: string
+          missing_context?: string[]
+          primary_factors?: string[]
+          scope?: string
+          scope_detail?: Json
+          uncertainty_notes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          aggregate_interpretation?: string
+          assessed_at?: string
+          baseline_period_end?: string | null
+          baseline_period_start?: string | null
+          baseline_rationale?: string | null
+          baseline_type?: string | null
+          case_id?: string
+          comparability?: string
+          comparability_reasons?: string[]
+          context_depth?: string
+          context_snapshot?: Json
+          context_sufficient?: boolean
+          created_at?: string
+          critical_unknowns?: string[]
+          declared_contradictions?: string[]
+          id?: string
+          missing_context?: string[]
+          primary_factors?: string[]
+          scope?: string
+          scope_detail?: Json
+          uncertainty_notes?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "context_assessments_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      context_change_events: {
+        Row: {
+          area: string | null
+          created_at: string
+          description: string
+          ended_at: string | null
+          event_type: string
+          id: string
+          occurred_at: string
+          organization_id: string
+          scope: string
+          source: string
+          store_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          area?: string | null
+          created_at?: string
+          description: string
+          ended_at?: string | null
+          event_type: string
+          id?: string
+          occurred_at: string
+          organization_id: string
+          scope?: string
+          source?: string
+          store_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          area?: string | null
+          created_at?: string
+          description?: string
+          ended_at?: string | null
+          event_type?: string
+          id?: string
+          occurred_at?: string
+          organization_id?: string
+          scope?: string
+          source?: string
+          store_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "context_change_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "context_change_events_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      context_comparability_breaks: {
+        Row: {
+          affected_metrics: string[]
+          break_type: string
+          created_at: string
+          description: string
+          effective_from: string
+          id: string
+          invalidates_history_before: boolean
+          organization_id: string
+          scope: string
+          store_id: string | null
+          subtype: string | null
+          updated_at: string
+        }
+        Insert: {
+          affected_metrics?: string[]
+          break_type: string
+          created_at?: string
+          description: string
+          effective_from: string
+          id?: string
+          invalidates_history_before?: boolean
+          organization_id: string
+          scope?: string
+          store_id?: string | null
+          subtype?: string | null
+          updated_at?: string
+        }
+        Update: {
+          affected_metrics?: string[]
+          break_type?: string
+          created_at?: string
+          description?: string
+          effective_from?: string
+          id?: string
+          invalidates_history_before?: boolean
+          organization_id?: string
+          scope?: string
+          store_id?: string | null
+          subtype?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "context_comparability_breaks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "context_comparability_breaks_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      context_confounders: {
+        Row: {
+          assessment_id: string
+          coexists_with: string[]
+          created_at: string
+          id: string
+          knowledge_state: string
+          material: boolean
+          occurred_at: string | null
+          possible_relation: string | null
+          scope: string
+          variable: string
+        }
+        Insert: {
+          assessment_id: string
+          coexists_with?: string[]
+          created_at?: string
+          id?: string
+          knowledge_state?: string
+          material?: boolean
+          occurred_at?: string | null
+          possible_relation?: string | null
+          scope?: string
+          variable: string
+        }
+        Update: {
+          assessment_id?: string
+          coexists_with?: string[]
+          created_at?: string
+          id?: string
+          knowledge_state?: string
+          material?: boolean
+          occurred_at?: string | null
+          possible_relation?: string | null
+          scope?: string
+          variable?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "context_confounders_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "context_assessments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      context_mix_segments: {
+        Row: {
+          assessment_id: string
+          created_at: string
+          dimension: string
+          id: string
+          performance_after: number | null
+          performance_before: number | null
+          segment: string
+          weight_after: number
+          weight_before: number
+        }
+        Insert: {
+          assessment_id: string
+          created_at?: string
+          dimension: string
+          id?: string
+          performance_after?: number | null
+          performance_before?: number | null
+          segment: string
+          weight_after: number
+          weight_before: number
+        }
+        Update: {
+          assessment_id?: string
+          created_at?: string
+          dimension?: string
+          id?: string
+          performance_after?: number | null
+          performance_before?: number | null
+          segment?: string
+          weight_after?: number
+          weight_before?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "context_mix_segments_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "context_assessments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      data_quality_assessments: {
+        Row: {
+          assessed_at: string
+          available_observations: number | null
+          conversion_at: string | null
+          conversion_rate: number | null
+          coverage: number | null
+          created_at: string
+          dataset: string
+          degradation_reasons: string[]
+          evidence_fragility: string | null
+          expected_cadence_minutes: number | null
+          expected_observations: number | null
+          fingerprint: string | null
+          freshness: string
+          granularity_available: string | null
+          granularity_required: string | null
+          granularity_sufficient: boolean | null
+          id: string
+          last_sync_at: string | null
+          missingness: string | null
+          native_currency: string | null
+          organization_id: string
+          period_end: string
+          period_settlement: string
+          period_start: string
+          phenomenon: string
+          reliability: string
+          reporting_currency: string | null
+          reporting_timezone: string | null
+          sampled: boolean
+          sampling_rate: number | null
+          scope: string
+          scope_detail: Json
+          source: string
+          source_timezone: string | null
+          store_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          assessed_at?: string
+          available_observations?: number | null
+          conversion_at?: string | null
+          conversion_rate?: number | null
+          coverage?: number | null
+          created_at?: string
+          dataset: string
+          degradation_reasons?: string[]
+          evidence_fragility?: string | null
+          expected_cadence_minutes?: number | null
+          expected_observations?: number | null
+          fingerprint?: string | null
+          freshness: string
+          granularity_available?: string | null
+          granularity_required?: string | null
+          granularity_sufficient?: boolean | null
+          id?: string
+          last_sync_at?: string | null
+          missingness?: string | null
+          native_currency?: string | null
+          organization_id: string
+          period_end: string
+          period_settlement?: string
+          period_start: string
+          phenomenon: string
+          reliability: string
+          reporting_currency?: string | null
+          reporting_timezone?: string | null
+          sampled?: boolean
+          sampling_rate?: number | null
+          scope?: string
+          scope_detail?: Json
+          source: string
+          source_timezone?: string | null
+          store_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assessed_at?: string
+          available_observations?: number | null
+          conversion_at?: string | null
+          conversion_rate?: number | null
+          coverage?: number | null
+          created_at?: string
+          dataset?: string
+          degradation_reasons?: string[]
+          evidence_fragility?: string | null
+          expected_cadence_minutes?: number | null
+          expected_observations?: number | null
+          fingerprint?: string | null
+          freshness?: string
+          granularity_available?: string | null
+          granularity_required?: string | null
+          granularity_sufficient?: boolean | null
+          id?: string
+          last_sync_at?: string | null
+          missingness?: string | null
+          native_currency?: string | null
+          organization_id?: string
+          period_end?: string
+          period_settlement?: string
+          period_start?: string
+          phenomenon?: string
+          reliability?: string
+          reporting_currency?: string | null
+          reporting_timezone?: string | null
+          sampled?: boolean
+          sampling_rate?: number | null
+          scope?: string
+          scope_detail?: Json
+          source?: string
+          source_timezone?: string | null
+          store_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_quality_assessments_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "data_quality_assessments_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      data_quality_issues: {
+        Row: {
+          assessment_id: string | null
+          client_actionable: boolean
+          created_at: string
+          dataset: string | null
+          description: string
+          detected_at: string
+          downstream_effect: string
+          explanation: string | null
+          fingerprint: string | null
+          id: string
+          issue_type: string
+          material: boolean
+          organization_id: string
+          phenomenon: string | null
+          resolved_at: string | null
+          scope: string
+          severity: string
+          source: string
+          status: string
+          store_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          assessment_id?: string | null
+          client_actionable?: boolean
+          created_at?: string
+          dataset?: string | null
+          description: string
+          detected_at?: string
+          downstream_effect?: string
+          explanation?: string | null
+          fingerprint?: string | null
+          id?: string
+          issue_type: string
+          material?: boolean
+          organization_id: string
+          phenomenon?: string | null
+          resolved_at?: string | null
+          scope?: string
+          severity: string
+          source: string
+          status?: string
+          store_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assessment_id?: string | null
+          client_actionable?: boolean
+          created_at?: string
+          dataset?: string | null
+          description?: string
+          detected_at?: string
+          downstream_effect?: string
+          explanation?: string | null
+          fingerprint?: string | null
+          id?: string
+          issue_type?: string
+          material?: boolean
+          organization_id?: string
+          phenomenon?: string | null
+          resolved_at?: string | null
+          scope?: string
+          severity?: string
+          source?: string
+          status?: string
+          store_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_quality_issues_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "data_quality_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "data_quality_issues_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "data_quality_issues_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      data_source_expectations: {
+        Row: {
+          created_at: string
+          dataset: string
+          delay_tolerance_minutes: number | null
+          expected_cadence_minutes: number | null
+          id: string
+          ingestion_mechanism: string | null
+          notes: string | null
+          organization_id: string
+          phenomenon: string
+          source: string
+          source_role: string
+          source_timezone: string | null
+          store_id: string | null
+          time_sensitivity: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dataset: string
+          delay_tolerance_minutes?: number | null
+          expected_cadence_minutes?: number | null
+          id?: string
+          ingestion_mechanism?: string | null
+          notes?: string | null
+          organization_id: string
+          phenomenon: string
+          source: string
+          source_role: string
+          source_timezone?: string | null
+          store_id?: string | null
+          time_sensitivity?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dataset?: string
+          delay_tolerance_minutes?: number | null
+          expected_cadence_minutes?: number | null
+          id?: string
+          ingestion_mechanism?: string | null
+          notes?: string | null
+          organization_id?: string
+          phenomenon?: string
+          source?: string
+          source_role?: string
+          source_timezone?: string | null
+          store_id?: string | null
+          time_sensitivity?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_source_expectations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "data_source_expectations_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      data_source_reconciliations: {
+        Row: {
+          assessed_at: string
+          classification: string
+          comparable: boolean
+          created_at: string
+          difference_absolute: number | null
+          difference_relative: number | null
+          explanation: string | null
+          id: string
+          non_comparability_reason: string | null
+          organization_id: string
+          period_end: string
+          period_start: string
+          phenomenon: string
+          scope: string
+          source_a: string
+          source_b: string
+          status: string
+          store_id: string | null
+          updated_at: string
+          value_a: number | null
+          value_b: number | null
+        }
+        Insert: {
+          assessed_at?: string
+          classification?: string
+          comparable: boolean
+          created_at?: string
+          difference_absolute?: number | null
+          difference_relative?: number | null
+          explanation?: string | null
+          id?: string
+          non_comparability_reason?: string | null
+          organization_id: string
+          period_end: string
+          period_start: string
+          phenomenon: string
+          scope?: string
+          source_a: string
+          source_b: string
+          status: string
+          store_id?: string | null
+          updated_at?: string
+          value_a?: number | null
+          value_b?: number | null
+        }
+        Update: {
+          assessed_at?: string
+          classification?: string
+          comparable?: boolean
+          created_at?: string
+          difference_absolute?: number | null
+          difference_relative?: number | null
+          explanation?: string | null
+          id?: string
+          non_comparability_reason?: string | null
+          organization_id?: string
+          period_end?: string
+          period_start?: string
+          phenomenon?: string
+          scope?: string
+          source_a?: string
+          source_b?: string
+          status?: string
+          store_id?: string | null
+          updated_at?: string
+          value_a?: number | null
+          value_b?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_source_reconciliations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "data_source_reconciliations_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_case_data_quality: {
+        Row: {
+          assessment_id: string
+          case_id: string
+          created_at: string
+          role: string
+        }
+        Insert: {
+          assessment_id: string
+          case_id: string
+          created_at?: string
+          role?: string
+        }
+        Update: {
+          assessment_id?: string
+          case_id?: string
+          created_at?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_case_data_quality_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "data_quality_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_case_data_quality_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_case_links: {
+        Row: {
+          created_at: string
+          from_case_id: string
+          relation: string
+          to_case_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_case_id: string
+          relation: string
+          to_case_id: string
+        }
+        Update: {
+          created_at?: string
+          from_case_id?: string
+          relation?: string
+          to_case_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_case_links_from_case_id_fkey"
+            columns: ["from_case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_case_links_to_case_id_fkey"
+            columns: ["to_case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_cases: {
+        Row: {
+          affected_capabilities: string[]
+          analysis_period_end: string
+          analysis_period_start: string
+          baseline_type: string | null
+          business_context: Json
+          comparison_period_end: string | null
+          comparison_period_start: string | null
+          confidence: string | null
+          confounders_checked: Json
+          created_at: string
+          data_quality: Json
+          diagnosis_type: string | null
+          finding: string | null
+          fingerprint: string | null
+          granularity: string
+          id: string
+          impact_scope: Json
+          limitations: string[]
+          limiting_constraint: string | null
+          maturity_context: Json
+          no_business_constraint: boolean
+          no_constraint_rationale: string | null
+          onset_at: string | null
+          onset_confidence: string | null
+          organization_id: string
+          primary_issue: string | null
+          revenue_share_affected: number | null
+          root_cause: string | null
+          scope: string
+          scope_detail: Json
+          severity: string | null
+          status: string
+          store_id: string | null
+          summary: string | null
+          target_change_absolute: number | null
+          target_change_relative: number | null
+          target_metric: string
+          target_question: string
+          trajectory: string | null
+          updated_at: string
+        }
+        Insert: {
+          affected_capabilities?: string[]
+          analysis_period_end: string
+          analysis_period_start: string
+          baseline_type?: string | null
+          business_context?: Json
+          comparison_period_end?: string | null
+          comparison_period_start?: string | null
+          confidence?: string | null
+          confounders_checked?: Json
+          created_at?: string
+          data_quality?: Json
+          diagnosis_type?: string | null
+          finding?: string | null
+          fingerprint?: string | null
+          granularity?: string
+          id?: string
+          impact_scope?: Json
+          limitations?: string[]
+          limiting_constraint?: string | null
+          maturity_context?: Json
+          no_business_constraint?: boolean
+          no_constraint_rationale?: string | null
+          onset_at?: string | null
+          onset_confidence?: string | null
+          organization_id: string
+          primary_issue?: string | null
+          revenue_share_affected?: number | null
+          root_cause?: string | null
+          scope: string
+          scope_detail?: Json
+          severity?: string | null
+          status?: string
+          store_id?: string | null
+          summary?: string | null
+          target_change_absolute?: number | null
+          target_change_relative?: number | null
+          target_metric: string
+          target_question: string
+          trajectory?: string | null
+          updated_at?: string
+        }
+        Update: {
+          affected_capabilities?: string[]
+          analysis_period_end?: string
+          analysis_period_start?: string
+          baseline_type?: string | null
+          business_context?: Json
+          comparison_period_end?: string | null
+          comparison_period_start?: string | null
+          confidence?: string | null
+          confounders_checked?: Json
+          created_at?: string
+          data_quality?: Json
+          diagnosis_type?: string | null
+          finding?: string | null
+          fingerprint?: string | null
+          granularity?: string
+          id?: string
+          impact_scope?: Json
+          limitations?: string[]
+          limiting_constraint?: string | null
+          maturity_context?: Json
+          no_business_constraint?: boolean
+          no_constraint_rationale?: string | null
+          onset_at?: string | null
+          onset_confidence?: string | null
+          organization_id?: string
+          primary_issue?: string | null
+          revenue_share_affected?: number | null
+          root_cause?: string | null
+          scope?: string
+          scope_detail?: Json
+          severity?: string | null
+          status?: string
+          store_id?: string | null
+          summary?: string | null
+          target_change_absolute?: number | null
+          target_change_relative?: number | null
+          target_metric?: string
+          target_question?: string
+          trajectory?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_cases_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_cases_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_closures: {
+        Row: {
+          administrative_closure_reason: string | null
+          case_id: string
+          closure_kind: string
+          confidence: string
+          created_at: string
+          followup_note: string | null
+          followup_required: boolean
+          id: string
+          organization_id: string
+          outcome_evidence: string | null
+          outcome_verified: boolean
+          output_id: string | null
+          recovery_status: string
+          residual_issues: string | null
+          resolved_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          administrative_closure_reason?: string | null
+          case_id: string
+          closure_kind?: string
+          confidence?: string
+          created_at?: string
+          followup_note?: string | null
+          followup_required?: boolean
+          id?: string
+          organization_id: string
+          outcome_evidence?: string | null
+          outcome_verified?: boolean
+          output_id?: string | null
+          recovery_status?: string
+          residual_issues?: string | null
+          resolved_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          administrative_closure_reason?: string | null
+          case_id?: string
+          closure_kind?: string
+          confidence?: string
+          created_at?: string
+          followup_note?: string | null
+          followup_required?: boolean
+          id?: string
+          organization_id?: string
+          outcome_evidence?: string | null
+          outcome_verified?: boolean
+          output_id?: string | null
+          recovery_status?: string
+          residual_issues?: string | null
+          resolved_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_closures_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: true
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_closures_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_closures_output_id_fkey"
+            columns: ["output_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_outputs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_confounders: {
+        Row: {
+          adjustment_note: string | null
+          affected_claims: string[]
+          affected_metrics: string[]
+          case_id: string
+          category: string
+          confidence_effect: string | null
+          confounder_type: string
+          created_at: string
+          description: string
+          evidence: string | null
+          id: string
+          masking_effect: boolean
+          materiality: string
+          organization_id: string
+          plausibility: string
+          resolution: string
+          robustness_id: string | null
+          scope: string
+          source_confounder_id: string | null
+          status: string
+          strength: string
+          updated_at: string
+          window_end: string | null
+          window_start: string | null
+        }
+        Insert: {
+          adjustment_note?: string | null
+          affected_claims?: string[]
+          affected_metrics?: string[]
+          case_id: string
+          category: string
+          confidence_effect?: string | null
+          confounder_type: string
+          created_at?: string
+          description: string
+          evidence?: string | null
+          id?: string
+          masking_effect?: boolean
+          materiality?: string
+          organization_id: string
+          plausibility?: string
+          resolution?: string
+          robustness_id?: string | null
+          scope?: string
+          source_confounder_id?: string | null
+          status?: string
+          strength?: string
+          updated_at?: string
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Update: {
+          adjustment_note?: string | null
+          affected_claims?: string[]
+          affected_metrics?: string[]
+          case_id?: string
+          category?: string
+          confidence_effect?: string | null
+          confounder_type?: string
+          created_at?: string
+          description?: string
+          evidence?: string | null
+          id?: string
+          masking_effect?: boolean
+          materiality?: string
+          organization_id?: string
+          plausibility?: string
+          resolution?: string
+          robustness_id?: string | null
+          scope?: string
+          source_confounder_id?: string | null
+          status?: string
+          strength?: string
+          updated_at?: string
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_confounders_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_confounders_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_confounders_robustness_id_fkey"
+            columns: ["robustness_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_robustness"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_confounders_source_confounder_id_fkey"
+            columns: ["source_confounder_id"]
+            isOneToOne: false
+            referencedRelation: "context_confounders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_data_gaps: {
+        Row: {
+          case_id: string
+          created_at: string
+          hypothesis_id: string | null
+          id: string
+          impact_on_diagnosis: string
+          reason: string
+          required_data: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          hypothesis_id?: string | null
+          id?: string
+          impact_on_diagnosis?: string
+          reason: string
+          required_data: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          hypothesis_id?: string | null
+          id?: string
+          impact_on_diagnosis?: string
+          reason?: string
+          required_data?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_data_gaps_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_data_gaps_hypothesis_id_fkey"
+            columns: ["hypothesis_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_hypotheses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_episodes: {
+        Row: {
+          case_id: string | null
+          common_trigger: string | null
+          created_at: string
+          diagnosis_type: string
+          ended_at: string | null
+          episode_code: string
+          id: string
+          organization_id: string
+          outcome: string
+          peaked_at: string | null
+          recovery_time_hours: number | null
+          root_cause_id: string | null
+          same_root_cause_as_previous: boolean | null
+          same_root_cause_evidence: string | null
+          scope: string
+          severity: string | null
+          started_at: string
+        }
+        Insert: {
+          case_id?: string | null
+          common_trigger?: string | null
+          created_at?: string
+          diagnosis_type: string
+          ended_at?: string | null
+          episode_code: string
+          id?: string
+          organization_id: string
+          outcome?: string
+          peaked_at?: string | null
+          recovery_time_hours?: number | null
+          root_cause_id?: string | null
+          same_root_cause_as_previous?: boolean | null
+          same_root_cause_evidence?: string | null
+          scope?: string
+          severity?: string | null
+          started_at: string
+        }
+        Update: {
+          case_id?: string | null
+          common_trigger?: string | null
+          created_at?: string
+          diagnosis_type?: string
+          ended_at?: string | null
+          episode_code?: string
+          id?: string
+          organization_id?: string
+          outcome?: string
+          peaked_at?: string | null
+          recovery_time_hours?: number | null
+          root_cause_id?: string | null
+          same_root_cause_as_previous?: boolean | null
+          same_root_cause_evidence?: string | null
+          scope?: string
+          severity?: string | null
+          started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_episodes_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_episodes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_episodes_root_cause_id_fkey"
+            columns: ["root_cause_id"]
+            isOneToOne: false
+            referencedRelation: "root_causes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_evidence: {
+        Row: {
+          case_id: string
+          code: string
+          contradiction_strength: string | null
+          created_at: string
+          directness: string
+          freshness: string
+          id: string
+          independence_rationale: string | null
+          independent: boolean
+          metric: string | null
+          observation: string
+          observation_kind: string
+          observed_at: string | null
+          period_end: string | null
+          period_start: string | null
+          reliability: string | null
+          segment: Json
+          source: string
+          source_system: string | null
+          specificity: string
+        }
+        Insert: {
+          case_id: string
+          code: string
+          contradiction_strength?: string | null
+          created_at?: string
+          directness?: string
+          freshness?: string
+          id?: string
+          independence_rationale?: string | null
+          independent?: boolean
+          metric?: string | null
+          observation: string
+          observation_kind?: string
+          observed_at?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          reliability?: string | null
+          segment?: Json
+          source: string
+          source_system?: string | null
+          specificity?: string
+        }
+        Update: {
+          case_id?: string
+          code?: string
+          contradiction_strength?: string | null
+          created_at?: string
+          directness?: string
+          freshness?: string
+          id?: string
+          independence_rationale?: string | null
+          independent?: boolean
+          metric?: string | null
+          observation?: string
+          observation_kind?: string
+          observed_at?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          reliability?: string | null
+          segment?: Json
+          source?: string
+          source_system?: string | null
+          specificity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_evidence_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_hypotheses: {
+        Row: {
+          assumptions: string | null
+          case_id: string
+          cause_depth: string | null
+          cause_timing: string | null
+          code: string
+          confidence: string
+          context_fit: string
+          created_at: string
+          evidence_reviewed_at: string | null
+          explanatory_coverage: string
+          falsification_condition: string | null
+          family: string | null
+          health_fit: string
+          hypothesis_type: string
+          id: string
+          limitations: string | null
+          magnitude_fit: string
+          maturity_fit: string
+          mechanism_fit: string
+          organization_id: string | null
+          prior_plausibility: string
+          proposing_agent: string | null
+          rejection_reason: string | null
+          relative_role: string | null
+          residual_note: string | null
+          root_cause_candidate: boolean
+          scope: string
+          scope_detail: Json
+          scope_fit: string
+          separation: string
+          signal_fit: string
+          source_path_id: string | null
+          statement: string
+          status: string
+          target_node_id: string | null
+          temporal_fit: string
+          uncertainty_kinds: string[]
+          unexplained_residual_material: boolean
+          updated_at: string
+          valid_from: string | null
+          valid_to: string | null
+          validating_agent: string | null
+          why_alternatives_lose: string | null
+          why_it_wins: string | null
+        }
+        Insert: {
+          assumptions?: string | null
+          case_id: string
+          cause_depth?: string | null
+          cause_timing?: string | null
+          code: string
+          confidence?: string
+          context_fit?: string
+          created_at?: string
+          evidence_reviewed_at?: string | null
+          explanatory_coverage?: string
+          falsification_condition?: string | null
+          family?: string | null
+          health_fit?: string
+          hypothesis_type?: string
+          id?: string
+          limitations?: string | null
+          magnitude_fit?: string
+          maturity_fit?: string
+          mechanism_fit?: string
+          organization_id?: string | null
+          prior_plausibility?: string
+          proposing_agent?: string | null
+          rejection_reason?: string | null
+          relative_role?: string | null
+          residual_note?: string | null
+          root_cause_candidate?: boolean
+          scope?: string
+          scope_detail?: Json
+          scope_fit?: string
+          separation?: string
+          signal_fit?: string
+          source_path_id?: string | null
+          statement: string
+          status?: string
+          target_node_id?: string | null
+          temporal_fit?: string
+          uncertainty_kinds?: string[]
+          unexplained_residual_material?: boolean
+          updated_at?: string
+          valid_from?: string | null
+          valid_to?: string | null
+          validating_agent?: string | null
+          why_alternatives_lose?: string | null
+          why_it_wins?: string | null
+        }
+        Update: {
+          assumptions?: string | null
+          case_id?: string
+          cause_depth?: string | null
+          cause_timing?: string | null
+          code?: string
+          confidence?: string
+          context_fit?: string
+          created_at?: string
+          evidence_reviewed_at?: string | null
+          explanatory_coverage?: string
+          falsification_condition?: string | null
+          family?: string | null
+          health_fit?: string
+          hypothesis_type?: string
+          id?: string
+          limitations?: string | null
+          magnitude_fit?: string
+          maturity_fit?: string
+          mechanism_fit?: string
+          organization_id?: string | null
+          prior_plausibility?: string
+          proposing_agent?: string | null
+          rejection_reason?: string | null
+          relative_role?: string | null
+          residual_note?: string | null
+          root_cause_candidate?: boolean
+          scope?: string
+          scope_detail?: Json
+          scope_fit?: string
+          separation?: string
+          signal_fit?: string
+          source_path_id?: string | null
+          statement?: string
+          status?: string
+          target_node_id?: string | null
+          temporal_fit?: string
+          uncertainty_kinds?: string[]
+          unexplained_residual_material?: boolean
+          updated_at?: string
+          valid_from?: string | null
+          valid_to?: string | null
+          validating_agent?: string | null
+          why_alternatives_lose?: string | null
+          why_it_wins?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_hypotheses_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_hypotheses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_hypotheses_source_path_id_fkey"
+            columns: ["source_path_id"]
+            isOneToOne: false
+            referencedRelation: "causal_paths"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_hypotheses_target_node_id_fkey"
+            columns: ["target_node_id"]
+            isOneToOne: false
+            referencedRelation: "causal_nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_hypothesis_evidence: {
+        Row: {
+          evidence_id: string
+          hypothesis_id: string
+          relation: string
+        }
+        Insert: {
+          evidence_id: string
+          hypothesis_id: string
+          relation: string
+        }
+        Update: {
+          evidence_id?: string
+          hypothesis_id?: string
+          relation?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_hypothesis_evidence_evidence_id_fkey"
+            columns: ["evidence_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_evidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_hypothesis_evidence_hypothesis_id_fkey"
+            columns: ["hypothesis_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_hypotheses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_observations: {
+        Row: {
+          baseline_type: string | null
+          case_id: string
+          change_absolute: number | null
+          change_relative: number | null
+          created_at: string
+          id: string
+          knowledge_state: string
+          metric: string
+          period_end: string | null
+          period_start: string | null
+          previous_value: number | null
+          reliability: string | null
+          segment: Json
+          source: string
+          value: number | null
+        }
+        Insert: {
+          baseline_type?: string | null
+          case_id: string
+          change_absolute?: number | null
+          change_relative?: number | null
+          created_at?: string
+          id?: string
+          knowledge_state?: string
+          metric: string
+          period_end?: string | null
+          period_start?: string | null
+          previous_value?: number | null
+          reliability?: string | null
+          segment?: Json
+          source: string
+          value?: number | null
+        }
+        Update: {
+          baseline_type?: string | null
+          case_id?: string
+          change_absolute?: number | null
+          change_relative?: number | null
+          created_at?: string
+          id?: string
+          knowledge_state?: string
+          metric?: string
+          period_end?: string | null
+          period_start?: string | null
+          previous_value?: number | null
+          reliability?: string | null
+          segment?: Json
+          source?: string
+          value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_observations_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_output_evidence: {
+        Row: {
+          claim: string
+          claim_layer: string
+          created_at: string
+          id: string
+          metric: string | null
+          organization_id: string
+          output_id: string
+          period_end: string | null
+          period_start: string | null
+          reliability: string
+          scope: string | null
+          snapshot_ref: string | null
+          source: string
+          source_ref: string
+          stance: string
+          transformations: string | null
+          value_note: string | null
+        }
+        Insert: {
+          claim: string
+          claim_layer: string
+          created_at?: string
+          id?: string
+          metric?: string | null
+          organization_id: string
+          output_id: string
+          period_end?: string | null
+          period_start?: string | null
+          reliability?: string
+          scope?: string | null
+          snapshot_ref?: string | null
+          source: string
+          source_ref: string
+          stance?: string
+          transformations?: string | null
+          value_note?: string | null
+        }
+        Update: {
+          claim?: string
+          claim_layer?: string
+          created_at?: string
+          id?: string
+          metric?: string | null
+          organization_id?: string
+          output_id?: string
+          period_end?: string | null
+          period_start?: string | null
+          reliability?: string
+          scope?: string | null
+          snapshot_ref?: string | null
+          source?: string
+          source_ref?: string
+          stance?: string
+          transformations?: string | null
+          value_note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_output_evidence_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_output_evidence_output_id_fkey"
+            columns: ["output_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_outputs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_output_evidence_snapshot_ref_fkey"
+            columns: ["snapshot_ref"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_outputs: {
+        Row: {
+          blocking_components: string[]
+          case_id: string
+          completeness_status: string
+          confidence: string
+          confidence_calibrated: boolean
+          confidence_language: string
+          confidence_summary: string | null
+          confounder_review_completed: boolean
+          constraint_id: string | null
+          context_valid: boolean
+          contract_version: string | null
+          created_at: string
+          data_gap_summary: string | null
+          data_gate_valid: boolean
+          degraded: boolean
+          diagnostic_summary: string | null
+          evaluated_at: string
+          failure_detail: string | null
+          failure_kind: string | null
+          finalization_status: string
+          handoff_ready: boolean
+          hypothesis_review_completed: boolean
+          id: string
+          is_current: boolean
+          limitation_summary: string | null
+          manual_review_reason: string | null
+          manual_review_required: boolean
+          missing_components: string[]
+          model_version: string | null
+          organization_id: string
+          phase_boundary_respected: boolean
+          prompt_version: string | null
+          robustness_id: string | null
+          root_cause_condition_satisfied: boolean
+          root_cause_id: string | null
+          rules_version: string | null
+          severity_assessment_id: string | null
+          severity_computed: boolean
+          snapshot_id: string | null
+          stage_valid: boolean
+          status: string
+          store_id: string | null
+          superseded_by: string | null
+          supersedes: string | null
+          supersession_reason: string | null
+          temporal_diagnosis_id: string | null
+          temporal_review_completed: boolean
+          trace_id: string | null
+          traceability_complete: boolean
+          updated_at: string
+          user_summary: string | null
+          validation_passed: boolean
+          version: number
+          visibility: string
+          what_we_dont_know: string | null
+          what_we_know: string | null
+        }
+        Insert: {
+          blocking_components?: string[]
+          case_id: string
+          completeness_status?: string
+          confidence?: string
+          confidence_calibrated?: boolean
+          confidence_language?: string
+          confidence_summary?: string | null
+          confounder_review_completed?: boolean
+          constraint_id?: string | null
+          context_valid?: boolean
+          contract_version?: string | null
+          created_at?: string
+          data_gap_summary?: string | null
+          data_gate_valid?: boolean
+          degraded?: boolean
+          diagnostic_summary?: string | null
+          evaluated_at?: string
+          failure_detail?: string | null
+          failure_kind?: string | null
+          finalization_status?: string
+          handoff_ready?: boolean
+          hypothesis_review_completed?: boolean
+          id?: string
+          is_current?: boolean
+          limitation_summary?: string | null
+          manual_review_reason?: string | null
+          manual_review_required?: boolean
+          missing_components?: string[]
+          model_version?: string | null
+          organization_id: string
+          phase_boundary_respected?: boolean
+          prompt_version?: string | null
+          robustness_id?: string | null
+          root_cause_condition_satisfied?: boolean
+          root_cause_id?: string | null
+          rules_version?: string | null
+          severity_assessment_id?: string | null
+          severity_computed?: boolean
+          snapshot_id?: string | null
+          stage_valid?: boolean
+          status?: string
+          store_id?: string | null
+          superseded_by?: string | null
+          supersedes?: string | null
+          supersession_reason?: string | null
+          temporal_diagnosis_id?: string | null
+          temporal_review_completed?: boolean
+          trace_id?: string | null
+          traceability_complete?: boolean
+          updated_at?: string
+          user_summary?: string | null
+          validation_passed?: boolean
+          version?: number
+          visibility?: string
+          what_we_dont_know?: string | null
+          what_we_know?: string | null
+        }
+        Update: {
+          blocking_components?: string[]
+          case_id?: string
+          completeness_status?: string
+          confidence?: string
+          confidence_calibrated?: boolean
+          confidence_language?: string
+          confidence_summary?: string | null
+          confounder_review_completed?: boolean
+          constraint_id?: string | null
+          context_valid?: boolean
+          contract_version?: string | null
+          created_at?: string
+          data_gap_summary?: string | null
+          data_gate_valid?: boolean
+          degraded?: boolean
+          diagnostic_summary?: string | null
+          evaluated_at?: string
+          failure_detail?: string | null
+          failure_kind?: string | null
+          finalization_status?: string
+          handoff_ready?: boolean
+          hypothesis_review_completed?: boolean
+          id?: string
+          is_current?: boolean
+          limitation_summary?: string | null
+          manual_review_reason?: string | null
+          manual_review_required?: boolean
+          missing_components?: string[]
+          model_version?: string | null
+          organization_id?: string
+          phase_boundary_respected?: boolean
+          prompt_version?: string | null
+          robustness_id?: string | null
+          root_cause_condition_satisfied?: boolean
+          root_cause_id?: string | null
+          rules_version?: string | null
+          severity_assessment_id?: string | null
+          severity_computed?: boolean
+          snapshot_id?: string | null
+          stage_valid?: boolean
+          status?: string
+          store_id?: string | null
+          superseded_by?: string | null
+          supersedes?: string | null
+          supersession_reason?: string | null
+          temporal_diagnosis_id?: string | null
+          temporal_review_completed?: boolean
+          trace_id?: string | null
+          traceability_complete?: boolean
+          updated_at?: string
+          user_summary?: string | null
+          validation_passed?: boolean
+          version?: number
+          visibility?: string
+          what_we_dont_know?: string | null
+          what_we_know?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_outputs_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_constraint_id_fkey"
+            columns: ["constraint_id"]
+            isOneToOne: false
+            referencedRelation: "business_constraints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_robustness_id_fkey"
+            columns: ["robustness_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_robustness"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_root_cause_id_fkey"
+            columns: ["root_cause_id"]
+            isOneToOne: false
+            referencedRelation: "root_causes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_severity_assessment_id_fkey"
+            columns: ["severity_assessment_id"]
+            isOneToOne: false
+            referencedRelation: "severity_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_snapshot_fk"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_snapshots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_outputs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_supersedes_fkey"
+            columns: ["supersedes"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_outputs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_outputs_temporal_diagnosis_id_fkey"
+            columns: ["temporal_diagnosis_id"]
+            isOneToOne: false
+            referencedRelation: "temporal_diagnoses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_robustness: {
+        Row: {
+          case_id: string
+          confidence_adjustment: string | null
+          confidence_after: string | null
+          confidence_before: string | null
+          created_at: string
+          diagnosis_stability: string
+          false_diagnosis_risk: string
+          id: string
+          organization_id: string
+          red_team_counter_explanation: string | null
+          red_team_effect: string | null
+          red_team_required_evidence: string | null
+          red_team_supporting_evidence: string | null
+          remaining_limitations: string | null
+          reopened_blocks: string[]
+          review_status: string
+          reviewed_at: string
+          revision_budget_used: number
+          revision_triggered: boolean
+          robustness: string
+          root_cause_id: string | null
+          survival_status: string
+          updated_at: string
+        }
+        Insert: {
+          case_id: string
+          confidence_adjustment?: string | null
+          confidence_after?: string | null
+          confidence_before?: string | null
+          created_at?: string
+          diagnosis_stability?: string
+          false_diagnosis_risk?: string
+          id?: string
+          organization_id: string
+          red_team_counter_explanation?: string | null
+          red_team_effect?: string | null
+          red_team_required_evidence?: string | null
+          red_team_supporting_evidence?: string | null
+          remaining_limitations?: string | null
+          reopened_blocks?: string[]
+          review_status?: string
+          reviewed_at?: string
+          revision_budget_used?: number
+          revision_triggered?: boolean
+          robustness?: string
+          root_cause_id?: string | null
+          survival_status?: string
+          updated_at?: string
+        }
+        Update: {
+          case_id?: string
+          confidence_adjustment?: string | null
+          confidence_after?: string | null
+          confidence_before?: string | null
+          created_at?: string
+          diagnosis_stability?: string
+          false_diagnosis_risk?: string
+          id?: string
+          organization_id?: string
+          red_team_counter_explanation?: string | null
+          red_team_effect?: string | null
+          red_team_required_evidence?: string | null
+          red_team_supporting_evidence?: string | null
+          remaining_limitations?: string | null
+          reopened_blocks?: string[]
+          review_status?: string
+          reviewed_at?: string
+          revision_budget_used?: number
+          revision_triggered?: boolean
+          robustness?: string
+          root_cause_id?: string | null
+          survival_status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_robustness_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_robustness_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_robustness_root_cause_id_fkey"
+            columns: ["root_cause_id"]
+            isOneToOne: false
+            referencedRelation: "root_causes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_signals: {
+        Row: {
+          business_relevance: string | null
+          case_id: string
+          created_at: string
+          direction: string
+          id: string
+          magnitude: number | null
+          observation_id: string
+          persistence_days: number | null
+          signal_type: string
+          source_signal_id: string | null
+          statistical_relevance: string | null
+        }
+        Insert: {
+          business_relevance?: string | null
+          case_id: string
+          created_at?: string
+          direction: string
+          id?: string
+          magnitude?: number | null
+          observation_id: string
+          persistence_days?: number | null
+          signal_type: string
+          source_signal_id?: string | null
+          statistical_relevance?: string | null
+        }
+        Update: {
+          business_relevance?: string | null
+          case_id?: string
+          created_at?: string
+          direction?: string
+          id?: string
+          magnitude?: number | null
+          observation_id?: string
+          persistence_days?: number | null
+          signal_type?: string
+          source_signal_id?: string | null
+          statistical_relevance?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_signals_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_signals_observation_id_fkey"
+            columns: ["observation_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_observations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_signals_source_signal_id_fkey"
+            columns: ["source_signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_snapshots: {
+        Row: {
+          as_of: string
+          case_id: string
+          created_at: string
+          data_ranges: Json
+          id: string
+          knowledge_refs: string[]
+          knowledge_refs_resolvable: boolean
+          known_issues: string | null
+          metric_definition_versions: Json
+          model_metadata_available: boolean
+          model_version: string | null
+          normalization_version: string | null
+          organization_id: string
+          prompt_version: string | null
+          reproducibility_limitations: string | null
+          reproducible: boolean
+          rules_version: string | null
+          rules_version_available: boolean
+          snapshot_available: boolean
+          source_versions: Json
+          sources_resolvable: boolean
+        }
+        Insert: {
+          as_of: string
+          case_id: string
+          created_at?: string
+          data_ranges?: Json
+          id?: string
+          knowledge_refs?: string[]
+          knowledge_refs_resolvable?: boolean
+          known_issues?: string | null
+          metric_definition_versions?: Json
+          model_metadata_available?: boolean
+          model_version?: string | null
+          normalization_version?: string | null
+          organization_id: string
+          prompt_version?: string | null
+          reproducibility_limitations?: string | null
+          reproducible?: boolean
+          rules_version?: string | null
+          rules_version_available?: boolean
+          snapshot_available?: boolean
+          source_versions?: Json
+          sources_resolvable?: boolean
+        }
+        Update: {
+          as_of?: string
+          case_id?: string
+          created_at?: string
+          data_ranges?: Json
+          id?: string
+          knowledge_refs?: string[]
+          knowledge_refs_resolvable?: boolean
+          known_issues?: string | null
+          metric_definition_versions?: Json
+          model_metadata_available?: boolean
+          model_version?: string | null
+          normalization_version?: string | null
+          organization_id?: string
+          prompt_version?: string | null
+          reproducibility_limitations?: string | null
+          reproducible?: boolean
+          rules_version?: string | null
+          rules_version_available?: boolean
+          snapshot_available?: boolean
+          source_versions?: Json
+          sources_resolvable?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_snapshots_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_snapshots_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_symptom_signals: {
+        Row: {
+          signal_id: string
+          symptom_id: string
+        }
+        Insert: {
+          signal_id: string
+          symptom_id: string
+        }
+        Update: {
+          signal_id?: string
+          symptom_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_symptom_signals_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_signals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_symptom_signals_symptom_id_fkey"
+            columns: ["symptom_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_symptoms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_symptoms: {
+        Row: {
+          case_id: string
+          created_at: string
+          description: string | null
+          id: string
+          source_symptom_id: string | null
+          symptom_type: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          source_symptom_id?: string | null
+          symptom_type: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          source_symptom_id?: string | null
+          symptom_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_symptoms_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_symptoms_source_symptom_id_fkey"
+            columns: ["source_symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_transitions: {
+        Row: {
+          actor: string
+          actor_ref: string | null
+          case_id: string
+          created_at: string
+          evidence_ref: string | null
+          from_status: string | null
+          id: string
+          new_evidence: string | null
+          occurred_at: string
+          organization_id: string
+          output_id: string | null
+          reason: string
+          to_status: string
+        }
+        Insert: {
+          actor: string
+          actor_ref?: string | null
+          case_id: string
+          created_at?: string
+          evidence_ref?: string | null
+          from_status?: string | null
+          id?: string
+          new_evidence?: string | null
+          occurred_at?: string
+          organization_id: string
+          output_id?: string | null
+          reason: string
+          to_status: string
+        }
+        Update: {
+          actor?: string
+          actor_ref?: string | null
+          case_id?: string
+          created_at?: string
+          evidence_ref?: string | null
+          from_status?: string | null
+          id?: string
+          new_evidence?: string | null
+          occurred_at?: string
+          organization_id?: string
+          output_id?: string | null
+          reason?: string
+          to_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_transitions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_transitions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_transitions_output_id_fkey"
+            columns: ["output_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_outputs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_uncertainties: {
+        Row: {
+          case_id: string
+          claim_id: string | null
+          confidence_impact: string | null
+          created_at: string
+          description: string
+          id: string
+          is_known_unknown: boolean
+          materiality: string
+          organization_id: string
+          required_evidence: string | null
+          resolution_note: string | null
+          resolvability: string
+          resolved_at: string | null
+          uncertainty_type: string
+          updated_at: string
+        }
+        Insert: {
+          case_id: string
+          claim_id?: string | null
+          confidence_impact?: string | null
+          created_at?: string
+          description: string
+          id?: string
+          is_known_unknown?: boolean
+          materiality?: string
+          organization_id: string
+          required_evidence?: string | null
+          resolution_note?: string | null
+          resolvability?: string
+          resolved_at?: string | null
+          uncertainty_type: string
+          updated_at?: string
+        }
+        Update: {
+          case_id?: string
+          claim_id?: string | null
+          confidence_impact?: string | null
+          created_at?: string
+          description?: string
+          id?: string
+          is_known_unknown?: boolean
+          materiality?: string
+          organization_id?: string
+          required_evidence?: string | null
+          resolution_note?: string | null
+          resolvability?: string
+          resolved_at?: string | null
+          uncertainty_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_uncertainties_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_uncertainties_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claim_confidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_uncertainties_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      diagnostic_validations: {
+        Row: {
+          blocking: boolean
+          created_at: string
+          id: string
+          message: string | null
+          organization_id: string
+          output_id: string
+          result: string
+          validator: string
+        }
+        Insert: {
+          blocking?: boolean
+          created_at?: string
+          id?: string
+          message?: string | null
+          organization_id: string
+          output_id: string
+          result?: string
+          validator: string
+        }
+        Update: {
+          blocking?: boolean
+          created_at?: string
+          id?: string
+          message?: string | null
+          organization_id?: string
+          output_id?: string
+          result?: string
+          validator?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diagnostic_validations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "diagnostic_validations_output_id_fkey"
+            columns: ["output_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_outputs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fixed_expenses: {
         Row: {
           amount: number
@@ -2250,6 +5904,549 @@ export type Database = {
           },
           {
             foreignKeyName: "fixed_expenses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      health_evidence: {
+        Row: {
+          capability_health_id: string
+          confidence: string
+          created_at: string
+          id: string
+          indicator_type: string
+          metric: string
+          observation: string
+          reference_id: string | null
+          relation: string
+          source: string | null
+          value: number | null
+          window_end: string | null
+          window_start: string | null
+        }
+        Insert: {
+          capability_health_id: string
+          confidence?: string
+          created_at?: string
+          id?: string
+          indicator_type?: string
+          metric: string
+          observation: string
+          reference_id?: string | null
+          relation?: string
+          source?: string | null
+          value?: number | null
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Update: {
+          capability_health_id?: string
+          confidence?: string
+          created_at?: string
+          id?: string
+          indicator_type?: string
+          metric?: string
+          observation?: string
+          reference_id?: string | null
+          relation?: string
+          source?: string | null
+          value?: number | null
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_evidence_capability_health_id_fkey"
+            columns: ["capability_health_id"]
+            isOneToOne: false
+            referencedRelation: "capability_health"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "health_evidence_reference_id_fkey"
+            columns: ["reference_id"]
+            isOneToOne: false
+            referencedRelation: "health_references"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      health_findings: {
+        Row: {
+          capability_health_id: string
+          confidence: string
+          created_at: string
+          description: string
+          id: string
+          impact: string | null
+          kind: string
+          scope: string
+          severity: string
+          trajectory: string | null
+        }
+        Insert: {
+          capability_health_id: string
+          confidence?: string
+          created_at?: string
+          description: string
+          id?: string
+          impact?: string | null
+          kind?: string
+          scope?: string
+          severity: string
+          trajectory?: string | null
+        }
+        Update: {
+          capability_health_id?: string
+          confidence?: string
+          created_at?: string
+          description?: string
+          id?: string
+          impact?: string | null
+          kind?: string
+          scope?: string
+          severity?: string
+          trajectory?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_findings_capability_health_id_fkey"
+            columns: ["capability_health_id"]
+            isOneToOne: false
+            referencedRelation: "capability_health"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      health_references: {
+        Row: {
+          capability: string | null
+          created_at: string
+          direction: string | null
+          effective_from: string
+          effective_to: string | null
+          id: string
+          metric: string
+          organization_id: string
+          reference_type: string
+          scope: string
+          source: string | null
+          store_id: string | null
+          unit: string | null
+          updated_at: string
+          value: number | null
+          value_text: string | null
+        }
+        Insert: {
+          capability?: string | null
+          created_at?: string
+          direction?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          metric: string
+          organization_id: string
+          reference_type: string
+          scope?: string
+          source?: string | null
+          store_id?: string | null
+          unit?: string | null
+          updated_at?: string
+          value?: number | null
+          value_text?: string | null
+        }
+        Update: {
+          capability?: string | null
+          created_at?: string
+          direction?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          metric?: string
+          organization_id?: string
+          reference_type?: string
+          scope?: string
+          source?: string | null
+          store_id?: string | null
+          unit?: string | null
+          updated_at?: string
+          value?: number | null
+          value_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_references_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "health_references_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hypothesis_status_history: {
+        Row: {
+          actor: string | null
+          changed_at: string
+          evidence_added: string[]
+          from_status: string | null
+          hypothesis_id: string
+          id: string
+          organization_id: string
+          reason: string
+          to_status: string
+        }
+        Insert: {
+          actor?: string | null
+          changed_at?: string
+          evidence_added?: string[]
+          from_status?: string | null
+          hypothesis_id: string
+          id?: string
+          organization_id: string
+          reason: string
+          to_status: string
+        }
+        Update: {
+          actor?: string | null
+          changed_at?: string
+          evidence_added?: string[]
+          from_status?: string | null
+          hypothesis_id?: string
+          id?: string
+          organization_id?: string
+          reason?: string
+          to_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hypothesis_status_history_hypothesis_id_fkey"
+            columns: ["hypothesis_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_hypotheses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hypothesis_status_history_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hypothesis_tests: {
+        Row: {
+          availability: string
+          cost: string
+          created_at: string
+          diagnostic_question: string
+          expected_if_false: string
+          expected_if_true: string
+          hypothesis_id: string
+          id: string
+          information_gain: string
+          interpretation: string | null
+          intrusiveness: string
+          latency: string
+          mode: string
+          organization_id: string
+          required_data: string | null
+          result: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          availability?: string
+          cost?: string
+          created_at?: string
+          diagnostic_question: string
+          expected_if_false: string
+          expected_if_true: string
+          hypothesis_id: string
+          id?: string
+          information_gain?: string
+          interpretation?: string | null
+          intrusiveness?: string
+          latency?: string
+          mode?: string
+          organization_id: string
+          required_data?: string | null
+          result?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          availability?: string
+          cost?: string
+          created_at?: string
+          diagnostic_question?: string
+          expected_if_false?: string
+          expected_if_true?: string
+          hypothesis_id?: string
+          id?: string
+          information_gain?: string
+          interpretation?: string | null
+          intrusiveness?: string
+          latency?: string
+          mode?: string
+          organization_id?: string
+          required_data?: string | null
+          result?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hypothesis_tests_hypothesis_id_fkey"
+            columns: ["hypothesis_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_hypotheses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hypothesis_tests_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      impact_exposures: {
+        Row: {
+          affected_segment: string | null
+          assessment_id: string
+          confidence: string
+          created_at: string
+          denominator: string
+          denominator_note: string | null
+          denominator_value: number | null
+          exposure_share: number | null
+          id: string
+          is_chosen_denominator: boolean
+          organization_id: string
+          rationale: string | null
+        }
+        Insert: {
+          affected_segment?: string | null
+          assessment_id: string
+          confidence?: string
+          created_at?: string
+          denominator: string
+          denominator_note?: string | null
+          denominator_value?: number | null
+          exposure_share?: number | null
+          id?: string
+          is_chosen_denominator?: boolean
+          organization_id: string
+          rationale?: string | null
+        }
+        Update: {
+          affected_segment?: string | null
+          assessment_id?: string
+          confidence?: string
+          created_at?: string
+          denominator?: string
+          denominator_note?: string | null
+          denominator_value?: number | null
+          exposure_share?: number | null
+          id?: string
+          is_chosen_denominator?: boolean
+          organization_id?: string
+          rationale?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "impact_exposures_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "severity_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "impact_exposures_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      impact_measurements: {
+        Row: {
+          assessment_id: string
+          assumptions: string | null
+          baseline_reference: string | null
+          created_at: string
+          dimension: string
+          dimension_severity: string
+          evidence_type: string
+          id: string
+          impact_confidence: string
+          likelihood: string | null
+          loss_rate: number | null
+          loss_rate_unit: string | null
+          method: string | null
+          metric: string | null
+          nature: string
+          note: string | null
+          organization_id: string
+          period_end: string | null
+          period_open: boolean
+          period_start: string | null
+          quantification: string
+          timing: string
+          unit: string | null
+          updated_at: string
+          value: number | null
+          value_high: number | null
+          value_low: number | null
+        }
+        Insert: {
+          assessment_id: string
+          assumptions?: string | null
+          baseline_reference?: string | null
+          created_at?: string
+          dimension: string
+          dimension_severity?: string
+          evidence_type: string
+          id?: string
+          impact_confidence?: string
+          likelihood?: string | null
+          loss_rate?: number | null
+          loss_rate_unit?: string | null
+          method?: string | null
+          metric?: string | null
+          nature?: string
+          note?: string | null
+          organization_id: string
+          period_end?: string | null
+          period_open?: boolean
+          period_start?: string | null
+          quantification?: string
+          timing: string
+          unit?: string | null
+          updated_at?: string
+          value?: number | null
+          value_high?: number | null
+          value_low?: number | null
+        }
+        Update: {
+          assessment_id?: string
+          assumptions?: string | null
+          baseline_reference?: string | null
+          created_at?: string
+          dimension?: string
+          dimension_severity?: string
+          evidence_type?: string
+          id?: string
+          impact_confidence?: string
+          likelihood?: string | null
+          loss_rate?: number | null
+          loss_rate_unit?: string | null
+          method?: string | null
+          metric?: string | null
+          nature?: string
+          note?: string | null
+          organization_id?: string
+          period_end?: string | null
+          period_open?: boolean
+          period_start?: string | null
+          quantification?: string
+          timing?: string
+          unit?: string | null
+          updated_at?: string
+          value?: number | null
+          value_high?: number | null
+          value_low?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "impact_measurements_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "severity_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "impact_measurements_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      impact_propagation: {
+        Row: {
+          assessment_id: string
+          causal_path_id: string | null
+          contributes_independent_loss: boolean
+          created_at: string
+          evidence: string | null
+          from_capability: string | null
+          id: string
+          note: string | null
+          organization_id: string
+          propagation_kind: string
+          propagation_risk: string
+          to_capability: string
+        }
+        Insert: {
+          assessment_id: string
+          causal_path_id?: string | null
+          contributes_independent_loss?: boolean
+          created_at?: string
+          evidence?: string | null
+          from_capability?: string | null
+          id?: string
+          note?: string | null
+          organization_id: string
+          propagation_kind: string
+          propagation_risk?: string
+          to_capability: string
+        }
+        Update: {
+          assessment_id?: string
+          causal_path_id?: string | null
+          contributes_independent_loss?: boolean
+          created_at?: string
+          evidence?: string | null
+          from_capability?: string | null
+          id?: string
+          note?: string | null
+          organization_id?: string
+          propagation_kind?: string
+          propagation_risk?: string
+          to_capability?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "impact_propagation_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "severity_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "impact_propagation_causal_path_id_fkey"
+            columns: ["causal_path_id"]
+            isOneToOne: false
+            referencedRelation: "causal_paths"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "impact_propagation_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -4323,6 +8520,88 @@ export type Database = {
           },
         ]
       }
+      knowledge_applicability: {
+        Row: {
+          applicability: string
+          claim_id: string
+          created_at: string
+          id: string
+          is_stale: boolean
+          knowledge_type: string | null
+          organization_id: string
+          output_id: string | null
+          retrieval_context: string | null
+          retrieval_similarity: number | null
+          source_authority: string
+          source_ref: string
+          source_updated_at: string | null
+          source_version: string | null
+          used_for: string | null
+          validated_against_case: boolean
+          validation_note: string | null
+        }
+        Insert: {
+          applicability?: string
+          claim_id: string
+          created_at?: string
+          id?: string
+          is_stale?: boolean
+          knowledge_type?: string | null
+          organization_id: string
+          output_id?: string | null
+          retrieval_context?: string | null
+          retrieval_similarity?: number | null
+          source_authority?: string
+          source_ref: string
+          source_updated_at?: string | null
+          source_version?: string | null
+          used_for?: string | null
+          validated_against_case?: boolean
+          validation_note?: string | null
+        }
+        Update: {
+          applicability?: string
+          claim_id?: string
+          created_at?: string
+          id?: string
+          is_stale?: boolean
+          knowledge_type?: string | null
+          organization_id?: string
+          output_id?: string | null
+          retrieval_context?: string | null
+          retrieval_similarity?: number | null
+          source_authority?: string
+          source_ref?: string
+          source_updated_at?: string | null
+          source_version?: string | null
+          used_for?: string | null
+          validated_against_case?: boolean
+          validation_note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_applicability_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claim_confidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_applicability_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_applicability_output_id_fkey"
+            columns: ["output_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_outputs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       knowledge_chunks: {
         Row: {
           chunk_index: number
@@ -4556,6 +8835,60 @@ export type Database = {
             columns: ["store_id"]
             isOneToOne: false
             referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mandatory_confounder_checks: {
+        Row: {
+          case_id: string
+          check_key: string
+          created_at: string
+          diagnostic_family: string
+          executed_at: string | null
+          id: string
+          organization_id: string
+          outcome: string | null
+          reason: string | null
+          status: string
+        }
+        Insert: {
+          case_id: string
+          check_key: string
+          created_at?: string
+          diagnostic_family: string
+          executed_at?: string | null
+          id?: string
+          organization_id: string
+          outcome?: string | null
+          reason?: string | null
+          status?: string
+        }
+        Update: {
+          case_id?: string
+          check_key?: string
+          created_at?: string
+          diagnostic_family?: string
+          executed_at?: string | null
+          id?: string
+          organization_id?: string
+          outcome?: string | null
+          reason?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mandatory_confounder_checks_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mandatory_confounder_checks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -4826,6 +9159,117 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maturity_evidence: {
+        Row: {
+          capability_maturity_id: string
+          created_at: string
+          description: string
+          evidence_type: string
+          id: string
+          observed_at: string | null
+          persistent: boolean
+          source: string | null
+          supports: string
+        }
+        Insert: {
+          capability_maturity_id: string
+          created_at?: string
+          description: string
+          evidence_type: string
+          id?: string
+          observed_at?: string | null
+          persistent?: boolean
+          source?: string | null
+          supports?: string
+        }
+        Update: {
+          capability_maturity_id?: string
+          created_at?: string
+          description?: string
+          evidence_type?: string
+          id?: string
+          observed_at?: string | null
+          persistent?: boolean
+          source?: string | null
+          supports?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maturity_evidence_capability_maturity_id_fkey"
+            columns: ["capability_maturity_id"]
+            isOneToOne: false
+            referencedRelation: "capability_maturity"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maturity_profiles: {
+        Row: {
+          assessed_at: string
+          business_stage: string | null
+          change_summary: string | null
+          change_type: string | null
+          confidence: string
+          created_at: string
+          id: string
+          organization_id: string
+          store_id: string | null
+          superseded_at: string | null
+          supersedes_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          assessed_at?: string
+          business_stage?: string | null
+          change_summary?: string | null
+          change_type?: string | null
+          confidence?: string
+          created_at?: string
+          id?: string
+          organization_id: string
+          store_id?: string | null
+          superseded_at?: string | null
+          supersedes_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assessed_at?: string
+          business_stage?: string | null
+          change_summary?: string | null
+          change_type?: string | null
+          confidence?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+          store_id?: string | null
+          superseded_at?: string | null
+          supersedes_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maturity_profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_profiles_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maturity_profiles_supersedes_id_fkey"
+            columns: ["supersedes_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -6510,6 +10954,104 @@ export type Database = {
           },
         ]
       }
+      metric_comparability_gates: {
+        Row: {
+          case_id: string
+          comparability: string
+          created_at: string
+          id: string
+          metric: string
+          note: string | null
+          organization_id: string
+          same_currency: string
+          same_definition: string
+          same_scope: string
+          same_status_filter: string
+          same_time_logic: string
+        }
+        Insert: {
+          case_id: string
+          comparability?: string
+          created_at?: string
+          id?: string
+          metric: string
+          note?: string | null
+          organization_id: string
+          same_currency?: string
+          same_definition?: string
+          same_scope?: string
+          same_status_filter?: string
+          same_time_logic?: string
+        }
+        Update: {
+          case_id?: string
+          comparability?: string
+          created_at?: string
+          id?: string
+          metric?: string
+          note?: string | null
+          organization_id?: string
+          same_currency?: string
+          same_definition?: string
+          same_scope?: string
+          same_status_filter?: string
+          same_time_logic?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "metric_comparability_gates_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "metric_comparability_gates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      metric_dependencies: {
+        Row: {
+          created_at: string
+          depends_on: string
+          id: string
+          metric: string
+          organization_id: string | null
+          rationale: string
+          relation: string
+        }
+        Insert: {
+          created_at?: string
+          depends_on: string
+          id?: string
+          metric: string
+          organization_id?: string | null
+          rationale: string
+          relation?: string
+        }
+        Update: {
+          created_at?: string
+          depends_on?: string
+          id?: string
+          metric?: string
+          organization_id?: string | null
+          rationale?: string
+          relation?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "metric_dependencies_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       milestone_internal_notes: {
         Row: {
           author_user_id: string
@@ -7144,6 +11686,7 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null
+          business_name: string | null
           created_at: string
           full_name: string | null
           id: string
@@ -7156,6 +11699,7 @@ export type Database = {
         }
         Insert: {
           avatar_url?: string | null
+          business_name?: string | null
           created_at?: string
           full_name?: string | null
           id: string
@@ -7168,6 +11712,7 @@ export type Database = {
         }
         Update: {
           avatar_url?: string | null
+          business_name?: string | null
           created_at?: string
           full_name?: string | null
           id?: string
@@ -7206,6 +11751,250 @@ export type Database = {
           version?: string
         }
         Relationships: []
+      }
+      root_cause_chain: {
+        Row: {
+          chain_role: string
+          created_at: string
+          id: string
+          node_id: string | null
+          organization_id: string
+          root_cause_id: string
+          statement: string
+          step_order: number
+          supported: boolean
+          symptom_id: string | null
+        }
+        Insert: {
+          chain_role: string
+          created_at?: string
+          id?: string
+          node_id?: string | null
+          organization_id: string
+          root_cause_id: string
+          statement: string
+          step_order: number
+          supported?: boolean
+          symptom_id?: string | null
+        }
+        Update: {
+          chain_role?: string
+          created_at?: string
+          id?: string
+          node_id?: string | null
+          organization_id?: string
+          root_cause_id?: string
+          statement?: string
+          step_order?: number
+          supported?: boolean
+          symptom_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "root_cause_chain_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "causal_nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "root_cause_chain_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "root_cause_chain_root_cause_id_fkey"
+            columns: ["root_cause_id"]
+            isOneToOne: false
+            referencedRelation: "root_causes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "root_cause_chain_symptom_id_fkey"
+            columns: ["symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      root_causes: {
+        Row: {
+          affects_observability_only: boolean
+          assumptions: string | null
+          case_id: string | null
+          causal_path_id: string | null
+          cause_type: string
+          code: string
+          confidence: string
+          controllability: string
+          created_at: string
+          downstream_capabilities: string[]
+          explanatory_coverage: string
+          family: string
+          first_identified_at: string
+          hypothesis_id: string | null
+          id: string
+          limitations: string | null
+          organization_id: string
+          recurrence: string
+          residual_material: boolean
+          residual_note: string | null
+          resolved_at: string | null
+          reversibility: string
+          role: string
+          scope: string
+          scope_detail: Json
+          statement: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          affects_observability_only?: boolean
+          assumptions?: string | null
+          case_id?: string | null
+          causal_path_id?: string | null
+          cause_type: string
+          code: string
+          confidence?: string
+          controllability?: string
+          created_at?: string
+          downstream_capabilities?: string[]
+          explanatory_coverage?: string
+          family: string
+          first_identified_at?: string
+          hypothesis_id?: string | null
+          id?: string
+          limitations?: string | null
+          organization_id: string
+          recurrence?: string
+          residual_material?: boolean
+          residual_note?: string | null
+          resolved_at?: string | null
+          reversibility?: string
+          role?: string
+          scope?: string
+          scope_detail?: Json
+          statement: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          affects_observability_only?: boolean
+          assumptions?: string | null
+          case_id?: string | null
+          causal_path_id?: string | null
+          cause_type?: string
+          code?: string
+          confidence?: string
+          controllability?: string
+          created_at?: string
+          downstream_capabilities?: string[]
+          explanatory_coverage?: string
+          family?: string
+          first_identified_at?: string
+          hypothesis_id?: string | null
+          id?: string
+          limitations?: string | null
+          organization_id?: string
+          recurrence?: string
+          residual_material?: boolean
+          residual_note?: string | null
+          resolved_at?: string | null
+          reversibility?: string
+          role?: string
+          scope?: string
+          scope_detail?: Json
+          statement?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "root_causes_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "root_causes_causal_path_id_fkey"
+            columns: ["causal_path_id"]
+            isOneToOne: false
+            referencedRelation: "causal_paths"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "root_causes_hypothesis_id_fkey"
+            columns: ["hypothesis_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_hypotheses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "root_causes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sensitivity_analyses: {
+        Row: {
+          assumption: string
+          base_case: string | null
+          created_at: string
+          diagnosis_changes: boolean
+          high_case: string | null
+          id: string
+          low_case: string | null
+          note: string | null
+          organization_id: string
+          robustness_id: string
+        }
+        Insert: {
+          assumption: string
+          base_case?: string | null
+          created_at?: string
+          diagnosis_changes?: boolean
+          high_case?: string | null
+          id?: string
+          low_case?: string | null
+          note?: string | null
+          organization_id: string
+          robustness_id: string
+        }
+        Update: {
+          assumption?: string
+          base_case?: string | null
+          created_at?: string
+          diagnosis_changes?: boolean
+          high_case?: string | null
+          id?: string
+          low_case?: string | null
+          note?: string | null
+          organization_id?: string
+          robustness_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sensitivity_analyses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sensitivity_analyses_robustness_id_fkey"
+            columns: ["robustness_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_robustness"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       service_subscriptions: {
         Row: {
@@ -7256,6 +12045,179 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      severity_assessments: {
+        Row: {
+          absorption_capacity: string
+          acute_severity: string
+          assessed_at: string
+          assessment_status: string
+          assumptions: string | null
+          capability_criticality: string
+          case_id: string
+          cause_confidence: string
+          constraint_id: string | null
+          contained_at: string | null
+          continuity_rationale: string | null
+          created_at: string
+          critical_path_failure: boolean
+          cumulative_severity: string
+          duration_hours: number | null
+          escalation_signal: string
+          exposure_basis: string | null
+          forward_risk_severity: string
+          id: string
+          impact_confidence: string
+          limitations: string | null
+          material_damage_at: string | null
+          material_exposure: boolean
+          measurement_compromised: boolean
+          onset_at: string | null
+          organization_id: string
+          overall_severity: string
+          recoverability: string
+          recovered_at: string | null
+          recurrence: string
+          reversibility: string
+          root_cause_id: string | null
+          scope: string
+          scope_detail: Json
+          severity_confidence: string
+          structural_severity: string
+          summary: string | null
+          target: string
+          threat_kind: string | null
+          time_to_buffer_exhaustion_hours: number | null
+          time_to_material_damage_hours: number | null
+          time_to_threshold_hours: number | null
+          trajectory: string
+          updated_at: string
+          velocity: string
+        }
+        Insert: {
+          absorption_capacity?: string
+          acute_severity?: string
+          assessed_at?: string
+          assessment_status?: string
+          assumptions?: string | null
+          capability_criticality?: string
+          case_id: string
+          cause_confidence?: string
+          constraint_id?: string | null
+          contained_at?: string | null
+          continuity_rationale?: string | null
+          created_at?: string
+          critical_path_failure?: boolean
+          cumulative_severity?: string
+          duration_hours?: number | null
+          escalation_signal?: string
+          exposure_basis?: string | null
+          forward_risk_severity?: string
+          id?: string
+          impact_confidence?: string
+          limitations?: string | null
+          material_damage_at?: string | null
+          material_exposure?: boolean
+          measurement_compromised?: boolean
+          onset_at?: string | null
+          organization_id: string
+          overall_severity?: string
+          recoverability?: string
+          recovered_at?: string | null
+          recurrence?: string
+          reversibility?: string
+          root_cause_id?: string | null
+          scope?: string
+          scope_detail?: Json
+          severity_confidence?: string
+          structural_severity?: string
+          summary?: string | null
+          target: string
+          threat_kind?: string | null
+          time_to_buffer_exhaustion_hours?: number | null
+          time_to_material_damage_hours?: number | null
+          time_to_threshold_hours?: number | null
+          trajectory?: string
+          updated_at?: string
+          velocity?: string
+        }
+        Update: {
+          absorption_capacity?: string
+          acute_severity?: string
+          assessed_at?: string
+          assessment_status?: string
+          assumptions?: string | null
+          capability_criticality?: string
+          case_id?: string
+          cause_confidence?: string
+          constraint_id?: string | null
+          contained_at?: string | null
+          continuity_rationale?: string | null
+          created_at?: string
+          critical_path_failure?: boolean
+          cumulative_severity?: string
+          duration_hours?: number | null
+          escalation_signal?: string
+          exposure_basis?: string | null
+          forward_risk_severity?: string
+          id?: string
+          impact_confidence?: string
+          limitations?: string | null
+          material_damage_at?: string | null
+          material_exposure?: boolean
+          measurement_compromised?: boolean
+          onset_at?: string | null
+          organization_id?: string
+          overall_severity?: string
+          recoverability?: string
+          recovered_at?: string | null
+          recurrence?: string
+          reversibility?: string
+          root_cause_id?: string | null
+          scope?: string
+          scope_detail?: Json
+          severity_confidence?: string
+          structural_severity?: string
+          summary?: string | null
+          target?: string
+          threat_kind?: string | null
+          time_to_buffer_exhaustion_hours?: number | null
+          time_to_material_damage_hours?: number | null
+          time_to_threshold_hours?: number | null
+          trajectory?: string
+          updated_at?: string
+          velocity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "severity_assessments_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "severity_assessments_constraint_id_fkey"
+            columns: ["constraint_id"]
+            isOneToOne: false
+            referencedRelation: "business_constraints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "severity_assessments_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "severity_assessments_root_cause_id_fkey"
+            columns: ["root_cause_id"]
+            isOneToOne: false
+            referencedRelation: "root_causes"
             referencedColumns: ["id"]
           },
         ]
@@ -8222,6 +13184,7 @@ export type Database = {
           id: string
           is_first_customer_order: boolean | null
           is_test_order: boolean
+          journey_checked_at: string | null
           last_visit_source: string | null
           last_visit_source_type: string | null
           net_sales: number
@@ -8269,6 +13232,7 @@ export type Database = {
           id?: string
           is_first_customer_order?: boolean | null
           is_test_order?: boolean
+          journey_checked_at?: string | null
           last_visit_source?: string | null
           last_visit_source_type?: string | null
           net_sales?: number
@@ -8316,6 +13280,7 @@ export type Database = {
           id?: string
           is_first_customer_order?: boolean | null
           is_test_order?: boolean
+          journey_checked_at?: string | null
           last_visit_source?: string | null
           last_visit_source_type?: string | null
           net_sales?: number
@@ -9084,6 +14049,414 @@ export type Database = {
           },
         ]
       }
+      signal_cluster_members: {
+        Row: {
+          cluster_id: string
+          created_at: string
+          is_representative: boolean
+          signal_id: string
+        }
+        Insert: {
+          cluster_id: string
+          created_at?: string
+          is_representative?: boolean
+          signal_id: string
+        }
+        Update: {
+          cluster_id?: string
+          created_at?: string
+          is_representative?: boolean
+          signal_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signal_cluster_members_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "signal_clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signal_cluster_members_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      signal_clusters: {
+        Row: {
+          confidence: string
+          created_at: string
+          grouping_reason: string
+          id: string
+          label: string
+          organization_id: string
+          shared_scope: string | null
+          store_id: string | null
+          updated_at: string
+          window_end: string
+          window_start: string
+        }
+        Insert: {
+          confidence?: string
+          created_at?: string
+          grouping_reason: string
+          id?: string
+          label: string
+          organization_id: string
+          shared_scope?: string | null
+          store_id?: string | null
+          updated_at?: string
+          window_end: string
+          window_start: string
+        }
+        Update: {
+          confidence?: string
+          created_at?: string
+          grouping_reason?: string
+          id?: string
+          label?: string
+          organization_id?: string
+          shared_scope?: string | null
+          store_id?: string | null
+          updated_at?: string
+          window_end?: string
+          window_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signal_clusters_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signal_clusters_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      signal_conflicts: {
+        Row: {
+          created_at: string
+          degrades_confidence: boolean
+          expected_relationship: string
+          id: string
+          observed_disagreement: string
+          organization_id: string
+          resolution: string | null
+          signal_a_id: string
+          signal_b_id: string
+          suggests_data_issue: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          degrades_confidence?: boolean
+          expected_relationship: string
+          id?: string
+          observed_disagreement: string
+          organization_id: string
+          resolution?: string | null
+          signal_a_id: string
+          signal_b_id: string
+          suggests_data_issue?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          degrades_confidence?: boolean
+          expected_relationship?: string
+          id?: string
+          observed_disagreement?: string
+          organization_id?: string
+          resolution?: string | null
+          signal_a_id?: string
+          signal_b_id?: string
+          suggests_data_issue?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signal_conflicts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signal_conflicts_signal_a_id_fkey"
+            columns: ["signal_a_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signal_conflicts_signal_b_id_fkey"
+            columns: ["signal_b_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      signal_evidence: {
+        Row: {
+          created_at: string
+          id: string
+          independence_rationale: string | null
+          independent: boolean
+          metric: string
+          observation: string
+          signal_id: string
+          source: string
+          value: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          independence_rationale?: string | null
+          independent?: boolean
+          metric: string
+          observation: string
+          signal_id: string
+          source: string
+          value?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          independence_rationale?: string | null
+          independent?: boolean
+          metric?: string
+          observation?: string
+          signal_id?: string
+          source?: string
+          value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signal_evidence_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      signals: {
+        Row: {
+          anomaly_type: string | null
+          baseline_conflict: boolean
+          baseline_kind: string | null
+          baseline_value: number | null
+          business_exposure: string | null
+          business_relevance: string
+          capability: string | null
+          composite_explanation: string | null
+          composite_inputs: Json
+          context_confidence: string
+          created_at: string
+          data_confidence: string
+          description: string
+          detected_at: string
+          direction: string
+          distance_to_guardrail: number | null
+          downstream_metric: string | null
+          event_count: number | null
+          event_link_status: string | null
+          expected_high: number | null
+          expected_lag_days: number | null
+          expected_low: number | null
+          guardrail_status: string | null
+          id: string
+          impact_estimate: string | null
+          is_composite: boolean
+          is_leading_indicator: boolean
+          linked_event_id: string | null
+          low_sample: boolean
+          magnitude_absolute: number | null
+          magnitude_relative: number | null
+          matched_pattern_id: string | null
+          metric: string
+          novelty: string | null
+          observed_value: number | null
+          onset_at: string | null
+          organization_id: string
+          persistence: string
+          reference_id: string | null
+          regime: string
+          sample_size: number | null
+          scope: string
+          scope_detail: Json
+          segment_eligibility: string | null
+          signal_confidence: string
+          signal_type: string
+          statistical_method: string | null
+          statistical_strength: string | null
+          store_id: string | null
+          suppression: string
+          trajectory: string | null
+          updated_at: string
+          window_end: string
+          window_start: string
+        }
+        Insert: {
+          anomaly_type?: string | null
+          baseline_conflict?: boolean
+          baseline_kind?: string | null
+          baseline_value?: number | null
+          business_exposure?: string | null
+          business_relevance?: string
+          capability?: string | null
+          composite_explanation?: string | null
+          composite_inputs?: Json
+          context_confidence?: string
+          created_at?: string
+          data_confidence?: string
+          description: string
+          detected_at?: string
+          direction: string
+          distance_to_guardrail?: number | null
+          downstream_metric?: string | null
+          event_count?: number | null
+          event_link_status?: string | null
+          expected_high?: number | null
+          expected_lag_days?: number | null
+          expected_low?: number | null
+          guardrail_status?: string | null
+          id?: string
+          impact_estimate?: string | null
+          is_composite?: boolean
+          is_leading_indicator?: boolean
+          linked_event_id?: string | null
+          low_sample?: boolean
+          magnitude_absolute?: number | null
+          magnitude_relative?: number | null
+          matched_pattern_id?: string | null
+          metric: string
+          novelty?: string | null
+          observed_value?: number | null
+          onset_at?: string | null
+          organization_id: string
+          persistence?: string
+          reference_id?: string | null
+          regime?: string
+          sample_size?: number | null
+          scope?: string
+          scope_detail?: Json
+          segment_eligibility?: string | null
+          signal_confidence?: string
+          signal_type: string
+          statistical_method?: string | null
+          statistical_strength?: string | null
+          store_id?: string | null
+          suppression?: string
+          trajectory?: string | null
+          updated_at?: string
+          window_end: string
+          window_start: string
+        }
+        Update: {
+          anomaly_type?: string | null
+          baseline_conflict?: boolean
+          baseline_kind?: string | null
+          baseline_value?: number | null
+          business_exposure?: string | null
+          business_relevance?: string
+          capability?: string | null
+          composite_explanation?: string | null
+          composite_inputs?: Json
+          context_confidence?: string
+          created_at?: string
+          data_confidence?: string
+          description?: string
+          detected_at?: string
+          direction?: string
+          distance_to_guardrail?: number | null
+          downstream_metric?: string | null
+          event_count?: number | null
+          event_link_status?: string | null
+          expected_high?: number | null
+          expected_lag_days?: number | null
+          expected_low?: number | null
+          guardrail_status?: string | null
+          id?: string
+          impact_estimate?: string | null
+          is_composite?: boolean
+          is_leading_indicator?: boolean
+          linked_event_id?: string | null
+          low_sample?: boolean
+          magnitude_absolute?: number | null
+          magnitude_relative?: number | null
+          matched_pattern_id?: string | null
+          metric?: string
+          novelty?: string | null
+          observed_value?: number | null
+          onset_at?: string | null
+          organization_id?: string
+          persistence?: string
+          reference_id?: string | null
+          regime?: string
+          sample_size?: number | null
+          scope?: string
+          scope_detail?: Json
+          segment_eligibility?: string | null
+          signal_confidence?: string
+          signal_type?: string
+          statistical_method?: string | null
+          statistical_strength?: string | null
+          store_id?: string | null
+          suppression?: string
+          trajectory?: string | null
+          updated_at?: string
+          window_end?: string
+          window_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signals_linked_event_id_fkey"
+            columns: ["linked_event_id"]
+            isOneToOne: false
+            referencedRelation: "context_change_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signals_matched_pattern_id_fkey"
+            columns: ["matched_pattern_id"]
+            isOneToOne: false
+            referencedRelation: "tenant_signal_patterns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signals_reference_id_fkey"
+            columns: ["reference_id"]
+            isOneToOne: false
+            referencedRelation: "health_references"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signals_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       strategic_plan_milestones: {
         Row: {
           activated_at: string | null
@@ -9311,6 +14684,326 @@ export type Database = {
           },
         ]
       }
+      symptom_evidence: {
+        Row: {
+          created_at: string
+          id: string
+          observation: string
+          observation_hash: string | null
+          organization_id: string
+          reference: Json
+          representativeness: string | null
+          sample_size: number | null
+          source_kind: string
+          stance: string
+          symptom_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          observation: string
+          observation_hash?: string | null
+          organization_id: string
+          reference?: Json
+          representativeness?: string | null
+          sample_size?: number | null
+          source_kind: string
+          stance?: string
+          symptom_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          observation?: string
+          observation_hash?: string | null
+          organization_id?: string
+          reference?: Json
+          representativeness?: string | null
+          sample_size?: number | null
+          source_kind?: string
+          stance?: string
+          symptom_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "symptom_evidence_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptom_evidence_symptom_id_fkey"
+            columns: ["symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      symptom_relations: {
+        Row: {
+          created_at: string
+          from_symptom_id: string
+          id: string
+          observed_lag_days: number | null
+          organization_id: string
+          rationale: string | null
+          relation: string
+          to_symptom_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_symptom_id: string
+          id?: string
+          observed_lag_days?: number | null
+          organization_id: string
+          rationale?: string | null
+          relation: string
+          to_symptom_id: string
+        }
+        Update: {
+          created_at?: string
+          from_symptom_id?: string
+          id?: string
+          observed_lag_days?: number | null
+          organization_id?: string
+          rationale?: string | null
+          relation?: string
+          to_symptom_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "symptom_relations_from_symptom_id_fkey"
+            columns: ["from_symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptom_relations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptom_relations_to_symptom_id_fkey"
+            columns: ["to_symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      symptom_signals: {
+        Row: {
+          created_at: string
+          id: string
+          note: string | null
+          organization_id: string
+          role: string
+          signal_id: string
+          symptom_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          note?: string | null
+          organization_id: string
+          role?: string
+          signal_id: string
+          symptom_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          note?: string | null
+          organization_id?: string
+          role?: string
+          signal_id?: string
+          symptom_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "symptom_signals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptom_signals_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptom_signals_symptom_id_fkey"
+            columns: ["symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      symptoms: {
+        Row: {
+          business_relevance: string
+          canonical_type: string
+          capability: string | null
+          coherence_relationship: string | null
+          compatible_direction: boolean
+          compatible_scope: boolean
+          confidence: string
+          context_assessment_id: string | null
+          context_reviewed: boolean
+          context_snapshot: Json
+          created_at: string
+          data_confidence: string
+          diagnostic_depth: string
+          fingerprint: string | null
+          first_seen_at: string
+          id: string
+          known_relationship: boolean
+          label: string
+          last_seen_at: string
+          onset_at: string | null
+          organization_id: string
+          parent_symptom_id: string | null
+          persistence: string
+          previous_symptom_id: string | null
+          process_position: string | null
+          recurrence_count: number
+          resolved_at: string | null
+          same_time_window: boolean
+          scope: string
+          scope_detail: Json
+          status: string
+          store_id: string | null
+          sufficient_signal_quality: boolean
+          symptom_family: string
+          time_role: string | null
+          updated_at: string
+          valence: string
+        }
+        Insert: {
+          business_relevance?: string
+          canonical_type: string
+          capability?: string | null
+          coherence_relationship?: string | null
+          compatible_direction?: boolean
+          compatible_scope?: boolean
+          confidence?: string
+          context_assessment_id?: string | null
+          context_reviewed?: boolean
+          context_snapshot?: Json
+          created_at?: string
+          data_confidence?: string
+          diagnostic_depth?: string
+          fingerprint?: string | null
+          first_seen_at?: string
+          id?: string
+          known_relationship?: boolean
+          label: string
+          last_seen_at?: string
+          onset_at?: string | null
+          organization_id: string
+          parent_symptom_id?: string | null
+          persistence?: string
+          previous_symptom_id?: string | null
+          process_position?: string | null
+          recurrence_count?: number
+          resolved_at?: string | null
+          same_time_window?: boolean
+          scope?: string
+          scope_detail?: Json
+          status?: string
+          store_id?: string | null
+          sufficient_signal_quality?: boolean
+          symptom_family: string
+          time_role?: string | null
+          updated_at?: string
+          valence: string
+        }
+        Update: {
+          business_relevance?: string
+          canonical_type?: string
+          capability?: string | null
+          coherence_relationship?: string | null
+          compatible_direction?: boolean
+          compatible_scope?: boolean
+          confidence?: string
+          context_assessment_id?: string | null
+          context_reviewed?: boolean
+          context_snapshot?: Json
+          created_at?: string
+          data_confidence?: string
+          diagnostic_depth?: string
+          fingerprint?: string | null
+          first_seen_at?: string
+          id?: string
+          known_relationship?: boolean
+          label?: string
+          last_seen_at?: string
+          onset_at?: string | null
+          organization_id?: string
+          parent_symptom_id?: string | null
+          persistence?: string
+          previous_symptom_id?: string | null
+          process_position?: string | null
+          recurrence_count?: number
+          resolved_at?: string | null
+          same_time_window?: boolean
+          scope?: string
+          scope_detail?: Json
+          status?: string
+          store_id?: string | null
+          sufficient_signal_quality?: boolean
+          symptom_family?: string
+          time_role?: string | null
+          updated_at?: string
+          valence?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "symptoms_context_assessment_id_fkey"
+            columns: ["context_assessment_id"]
+            isOneToOne: false
+            referencedRelation: "context_assessments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptoms_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptoms_parent_symptom_id_fkey"
+            columns: ["parent_symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptoms_previous_symptom_id_fkey"
+            columns: ["previous_symptom_id"]
+            isOneToOne: false
+            referencedRelation: "symptoms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "symptoms_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       task_comments: {
         Row: {
           author_user_id: string
@@ -9519,6 +15212,730 @@ export type Database = {
           },
         ]
       }
+      temporal_diagnoses: {
+        Row: {
+          acceleration: string
+          assessed_at: string
+          assessment_status: string
+          baseline_status: string
+          business_impact_recovery: string
+          case_id: string
+          cause_recovery: string
+          change_point_at: string | null
+          change_type: string | null
+          comparison_type: string | null
+          constraint_lifecycle: string | null
+          constraint_shifted_to: string | null
+          context_adjusted_trajectory: string | null
+          created_at: string
+          current_state: string
+          detected_at: string | null
+          diagnosed_at: string | null
+          duration_hours: number | null
+          first_observed_at: string | null
+          has_unresolved_incident: boolean
+          history_coverage: string
+          history_quality: string
+          id: string
+          lag_confidence: string
+          limitations: string | null
+          long_term_trajectory: string
+          maturity_note: string | null
+          maturity_structural_loss: boolean
+          maturity_trajectory: string
+          medium_term_trajectory: string
+          noise_classification: string
+          onset_confidence: string
+          onset_detection_method: string | null
+          onset_estimated_at: string | null
+          onset_precision: string
+          onset_range_end: string | null
+          onset_range_start: string | null
+          organization_id: string
+          peak_at: string | null
+          peak_note: string | null
+          peak_worst_state: string | null
+          persistence: string
+          pre_existing_status: string
+          previous_stable_period_end: string | null
+          previous_stable_period_start: string | null
+          previous_state: string | null
+          raw_trajectory: string | null
+          recovered_at: string | null
+          recovery_confidence: string
+          recovery_confirmed_at: string | null
+          recovery_persistence_met: boolean
+          recurrence_kind: string | null
+          recurrence_status: string
+          regime_change_understood: boolean
+          regime_data_quality_high: boolean
+          regime_stable_behavior: boolean
+          regime_status: string
+          regime_sufficient_duration: boolean
+          regime_validation_note: string | null
+          regression_confidence: string
+          regression_status: string
+          regression_trigger_event: string | null
+          regression_type: string | null
+          resolved_at: string | null
+          root_cause_lifecycle: string | null
+          scope_detail: Json
+          shared_root_cause: boolean | null
+          short_term_trajectory: string
+          source_granularity: string
+          system_recovery: string
+          target: string
+          temporal_completeness: string
+          temporal_gaps: string | null
+          temporal_scope: string
+          temporal_sufficiency: string
+          trajectory: string
+          trajectory_confidence: string
+          trend_confidence: string
+          trend_robustness: string
+          updated_at: string
+          velocity: string
+        }
+        Insert: {
+          acceleration?: string
+          assessed_at?: string
+          assessment_status?: string
+          baseline_status?: string
+          business_impact_recovery?: string
+          case_id: string
+          cause_recovery?: string
+          change_point_at?: string | null
+          change_type?: string | null
+          comparison_type?: string | null
+          constraint_lifecycle?: string | null
+          constraint_shifted_to?: string | null
+          context_adjusted_trajectory?: string | null
+          created_at?: string
+          current_state?: string
+          detected_at?: string | null
+          diagnosed_at?: string | null
+          duration_hours?: number | null
+          first_observed_at?: string | null
+          has_unresolved_incident?: boolean
+          history_coverage?: string
+          history_quality?: string
+          id?: string
+          lag_confidence?: string
+          limitations?: string | null
+          long_term_trajectory?: string
+          maturity_note?: string | null
+          maturity_structural_loss?: boolean
+          maturity_trajectory?: string
+          medium_term_trajectory?: string
+          noise_classification?: string
+          onset_confidence?: string
+          onset_detection_method?: string | null
+          onset_estimated_at?: string | null
+          onset_precision?: string
+          onset_range_end?: string | null
+          onset_range_start?: string | null
+          organization_id: string
+          peak_at?: string | null
+          peak_note?: string | null
+          peak_worst_state?: string | null
+          persistence?: string
+          pre_existing_status?: string
+          previous_stable_period_end?: string | null
+          previous_stable_period_start?: string | null
+          previous_state?: string | null
+          raw_trajectory?: string | null
+          recovered_at?: string | null
+          recovery_confidence?: string
+          recovery_confirmed_at?: string | null
+          recovery_persistence_met?: boolean
+          recurrence_kind?: string | null
+          recurrence_status?: string
+          regime_change_understood?: boolean
+          regime_data_quality_high?: boolean
+          regime_stable_behavior?: boolean
+          regime_status?: string
+          regime_sufficient_duration?: boolean
+          regime_validation_note?: string | null
+          regression_confidence?: string
+          regression_status?: string
+          regression_trigger_event?: string | null
+          regression_type?: string | null
+          resolved_at?: string | null
+          root_cause_lifecycle?: string | null
+          scope_detail?: Json
+          shared_root_cause?: boolean | null
+          short_term_trajectory?: string
+          source_granularity?: string
+          system_recovery?: string
+          target: string
+          temporal_completeness?: string
+          temporal_gaps?: string | null
+          temporal_scope?: string
+          temporal_sufficiency?: string
+          trajectory?: string
+          trajectory_confidence?: string
+          trend_confidence?: string
+          trend_robustness?: string
+          updated_at?: string
+          velocity?: string
+        }
+        Update: {
+          acceleration?: string
+          assessed_at?: string
+          assessment_status?: string
+          baseline_status?: string
+          business_impact_recovery?: string
+          case_id?: string
+          cause_recovery?: string
+          change_point_at?: string | null
+          change_type?: string | null
+          comparison_type?: string | null
+          constraint_lifecycle?: string | null
+          constraint_shifted_to?: string | null
+          context_adjusted_trajectory?: string | null
+          created_at?: string
+          current_state?: string
+          detected_at?: string | null
+          diagnosed_at?: string | null
+          duration_hours?: number | null
+          first_observed_at?: string | null
+          has_unresolved_incident?: boolean
+          history_coverage?: string
+          history_quality?: string
+          id?: string
+          lag_confidence?: string
+          limitations?: string | null
+          long_term_trajectory?: string
+          maturity_note?: string | null
+          maturity_structural_loss?: boolean
+          maturity_trajectory?: string
+          medium_term_trajectory?: string
+          noise_classification?: string
+          onset_confidence?: string
+          onset_detection_method?: string | null
+          onset_estimated_at?: string | null
+          onset_precision?: string
+          onset_range_end?: string | null
+          onset_range_start?: string | null
+          organization_id?: string
+          peak_at?: string | null
+          peak_note?: string | null
+          peak_worst_state?: string | null
+          persistence?: string
+          pre_existing_status?: string
+          previous_stable_period_end?: string | null
+          previous_stable_period_start?: string | null
+          previous_state?: string | null
+          raw_trajectory?: string | null
+          recovered_at?: string | null
+          recovery_confidence?: string
+          recovery_confirmed_at?: string | null
+          recovery_persistence_met?: boolean
+          recurrence_kind?: string | null
+          recurrence_status?: string
+          regime_change_understood?: boolean
+          regime_data_quality_high?: boolean
+          regime_stable_behavior?: boolean
+          regime_status?: string
+          regime_sufficient_duration?: boolean
+          regime_validation_note?: string | null
+          regression_confidence?: string
+          regression_status?: string
+          regression_trigger_event?: string | null
+          regression_type?: string | null
+          resolved_at?: string | null
+          root_cause_lifecycle?: string | null
+          scope_detail?: Json
+          shared_root_cause?: boolean | null
+          short_term_trajectory?: string
+          source_granularity?: string
+          system_recovery?: string
+          target?: string
+          temporal_completeness?: string
+          temporal_gaps?: string | null
+          temporal_scope?: string
+          temporal_sufficiency?: string
+          trajectory?: string
+          trajectory_confidence?: string
+          trend_confidence?: string
+          trend_robustness?: string
+          updated_at?: string
+          velocity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "temporal_diagnoses_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "diagnostic_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "temporal_diagnoses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      temporal_events: {
+        Row: {
+          created_at: string
+          diagnosis_id: string
+          event_type: string
+          from_state: string | null
+          id: string
+          note: string | null
+          occurred_at: string
+          organization_id: string
+          to_state: string | null
+        }
+        Insert: {
+          created_at?: string
+          diagnosis_id: string
+          event_type: string
+          from_state?: string | null
+          id?: string
+          note?: string | null
+          occurred_at?: string
+          organization_id: string
+          to_state?: string | null
+        }
+        Update: {
+          created_at?: string
+          diagnosis_id?: string
+          event_type?: string
+          from_state?: string | null
+          id?: string
+          note?: string | null
+          occurred_at?: string
+          organization_id?: string
+          to_state?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "temporal_events_diagnosis_id_fkey"
+            columns: ["diagnosis_id"]
+            isOneToOne: false
+            referencedRelation: "temporal_diagnoses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "temporal_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      temporal_lag_checks: {
+        Row: {
+          cause_label: string
+          cause_time: string | null
+          created_at: string
+          diagnosis_id: string
+          edge_id: string | null
+          effect_label: string
+          effect_time: string | null
+          expected_lag_max_hours: number | null
+          expected_lag_min_hours: number | null
+          id: string
+          ingestion_differs: boolean
+          lag_fit: string
+          note: string | null
+          observed_lag_hours: number | null
+          organization_id: string
+          time_basis: string
+        }
+        Insert: {
+          cause_label: string
+          cause_time?: string | null
+          created_at?: string
+          diagnosis_id: string
+          edge_id?: string | null
+          effect_label: string
+          effect_time?: string | null
+          expected_lag_max_hours?: number | null
+          expected_lag_min_hours?: number | null
+          id?: string
+          ingestion_differs?: boolean
+          lag_fit?: string
+          note?: string | null
+          observed_lag_hours?: number | null
+          organization_id: string
+          time_basis?: string
+        }
+        Update: {
+          cause_label?: string
+          cause_time?: string | null
+          created_at?: string
+          diagnosis_id?: string
+          edge_id?: string | null
+          effect_label?: string
+          effect_time?: string | null
+          expected_lag_max_hours?: number | null
+          expected_lag_min_hours?: number | null
+          id?: string
+          ingestion_differs?: boolean
+          lag_fit?: string
+          note?: string | null
+          observed_lag_hours?: number | null
+          organization_id?: string
+          time_basis?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "temporal_lag_checks_diagnosis_id_fkey"
+            columns: ["diagnosis_id"]
+            isOneToOne: false
+            referencedRelation: "temporal_diagnoses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "temporal_lag_checks_edge_id_fkey"
+            columns: ["edge_id"]
+            isOneToOne: false
+            referencedRelation: "causal_edges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "temporal_lag_checks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      temporal_revisions: {
+        Row: {
+          as_of: string
+          baseline_version: string | null
+          created_at: string
+          data_snapshot: string | null
+          diagnosis_id: string
+          explanation: string
+          id: string
+          new_onset_at: string | null
+          new_trajectory: string
+          organization_id: string
+          previous_onset_at: string | null
+          previous_trajectory: string | null
+          revision_reason: string
+        }
+        Insert: {
+          as_of: string
+          baseline_version?: string | null
+          created_at?: string
+          data_snapshot?: string | null
+          diagnosis_id: string
+          explanation: string
+          id?: string
+          new_onset_at?: string | null
+          new_trajectory: string
+          organization_id: string
+          previous_onset_at?: string | null
+          previous_trajectory?: string | null
+          revision_reason: string
+        }
+        Update: {
+          as_of?: string
+          baseline_version?: string | null
+          created_at?: string
+          data_snapshot?: string | null
+          diagnosis_id?: string
+          explanation?: string
+          id?: string
+          new_onset_at?: string | null
+          new_trajectory?: string
+          organization_id?: string
+          previous_onset_at?: string | null
+          previous_trajectory?: string | null
+          revision_reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "temporal_revisions_diagnosis_id_fkey"
+            columns: ["diagnosis_id"]
+            isOneToOne: false
+            referencedRelation: "temporal_diagnoses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "temporal_revisions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenant_capability_config: {
+        Row: {
+          business_critical: boolean
+          business_exposure: string | null
+          capability: string
+          capacity_limit_notes: string | null
+          created_at: string
+          criticality_rationale: string | null
+          id: string
+          organization_id: string
+          revenue_share: number | null
+          store_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          business_critical?: boolean
+          business_exposure?: string | null
+          capability: string
+          capacity_limit_notes?: string | null
+          created_at?: string
+          criticality_rationale?: string | null
+          id?: string
+          organization_id: string
+          revenue_share?: number | null
+          store_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          business_critical?: boolean
+          business_exposure?: string | null
+          capability?: string
+          capacity_limit_notes?: string | null
+          created_at?: string
+          criticality_rationale?: string | null
+          id?: string
+          organization_id?: string
+          revenue_share?: number | null
+          store_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_capability_config_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_capability_config_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenant_context_facts: {
+        Row: {
+          created_at: string
+          dimension: string
+          effective_from: string
+          effective_to: string | null
+          id: string
+          organization_id: string
+          origin: string | null
+          source: string
+          store_id: string | null
+          updated_at: string
+          value: string
+          value_detail: Json
+        }
+        Insert: {
+          created_at?: string
+          dimension: string
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          organization_id: string
+          origin?: string | null
+          source: string
+          store_id?: string | null
+          updated_at?: string
+          value: string
+          value_detail?: Json
+        }
+        Update: {
+          created_at?: string
+          dimension?: string
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          organization_id?: string
+          origin?: string | null
+          source?: string
+          store_id?: string | null
+          updated_at?: string
+          value?: string
+          value_detail?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_context_facts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_context_facts_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenant_metric_definitions: {
+        Row: {
+          change_reason: string | null
+          created_at: string
+          definition: string
+          discount_treatment: string | null
+          effective_from: string
+          effective_to: string | null
+          formula: string | null
+          id: string
+          included_order_states: string[]
+          includes_shipping: boolean | null
+          includes_taxes: boolean | null
+          metric: string
+          organization_id: string
+          refund_recognition: string | null
+          reporting_currency: string | null
+          revenue_basis: string | null
+          scope: string | null
+          store_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          change_reason?: string | null
+          created_at?: string
+          definition: string
+          discount_treatment?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          formula?: string | null
+          id?: string
+          included_order_states?: string[]
+          includes_shipping?: boolean | null
+          includes_taxes?: boolean | null
+          metric: string
+          organization_id: string
+          refund_recognition?: string | null
+          reporting_currency?: string | null
+          revenue_basis?: string | null
+          scope?: string | null
+          store_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          change_reason?: string | null
+          created_at?: string
+          definition?: string
+          discount_treatment?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          formula?: string | null
+          id?: string
+          included_order_states?: string[]
+          includes_shipping?: boolean | null
+          includes_taxes?: boolean | null
+          metric?: string
+          organization_id?: string
+          refund_recognition?: string | null
+          reporting_currency?: string | null
+          revenue_basis?: string | null
+          scope?: string | null
+          store_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_metric_definitions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_metric_definitions_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenant_signal_patterns: {
+        Row: {
+          created_at: string
+          description: string
+          explanation: string | null
+          id: string
+          label: string
+          last_seen_at: string | null
+          metric: string | null
+          occurrences: number
+          organization_id: string
+          previous_outcome: string | null
+          scope: string
+          store_id: string | null
+          suppression: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          explanation?: string | null
+          id?: string
+          label: string
+          last_seen_at?: string | null
+          metric?: string | null
+          occurrences?: number
+          organization_id: string
+          previous_outcome?: string | null
+          scope?: string
+          store_id?: string | null
+          suppression?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          explanation?: string | null
+          id?: string
+          label?: string
+          last_seen_at?: string | null
+          metric?: string | null
+          occurrences?: number
+          organization_id?: string
+          previous_outcome?: string | null
+          scope?: string
+          store_id?: string | null
+          suppression?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_signal_patterns_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_signal_patterns_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "shopify_stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       shopify_inventory_current_levels: {
@@ -9562,6 +15979,14 @@ export type Database = {
       }
     }
     Functions: {
+      accept_client_invite: {
+        Args: {
+          p_invite_id: string
+          p_organization_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       admin_agent_runtime_stats: {
         Args: { since: string }
         Returns: {
@@ -9592,6 +16017,19 @@ export type Database = {
           run_count: number
           top_agents: Json
           total_cost_usd: number
+        }[]
+      }
+      ads_spend_summary: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          by_platform: Json
+          days_with_data: number
+          spend: number
         }[]
       }
       agent_sql_gateway: {
@@ -9713,6 +16151,20 @@ export type Database = {
           organization_id: string
           output: Json
           ran_at: string
+        }[]
+      }
+      context_order_mix: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id?: string
+        }
+        Returns: {
+          dimension: string
+          net_sales: number
+          orders: number
+          segment: string
         }[]
       }
       klaviyo_email_inventory: {
@@ -9883,6 +16335,38 @@ export type Database = {
           semantic_similarity: number
           similarity: number
           visibility: string
+        }[]
+      }
+      maturity_business_facts: {
+        Args: {
+          period_end: string
+          period_start: string
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          active_months: number
+          channels: number
+          currencies: number
+          customers: number
+          discounts: number
+          discounts_used: number
+          fulfilled_orders: number
+          fulfillments: number
+          inventory_items: number
+          inventory_items_with_cost: number
+          inventory_snapshots: number
+          net_sales: number
+          orders: number
+          orders_with_attribution: number
+          orders_with_repeat_flag: number
+          products: number
+          repeat_customers: number
+          repeat_orders: number
+          session_days: number
+          sessions: number
+          variants: number
+          window_days: number
         }[]
       }
       meta_attribution_window_rank: {
@@ -10212,6 +16696,21 @@ export type Database = {
           orders_with_multiple_codes: number
         }[]
       }
+      shopify_financial_monthly: {
+        Args: {
+          months_back: number
+          target_organization_id: string
+          target_store_id: string
+        }
+        Returns: {
+          ads_spend: number
+          bucket_month: string
+          net_profit: number
+          net_revenue_ex_tax: number
+          new_customers: number
+          orders_count: number
+        }[]
+      }
       shopify_financial_summary: {
         Args: {
           period_end: string
@@ -10220,20 +16719,41 @@ export type Database = {
           target_store_id: string
         }
         Returns: {
+          ads_by_platform: Json
+          ads_days_with_data: number
+          ads_spend: number
+          aov_ex_tax: number
           break_even_monthly_revenue: number
+          breakeven_cac_per_order: number
+          breakeven_roas: number
+          cac_blended: number
+          cac_per_order: number
           cogs: number
+          cogs_per_order: number
+          contribution_per_order: number
           fixed_costs: number
           fixed_expenses_count: number
+          fixed_pct_revenue: number
+          fixed_per_order: number
           gross_margin: number
           has_settings: boolean
           items_without_cost: number
+          mbee: number
           monthly_fixed_costs: number
           net_margin_pct: number
           net_profit: number
+          net_revenue_ex_tax: number
           net_sales: number
+          new_customers: number
           orders_count: number
+          payment_fee_per_order: number
           payment_fees: number
+          shipping_charged: number
           shipping_costs: number
+          shipping_net: number
+          shipping_per_order: number
+          tax_collected: number
+          uses_shipping_rules: boolean
         }[]
       }
       shopify_funnel_daily: {

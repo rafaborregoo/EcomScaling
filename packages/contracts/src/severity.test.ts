@@ -10,7 +10,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  assessSeverity,
   checkSeverityInvariants,
+  exposureShare,
+  recurrenceFrom,
+  velocityFrom,
+  type CaseForSeverity,
+  type SeverityCaseInput,
+  type SignalForSeverity,
   severityAssessmentFields,
   severityAssessmentSchema,
   impactMeasurementFields,
@@ -450,4 +457,199 @@ test("§3 y §95: la global no se deriva de las otras cuatro, pero no se despega
     exposures: [exposicion()],
   });
   assert.ok(olvido.includes("perfil_incoherente"));
+});
+
+// --- El motor ---------------------------------------------------------------
+
+function casoSeveridad(): CaseForSeverity {
+  return {
+    case_id: "c1",
+    target_metric: "net_sales",
+    scope: "business_global",
+    analysis_period_start: "2026-09-01T00:00:00.000Z",
+    analysis_period_end: "2026-09-08T00:00:00.000Z",
+  };
+}
+
+function senalSeveridad(
+  overrides: Partial<SignalForSeverity> = {},
+): SignalForSeverity {
+  return {
+    metric: "net_sales",
+    direction: "down",
+    observed_value: 9600,
+    baseline_value: 12000,
+    magnitude_absolute: -2400,
+    trajectory: "deteriorating",
+    persistence: "persistent",
+    business_exposure: "moderate",
+    window_start: "2026-09-01T00:00:00.000Z",
+    window_end: "2026-09-08T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function entrada(
+  overrides: Partial<SeverityCaseInput> = {},
+): SeverityCaseInput {
+  return {
+    diagnosticCase: casoSeveridad(),
+    signal: senalSeveridad(),
+    denominators: [
+      { denominator: "revenue", value: 78000 },
+      { denominator: "orders", value: 410 },
+    ],
+    currency: "EUR",
+    ...overrides,
+  };
+}
+
+test("D10: el motor no pone ni una severidad, y dice por que", () => {
+  // Es el nucleo del bloque. El apartado 29 dice que la fuente no define formula
+  // de severidad ni ponderacion, y el guardrail 17 que un scope pequeno puede
+  // ser material -- o sea que tampoco hay umbral por cuota. "3% = moderate"
+  // seria inventarse el umbral que el documento se niega a dar.
+  const e = assessSeverity(entrada());
+
+  assert.deepEqual(
+    [
+      e.acute_severity,
+      e.cumulative_severity,
+      e.forward_risk_severity,
+      e.structural_severity,
+      e.overall_severity,
+    ],
+    ["unknown", "unknown", "unknown", "unknown", "unknown"],
+  );
+  assert.equal(e.measurements[0]?.dimension_severity, "unknown");
+  assert.match(e.limitations, /no define formula de severidad/);
+});
+
+test("D10: la cuenta es estimada, no observada, y lleva sus supuestos", () => {
+  // El valor de hoy se observa; la perdida es la diferencia contra un baseline,
+  // y un baseline es un modelo. Decir `observed` presentaria un calculo como una
+  // medicion -- y ademas el esquema exige supuestos a todo lo que no sea
+  // observado (guardrail 22).
+  const medida = assessSeverity(entrada()).measurements[0];
+
+  assert.equal(medida?.evidence_type, "estimated");
+  assert.equal(medida?.quantification, "estimated");
+  assert.notEqual(medida?.quantification, "exact");
+  assert.ok((medida?.assumptions ?? "").length > 0);
+  assert.match(medida?.assumptions ?? "", /estacionalidad/);
+});
+
+test("D10: se elige un denominador, uno solo, y se razona", () => {
+  // Guardrails 15 y 16: se registran varios, se marca cual juzga y se dice por
+  // que. El mismo incidente es un 3% del revenue y un 30% de la contribucion.
+  const e = assessSeverity(entrada());
+
+  const elegidos = e.exposures.filter((x) => x.is_chosen_denominator);
+  assert.equal(elegidos.length, 1);
+  assert.equal(elegidos[0]?.denominator, "revenue");
+  assert.ok((elegidos[0]?.rationale ?? "").length > 0);
+
+  // Los no elegidos se guardan igual: quitarlos dejaria la cuota sin con que
+  // compararla.
+  assert.equal(e.exposures.length, 2);
+  assert.equal(e.exposures.find((x) => x.denominator === "orders")?.rationale, null);
+});
+
+test("D10: la cuota se calcula sobre la base, no sobre la nada", () => {
+  const e = assessSeverity(entrada());
+  const revenue = e.exposures.find((x) => x.denominator === "revenue");
+
+  assert.ok(revenue?.exposure_share != null);
+  assert.ok(Math.abs((revenue?.exposure_share ?? 0) - 2400 / 78000) < 1e-9);
+});
+
+test("D10: una perdida mayor que su base no se convierte en el 100%", () => {
+  // Devolver 1 taparia un error de medicion con una cifra creible. Que salga el
+  // hueco es lo correcto: o la base esta mal elegida o esta mal medida.
+  assert.equal(exposureShare(2400, 1000), null);
+  assert.equal(exposureShare(2400, 0), null);
+  assert.equal(exposureShare(500, 1000), 0.5);
+
+  const e = assessSeverity(
+    entrada({ denominators: [{ denominator: "revenue", value: 1000 }] }),
+  );
+  const revenue = e.exposures[0];
+  assert.equal(revenue?.exposure_share, null);
+  assert.ok((revenue?.denominator_note ?? "").length > 0);
+  // El esquema exige que la fila diga algo: si no hay cuota, dice sobre que.
+  assert.ok(revenue?.affected_segment != null);
+});
+
+test("D10: la confianza en la causa es insuficiente siempre, y no arrastra la del impacto", () => {
+  // Guardrail 13: se puede estar seguro de que el dano es grave y no tener ni
+  // idea de por que. Son tres juicios separados (apartado 27).
+  const e = assessSeverity(entrada());
+
+  assert.equal(e.cause_confidence, "insufficient");
+  assert.equal(e.severity_confidence, "insufficient");
+  assert.equal(e.impact_confidence, "medium", "la cuenta esta hecha, eso si se sabe");
+});
+
+test("D10: un dato que D01 degrado marca la cifra como comprometida", () => {
+  // Guardrail 51: medir mal no es perder dinero, pero una resta exacta sobre un
+  // dato malo sigue siendo un dato malo.
+  const e = assessSeverity(entrada({ dataReliability: "unusable" }));
+
+  assert.equal(e.measurement_compromised, true);
+  assert.equal(e.impact_confidence, "low");
+  assert.match(e.limitations, /degradada/);
+  assert.ok((e.measurements[0]?.note ?? "").includes("comprometida"));
+});
+
+test("D10: velocidad y trayectoria son vocabularios distintos", () => {
+  // `volatile` no es una velocidad. Mapearlo a "empeorando" convertiria un
+  // vaiven en una direccion.
+  assert.equal(velocityFrom("deteriorating"), "worsening");
+  assert.equal(velocityFrom("rapidly_deteriorating"), "rapidly_deteriorating");
+  assert.equal(velocityFrom("recovering"), "recovering");
+  assert.equal(velocityFrom("volatile"), "unknown");
+  assert.equal(velocityFrom(null), "unknown");
+});
+
+test("D10: sin sintoma detras, la recurrencia no se supone", () => {
+  assert.equal(recurrenceFrom(null), "unknown");
+  assert.equal(recurrenceFrom({ persistence: "chronic", recurrence_count: 1 }), "chronic");
+  assert.equal(recurrenceFrom({ persistence: "acute", recurrence_count: 3 }), "recurrent");
+  assert.equal(recurrenceFrom({ persistence: "acute", recurrence_count: 1 }), "first_time");
+});
+
+test("D10: sin senal no se inventa un impacto", () => {
+  const e = assessSeverity(entrada({ signal: null }));
+
+  assert.equal(e.measurements.length, 0);
+  assert.equal(e.impact_confidence, "insufficient");
+  assert.match(e.summary, /no hay impacto que cuantificar/);
+  assert.match(e.limitations, /No hay senal en la ventana/);
+});
+
+test("D10: lo local no se globaliza solo, y no se avisa a nadie", () => {
+  // Guardrail 14: para que lo local sea global hay que declarar que la
+  // exposicion es material, y nadie lo ha declarado. Guardrail 56: D10 no define
+  // a quien se avisa.
+  const e = assessSeverity(entrada());
+
+  assert.equal(e.material_exposure, false);
+  assert.equal(e.escalation_signal, "none");
+});
+
+test("D10: la evaluacion no tiene prioridad, accion ni esfuerzo", () => {
+  // Guardrails 3, 46, 47 y 48. Un HIGH puede ir antes que un CRITICAL segun
+  // esfuerzo y momento, y eso es F4.
+  const e = assessSeverity(entrada()) as Record<string, unknown>;
+
+  for (const prohibida of [
+    "priority",
+    "recommended_action",
+    "playbook",
+    "effort",
+    "intervention_order",
+    "probability",
+  ]) {
+    assert.ok(!(prohibida in e), `${prohibida} no puede existir aqui`);
+  }
 });

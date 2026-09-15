@@ -412,3 +412,420 @@ export function checkHealthInvariants(
 
   return v;
 }
+
+// --- El motor ---------------------------------------------------------------
+
+/**
+ * EL MOTOR DE SALUD. Decision de diseno, y es la unica que hay que entender:
+ * **este motor no tiene ni un solo umbral propio**.
+ *
+ * El guardrail 11 prohibe clasificar CAC, CVR o refund rate por umbral global y
+ * el 13 prohibe depender de benchmarks externos. Un CAC alto puede ser sano si
+ * cabe en la economia (guardrail 39) y uno bajo puede ser critico si destruye
+ * contribucion (40). Ninguna de las dos cosas se sabe sin que alguien declare
+ * contra que se juzga esa metrica **en esta tienda**, y eso es
+ * `health_references`.
+ *
+ * De ahi sale todo lo demas:
+ *
+ *   - sin referencia declarada, la capacidad sale `not_assessable` y el motor
+ *     **dice que falta** (lo exige el esquema, no solo el buen gusto);
+ *   - con referencia, el estado no lo calcula este motor: lo trae
+ *     `guardrail_status` de la senal, que D05 ya evaluo contra esa misma
+ *     referencia. Aqui solo se traduce;
+ *   - **no ver anomalias no es estar sano** (guardrail 9). Para decir `healthy`
+ *     hace falta que la metrica se haya medido de verdad en la ventana, y por
+ *     eso el motor recibe `measuredMetrics` y no lo deduce de la ausencia de
+ *     senales.
+ *
+ * Hoy `health_references` esta vacia en las dos bases, asi que todo sale
+ * `not_assessable`. **Eso es el resultado correcto, no un fallo**: es la lista
+ * exacta de lo que hay que declarar para que este negocio se pueda juzgar.
+ */
+
+/** Una senal de D05, en lo que le hace falta a D04. */
+export type SignalForHealth = {
+  signal_id: string;
+  capability: string | null;
+  metric: string;
+  direction: string;
+  trajectory: string | null;
+  guardrail_status: string | null;
+  business_relevance: string;
+  business_exposure: string | null;
+  is_leading_indicator: boolean;
+  data_confidence: string;
+  window_start: string;
+  window_end: string;
+  description: string;
+};
+
+/** Un sintoma de D06, en lo que le hace falta a D04. */
+export type SymptomForHealth = {
+  symptom_id: string;
+  capability: string | null;
+  label: string;
+  valence: string;
+  confidence: string;
+  persistence: string;
+};
+
+/** Una referencia declarada. Sin esto no se clasifica nada. */
+export type HealthReferenceRow = {
+  capability: string | null;
+  metric: string;
+  reference_type: HealthReferenceType;
+};
+
+export type HealthEngineInput = {
+  /** Las capacidades que se intentan evaluar. Normalmente las que D03 observo. */
+  capabilities: readonly string[];
+  references: HealthReferenceRow[];
+  signals: SignalForHealth[];
+  symptoms: SymptomForHealth[];
+  /**
+   * Metricas que produjeron serie en la ventana. Es lo que separa "medido y
+   * dentro de rango" de "no mirado", y sin ello `healthy` seria una suposicion.
+   */
+  measuredMetrics: readonly string[];
+  /** Referencia al perfil de D03. **Enlace, no copia**: apartado 16 de D03. */
+  maturityProfileId?: string | null;
+  dataQuality?: DataQualityAssessment[];
+};
+
+export type HealthAssessment = {
+  capability: string;
+  health_state: HealthState;
+  trajectory: string | null;
+  near_term_risk: RiskLevel;
+  risk_horizon: string | null;
+  has_leading_signals: boolean;
+  structural_risk: RiskLevel;
+  confidence: "high" | "medium" | "low" | "insufficient_data";
+  assessment_blocker: string | null;
+  state_justification: string | null;
+  impact_vector: string[];
+  current_failure: string | null;
+  maturity_profile_id: string | null;
+  findings: {
+    kind: "issue" | "opportunity";
+    description: string;
+    severity: string;
+    trajectory: string | null;
+    confidence: string;
+  }[];
+  evidence: HealthEvidenceRow[];
+};
+
+/**
+ * Una fila de evidencia, con la forma que el esquema exige.
+ *
+ * `relation` no es decorativa: los guardrails 26 y 27 dicen que la evidencia
+ * positiva cuenta y que la que contradice **no se tira**. Un diagnostico que
+ * solo recoge anomalias no es un diagnostico, es una lista de quejas.
+ *
+ * `indicator_type` viene declarado por D05 (`is_leading_indicator`), no se
+ * adivina aqui: el guardrail 25 separa el indicador que avisa del que confirma,
+ * y confundirlos es prometer un aviso temprano que no existe.
+ */
+export type HealthEvidenceRow = {
+  relation: "supporting" | "contradicting" | "positive";
+  metric: string;
+  observation: string;
+  indicator_type: "leading" | "lagging";
+  window_start: string | null;
+  window_end: string | null;
+  source: string;
+  confidence: string;
+};
+
+/**
+ * Si una senal apoya el estado leido o lo contradice.
+ *
+ * Guardrail 28: cuando hay senales que contradicen el estado, la inconsistencia
+ * se resuelve por escrito en vez de ignorarse. Para poder resolverla primero hay
+ * que **guardarla**, y eso es lo que hace esta funcion: una senal que mejora
+ * dentro de una capacidad en mal estado, o que empeora dentro de una sana, se
+ * marca como contradictoria en vez de sumarse al monton.
+ */
+export function evidenceRelation(
+  healthState: HealthState,
+  trajectory: string | null,
+): "supporting" | "contradicting" | "positive" {
+  const mejora = ["improving", "recovering"].includes(trajectory ?? "");
+  const empeora = ["deteriorating", "rapidly_deteriorating"].includes(trajectory ?? "");
+
+  if (SOUND.includes(healthState)) return empeora ? "contradicting" : "positive";
+  if (DEGRADED.includes(healthState)) return mejora ? "contradicting" : "supporting";
+  return "supporting";
+}
+
+/**
+ * De `guardrail_status` a estado de salud.
+ *
+ * Es una traduccion, no un umbral: el umbral lo puso el tenant al declarar la
+ * referencia y D05 ya lo evaluo contra ella. `disaster` no aparece porque no hay
+ * ninguna regla en la fuente que diga cuando se llega ahi, y los guardrails 48 a
+ * 50 dicen que los estados extremos no son un recurso retorico.
+ */
+const ESTADO_POR_GUARDRAIL: Record<string, HealthState> = {
+  within: "healthy",
+  approaching: "fragile",
+  breached: "bad",
+  crossed: "critical",
+};
+
+const ORDEN_GRAVEDAD: HealthState[] = [
+  "elite",
+  "healthy",
+  "fragile",
+  "bad",
+  "critical",
+  "disaster",
+];
+
+/** La severidad del hallazgo sale de la relevancia que ya declaro D05. */
+const SEVERIDAD_POR_RELEVANCIA: Record<string, string> = {
+  low: "low",
+  medium: "moderate",
+  high: "high",
+  critical: "critical",
+};
+
+/**
+ * La trayectoria, cuando las senales no se contradicen.
+ *
+ * Si unas mejoran y otras empeoran, la respuesta honesta es `volatile`, no la
+ * media de las dos. Promediar trayectorias opuestas inventa una calma que no
+ * existe.
+ */
+export function combineTrajectories(
+  trajectories: readonly (string | null)[],
+): string | null {
+  const presentes = [...new Set(trajectories.filter((t): t is string => t != null))];
+  if (presentes.length === 0) return null;
+  if (presentes.length === 1) return presentes[0] ?? null;
+
+  const empeora = presentes.some((t) =>
+    ["deteriorating", "rapidly_deteriorating"].includes(t),
+  );
+  const mejora = presentes.some((t) => ["improving", "recovering"].includes(t));
+  return empeora && mejora ? "volatile" : empeora ? "deteriorating" : "improving";
+}
+
+/**
+ * El riesgo a corto plazo, con el freno del guardrail 25.
+ *
+ * Un riesgo alto **exige** indicadores adelantados, porque mirando solo los
+ * rezagados el aviso llega con el dano hecho. Sin ellos el riesgo se queda en
+ * `low` por muy fea que sea la foto: decir "alto" sin nada que mire adelante es
+ * una alarma que no se puede sostener.
+ */
+export function nearTermRisk(signals: readonly SignalForHealth[]): {
+  risk: RiskLevel;
+  horizon: string | null;
+  has_leading_signals: boolean;
+} {
+  const adelantados = signals.filter((s) => s.is_leading_indicator);
+  if (adelantados.length === 0) {
+    return { risk: "low", horizon: null, has_leading_signals: false };
+  }
+
+  const graves = adelantados.filter(
+    (s) =>
+      ["high", "critical"].includes(s.business_relevance) &&
+      ["deteriorating", "rapidly_deteriorating"].includes(s.trajectory ?? ""),
+  );
+  if (graves.length === 0) {
+    return { risk: "low", horizon: "30d", has_leading_signals: true };
+  }
+
+  const critico = graves.some((s) => s.business_relevance === "critical");
+  return {
+    risk: critico ? "critical" : "high",
+    horizon: "30d",
+    has_leading_signals: true,
+  };
+}
+
+/**
+ * Que falta para poder juzgar esta capacidad.
+ *
+ * `not_assessable` exige decir **que** falta (apartado 21 y el propio esquema).
+ * Una frase generica ahi no sirve de nada: la gracia es que quien la lea sepa
+ * exactamente que declarar.
+ */
+export function assessmentBlocker(
+  capability: string,
+  tieneReferencia: boolean,
+  metricasMedidas: readonly string[],
+): string | null {
+  if (!tieneReferencia) {
+    return `No hay baseline propio, objetivo ni guardrail economico declarado para ${capability}. Sin saber contra que se juzga esta capacidad en esta tienda, clasificarla seria aplicar un umbral universal.`;
+  }
+  if (metricasMedidas.length === 0) {
+    return `Hay referencia declarada para ${capability}, pero ninguna de sus metricas produjo serie en la ventana medida.`;
+  }
+  return null;
+}
+
+/**
+ * La lectura de salud de cada capacidad.
+ *
+ * No escribe fila para lo que no puede juzgar **con contenido**: escribe la fila
+ * diciendo que no puede, que es distinto. Una capacidad ausente de la tabla se
+ * lee como "no aplica"; una `not_assessable` con blocker se lee como "esto es lo
+ * que falta", que es lo unico util aqui.
+ */
+function construirEvidencia(
+  healthState: HealthState,
+  senales: readonly SignalForHealth[],
+  sintomas: readonly SymptomForHealth[],
+): HealthEvidenceRow[] {
+  return [
+    ...senales.map((s) => ({
+      relation: evidenceRelation(healthState, s.trajectory),
+      metric: s.metric,
+      observation: s.description,
+      indicator_type: (s.is_leading_indicator ? "leading" : "lagging") as
+        | "leading"
+        | "lagging",
+      window_start: s.window_start,
+      window_end: s.window_end,
+      source: "d05_signal",
+      confidence: s.data_confidence,
+    })),
+    ...sintomas.map((s) => ({
+      // Un sintoma positivo es evidencia positiva, no una queja mas. Guardrail
+      // 26: tirarla deja un diagnostico que solo sabe quejarse.
+      relation: (s.valence === "positive" ? "positive" : "supporting") as
+        | "supporting"
+        | "contradicting"
+        | "positive",
+      metric: s.label,
+      observation: s.label,
+      indicator_type: "lagging" as const,
+      window_start: null,
+      window_end: null,
+      source: "d06_symptom",
+      confidence: s.confidence,
+    })),
+  ];
+}
+
+export function assessHealth(input: HealthEngineInput): HealthAssessment[] {
+  const {
+    capabilities,
+    references,
+    signals,
+    symptoms,
+    measuredMetrics,
+    maturityProfileId = null,
+  } = input;
+
+  return capabilities.map((capability) => {
+    const refsDeLaCapacidad = references.filter(
+      (r) => r.capability === capability,
+    );
+    const senales = signals.filter((s) => s.capability === capability);
+    const sintomas = symptoms.filter((s) => s.capability === capability);
+
+    const metricasDeclaradas = new Set(refsDeLaCapacidad.map((r) => r.metric));
+    const medidas = measuredMetrics.filter((m) => metricasDeclaradas.has(m));
+
+    const findings = sintomas.map((sintoma) => ({
+      // Guardrail 46: una oportunidad no se convierte en enfermedad subiendole
+      // la severidad. Un sintoma positivo es una oportunidad y se queda en
+      // `info`, por mucho que el patron sea fuerte.
+      kind: (sintoma.valence === "positive" ? "opportunity" : "issue") as
+        | "issue"
+        | "opportunity",
+      description: sintoma.label,
+      severity:
+        sintoma.valence === "positive"
+          ? "info"
+          : (SEVERIDAD_POR_RELEVANCIA[
+              senales.find((s) => ["high", "critical"].includes(s.business_relevance))
+                ?.business_relevance ?? "low"
+            ] ?? "low"),
+      trajectory: combineTrajectories(senales.map((s) => s.trajectory)),
+      confidence: sintoma.confidence,
+    }));
+
+    const trajectory = combineTrajectories(senales.map((s) => s.trajectory));
+    const riesgo = nearTermRisk(senales);
+    const blocker = assessmentBlocker(
+      capability,
+      refsDeLaCapacidad.length > 0,
+      medidas,
+    );
+
+    const base = {
+      capability,
+      trajectory,
+      near_term_risk: riesgo.risk,
+      risk_horizon: riesgo.horizon,
+      has_leading_signals: riesgo.has_leading_signals,
+      // El riesgo estructural sale de la madurez, y no hay formula declarada
+      // para derivarlo. Se deja en `none` y se enlaza el perfil de D03 para que
+      // lo lea una persona: inventar el mapeo seria presentar una opinion como
+      // derivada del documento.
+      structural_risk: "none" as RiskLevel,
+      maturity_profile_id: maturityProfileId,
+      findings,
+    };
+
+    if (blocker) {
+      return {
+        ...base,
+        evidence: construirEvidencia("not_assessable", senales, sintomas),
+        health_state: "not_assessable" as HealthState,
+        confidence: "insufficient_data" as const,
+        assessment_blocker: blocker,
+        state_justification: null,
+        impact_vector: [],
+        current_failure: null,
+      };
+    }
+
+    // Con referencia y metrica medida, el estado lo dicta el guardrail que ya
+    // evaluo D05 contra esa misma referencia. Si ninguna senal lo trae, la
+    // metrica se midio y no se salio: eso si es `healthy`.
+    const estados = senales
+      .map((s) => (s.guardrail_status ? ESTADO_POR_GUARDRAIL[s.guardrail_status] : null))
+      .filter((e): e is HealthState => e != null);
+
+    const health_state =
+      estados.length === 0
+        ? ("healthy" as HealthState)
+        : (estados.sort(
+            (a, b) => ORDEN_GRAVEDAD.indexOf(b) - ORDEN_GRAVEDAD.indexOf(a),
+          )[0] as HealthState);
+
+    const peor = senales.find(
+      (s) => s.guardrail_status && ESTADO_POR_GUARDRAIL[s.guardrail_status] === health_state,
+    );
+
+    // Guardrails 48 a 50: los estados extremos exigen justificacion e impacto
+    // declarado. Se cumplen escribiendolos, no bajando el estado para esquivar
+    // el requisito.
+    const extremo = ["critical", "disaster"].includes(health_state);
+
+    const confianzaDelDato = senales.some(
+      (s) => s.data_confidence === "insufficient_data",
+    );
+
+    return {
+      ...base,
+      evidence: construirEvidencia(health_state, senales, sintomas),
+      health_state,
+      confidence: confianzaDelDato ? ("low" as const) : ("medium" as const),
+      assessment_blocker: null,
+      state_justification: extremo && peor
+        ? `${peor.metric} cruzo el guardrail economico declarado para esta tienda. ${peor.description}`
+        : null,
+      impact_vector: extremo && peor ? [peor.metric] : [],
+      current_failure: peor ? peor.description : null,
+    };
+  });
+}

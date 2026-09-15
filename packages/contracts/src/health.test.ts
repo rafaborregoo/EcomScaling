@@ -10,13 +10,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  assessHealth,
   checkHealthInvariants,
+  combineTrajectories,
+  evidenceRelation,
   healthCardFields,
   healthCardSchema,
   healthEvidenceSchema,
   healthFindingSchema,
+  nearTermRisk,
   type HealthCard,
   type HealthCheckInput,
+  type SignalForHealth,
 } from "./health.js";
 import { dataQualityAssessmentSchema } from "./data-quality.js";
 
@@ -415,5 +420,259 @@ test("§13: la severidad vive en el hallazgo, no en la capacidad", () => {
   // Y en el hallazgo es obligatoria: ahi si es donde se mide el dano.
   assert.throws(() =>
     healthFindingSchema.parse({ kind: "issue", description: "Algo pasa" }),
+  );
+});
+
+// --- El motor ---------------------------------------------------------------
+
+function senalSalud(
+  overrides: Partial<SignalForHealth> = {},
+): SignalForHealth {
+  return {
+    signal_id: "s1",
+    capability: "acquisition",
+    metric: "cac",
+    direction: "up",
+    trajectory: "deteriorating",
+    guardrail_status: null,
+    business_relevance: "medium",
+    business_exposure: "moderate",
+    is_leading_indicator: false,
+    data_confidence: "high",
+    window_start: "2026-09-01T00:00:00.000Z",
+    window_end: "2026-09-07T00:00:00.000Z",
+    description: "El CAC sube un 22% respecto a su propio historico.",
+    ...overrides,
+  };
+}
+
+test("D04: sin referencia declarada no se clasifica, y se dice que falta", () => {
+  // Es el nucleo del motor. El guardrail 11 prohibe el umbral universal: sin que
+  // alguien declare contra que se juzga el CAC en ESTA tienda, decir que la
+  // adquisicion va mal es aplicar un numero de fuera.
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [],
+    signals: [senalSalud()],
+    symptoms: [],
+    measuredMetrics: ["cac"],
+  });
+
+  assert.equal(tarjeta?.health_state, "not_assessable");
+  assert.equal(tarjeta?.confidence, "insufficient_data");
+  assert.match(tarjeta?.assessment_blocker ?? "", /guardrail economico declarado/);
+  assert.match(tarjeta?.assessment_blocker ?? "", /acquisition/);
+});
+
+test("D04: no ver anomalias no es estar sano", () => {
+  // Guardrail 9 y apartado 21, el error mas facil de cometer. Con referencia
+  // declarada pero sin serie medida, la respuesta es "no lo se", no "va bien".
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [{ capability: "acquisition", metric: "cac", reference_type: "economic_guardrail" }],
+    signals: [],
+    symptoms: [],
+    measuredMetrics: [],
+  });
+
+  assert.equal(tarjeta?.health_state, "not_assessable");
+  assert.match(tarjeta?.assessment_blocker ?? "", /ninguna de sus metricas produjo serie/);
+});
+
+test("D04: medido, con referencia y sin salirse, si es healthy", () => {
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [{ capability: "acquisition", metric: "cac", reference_type: "economic_guardrail" }],
+    signals: [],
+    symptoms: [],
+    measuredMetrics: ["cac"],
+  });
+
+  assert.equal(tarjeta?.health_state, "healthy");
+  assert.equal(tarjeta?.assessment_blocker, null);
+});
+
+test("D04: el estado lo dicta el guardrail declarado, no un umbral de este motor", () => {
+  const conReferencia = {
+    capabilities: ["acquisition"],
+    references: [
+      { capability: "acquisition", metric: "cac", reference_type: "economic_guardrail" as const },
+    ],
+    symptoms: [],
+    measuredMetrics: ["cac"],
+  };
+
+  const estados = (["within", "approaching", "breached", "crossed"] as const).map(
+    (guardrail_status) =>
+      assessHealth({
+        ...conReferencia,
+        signals: [senalSalud({ guardrail_status })],
+      })[0]?.health_state,
+  );
+
+  assert.deepEqual(estados, ["healthy", "fragile", "bad", "critical"]);
+});
+
+test("D04: se queda con la peor de sus senales, no con la ultima", () => {
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [
+      { capability: "acquisition", metric: "cac", reference_type: "economic_guardrail" },
+    ],
+    signals: [
+      senalSalud({ signal_id: "a", guardrail_status: "within" }),
+      senalSalud({ signal_id: "b", guardrail_status: "breached" }),
+      senalSalud({ signal_id: "c", guardrail_status: "approaching" }),
+    ],
+    symptoms: [],
+    measuredMetrics: ["cac"],
+  });
+
+  assert.equal(tarjeta?.health_state, "bad");
+});
+
+test("D04: critical exige justificacion e impacto, y los trae", () => {
+  // Guardrails 48 a 50. El esquema los rechaza sin esto, asi que el motor los
+  // escribe en vez de bajar el estado para esquivar el requisito.
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [
+      { capability: "acquisition", metric: "cac", reference_type: "economic_guardrail" },
+    ],
+    signals: [senalSalud({ guardrail_status: "crossed" })],
+    symptoms: [],
+    measuredMetrics: ["cac"],
+  });
+
+  assert.equal(tarjeta?.health_state, "critical");
+  assert.ok((tarjeta?.state_justification ?? "").length > 0);
+  assert.deepEqual(tarjeta?.impact_vector, ["cac"]);
+});
+
+test("D04: un riesgo alto sin indicadores adelantados no se afirma", () => {
+  // Guardrail 25: mirando solo los rezagados el aviso llega con el dano hecho,
+  // asi que decir "riesgo alto" sin nada que mire adelante es insostenible.
+  const sinAdelantados = nearTermRisk([
+    senalSalud({ business_relevance: "critical", trajectory: "rapidly_deteriorating" }),
+  ]);
+  assert.equal(sinAdelantados.risk, "low");
+  assert.equal(sinAdelantados.has_leading_signals, false);
+
+  const conAdelantados = nearTermRisk([
+    senalSalud({
+      business_relevance: "critical",
+      trajectory: "rapidly_deteriorating",
+      is_leading_indicator: true,
+    }),
+  ]);
+  assert.equal(conAdelantados.risk, "critical");
+  assert.equal(conAdelantados.has_leading_signals, true);
+});
+
+test("D04: trayectorias opuestas dan volatile, no la media", () => {
+  // Promediar una que mejora con otra que empeora inventa una calma que no
+  // existe.
+  assert.equal(combineTrajectories(["improving", "deteriorating"]), "volatile");
+  assert.equal(combineTrajectories(["deteriorating", "stable"]), "deteriorating");
+  assert.equal(combineTrajectories([null, null]), null);
+  assert.equal(combineTrajectories(["stable"]), "stable");
+});
+
+test("D04: un sintoma positivo es oportunidad y no sube la severidad", () => {
+  // Guardrail 46: una oportunidad no se convierte en enfermedad subiendole la
+  // severidad. Si de verdad hace dano, es un `issue`.
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [],
+    signals: [senalSalud({ business_relevance: "critical" })],
+    symptoms: [
+      {
+        symptom_id: "x",
+        capability: "acquisition",
+        label: "Crecimiento de pedidos",
+        valence: "positive",
+        confidence: "medium",
+        persistence: "emerging",
+      },
+    ],
+    measuredMetrics: ["cac"],
+  });
+
+  const hallazgo = tarjeta?.findings[0];
+  assert.equal(hallazgo?.kind, "opportunity");
+  assert.equal(hallazgo?.severity, "info");
+});
+
+test("D04: la madurez se enlaza, nunca se copia como nivel", () => {
+  // Apartado 16 de D03 y guardrail 16 de aqui: madurez y salud conviven, no se
+  // mezclan. Y el riesgo estructural se queda en `none` porque no hay formula
+  // declarada para derivarlo de la madurez.
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [],
+    signals: [],
+    symptoms: [],
+    measuredMetrics: [],
+    maturityProfileId: "perfil-1",
+  });
+
+  assert.equal(tarjeta?.maturity_profile_id, "perfil-1");
+  assert.equal(tarjeta?.structural_risk, "none");
+  assert.ok(!("maturity_level" in (tarjeta ?? {})));
+});
+
+test("D04: la tarjeta no tiene prioridad, causa ni nota", () => {
+  // Diez de los cincuenta guardrails son `X != SALUD`. Se cumplen porque no hay
+  // donde escribir X, y esto lo fija tambien para la salida del motor.
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [],
+    signals: [],
+    symptoms: [],
+    measuredMetrics: [],
+  });
+
+  for (const prohibida of [
+    "priority",
+    "root_cause",
+    "score",
+    "health_index",
+    "scaling_readiness",
+    "severity",
+  ]) {
+    assert.ok(!(prohibida in (tarjeta ?? {})), `${prohibida} no puede existir aqui`);
+  }
+});
+
+test("D04: una senal que contradice el estado se guarda como tal, no se tira", () => {
+  // Guardrails 26, 27 y 28. Para resolver por escrito una inconsistencia primero
+  // hay que guardarla: una senal que mejora dentro de una capacidad en mal
+  // estado se marca contradictoria en vez de sumarse al monton.
+  assert.equal(evidenceRelation("bad", "improving"), "contradicting");
+  assert.equal(evidenceRelation("healthy", "deteriorating"), "contradicting");
+
+  // Y lo que encaja se guarda con su signo: en una capacidad sana, una senal que
+  // no empeora es evidencia positiva, no una queja mas.
+  assert.equal(evidenceRelation("healthy", "stable"), "positive");
+  assert.equal(evidenceRelation("bad", "deteriorating"), "supporting");
+  assert.equal(evidenceRelation("not_assessable", null), "supporting");
+});
+
+test("D04: la evidencia dice si el indicador avisa o confirma", () => {
+  // Guardrail 25. Confundirlos es prometer un aviso temprano que no existe.
+  const [tarjeta] = assessHealth({
+    capabilities: ["acquisition"],
+    references: [],
+    signals: [
+      senalSalud({ signal_id: "a", is_leading_indicator: true }),
+      senalSalud({ signal_id: "b", is_leading_indicator: false }),
+    ],
+    symptoms: [],
+    measuredMetrics: [],
+  });
+
+  assert.deepEqual(
+    tarjeta?.evidence.map((e) => e.indicator_type),
+    ["leading", "lagging"],
   );
 });
