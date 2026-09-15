@@ -11,6 +11,7 @@ import test from "node:test";
 import {
   missingAssignments,
   addConsultantPartner,
+  decidePartnerPromotion,
   type AssignmentRow,
 } from "./consultant-partners.js";
 import type { AuthContext } from "./auth-context.js";
@@ -158,4 +159,64 @@ test("solo un consultor comparte cartera, y no consigo mismo", async () => {
       `paso el correo ${String(email)}`,
     );
   }
+});
+
+// --- Quien puede pasar a consultor ------------------------------------------
+//
+// Esta regla decide si a alguien le cambia el rol por escribir su correo. El
+// fallo realista es una errata, asi que lo que se prueba sobre todo es que
+// nada se convierte sin haberlo pedido dos veces.
+
+const perfil = (platform_role: string, is_active = true) => ({
+  platform_role,
+  is_active,
+});
+
+test("un consultor activo se empareja y nada mas", () => {
+  assert.deepEqual(decidePartnerPromotion(perfil("consultant"), false), {
+    kind: "pair",
+  });
+  // Ni siquiera pidiendo promote: ya lo es, no hay nada que tocar.
+  assert.deepEqual(decidePartnerPromotion(perfil("consultant"), true), {
+    kind: "pair",
+  });
+});
+
+test("un admin no se promociona por aqui: se empareja", () => {
+  assert.deepEqual(decidePartnerPromotion(perfil("platform_admin"), true), {
+    kind: "pair",
+  });
+});
+
+test("una cuenta de cliente se pregunta antes de tocarla", () => {
+  assert.deepEqual(decidePartnerPromotion(perfil("user"), false), {
+    kind: "ask_promote",
+  });
+  assert.deepEqual(decidePartnerPromotion(perfil("user"), true), {
+    kind: "promote",
+  });
+});
+
+test("una cuenta desactivada no se empareja ni se convierte", () => {
+  assert.deepEqual(decidePartnerPromotion(perfil("consultant", false), false), {
+    kind: "refuse",
+    error: "consultant_inactive",
+  });
+  assert.deepEqual(decidePartnerPromotion(perfil("user", false), true), {
+    kind: "refuse",
+    error: "account_inactive",
+  });
+  // Sin confirmar, a una cuenta desactivada se le pregunta igual: el consultor
+  // se entera de que esta desactivada al confirmar, no antes de saber de quien
+  // es la cuenta.
+  assert.deepEqual(decidePartnerPromotion(perfil("user", false), false), {
+    kind: "ask_promote",
+  });
+});
+
+test("sin perfil no se inventa nada", () => {
+  assert.deepEqual(decidePartnerPromotion(null, true), {
+    kind: "refuse",
+    error: "profile_missing",
+  });
 });

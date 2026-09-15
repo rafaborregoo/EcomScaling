@@ -39,6 +39,7 @@ import {
   listConsultantCalls,
   listConsultantContextReadings,
   listConsultantMaturity,
+  listConsultantSignals,
   listConsultantSymptomMap,
   listConsultantDataQuality,
   listConsultantIntegrations,
@@ -883,7 +884,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
-  app.post<{ Body: { email?: string } }>(
+  app.post<{ Body: { email?: string; promote?: boolean } }>(
     "/v1/consultant/partners",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -1635,6 +1636,31 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     const result = await listConsultantMaturity(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  // F3/D05. Las senales en crudo: que ha cambiado, cuanto y desde cuando, sin
+  // interpretar por que. Solo consultor -- el guardrail 2 de D05 dice que no
+  // toda senal es un problema, y una lista de desviaciones delante del cliente
+  // es una alarma permanente.
+  app.get("/v1/consultant/signals", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantSignals(env, authorization, auth.context);
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
