@@ -8,30 +8,53 @@
  * (prorrateo, comisiones, break-even) tenga que ser una decision consciente y
  * no una regresion silenciosa en la ruta del dinero.
  *
+ * Reescrito en F1 del panel del manager (docs/PLAN_PANEL_MANAGER.md). El motor
+ * cambio a proposito y estos numeros lo fijan: el ingreso que manda es el de
+ * SIN IVA, el envio sale de las reglas por tramo y la inversion en ads se resta
+ * del beneficio (antes faltaba y el beneficio salia inflado).
+ *
  * Escenario, elegido para que cada termino de la formula sea distinguible del
  * resto (ningun dos terminos suman lo mismo) y para que el prorrateo salga
  * exacto: periodo de 31 dias justos y gasto fijo de 304,40/mes, porque
  * 304,40 / 30,44 = 10,00 por dia.
  *
- * | Entrada                       | Valor                       |
- * | ----------------------------- | --------------------------- |
- * | Periodo                       | 2025-03-01 → 2025-04-01 (31d) |
- * | Pedidos                       | 4 × net_sales 250 = 1.000   |
- * | Coste unitario × 4 lineas     | 60 → COGS 240               |
- * | payment_fee_pct               | 2,50 % (escala 0-100)       |
- * | payment_fee_fixed             | 0,30 por pedido             |
- * | default_shipping_cost         | 5,00 por pedido             |
- * | Gasto fijo mensual            | 304,40                      |
+ * | Entrada                       | Valor                             |
+ * | ----------------------------- | --------------------------------- |
+ * | Periodo                       | 2025-03-01 → 2025-04-01 (31d)     |
+ * | Pedidos                       | 4 × 250 pagados = 1.000           |
+ * | IVA por pedido                | 40 → 160 en total                 |
+ * | Envio cobrado por pedido      | 10 → 40 en total                  |
+ * | Clientes (hash)               | A, A, B, C → 3 clientes nuevos    |
+ * | Coste unitario × 4 lineas     | 60 → COGS 240                     |
+ * | payment_fee_pct               | 2,50 % (escala 0-100)             |
+ * | payment_fee_fixed             | 0,30 por pedido                   |
+ * | default_shipping_cost         | 5,00 por pedido                   |
+ * | Gasto fijo mensual            | 304,40                            |
+ * | Inversion Meta en el periodo  | 100,00                            |
  *
- * | Salida esperada            | Calculo                                  | Valor  |
- * | -------------------------- | ---------------------------------------- | ------ |
- * | gross_margin               | 1000 − 240                               | 760,00 |
- * | payment_fees               | 1000 × 2,5/100 + 4 × 0,30                 |  26,20 |
- * | shipping_costs             | 4 × 5,00                                 |  20,00 |
- * | fixed_costs (prorrateado)  | 304,40 × 31 / 30,44                      | 310,00 |
- * | net_profit                 | 760 − 26,20 − 20 − 310                    | 403,80 |
- * | net_margin_pct             | 403,80 / 1000 × 100                       |  40,38 |
- * | break_even_monthly_revenue | 304,40 / ((1000−240−26,20−20)/1000)       | 426,45 |
+ * | Salida esperada            | Calculo                                    | Valor  |
+ * | -------------------------- | ------------------------------------------ | ------ |
+ * | net_sales (con IVA)        | 4 × 250                                    |1000,00 |
+ * | net_revenue_ex_tax         | 1000 − 160                                 | 840,00 |
+ * | gross_margin               | 840 − 240                                  | 600,00 |
+ * | payment_fees               | 1000 × 2,5/100 + 4 × 0,30                  |  26,20 |
+ * | shipping_costs             | 4 × 5,00 (sin regla que calce)             |  20,00 |
+ * | shipping_net               | 40 cobrado − 20 pagado                     |  20,00 |
+ * | fixed_costs (prorrateado)  | 304,40 × 31 / 30,44                        | 310,00 |
+ * | ads_spend                  | fila de insight de Meta                    | 100,00 |
+ * | new_customers              | hashes distintos con 1er pedido dentro     |      3 |
+ * | cac_blended                | 100 / 3                                    |  33,33 |
+ * | net_profit                 | 840 − 240 − 26,20 − 20 − 310 − 100         | 143,80 |
+ * | net_margin_pct             | 143,80 / 840 × 100                         |  17,12 |
+ * | break_even_monthly_revenue | 304,40 / ((840−240−26,20−20)/840)          | 461,71 |
+ * | aov_ex_tax                 | 840 / 4                                    | 210,00 |
+ * | contribution_per_order     | (840 − 240 − 20 − 100) / 4                 | 120,00 |
+ * | breakeven_cac_per_order    | (840−240−26,20−20−310) / 4                 |  60,95 |
+ * | mbee                       | 60,95 − 25 de CAC real                     |  35,95 |
+ * | breakeven_roas             | 840 / 243,80                               |   3,45 |
+ *
+ * El beneficio bajo de 403,80 a 143,80 exactamente por los dos terminos que
+ * faltaban: 160 de IVA que nunca fue tuyo y 100 de publicidad que si pagaste.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY.
  * Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
@@ -108,11 +131,15 @@ before(async () => {
   const { data: orders, error: ordersError } = await admin
     .from("shopify_order_facts")
     .insert(
-      Array.from({ length: 4 }, (_, index) => ({
+      // Los hashes se repiten a proposito: A pide dos veces, B y C una. Asi
+      // `new_customers` (3) no puede confundirse con `orders_count` (4) y el
+      // test demuestra que el conteo sale del primer pedido de cada cliente.
+      ["A", "A", "B", "C"].map((customer, index) => ({
         organization_id: orgId,
         store_id: storeId,
         external_order_id: `db03-golden-${RUN_TAG}-${index}`,
         order_name: `#DB03-${index}`,
+        customer_reference_hash: `db03-golden-${RUN_TAG}-cliente-${customer}`,
         financial_status: "paid",
         currency_code: "EUR",
         gross_sales: 250,
@@ -120,6 +147,8 @@ before(async () => {
         refunds: 0,
         net_sales: 250,
         current_total_price: 250,
+        current_total_tax: 40,
+        current_shipping_price: 10,
         total_items: 1,
         is_test_order: false,
         processed_at: ORDER_DATE,
@@ -234,6 +263,58 @@ before(async () => {
   });
   if (expenseError)
     throw new Error(`No se pudo crear el gasto fijo: ${expenseError.message}`);
+
+  // Inversion publicitaria del periodo. Sin esto el termino de ads no se
+  // ejercita y el golden no probaria el arreglo principal de F1.
+  const { data: metaConnection, error: metaConnectionError } = await admin
+    .from("integration_connections")
+    .insert({
+      organization_id: orgId,
+      provider: "meta_ads",
+      provider_account_id: `db03-golden-meta-${RUN_TAG}`,
+      status: "connected",
+    })
+    .select("id")
+    .single();
+  if (metaConnectionError || !metaConnection)
+    throw new Error(
+      `No se pudo crear la conexion de Meta: ${metaConnectionError?.message}`,
+    );
+
+  // store_id apuntando a la tienda: la llamada del golden filtra por tienda, y
+  // asi se comprueba de paso que el gasto respeta el alcance por tienda.
+  const { data: adAccount, error: adAccountError } = await admin
+    .from("meta_ad_accounts")
+    .insert({
+      organization_id: orgId,
+      connection_id: metaConnection.id,
+      store_id: storeId,
+      external_ad_account_id: `db03-golden-adaccount-${RUN_TAG}`,
+      account_name: `DB-03 Golden Ad Account ${RUN_TAG}`,
+    })
+    .select("id")
+    .single();
+  if (adAccountError || !adAccount)
+    throw new Error(
+      `No se pudo crear la cuenta publicitaria: ${adAccountError?.message}`,
+    );
+
+  const { error: insightError } = await admin
+    .from("meta_insight_rows_daily")
+    .insert({
+      organization_id: orgId,
+      ad_account_id: adAccount.id,
+      level: "ad",
+      external_entity_id: `db03-golden-ad-${RUN_TAG}`,
+      metric_date: "2025-03-15",
+      spend: 100,
+      impressions: 1000,
+      clicks: 50,
+    });
+  if (insightError)
+    throw new Error(
+      `No se pudo sembrar el gasto de Meta: ${insightError.message}`,
+    );
 });
 
 after(async () => {
@@ -254,26 +335,66 @@ test("shopify_financial_summary reproduce el caso golden termino a termino", asy
 
   assert.equal(numeric(row.net_sales), 1000);
   assert.equal(numeric(row.orders_count), 4);
+  assert.equal(numeric(row.net_revenue_ex_tax), 840);
+  assert.equal(numeric(row.tax_collected), 160);
+  assert.equal(numeric(row.shipping_charged), 40);
   assert.equal(numeric(row.cogs), 240);
-  assert.equal(numeric(row.gross_margin), 760);
+  assert.equal(numeric(row.gross_margin), 600);
   assert.equal(numeric(row.payment_fees), 26.2);
   assert.equal(numeric(row.shipping_costs), 20);
+  assert.equal(numeric(row.shipping_net), 20);
+  assert.equal(row.uses_shipping_rules, false);
   // 304,40 × 31 / 30,44: el prorrateo es por dias reales del periodo sobre un
   // mes medio de 30,44 dias, no por mes natural.
   assert.equal(numeric(row.fixed_costs), 310);
-  assert.equal(numeric(row.net_profit), 403.8);
-  assert.equal(numeric(row.net_margin_pct), 40.38);
+  assert.equal(numeric(row.ads_spend), 100);
+  assert.equal(numeric(row.new_customers), 3);
+  assert.equal(numeric(row.cac_blended), 33.33);
+  assert.equal(numeric(row.net_profit), 143.8);
+  assert.equal(numeric(row.net_margin_pct), 17.12);
   assert.equal(numeric(row.monthly_fixed_costs), 304.4);
-  assert.equal(numeric(row.break_even_monthly_revenue), 426.45);
+  assert.equal(numeric(row.break_even_monthly_revenue), 461.71);
   assert.equal(row.has_settings, true);
   assert.equal(numeric(row.fixed_expenses_count), 1);
   assert.equal(numeric(row.items_without_cost), 0);
 });
 
-test("el IVA configurado no entra hoy en el beneficio neto", async () => {
-  // vat_pct esta sembrado al 21% y validado por CHECK, pero ninguna funcion de
-  // metricas lo usa: net_sales de Shopify ya viene sin impuestos. Fijarlo aqui
-  // evita que alguien lo "arregle" restandolo otra vez y duplique el descuento.
+test("unit economics por pedido, MBEE y ROAS de break-even", async () => {
+  const { data } = await admin.rpc("shopify_financial_summary", {
+    target_organization_id: orgId,
+    period_start: PERIOD_START,
+    period_end: PERIOD_END,
+    target_store_id: storeId,
+  });
+  const row = data?.[0];
+  assert.ok(row, "la funcion deberia devolver una fila");
+
+  assert.equal(numeric(row.aov_ex_tax), 210);
+  assert.equal(numeric(row.cogs_per_order), 60);
+  assert.equal(numeric(row.shipping_per_order), 5);
+  assert.equal(numeric(row.payment_fee_per_order), 6.55);
+  assert.equal(numeric(row.fixed_per_order), 77.5);
+  assert.equal(numeric(row.fixed_pct_revenue), 36.9);
+  assert.equal(numeric(row.cac_per_order), 25);
+  assert.equal(numeric(row.contribution_per_order), 120);
+
+  // Los tres numeros de la banda de ads comparten techo: el CAC de break-even
+  // es lo maximo que puedes pagar por pedido sin perder dinero; el MBEE es lo
+  // que te sobra frente a el, y el ROAS de break-even es su traduccion a ROAS.
+  assert.equal(numeric(row.breakeven_cac_per_order), 60.95);
+  assert.equal(
+    numeric(row.mbee),
+    numeric(row.breakeven_cac_per_order) - numeric(row.cac_per_order),
+  );
+  assert.equal(numeric(row.mbee), 35.95);
+  assert.equal(numeric(row.breakeven_roas), 3.45);
+});
+
+test("el IVA sale del pedido, no de vat_pct", async () => {
+  // vat_pct esta sembrado al 21% y sigue sin usarse: el impuesto real viene
+  // por pedido en current_total_tax (40 de 250, o sea el 16%). Si alguien
+  // "arreglara" esto aplicando vat_pct, el ingreso sin IVA seria 1000/1,21 =
+  // 826,45 en vez de 840. Este test lo impide.
   const { data } = await admin.rpc("shopify_financial_summary", {
     target_organization_id: orgId,
     period_start: PERIOD_START,
@@ -281,18 +402,19 @@ test("el IVA configurado no entra hoy en el beneficio neto", async () => {
     target_store_id: storeId,
   });
 
-  assert.equal(numeric(data?.[0]?.net_profit), 403.8);
+  assert.equal(numeric(data?.[0]?.net_revenue_ex_tax), 840);
+  assert.notEqual(numeric(data?.[0]?.net_revenue_ex_tax), 826.45);
 });
 
-test("una shipping_cost_rule activa no cambia el coste de envio calculado", async () => {
-  // Gap real de DB-03: shipping_cost_rules es CRUD-able desde
-  // /configuracion pero ninguna funcion de metricas la lee. El envio siempre
-  // sale de default_shipping_cost × pedidos. El test fija el comportamiento
-  // actual para que la UI no pueda prometer lo contrario sin romper esto.
+test("una shipping_cost_rule activa manda sobre default_shipping_cost", async () => {
+  // Hasta F1, `shipping_cost_rules` era CRUD-able desde /configuracion y
+  // ninguna funcion de metricas la leia: el envio siempre salia de
+  // default_shipping_cost × pedidos. Ahora la regla que calza con el importe
+  // del pedido gana, y el envio pasa de 5,00 a 7,00 por pedido.
   const { error: ruleError } = await admin.from("shipping_cost_rules").insert({
     organization_id: orgId,
     name: `DB-03 Golden Rule ${RUN_TAG}`,
-    cost_per_order: 99,
+    cost_per_order: 7,
     currency_code: "EUR",
     min_order_total: 0,
     valid_from: "2020-01-01",
@@ -309,7 +431,9 @@ test("una shipping_cost_rule activa no cambia el coste de envio calculado", asyn
 
   assert.equal(
     numeric(data?.[0]?.shipping_costs),
-    20,
-    "la regla de 99 por pedido se ignora: sigue mandando default_shipping_cost",
+    28,
+    "4 pedidos × 7,00 de la regla, no × 5,00 del ajuste por defecto",
   );
+  assert.equal(numeric(data?.[0]?.shipping_net), 12, "40 cobrado − 28 pagado");
+  assert.equal(data?.[0]?.uses_shipping_rules, true);
 });

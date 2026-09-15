@@ -7,7 +7,37 @@ export type MetaOAuthEnv = {
   META_APP_SECRET: string;
   META_REDIRECT_URI: string;
   META_SCOPES: string;
+  /** Id de una "configuracion" de Facebook Login for Business. Ver abajo. */
+  META_LOGIN_CONFIG_ID?: string;
 };
+
+/**
+ * Lo que se pide en el dialogo de permisos.
+ *
+ * `public_profile` se concede sola, pero el dialogo no la cuenta: exige al
+ * menos un permiso no basico o responde "esta aplicacion necesita al menos un
+ * supported permission". `ads_read` cumple ese papel.
+ *
+ * `business_management` y `pages_show_list` estaban aqui y tumbaban la pantalla
+ * entera ("parece que esta aplicacion no esta disponible"): no son permisos
+ * soportados mientras el negocio no este verificado, y Meta rechaza el dialogo
+ * completo en vez de omitir el permiso. No se pierde nada, porque
+ * `me/businesses` y `me/accounts` en discoverMetaAssets ya capturan su propio
+ * error y siguen. Se vuelven a anadir cuando haya verificacion, via META_SCOPES.
+ */
+export const META_DEFAULT_SCOPES = "public_profile,ads_read";
+
+/**
+ * Lo que la conexion necesita de verdad, que no es lo mismo que lo que se pide.
+ * Solo `me/adaccounts` -- y por tanto `ads_read` -- es imprescindible; el resto
+ * del descubrimiento es opcional por diseno.
+ *
+ * Estan separados para no repetir el fallo que ya costo Shopify: tratar cada
+ * permiso pedido como obligatorio convierte cualquier scope de mas en una
+ * conexion en error permanente, con un mensaje que exige algo que el usuario no
+ * puede conceder.
+ */
+export const META_REQUIRED_SCOPES: readonly string[] = ["ads_read"];
 
 export function resolveMetaAppEnv(env: LoadedApiEnv): MetaOAuthEnv | null {
   if (!env.META_APP_ID || !env.META_APP_SECRET || !env.META_REDIRECT_URI) {
@@ -18,8 +48,13 @@ export function resolveMetaAppEnv(env: LoadedApiEnv): MetaOAuthEnv | null {
     META_APP_ID: env.META_APP_ID,
     META_APP_SECRET: env.META_APP_SECRET,
     META_REDIRECT_URI: env.META_REDIRECT_URI,
-    META_SCOPES:
-      env.META_SCOPES ?? "ads_read,ads_management,business_management,pages_show_list",
+    META_SCOPES: env.META_SCOPES ?? META_DEFAULT_SCOPES,
+    // Se omite la clave entera cuando no hay valor: con
+    // `exactOptionalPropertyTypes` un `undefined` explicito no es lo mismo que
+    // ausente.
+    ...(env.META_LOGIN_CONFIG_ID
+      ? { META_LOGIN_CONFIG_ID: env.META_LOGIN_CONFIG_ID }
+      : {}),
   };
 }
 
@@ -27,6 +62,29 @@ export function createMetaState() {
   return crypto.randomUUID();
 }
 
+/**
+ * La pantalla de permisos de Meta.
+ *
+ * Hay dos productos de login y no aceptan los mismos parametros:
+ *
+ *   - **Facebook Login** (clasico): se le pasa `scope` con la lista de
+ *     permisos. Es lo que esta app hacia siempre.
+ *   - **Facebook Login for Business**: solo para apps de tipo Business, que es
+ *     lo que Meta crea hoy para la Marketing API. Ahi los permisos NO se piden
+ *     por `scope`: se declaran en una "configuracion" dentro del panel
+ *     (Inicio de sesion con Facebook -> Configuraciones) y el dialogo se invoca
+ *     con el `config_id` de esa configuracion. La documentacion lo dice literal:
+ *     "config_id has replaced scope".
+ *     https://developers.facebook.com/docs/facebook-login/facebook-login-for-business
+ *
+ * Invocar el dialogo de una app Business con solo `scope` es lo que produce el
+ * "Funcion no disponible / estamos actualizando otros detalles de la
+ * aplicacion": un mensaje que no nombra el parametro que falta y que manda a
+ * revisar ajustes que estan bien.
+ *
+ * Por eso la eleccion es explicita y por configuracion: si hay
+ * META_LOGIN_CONFIG_ID se usa esa via; si no, la clasica.
+ */
 export function buildMetaAuthUrl(appEnv: MetaOAuthEnv, state: string) {
   const url = new URL(
     `https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`,
@@ -34,8 +92,15 @@ export function buildMetaAuthUrl(appEnv: MetaOAuthEnv, state: string) {
   url.searchParams.set("client_id", appEnv.META_APP_ID);
   url.searchParams.set("redirect_uri", appEnv.META_REDIRECT_URI);
   url.searchParams.set("state", state);
-  url.searchParams.set("scope", appEnv.META_SCOPES);
   url.searchParams.set("response_type", "code");
+
+  const configId = appEnv.META_LOGIN_CONFIG_ID?.trim();
+  if (configId) {
+    url.searchParams.set("config_id", configId);
+  } else {
+    url.searchParams.set("scope", appEnv.META_SCOPES);
+  }
+
   return url.toString();
 }
 

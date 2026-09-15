@@ -13,6 +13,11 @@ import {
 } from "./klaviyo-triage.js";
 import { loadDraftThreadSummaries } from "./ai-runtime.js";
 import { connectionSeverity } from "./integrations.js";
+import {
+  authorizationPurgeCutoff,
+  classifyAuthorizationAttempt,
+  isPurgeableAuthorizationAttempt,
+} from "@ecomscaling/contracts";
 import { createLogger } from "@ecomscaling/observability";
 
 const logger = createLogger("consultant");
@@ -3179,6 +3184,28 @@ export async function listOrganizationStores(env: ApiEnv, authorization: string,
  * (job periodico) cuando pasa `scheduled_purge_at`, o se puede revertir antes
  * con `restoreOrganizationStore`. Ver R-008.
  */
+/**
+ * Descartar un intento de autorizacion a medias no es borrar una tienda, y no
+ * puede pedir la misma autoridad.
+ *
+ * Borrar una tienda de verdad es del consultor: hay historico detras y se hace
+ * con periodo de gracia. Pero la fila `pending` que siembra el OAuth la crea el
+ * propio owner al pulsar "Conectar" (shopify.ts exige owner/manager/admin), no
+ * contiene nada, y ademas le esta comiendo cupo de tiendas de SU plan. Exigir
+ * un consultor para tirar algo que el mismo acaba de crear por accidente deja
+ * al cliente mirando un boton que le devuelve 403.
+ */
+function canDiscardAuthorizationAttempt(
+  context: AuthContext,
+  organizationId: string,
+): boolean {
+  if (context.profile.platform_role === "platform_admin") return true;
+  const membership = context.memberships.find(
+    (item) => item.organization_id === organizationId,
+  );
+  return Boolean(membership && ["owner", "manager"].includes(membership.role));
+}
+
 export async function deleteOrganizationStore(
   env: ApiEnv,
   context: AuthContext,
@@ -3186,7 +3213,10 @@ export async function deleteOrganizationStore(
   connectionId: string,
 ) {
   const access = requireStoreManager(context, organizationId);
-  if (access.ok === false) {
+  const puedeDescartar = canDiscardAuthorizationAttempt(context, organizationId);
+  // Sin ninguna de las dos autoridades no se mira siquiera la conexion: asi no
+  // se puede sondear que ids existen a base de comparar respuestas.
+  if (access.ok === false && !puedeDescartar) {
     return access;
   }
 
@@ -3194,7 +3224,7 @@ export async function deleteOrganizationStore(
 
   const { data: connection, error: loadError } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, provider, status")
+    .select("id, organization_id, provider, status, connected_at, created_at, updated_at")
     .eq("id", connectionId)
     .maybeSingle();
 
@@ -3208,6 +3238,63 @@ export async function deleteOrganizationStore(
 
   if (connection.status === "pending_deletion") {
     return { ok: false as const, statusCode: 409, error: "connection_already_pending_deletion" };
+  }
+
+  // Descartar un intento de autorizacion a medias no es borrar una tienda: no
+  // hay datos, ni credenciales, ni nada que recuperar dentro de 30 dias. El
+  // borrado programado esta para poder deshacer una baja accidental de una
+  // tienda con historico; aplicarselo a una fila que solo guarda el `state` de
+  // un OAuth que nadie termino la dejaria ocupando cupo del plan un mes entero.
+  if (classifyAuthorizationAttempt(connection) !== null) {
+    if (!puedeDescartar) {
+      return access.ok === false
+        ? access
+        : {
+            ok: false as const,
+            statusCode: 403,
+            error: "organization_manage_denied",
+            message:
+              "Solo owner, manager o platform admin pueden descartar una conexión a medias.",
+          };
+    }
+
+    const { error: discardError } = await supabase
+      .from("integration_connections")
+      .delete()
+      .eq("id", connectionId)
+      // Si el OAuth se completa entre la lectura y el borrado, ya es una tienda
+      // de verdad y esta condicion la deja viva.
+      .eq("status", "pending")
+      .is("connected_at", null);
+
+    if (discardError) {
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "authorization_attempt_discard_failed",
+        detail: discardError.message,
+      };
+    }
+
+    await recordAuditLog(supabase, {
+      organizationId,
+      actorUserId: context.user.id,
+      action: "integrations.discard_authorization_attempt",
+      entityType: "integration_connection",
+      entityId: connectionId,
+      oldData: connection,
+    });
+
+    return {
+      ok: true as const,
+      data: { discarded: true as const, connection_id: connectionId },
+    };
+  }
+
+  // A partir de aqui ya no es un intento: es una tienda con datos, y eso sigue
+  // siendo del consultor aunque el owner pueda descartar un OAuth a medias.
+  if (access.ok === false) {
+    return access;
   }
 
   const scheduledPurge = scheduledPurgeAt();
@@ -3822,9 +3909,81 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
     });
   }
 
+  // Intentos de autorizacion que nadie termino. No son un borrado programado
+  // como los de arriba -- nunca hubo nada que borrar, solo una fila sembrada
+  // para guardar el `state` del OAuth --, pero se purgan aqui porque es el
+  // mismo cron diario y no merece uno propio. Sin esto, cada pestana cerrada a
+  // medias dejaba una tienda fantasma ocupando cupo del plan para siempre.
+  const { data: attempts, error: attemptsLoadError } = await supabase
+    .from("integration_connections")
+    .select("id, organization_id, provider, provider_account_id, status, connected_at, created_at, updated_at")
+    .eq("status", "pending")
+    .is("connected_at", null)
+    .lt("updated_at", authorizationPurgeCutoff(new Date(nowIso)));
+
+  if (attemptsLoadError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "authorization_attempts_purge_lookup_failed",
+      detail: attemptsLoadError.message,
+      partial: { purgedOrganizations, purgedConnections },
+    };
+  }
+
+  // "StaleAttempts" y no "AuthorizationAttempts": el logger redacta cualquier
+  // clave que contenga `authorization` (SENSITIVE_LOG_KEY, en observability), y
+  // el contador salia como "[REDACTED]" en el log del cron -- un numero de
+  // filas borradas censurado como si fuera una credencial.
+  let purgedStaleAttempts = 0;
+  const failedStaleAttemptIds: string[] = [];
+  for (const attempt of attempts ?? []) {
+    // La consulta ya filtra por fecha, pero quien decide es el contrato
+    // compartido con la interfaz: si los dos criterios divergieran, la pantalla
+    // diria "puedes retomarlo" de algo que este cron acaba de borrar.
+    if (!isPurgeableAuthorizationAttempt(attempt, new Date(nowIso))) continue;
+
+    const { error: deleteError } = await supabase
+      .from("integration_connections")
+      .delete()
+      .eq("id", attempt.id)
+      // Guarda contra la carrera: entre el select y el delete alguien puede
+      // haber completado la autorizacion. Si eso pasa, ya no es pending y esta
+      // condicion deja la fila viva.
+      .eq("status", "pending")
+      .is("connected_at", null);
+
+    if (deleteError) {
+      logger.error("Failed to purge abandoned authorization attempt", {
+        connection_id: attempt.id,
+        organization_id: attempt.organization_id,
+        error: deleteError.message,
+      });
+      failedStaleAttemptIds.push(attempt.id);
+      continue;
+    }
+
+    purgedStaleAttempts += 1;
+    await recordAuditLog(supabase, {
+      organizationId: attempt.organization_id,
+      actorUserId: null,
+      action: "integrations.purge_abandoned_authorization",
+      entityType: "integration_connection",
+      entityId: attempt.id,
+      oldData: attempt,
+    });
+  }
+
   return {
     ok: true as const,
-    data: { purgedOrganizations, purgedConnections, failedOrganizationIds, failedConnectionIds },
+    data: {
+      purgedOrganizations,
+      purgedConnections,
+      purgedStaleAttempts,
+      failedOrganizationIds,
+      failedConnectionIds,
+      failedStaleAttemptIds,
+    },
   };
 }
 
@@ -5450,4 +5609,304 @@ export async function setClientMemberRole(
   });
 
   return { ok: true as const, data };
+}
+
+/**
+ * FASE 3 / D01 — lo que el consultor ve de la calidad del dato.
+ *
+ * Es la primera pantalla de toda la fase 3: quince bloques de tablas llevaban
+ * meses sin que nadie pudiera verlas. Se elige esta primera porque contesta la
+ * pregunta que va antes que todas las demas -- "¿me puedo fiar de lo que estoy
+ * mirando?" -- y porque es la unica que ya tiene motor escribiendo filas.
+ *
+ * El consultor lo ve todo (apartado 9 del plan maestro): las evaluaciones
+ * enteras con sus motivos de degradacion y los issues abiertos, incluidos los
+ * que no son accionables por el cliente. La vista de cliente es otra cosa y
+ * vive en su panel: solo lo suyo y solo lo ya verificado (`isVisibleToClient`).
+ *
+ * Va con el cliente scoped al token del usuario, no con la service role: quien
+ * decide que organizaciones se ven es la RLS, no este codigo.
+ */
+export async function listConsultantDataQuality(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: evaluaciones, error } = await supabase
+    .from("data_quality_assessments")
+    .select(
+      "id, organization_id, store_id, source, dataset, phenomenon, scope, freshness, coverage, missingness, period_settlement, period_start, period_end, reliability, degradation_reasons, last_sync_at, expected_cadence_minutes, assessed_at",
+    )
+    .in("organization_id", safeIds)
+    .order("assessed_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_data_quality_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const { data: issues } = await supabase
+    .from("data_quality_issues")
+    .select(
+      "id, organization_id, store_id, source, dataset, phenomenon, scope, issue_type, description, severity, material, status, downstream_effect, client_actionable, detected_at",
+    )
+    .in("organization_id", safeIds)
+    .in("status", ["open", "investigating"])
+    .order("detected_at", { ascending: false })
+    .limit(500);
+
+  // Una evaluacion por fuente, tienda y organizacion: la mas reciente. Las
+  // anteriores son el historial de calidad, y el historial no es esta pantalla.
+  const vistas = new Map<string, (typeof evaluaciones)[number]>();
+  for (const fila of evaluaciones ?? []) {
+    const clave = `${fila.organization_id}|${fila.store_id ?? "-"}|${fila.source}|${fila.dataset}|${fila.scope}`;
+    if (!vistas.has(clave)) vistas.set(clave, fila);
+  }
+
+  const issuesDe = (fila: (typeof evaluaciones)[number]) =>
+    (issues ?? []).filter(
+      (i) =>
+        i.organization_id === fila.organization_id &&
+        i.source === fila.source &&
+        (i.store_id ?? null) === (fila.store_id ?? null),
+    );
+
+  const sources = [...vistas.values()].map((fila) => ({
+    ...fila,
+    organization_name: nombrePorOrg.get(fila.organization_id as string) ?? null,
+    issues: issuesDe(fila),
+  }));
+
+  // Lo peor primero: una fuente inutilizable es lo unico que impide diagnosticar.
+  const peso: Record<string, number> = { unusable: 0, low: 1, medium: 2, high: 3 };
+  sources.sort(
+    (a, b) =>
+      (peso[a.reliability as string] ?? 9) - (peso[b.reliability as string] ?? 9) ||
+      String(a.organization_name).localeCompare(String(b.organization_name)),
+  );
+
+  return {
+    ok: true as const,
+    data: {
+      sources,
+      summary: {
+        evaluated: sources.length,
+        blocked: sources.filter((s) =>
+          s.issues.some((i) => i.downstream_effect === "blocked"),
+        ).length,
+        degraded: sources.filter(
+          (s) =>
+            !s.issues.some((i) => i.downstream_effect === "blocked") &&
+            s.issues.some((i) => i.downstream_effect === "degraded"),
+        ).length,
+        client_actionable: (issues ?? []).filter((i) => i.client_actionable).length,
+      },
+    },
+  };
+}
+
+/**
+ * FASE 3 / D02 — lo que el consultor ve de la contextualizacion.
+ *
+ * Solo consultor. El cliente no ve esto y no es un olvido: una lectura
+ * contextual es razonamiento a medio hacer -- dice contra que se compara y si
+ * la comparacion aguanta, no que pasa. Ensenarsela seria darle una conclusion
+ * que todavia no existe.
+ *
+ * Lo que aporta en una linea: si el AOV cae y cada canal vende igual, no hay
+ * nada que arreglar en el producto; cambio el peso de los canales. Sin la
+ * descomposicion, los dos casos se leen igual.
+ */
+export async function listConsultantContextReadings(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: casos, error } = await supabase
+    .from("diagnostic_cases")
+    .select(
+      "id, organization_id, store_id, target_metric, target_question, scope, status, analysis_period_start, analysis_period_end",
+    )
+    .in("organization_id", safeIds)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_context_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const caseIds = (casos ?? []).map((c) => c.id as string);
+  if (caseIds.length === 0) {
+    return { ok: true as const, data: { readings: [] } };
+  }
+
+  const { data: lecturas } = await supabase
+    .from("context_assessments")
+    .select(
+      "id, case_id, scope, baseline_type, baseline_period_start, baseline_period_end, baseline_rationale, comparability, comparability_reasons, aggregate_interpretation, context_sufficient, missing_context, critical_unknowns, primary_factors, uncertainty_notes, assessed_at",
+    )
+    .in("case_id", caseIds)
+    .order("assessed_at", { ascending: false });
+
+  const assessmentIds = (lecturas ?? []).map((a) => a.id as string);
+  const { data: segmentos } = assessmentIds.length
+    ? await supabase
+        .from("context_mix_segments")
+        .select(
+          "assessment_id, dimension, segment, weight_before, weight_after, performance_before, performance_after",
+        )
+        .in("assessment_id", assessmentIds)
+    : { data: [] };
+
+  const casoPorId = new Map((casos ?? []).map((c) => [c.id as string, c]));
+
+  const readings = (lecturas ?? []).map((lectura) => {
+    const caso = casoPorId.get(lectura.case_id as string);
+    return {
+      ...lectura,
+      target_metric: caso?.target_metric ?? null,
+      target_question: caso?.target_question ?? null,
+      case_scope: caso?.scope ?? null,
+      analysis_period_start: caso?.analysis_period_start ?? null,
+      analysis_period_end: caso?.analysis_period_end ?? null,
+      organization_name: nombrePorOrg.get(caso?.organization_id as string) ?? null,
+      mix: (segmentos ?? []).filter((s) => s.assessment_id === lectura.id),
+    };
+  });
+
+  return { ok: true as const, data: { readings } };
+}
+
+/**
+ * FASE 3 / D06 — el mapa de sintomas activos (apartado 20).
+ *
+ * Solo consultor, como D02 y por el mismo motivo llevado un paso mas alla: un
+ * sintoma es un patron observable **sin causa**. Ensenarle al cliente "caida de
+ * ventas netas, composicion coherente, confianza media" sin poder decirle por
+ * que, le da un susto y ninguna salida. El cliente vera lo accionable cuando la
+ * cadena llegue a producir algo accionable.
+ *
+ * Lo que aporta en una linea: D05 dice que las ventas caen un 18%; esto dice si
+ * caen **porque caen los pedidos** --y entonces el sitio donde mirar es otro--
+ * o si los pedidos aguantan y lo que se hundio es el ticket medio.
+ */
+export async function listConsultantSymptomMap(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: sintomas, error } = await supabase
+    .from("symptoms")
+    .select(
+      "id, organization_id, store_id, symptom_family, canonical_type, label, valence, capability, scope, scope_detail, diagnostic_depth, process_position, time_role, persistence, recurrence_count, same_time_window, compatible_scope, compatible_direction, known_relationship, sufficient_signal_quality, coherence_relationship, confidence, data_confidence, context_reviewed, parent_symptom_id, previous_symptom_id, first_seen_at, last_seen_at, status",
+    )
+    .in("organization_id", safeIds)
+    .eq("status", "active")
+    .order("last_seen_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_symptoms_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const symptomIds = (sintomas ?? []).map((s) => s.id as string);
+  if (symptomIds.length === 0) {
+    return { ok: true as const, data: { symptoms: [] } };
+  }
+
+  const { data: enlaces } = await supabase
+    .from("symptom_signals")
+    .select("symptom_id, signal_id, role")
+    .in("symptom_id", symptomIds);
+
+  const signalIds = [...new Set((enlaces ?? []).map((l) => l.signal_id as string))];
+  const { data: senales } = signalIds.length
+    ? await supabase
+        .from("signals")
+        .select("id, metric, direction, magnitude_relative, window_start, window_end")
+        .in("id", signalIds)
+    : { data: [] };
+
+  // Guardrail 13: la evidencia que contradice es la que mas falta hace en
+  // pantalla. Ver solo lo que encaja es como se cierra un diagnostico falso.
+  const { data: evidencias } = await supabase
+    .from("symptom_evidence")
+    .select("symptom_id, source_kind, stance, observation, representativeness, sample_size")
+    .in("symptom_id", symptomIds);
+
+  const { data: relaciones } = await supabase
+    .from("symptom_relations")
+    .select("from_symptom_id, to_symptom_id, relation, rationale")
+    .in("from_symptom_id", symptomIds);
+
+  const senalPorId = new Map((senales ?? []).map((s) => [s.id as string, s]));
+
+  const symptoms = (sintomas ?? []).map((sintoma) => ({
+    ...sintoma,
+    organization_name: nombrePorOrg.get(sintoma.organization_id as string) ?? null,
+    signals: (enlaces ?? [])
+      .filter((l) => l.symptom_id === sintoma.id)
+      .map((l) => ({
+        role: l.role,
+        ...(senalPorId.get(l.signal_id as string) ?? { id: l.signal_id }),
+      })),
+    evidence: (evidencias ?? []).filter((e) => e.symptom_id === sintoma.id),
+    relations: (relaciones ?? []).filter((r) => r.from_symptom_id === sintoma.id),
+  }));
+
+  return { ok: true as const, data: { symptoms } };
 }

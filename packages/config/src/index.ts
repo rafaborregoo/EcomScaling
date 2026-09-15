@@ -40,6 +40,10 @@ const apiEnvSchema = z.object({
   META_REDIRECT_URI: z.string().url().optional(),
   META_GRAPH_VERSION: z.string().regex(/^v\d+\.\d+$/).optional(),
   META_SCOPES: z.string().min(1).optional(),
+  // Id de una configuracion de Facebook Login for Business. Cuando esta, el
+  // dialogo se invoca con config_id en vez de scope: las apps de tipo Business
+  // declaran sus permisos en esa configuracion, no en la URL.
+  META_LOGIN_CONFIG_ID: z.string().min(1).optional(),
   // Meta Insights puede usar reportes asincronos para cuentas grandes. Se
   // mantiene sync por defecto hasta activar esta opcion con una app real.
   META_INSIGHTS_MODE: z.enum(["sync", "async"]).optional(),
@@ -146,6 +150,7 @@ export type LoadedApiEnv = {
   META_REDIRECT_URI?: string;
   META_GRAPH_VERSION?: string;
   META_SCOPES?: string;
+  META_LOGIN_CONFIG_ID?: string;
   META_INSIGHTS_MODE?: "sync" | "async";
   META_ACTION_REPORT_TIME?: "impression" | "conversion" | "mixed";
   KLAVIYO_CLIENT_ID?: string;
@@ -348,8 +353,12 @@ export function loadApiEnv(
           ...(env.META_GRAPH_VERSION
             ? { META_GRAPH_VERSION: env.META_GRAPH_VERSION }
             : {}),
-          META_SCOPES:
-            env.META_SCOPES ?? "ads_read,ads_management,business_management,pages_show_list",
+          // Ver META_DEFAULT_SCOPES en apps/api/src/meta-oauth.ts: pedir mas
+          // permisos de los imprescindibles tumbaba el dialogo entero.
+          META_SCOPES: env.META_SCOPES ?? "public_profile,ads_read",
+          ...(env.META_LOGIN_CONFIG_ID
+            ? { META_LOGIN_CONFIG_ID: env.META_LOGIN_CONFIG_ID }
+            : {}),
           ...(env.META_INSIGHTS_MODE
             ? { META_INSIGHTS_MODE: env.META_INSIGHTS_MODE }
             : {}),

@@ -25,6 +25,7 @@ import {
   Banner,
   Button,
   Card,
+  EmptyState,
   LoadingBlock,
   Select,
 } from "@/components/ui";
@@ -158,8 +159,19 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
     );
   }
 
-  // Con una tienda no hay decision que tomar: todo pertenece a esa.
-  if (scope.store_count < 2) return null;
+  // Con una tienda no hay decision que tomar: todo pertenece a esa. Antes esto
+  // devolvia null porque la tarjeta vivia en medio del hub; ahora tiene pagina
+  // propia y desaparecer sin decir nada dejaria una pantalla en blanco.
+  if (scope.store_count < 2) {
+    return (
+      <Card title="Cuentas por tienda">
+        <EmptyState
+          title="No hay nada que repartir"
+          hint="Con una sola tienda, todas las cuentas de Meta y Klaviyo son suyas. Esta pantalla se vuelve útil al conectar la segunda."
+        />
+      </Card>
+    );
+  }
 
   const accounts: AccountRow[] = [
     ...scope.meta_ad_accounts.map((account) => ({
@@ -177,7 +189,16 @@ export function StoreScopeCard({ organizationId }: { organizationId: string }) {
     })),
   ];
 
-  if (accounts.length === 0) return null;
+  if (accounts.length === 0) {
+    return (
+      <Card title="Cuentas por tienda">
+        <EmptyState
+          title="Todavía no hay cuentas que repartir"
+          hint="Conecta Meta Ads o Klaviyo y aquí podrás decir a qué tienda pertenece cada cuenta."
+        />
+      </Card>
+    );
+  }
 
   const isDirty = accounts.some(
     ({ account }) => draft[account.id] !== (account.store_id ?? UNASSIGNED),

@@ -1292,12 +1292,18 @@ function ConsultantPanel({
     return <AsyncState status="error" error={error} />;
   }
 
+  // Cartera vacia: el alta tiene que seguir en pantalla. Devolver solo el
+  // EmptyState dejaba al consultor recien creado sin forma de crear su primer
+  // cliente: para tener clientes hacia falta ya tener clientes.
   if (organizations.length === 0) {
     return (
-      <EmptyState
-        title="Aún no tienes clientes asignados"
-        hint="Cuando se te asigne una organización como consultor, aparecerán aquí ordenadas por la que más atención necesita."
-      />
+      <div className="portal-page space-y-5 sm:space-y-6">
+        <NewClientForm onCreated={() => void load()} />
+        <EmptyState
+          title="Aún no tienes clientes"
+          hint="Da de alta el primero aquí arriba, o espera a que te asignen una organización como consultor."
+        />
+      </div>
     );
   }
 

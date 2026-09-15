@@ -4,6 +4,22 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./symptom-engine": {
+      "types": "./dist/src/symptom-engine.d.ts",
+      "default": "./dist/src/symptom-engine.js"
+    },
+    "./context-engine": {
+      "types": "./dist/src/context-engine.d.ts",
+      "default": "./dist/src/context-engine.js"
+    },
+    "./data-quality-engine": {
+      "types": "./dist/src/data-quality-engine.d.ts",
+      "default": "./dist/src/data-quality-engine.js"
+    },
+    "./signal-engine": {
+      "types": "./dist/src/signal-engine.d.ts",
+      "default": "./dist/src/signal-engine.js"
+    },
     "./shopify-reconcile": {
       "types": "./dist/src/shopify-reconcile.d.ts",
       "default": "./dist/src/shopify-reconcile.js"

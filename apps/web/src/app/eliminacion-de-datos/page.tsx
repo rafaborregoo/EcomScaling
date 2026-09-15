@@ -1,0 +1,136 @@
+import type { Metadata } from "next";
+import { Card, EYEBROW, Heading, Link } from "@/components/ui";
+
+// URL publica que Meta exige al registrar la app ("Eliminación de datos de
+// usuario": o una callback o unas instrucciones). Esta es la pagina de
+// instrucciones. Como /politica-privacidad y /condiciones, no cuelga de ningun
+// menu: existe para ser enlazada desde fuera.
+
+export const metadata: Metadata = {
+  title: "Eliminación de datos — EcomScaling IA",
+  description:
+    "Cómo solicitar la eliminación de tus datos en EcomScaling IA: qué se borra, en cuánto tiempo y cómo pedirlo.",
+};
+
+const LAST_UPDATED = "14 de septiembre de 2026";
+const CONTACT_EMAIL = "rafael@noraapp.es";
+
+export default function DataDeletionPage() {
+  return (
+    <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-4 py-12 sm:px-6">
+      <header className="flex flex-col gap-2">
+        <p className={EYEBROW}>EcomScaling IA</p>
+        <Heading level={1} size="lg">
+          Eliminación de datos
+        </Heading>
+        <p className="text-sm text-muted">Última actualización: {LAST_UPDATED}</p>
+      </header>
+
+      <Card title="Qué puedes pedir">
+        <p>
+          Puedes pedir en cualquier momento que eliminemos los datos asociados a
+          tu cuenta de EcomScaling IA y a las plataformas que hayas conectado
+          (Shopify, Meta Ads y Klaviyo). No hace falta justificar el motivo y no
+          tiene coste.
+        </p>
+      </Card>
+
+      <Card title="Cómo pedirlo">
+        <p>Hay dos formas, y puedes usar cualquiera de ellas:</p>
+        <ol className="list-decimal space-y-2 pl-5">
+          <li>
+            <strong>Desde la plataforma.</strong> Entra en la sección{" "}
+            <span className="font-medium">Integraciones</span>, abre la tienda y
+            desconecta la integración que quieras. Al desconectarla revocamos el
+            token de acceso y dejamos de sincronizar datos nuevos de esa cuenta.
+            Para eliminar la cuenta entera, pídelo por correo como se indica
+            abajo.
+          </li>
+          <li>
+            <strong>Por correo.</strong> Escribe a{" "}
+            <Link className="underline" href={`mailto:${CONTACT_EMAIL}`}>
+              {CONTACT_EMAIL}
+            </Link>{" "}
+            con el asunto <strong>«Eliminación de datos»</strong> e indica el
+            correo electrónico con el que accedes y, si procede, el dominio de
+            la tienda o la cuenta publicitaria afectada. Confirmamos la
+            recepción y te avisamos por correo cuando el borrado esté hecho.
+          </li>
+        </ol>
+      </Card>
+
+      <Card title="Qué se elimina">
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            Los tokens y credenciales de acceso a Shopify, Meta Ads y Klaviyo,
+            que además quedan revocados en la plataforma de origen.
+          </li>
+          <li>
+            Los datos importados de esas plataformas: pedidos, productos,
+            inventario, campañas, anuncios, métricas y listas.
+          </li>
+          <li>
+            El contenido generado dentro del producto para esa cuenta: notas,
+            tareas, diagnósticos, resúmenes de llamadas y documentos subidos.
+          </li>
+          <li>Los datos de la propia cuenta de usuario y su pertenencia a la organización.</li>
+        </ul>
+        <p>
+          De los clientes finales de la tienda solo guardamos un identificador de
+          referencia con hash y métricas asociadas —nunca nombre, correo,
+          teléfono ni dirección—, y se eliminan junto con la tienda. El detalle
+          está en la{" "}
+          <Link className="underline" href="/politica-privacidad">
+            política de privacidad
+          </Link>
+          .
+        </p>
+      </Card>
+
+      <Card title="En cuánto tiempo">
+        <p>
+          Al desconectar una tienda o dar de baja una cuenta, los datos quedan
+          marcados para borrado y se eliminan definitivamente a los{" "}
+          <strong>30 días</strong>. Ese plazo es un periodo de gracia para poder
+          deshacer una desconexión accidental.
+        </p>
+        <p>
+          Si prefieres el <strong>borrado inmediato</strong>, dilo en el correo y
+          lo hacemos sin esperar esos 30 días.
+        </p>
+        <p>
+          Podemos conservar durante más tiempo lo que la ley nos obliga a
+          guardar, como los registros de facturación. Eso no incluye datos de tu
+          tienda ni de tus campañas.
+        </p>
+      </Card>
+
+      <Card title="Revocar el acceso desde Facebook">
+        <p>
+          Si conectaste Meta Ads, también puedes retirarle el acceso a la
+          aplicación directamente desde tu cuenta de Facebook, en{" "}
+          <span className="font-medium">
+            Configuración y privacidad → Configuración → Aplicaciones y sitios
+            web
+          </span>
+          , eliminando «EcomScaling IA». A partir de ese momento dejamos de
+          poder leer datos de tu cuenta publicitaria.
+        </p>
+        <p>
+          Eso corta el acceso, pero no borra por sí solo lo ya importado: para
+          eso, pídenos la eliminación por correo como se explica arriba.
+        </p>
+      </Card>
+
+      <Card title="Contacto">
+        <p>
+          Para cualquier duda sobre este proceso, escríbenos a{" "}
+          <Link className="underline" href={`mailto:${CONTACT_EMAIL}`}>
+            {CONTACT_EMAIL}
+          </Link>
+          .
+        </p>
+      </Card>
+    </main>
+  );
+}

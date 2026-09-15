@@ -61,6 +61,7 @@ export type { AutocompleteOption } from "./autocomplete";
 export { Autocomplete } from "./autocomplete";
 export { ConfirmDialog } from "./confirm-dialog";
 export { Checkbox } from "./checkbox";
+export { ProviderIcon } from "./provider-icon";
 export { Link } from "./link";
 export { ButtonLink } from "./link";
 export { List } from "./list";

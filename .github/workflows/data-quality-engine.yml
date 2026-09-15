@@ -1,0 +1,68 @@
+name: Data Quality Engine
+
+# F3/D01. Evalua la calidad del dato de cada fuente conectada, antes de que
+# nadie interprete una variacion como cambio del negocio.
+#
+# Sin `schedule`, igual que Alert Rules y que el motor de senales: decision de
+# Rafa del 2026-08-03, sin disparadores automaticos. Se lanza a mano hasta que
+# haya motivo para automatizarlo. Para activarlo, descomentar el bloque de abajo.
+#
+# Si algun dia se activan los dos, este va ANTES que Signal Engine (de ahi el
+# 06:07 frente al 06:17): una senal detectada sobre una fuente que lleva cinco
+# dias sin sincronizar no es una senal del negocio.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "07 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: data-quality-engine
+  cancel-in-progress: false
+
+jobs:
+  assess:
+    name: Assess data quality for all organizations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+      SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+      SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required runtime secrets
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY SUPABASE_JWT_SECRET; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required secret $key is not configured for the data quality engine." >&2
+              exit 1
+            fi
+          done
+
+      - name: Build API and worker
+        run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
+
+      - name: Assess data quality
+        run: npm run start:data-quality -w @ecomscaling/worker

@@ -77,6 +77,10 @@ type ConnectionRow = {
   last_error_at: string | null;
   last_error_message: string | null;
   created_at: string;
+  // Opcional: las fixtures de los tests y cualquier lectura que no lo pida
+  // siguen encajando. Lo que lo consume (classifyAuthorizationAttempt) ya cae
+  // a created_at cuando falta.
+  updated_at?: string | null;
   metadata?: Record<string, unknown> | null;
   app_mode?: "public" | "custom" | null;
 };
@@ -283,6 +287,10 @@ async function loadConnections(
         "last_error_at",
         "last_error_message",
         "created_at",
+        // Un intento de OAuth relanzado pisa la fila via upsert: updated_at es
+        // la ultima vez que alguien lo intento, y es lo que distingue "en
+        // curso" de "abandonado" (classifyAuthorizationAttempt).
+        "updated_at",
         "metadata",
       ].join(", "),
     )

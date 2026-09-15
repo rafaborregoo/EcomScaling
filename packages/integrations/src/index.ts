@@ -350,6 +350,21 @@ export function evaluateIntegrationActivation(
 
 const DEFAULT_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Cuanto puede durar una sincronizacion antes de que "sincronizando" sea
+ * mentira.
+ *
+ * Caso real (2026-09-14): reconexion de Shopify a las 21:50, el proceso de la
+ * API se reinicio con el sync a medias, y la conexion se quedo en `syncing`
+ * para siempre. La interfaz mostraba "Trayendo datos ahora mismo, no hay que
+ * hacer nada" horas despues, sin un solo `integration_sync_run` nuevo. Nadie
+ * reintentaba porque, segun la pantalla, no habia nada roto.
+ *
+ * Una hora es holgado: la importacion completa de una tienda grande va por
+ * bulk operations y termina muy por debajo de eso.
+ */
+const SYNC_RUNNING_TIMEOUT_MS = 60 * 60 * 1000;
+
 export type IntegrationHealthInput = {
   available: boolean;
   connectionStatus?: string | null;
@@ -393,6 +408,16 @@ export function deriveIntegrationHealth(
       errorAt !== null &&
       Number.isFinite(errorAt) &&
       (syncAt === null || !Number.isFinite(syncAt) || errorAt > syncAt)
+    ) {
+      return { ...base, status: "degraded", reason: "sync_stuck" };
+    }
+    // Y una sincronizacion que lleva "en marcha" mas de lo que puede durar
+    // tampoco esta en marcha: el proceso que la lanzo murio y nadie lo sabe.
+    const now = (input.now ?? new Date()).getTime();
+    if (
+      syncAt !== null &&
+      Number.isFinite(syncAt) &&
+      now - syncAt > SYNC_RUNNING_TIMEOUT_MS
     ) {
       return { ...base, status: "degraded", reason: "sync_stuck" };
     }

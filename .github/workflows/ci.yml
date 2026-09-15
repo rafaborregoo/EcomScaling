@@ -149,6 +149,13 @@ jobs:
       - name: AI output sanity guard tests
         run: npm run test -w @ecomscaling/ai
 
+      # F3/D00: invariantes del contrato de diagnostico. El apartado 60 del
+      # contrato exige que reglas como "no afirmar una causa sin evidencia" no
+      # dependan del RAG; este paso es lo que impide que dejen de cumplirse en
+      # silencio. Puro, sin I/O.
+      - name: Diagnostic contract invariant tests
+        run: npm run test -w @ecomscaling/contracts
+
       # SQO-01: regresion del bug real de repetibles huerfanos en BullMQ
       # (apps/worker/src/repeatable-jobs.ts), pura y sin I/O -- no necesita
       # Redis ni secrets.

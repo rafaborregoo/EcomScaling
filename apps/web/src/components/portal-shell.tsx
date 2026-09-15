@@ -74,7 +74,12 @@ const ALL_STORES_KEY = "__all_stores__";
 // "vista general" propio: en vista general (sin cliente activo) muestran un
 // aviso para elegir uno. Dashboard ya tiene su propia vista general, por eso
 // no esta aqui. Segun cada modulo gane su parte general, sale de esta lista.
-const ORG_SCOPED_PREFIXES = ["/agentes", "/configuracion"];
+// /configuracion NO entra: ahi viven Accesos (socios, reparto de trabajo) y
+// Clientes y tiendas, que son del consultor y no de un cliente concreto. Con el
+// prefijo puesto, un consultor sin cartera veia "elige un cliente" en la unica
+// pantalla desde la que podia conseguir uno. La pagina ya degrada por pestaña
+// cuando no hay organizacion activa.
+const ORG_SCOPED_PREFIXES = ["/agentes"];
 
 // Nav del consultor: lista plana, sin etiquetas de grupo. Solo lo que se opera
 // a diario sobre el cliente activo. "Ejecuciones IA" (/agentes) sigue fuera del
@@ -778,7 +783,15 @@ function PortalShellContent({
     );
   }
 
-  const visibleActions = actions.slice(0, 3);
+  // Dentro de /integraciones la propia pagina ya cuenta tienda por tienda que
+  // le pasa a cada conexion y que hacer. Repetir arriba los mismos avisos --
+  // todos apuntando a la pagina en la que ya estas -- era el triple de rojo
+  // diciendo lo mismo, que es justo lo que hacia ilegible ese modulo.
+  const inIntegrations = pathname.startsWith("/integraciones");
+  const pageActions = inIntegrations
+    ? actions.filter((action) => !action.cta_href.startsWith("/integraciones"))
+    : actions;
+  const visibleActions = pageActions.slice(0, 3);
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
@@ -1263,9 +1276,9 @@ function PortalShellContent({
                 </Alert>
               </div>
             ))}
-            {actions.length > visibleActions.length ? (
+            {pageActions.length > visibleActions.length ? (
               <div className="border-b border-separator px-6 py-2 font-mono text-xs text-muted lg:px-10">
-                {actions.length - visibleActions.length} avisos más en
+                {pageActions.length - visibleActions.length} avisos más en
                 Integraciones.
               </div>
             ) : null}

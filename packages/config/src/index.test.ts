@@ -118,7 +118,9 @@ test("loadApiEnv: aplica META_SCOPES por defecto cuando las 3 variables de Meta 
     META_APP_SECRET: "meta-secret",
     META_REDIRECT_URI: "https://example.com/meta-callback",
   });
-  assert.equal(env.META_SCOPES, "ads_read,ads_management,business_management,pages_show_list");
+  // ads_management fuera: la integracion de Meta es de solo lectura (nadie llama
+  // a metaGraphPost), y un permiso de escritura sin uso es review extra para nada.
+  assert.equal(env.META_SCOPES, "public_profile,ads_read");
 });
 
 test("loadApiEnv: respeta META_SCOPES explicito en vez del default", () => {

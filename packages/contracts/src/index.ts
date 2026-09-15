@@ -196,3 +196,52 @@ export const SHOPIFY_SCOPES_USED: readonly ShopifyScopeInfo[] = [
 export function shopifyScopeInfo(scope: string): ShopifyScopeInfo | null {
   return SHOPIFY_SCOPES_USED.find((item) => item.scope === scope) ?? null;
 }
+
+// FASE 3 / D00: contrato de diagnostico e invariantes del motor.
+export * from "./diagnostics.js";
+
+// FASE 3 / D01: calidad y fiabilidad de los datos, y la puerta antes de D00.
+export * from "./data-quality.js";
+
+// FASE 3 / D02: contextualizacion y limites de comparabilidad.
+export * from "./context.js";
+
+// FASE 3 / D03: madurez por capacidad y sus invariantes estructurales.
+export * from "./maturity.js";
+
+// FASE 3 / D04: salud por capacidad, separada de la madurez de D03.
+export * from "./health.js";
+
+// FASE 3 / D05: motor de senales, sus invariantes y el detector puro.
+export * from "./signals.js";
+
+// FASE 3 / D06: motor de sintomas, la frontera entre senal e interpretacion.
+export * from "./symptoms.js";
+
+// FASE 3 / D07: grafo causal, rutas plausibles y la jerarquia de evidencia.
+export * from "./causal.js";
+
+// FASE 3 / D08: motor de hipotesis, tests diagnosticos y contraste.
+export * from "./hypotheses.js";
+
+// FASE 3 / D09: causa raiz y constraints, las dos preguntas que no son la misma.
+export * from "./root-cause.js";
+
+// FASE 3 / D10: severidad e impacto, y las tres cosas que no tienen columna aqui.
+export * from "./severity.js";
+
+// FASE 3 / D11: confianza e incertidumbre, el bloque que audita a los diez anteriores.
+export * from "./confidence.js";
+
+// FASE 3 / D12: la capa adversarial, confusores y falsos diagnosticos.
+export * from "./adversarial.js";
+
+// FASE 3 / D13: la capa temporal, estado frente a trayectoria.
+export * from "./temporal.js";
+
+// Un intento de autorizacion OAuth a medias no es una tienda: la comparten el
+// cron que los purga y la interfaz que los distingue de una conexion rota.
+export * from "./authorization-attempt.js";
+
+// FASE 3 / D14: la salida diagnostica, su validacion y el lenguaje calibrado.
+export * from "./output.js";

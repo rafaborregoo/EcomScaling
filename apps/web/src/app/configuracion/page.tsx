@@ -876,7 +876,9 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ...(isConsultant
             ? [{ value: "cartera", label: "Clientes y tiendas" }]
             : []),
-          { value: "shopify", label: "Cobertura Shopify" },
+          ...(organization
+            ? [{ value: "shopify", label: "Cobertura Shopify" }]
+            : []),
         ]}
       />
 

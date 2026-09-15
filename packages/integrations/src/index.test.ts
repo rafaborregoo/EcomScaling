@@ -220,3 +220,31 @@ test("una conexion 'syncing' con un error posterior al ultimo sync esta colgada,
     "syncing",
   );
 });
+
+test("una sincronizacion que lleva horas 'en marcha' se marca atascada", () => {
+  const now = new Date("2026-09-14T23:00:00.000Z");
+
+  // Caso real: reconexion de Shopify, el proceso de la API se reinicio con el
+  // sync a medias y la conexion se quedo en `syncing` sin un solo sync_run
+  // nuevo. La interfaz decia "trayendo datos ahora mismo" horas despues.
+  assert.equal(
+    deriveIntegrationHealth({
+      available: true,
+      connectionStatus: "syncing",
+      lastSyncAt: "2026-09-14T21:50:46.000Z",
+      now,
+    }).reason,
+    "sync_stuck",
+  );
+
+  // Una que acaba de empezar sigue siendo una sincronizacion normal.
+  assert.equal(
+    deriveIntegrationHealth({
+      available: true,
+      connectionStatus: "syncing",
+      lastSyncAt: "2026-09-14T22:55:00.000Z",
+      now,
+    }).status,
+    "syncing",
+  );
+});

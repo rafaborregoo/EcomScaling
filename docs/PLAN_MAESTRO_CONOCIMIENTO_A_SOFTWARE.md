@@ -1,0 +1,378 @@
+# Plan maestro: de los .md de conocimiento al software
+
+Como se convierten los 644 artefactos de especificacion de `conocimiento/fase-XX/`
+en producto. No es un plan de contenido: es el procedimiento de traduccion, la
+unidad de trabajo y el orden.
+
+Estado del corpus al abrir este plan: 9 fases clasificadas en 8 capas,
+287 documentos en `01-rag-produccion` ya indexados (315 documentos globales /
+2559 chunks, identicos en test y produccion), 644 artefactos en las capas
+`02`..`06` sin implementar y 5 bloques todavia sin destilar (seccion 6).
+
+Nota de nomenclatura: cada fase nombra sus bloques a su manera y aqui se usa la
+del indice, que normaliza fase-04 (`P06` y `4.06` son el mismo bloque, se
+escribe `4.06`). Fase-03 mantiene su `DNN`.
+
+## 1. La regla de corte
+
+La pregunta que responde cada capa no es "que dice", sino **quien lo garantiza**.
+
+> El RAG aporta criterio. El codigo aporta garantias.
+
+Un limite que solo vive en el prompt no es un limite: el modelo puede ignorarlo y
+nadie se entera. Un criterio experto codificado en `if/else` deja de aprender y
+envejece con la primera excepcion. De ahi el reparto:
+
+| Capa | Que es | Donde aterriza | Quien lo garantiza |
+| --- | --- | --- | --- |
+| `00-corpus-maestro` | fuente original | nada, archivo historico | — |
+| `01-rag-produccion` | juicio experto recuperable | `knowledge_documents` (hecho) | el agente, razonando |
+| `02-contratos-IA` | que datos se intercambian | `packages/contracts` + migracion | el tipo y la tabla |
+| `03-runtime` | flujos, estados, orquestacion | maquina de estados + `apps/worker` | el codigo |
+| `04-policies-guardrails` | limites, permisos, autonomia | checks ejecutables **con test** | el test que falla |
+| `05-experience-learning` | outcomes, evidencia, confianza | tablas de outcome + funciones SQL | el dato registrado |
+| `06-tenant-context` | lo configurable por tienda | tablas de config + UI | la configuracion |
+| `99-auditoria` | trazabilidad de la clasificacion | indice de implementacion | este plan |
+
+Corolarios que no se negocian:
+
+- **Un guardrail de `04-policies` nunca se implementa solo como instruccion de
+  prompt.** Va como comprobacion en codigo, con un test que falla si se rompe.
+  Si ademas conviene contarselo al agente, se le cuenta; pero el que manda es el
+  check.
+- **Conocimiento de `01-rag-produccion` no se convierte en codigo.** Si aparece
+  la tentacion de escribir `if (madurez === "early")`, es senal de que ese
+  contenido estaba mal clasificado: o es un criterio (se queda en RAG) o es una
+  politica (se va a `04-policies` y entonces si, codigo).
+- **Un contrato sin su runtime es una tabla muerta.** Ver seccion 2.
+
+## 2. La unidad de trabajo es el bloque, no el fichero
+
+Un bloque (`D05`, `7.04`, `8.05`...) reparte su contenido en varias capas: el
+contrato dice que campos, el runtime cuando se evalua, las policies que limites
+tiene, experience que se registra del resultado y tenant que es configurable.
+
+**Se implementa el bloque entero o no se implementa.** Un `8.05 action envelope`
+con su tabla creada pero sin los guardrails de `04-policies` que la hacen
+vinculante es peor que no tenerlo: parece que hay un limite y no lo hay.
+
+Los artefactos de un bloque se leen en este orden: `02-contratos` (que forma
+tiene el dato) -> `03-runtime` (cuando se calcula) -> `04-policies` (que no
+puede pasar nunca) -> `05-experience` (que se registra despues) ->
+`06-tenant-context` (que decide el cliente).
+
+## 3. Orden: fase a fase, en orden, completa
+
+**Decision 2026-09-14: se implementa fase por fase y bloque por bloque, F3
+entera antes de F4.** Este documento proponia lo contrario y se deja escrito
+por que, para que la decision se pueda revisar con los dos argumentos delante
+y no se re-discuta a ciegas.
+
+Lo que pedia el vertical: F3, F4, F7, F8 y F9 son **etapas de una misma
+tuberia**, no modulos independientes. Atravesarla entera con poco contenido
+(una sola area de negocio) enseña antes si los contratos encajan entre si, y
+evita un motor de diagnostico completo que no desemboca en nada.
+
+Lo que compra ir por fases: cada fase queda **cerrada y correcta** — sus
+invariantes completos, no el subconjunto que el vertical necesitaba — y no se
+vuelve a abrir. El coste conocido y aceptado es que **el encaje entre fases se
+descubre tarde**: F3 no tendra consumidor real hasta que exista F4, y hasta
+entonces sus contratos de salida estan verificados contra el documento, no
+contra un consumidor. Se compensa con la regla del apartado 5: un bloque no
+esta hecho sin test que falle al violar sus invariantes.
+
+```text
+F3 diagnostico -> F4 priorizacion -> F7 recomendacion -> F8 ejecucion -> F9 aprendizaje
+   (completa)      (completa)          (completa)         (completa)      (completa)
+```
+
+### Que significa "completa" — corregido 2026-09-25, al cerrar F3
+
+La primera lectura de "completa" fue **esquema completo**, y con esa lectura la
+fase 3 se dio por cerrada con 23 tablas, 15 contratos y 402 tests... que nadie
+escribe y nadie ve. Es una fase entera de garantias sobre datos que no existen.
+
+A partir de aqui, una fase esta completa cuando cumple **las tres**:
+
+| | Que | Sin esto |
+| --- | --- | --- |
+| **Contrato** | tablas, tipos e invariantes con test | no hay garantia |
+| **Motor** | codigo que **escribe** esas tablas | la garantia no protege nada: no hay filas |
+| **Pixel** | alguien —consultor, cliente o admin— **lo ve** | el producto no cambia |
+
+Las tres, o la fase sigue abierta. **La fase 3 no esta terminada**: tiene el
+contrato y le faltan el motor y el pixel (apartado 8).
+
+El motivo por el que esto se colo: el orden de lectura del apartado 2 pone
+`02-contratos` primero, y `03-runtime` se fue recortando bloque a bloque con un
+motivo razonable cada vez ("todavia no hay senales que procesar"). Quince
+recortes razonables seguidos son una fase sin motor. El recorte de runtime pasa
+a ser excepcional y se justifica contra el bloque que lo desbloquea, con fecha.
+
+## 4. Las olas, ahora como orden dentro de cada fase
+
+La tabla de olas se escribio para el vertical. Con el orden por fases **ya no
+manda el reparto entre fases**, pero se conserva porque sigue diciendo algo
+cierto: que bloques de cada fase son los que sostienen el lazo minimo. Dentro
+de una fase, los marcados **ola 1** van primero.
+
+No las 5 fases de golpe. Cada ola cierra un lazo que ya sirve al consultor.
+
+### Ola 1 — el lazo minimo (detectar -> recomendar -> aprobar -> registrar)
+
+Sin ejecucion automatica: la recomendacion sale, el consultor la aprueba y la
+ejecuta a mano, y el sistema registra que paso. Es un ciclo completo de valor y
+evita toda la maquinaria cara de F8.
+
+| Fase | Bloques | Que entrega |
+| --- | --- | --- |
+| F3 | D01, D05, D06, D10, D11 | senales y sintomas de retencion, con severidad y confianza |
+| F4 | 4.04, 4.06, 4.10, 4.12 | ranking explicable de que atacar antes |
+| F7 | 7.01, 7.02, 7.15, 7.17, 7.18 | recomendacion elegible, con expected outcome y como se comunica |
+| F8 | 8.02, 8.16 | aprobacion humana y captura del resultado |
+| F9 | 9.01, 9.12 | la experiencia queda registrada y clasificada |
+
+18 bloques. Al terminar la ola, `/tareas` propone intervenciones de retencion
+razonadas, con su porque y su resultado esperado, y guarda que paso de verdad.
+
+> **Bloqueo de contenido**: `7.15`, `7.17` y `7.18` tienen corpus maestro pero
+> **no estan destilados** (ninguna capa `02`..`06`). Son el expected outcome, la
+> confianza y la comunicacion de la recomendacion: justo el nucleo de lo que
+> hace util a la ola 1. Hay que pasarlos por el prompt maestro antes de poder
+> cerrarla. Es la unica dependencia de contenido que queda en esta ola.
+
+### Ola 2 — ejecucion supervisada con limites reales
+
+Lo que convierte "el sistema propone" en "el sistema hace, dentro de un
+perimetro". Aqui es donde `04-policies` deja de ser documentacion.
+
+F8: 8.01 (autorizacion), 8.03 (execution plan), 8.05 (action envelope),
+8.09 (guardrails y respuesta), 8.10 (lifecycle y estados), 8.12 (rollback),
+8.15 (verificacion). F3: D07, D08, D09 (grafo causal, hipotesis, root cause),
+que elevan el diagnostico de sintoma a causa.
+
+`8.12` (rollback, recovery y compensacion) tampoco esta destilado. No bloquea la
+ola 1, pero sin el no se puede abrir la ola 2: no se concede autonomia sin saber
+como se deshace lo que se hizo.
+
+### Ola 3 — el aprendizaje que realimenta
+
+F9 sobre el area ya en marcha: 9.04 (calidad de evidencia), 9.05-9.07
+(causalidad frente a correlacion), 9.09 (confidence), 9.19 (earned autonomy),
+9.26 (knowledge promotion). Es lo que permite que la autonomia de la ola 2
+crezca con evidencia en vez de por decision manual.
+
+Solo despues de cerrar las tres olas se replica a la segunda area, y esa
+segunda pasada debe ser mayoritariamente carga de contenido.
+
+## 5. Definition of done de un bloque
+
+Un bloque esta implementado cuando, de sus artefactos:
+
+1. **Contrato** — los campos viven en `packages/contracts` como tipo, y en la
+   base como migracion idempotente (`ADR-0014`, regla de `CLAUDE.md`).
+2. **Runtime — el motor, no su descripcion.** Existe codigo que **escribe**
+   las tablas del bloque: los estados y transiciones ejecutandose, y su job en
+   `apps/worker` si hay trabajo periodico. Un contrato sin runtime es una tabla
+   muerta (apartado 1) y **no cuenta como bloque hecho**. Si el runtime se
+   recorta, se nombra el bloque que lo desbloquea y la fecha en que se vuelve.
+3. **Policies** — *cada* invariante del artefacto tiene una comprobacion
+   ejecutable y un test que falla si se viola. Sin este punto el bloque no
+   esta hecho, aunque el resto funcione.
+4. **Experience** — el outcome se escribe y se puede leer con una funcion SQL
+   `stable` (mismo patron que `ADR-0006` punto 6).
+5. **Tenant** — lo configurable es configurable, o esta fijado a proposito con
+   el motivo escrito al lado.
+6. **Trazabilidad** — la fila del bloque en `conocimiento/IMPLEMENTACION.md`
+   apunta al codigo y queda en `hecho`, y la bitacora de su fase
+   (`conocimiento/fase-XX/IMPLEMENTACION.md`) tiene su entrada.
+7. **Audiencia — y la vista existe.** El bloque dice **quien ve cada cosa** en
+   las tres vistas (cliente, consultor, platform_admin) y donde vive **y esa
+   pantalla esta construida**, con su UX pensada, no solo anotada. Corregido
+   2026-09-25: hasta F3 bastaba con contestarlo por escrito, y el resultado
+   fueron 15 filas de requisitos y cero pixeles. "Todavia nadie lo ve" solo vale
+   mientras el bloque no tenga motor; en cuanto escribe filas, se ven. Ver el
+   apartado 9.
+8. **Consumo por agentes** — el bloque dice **que agente lo usa y a traves de
+   que tool**, o que ninguno y por que. Una tabla que ningun agente puede leer
+   no cambia el comportamiento del producto. Ver el apartado 10.
+
+Lo que el artefacto decia y se ha decidido **no** implementar se anota en su
+fila con el motivo. Un bloque a medias con su recorte escrito es honesto; un
+bloque a medias silencioso es deuda invisible.
+
+## 6. Trazabilidad
+
+**[`conocimiento/IMPLEMENTACION.md`](../conocimiento/IMPLEMENTACION.md)** es el
+indice vivo: 129 bloques, una fila cada uno, con las capas que tiene, la ola, el
+estado y donde vive el codigo. Es la respuesta a "¿esto ya esta hecho?" sin
+abrir 644 ficheros.
+
+Se actualiza en el mismo commit que implementa el bloque, nunca despues.
+
+Lo que queda abierto, separado por quien puede cerrarlo, vive en
+[`conocimiento/TAREAS_PENDIENTES.md`](../conocimiento/TAREAS_PENDIENTES.md):
+lo que necesita a Rafa y la deuda que dejo anotada cada bloque, con su motivo.
+Una deuda que solo vive en una conversacion esta perdida.
+
+Debajo del indice, cada fase tiene su **bitacora**:
+`conocimiento/fase-XX/IMPLEMENTACION.md`. El indice responde *que* esta hecho;
+la bitacora responde *como y por que* — que decision se tomo en cada bloque,
+que alternativa se descarto, que quedo fuera y donde se aplico el esquema. Son
+dos preguntas distintas y por eso son dos ficheros: el indice cabe en una
+pantalla precisamente porque el razonamiento no esta dentro.
+
+De los 129, **5 siguen sin destilar** (corpus maestro sin ninguna capa de
+especificacion): `6.04`, `7.15`, `7.17`, `7.18`, `8.12`. No son opcionales ni
+casuales: tres bloquean la ola 1 y uno la ola 2.
+
+## 7. Lo que no hacemos
+
+- **No convertir los 644 artefactos en especificacion formal por adelantado.**
+  Un artefacto se toca cuando le toca su ola. Ya estan clasificados y
+  versionados: ahi aguantan sin caducar.
+- **No fine-tuning** mientras el comportamiento siga cambiando (`ADR-0017`).
+- **No mover conocimiento entre capas para que encaje con el codigo.** Si un
+  artefacto esta mal clasificado se corrige la clasificacion y se reindexa,
+  no se improvisa en la implementacion.
+- **No implementar F9 sobre datos que no existen.** El aprendizaje necesita
+  outcomes reales; sin ola 1 y 2 cerradas, F9 es teoria.
+- **No tocar fase-4 del corpus** (P02 se perdio, decision tomada 2026-09-14).
+
+## 8. Donde estamos
+
+1. ~~Generar el indice de implementacion~~ — hecho, 129 bloques.
+2. ~~`D00` contrato~~, ~~`D01` calidad de datos~~, ~~`D02`
+   contextualizacion~~, ~~`D03` madurez~~, ~~`D04` salud~~, ~~`D05` senales~~ ~~`D06` sintomas~~ ~~`D07` grafo causal~~ ~~`D08` hipotesis~~ ~~`D09` causa raiz y constraints~~ ~~`D10` severidad e impacto~~ ~~`D11` confianza e incertidumbre~~ ~~`D12` confusores y falsos diagnosticos~~ ~~`D13` diagnostico temporal y regresion~~ y ~~`D14` salida diagnostica y validacion~~ — **los 15 contratos de la fase 3, en test y en produccion**. Contrato hecho; motor y pixel no. Ver
+   [`conocimiento/fase-03/IMPLEMENTACION.md`](../conocimiento/fase-03/IMPLEMENTACION.md).
+3. **Cerrando la fase 3.** ~~`D01` calidad de datos~~, ~~`D02`
+   contextualizacion~~ y ~~`D06` motor de sintomas~~ — **hechos de verdad**:
+   contrato, motor y pantalla. Y entre ellos ya hay cadena de cuatro motores:
+   `D01` dice si el dato aguanta, `D05` que se movio, `D02` si fue rendimiento
+   o composicion, y `D06` que patron forman juntos — heredando cada uno el
+   limite del anterior en vez de volver a afirmarlo desde cero.
+   Queda: (a) **5 flujos escritos sin implementar** (`d03`, `d07`, `d09`,
+   `d10`, `d11`) — esos no hay que inventarlos, hay que escribirlos;
+   (b) **5 bloques que necesitan motor y no tienen flujo escrito** (`D04`,
+   `D08`, `D12`, `D13`, `D14`); (c) **pantalla en 12 de los 15 bloques**.
+   **F4 no se abre hasta que esto cierre.**
+4. **Patron confirmado en cuatro bloques** (`D04` no tiene capa de runtime, asi
+   que no cuenta): la capa `03-runtime` describe un motor
+   y se recorta sistematicamente, porque no hay senales que procesar hasta
+   `D05`. Los contratos, invariantes y tenant-context si se implementan
+   enteros. Cuando se llegue a `D05` habra que volver a `D01` y `D02` a montar
+   sus flujos — esta anotado en cada entrada de la bitacora.
+5. Fuera de la cola de fases, cuando estorbe: destilar `6.04`, `7.15`, `7.17`,
+   `7.18` y `8.12`, y un ADR para el reparto de la seccion 1.
+
+## 9. Audiencia: las tres vistas
+
+Añadido 2026-09-14, despues de `D00`, `D01` y `D02`. Los tres se implementaron
+con RLS de staff **por inercia**: cada uno copio la decision del anterior sin
+que nadie escribiera el criterio. Tres bloques seguidos con la misma decision no
+tomada es un patron, y de ahi sale este apartado.
+
+El sistema tiene tres vistas y cada una necesita algo distinto del mismo dato:
+
+| Vista | Quien | Que necesita de F3..F9 |
+| --- | --- | --- |
+| **Cliente** | el dueno de la tienda | **lo accionable por el, y solo cuando esta resuelto.** Nunca razonamiento a medias: una hipotesis sin contrastar delante de un cliente es alarmismo |
+| **Consultor** | quien asesora | **todo el razonamiento**, incluido lo descartado y por que. Es el destinatario primario: el panel existe para que sepa asesorar |
+| **platform_admin** | operacion de plataforma | **si el motor funciona**: cuantos casos se bloquean, que invariantes saltan, que fuentes fallan en toda la cartera. Agregado, no caso a caso |
+
+### La regla
+
+**El consultor lo ve todo; el cliente ve lo que puede accionar o lo que ya esta
+resuelto; platform_admin ve el agregado.** Un bloque que se aparte de esto lo
+escribe y dice por que.
+
+Esto no es nuevo: es la separacion que ya vive en `portal-shell.tsx` y en
+`ADR-0020`. Lo nuevo es que a partir de aqui se decide **bloque a bloque y por
+escrito**, mientras el contrato esta fresco, en vez de reconstruirlo meses
+despues mirando politicas de RLS.
+
+### Lo que NO significa
+
+Escrito primero asi: *"no significa construir pantallas a la vez que el
+esquema; una pantalla sobre tablas vacias se disena contra datos imaginados y se
+tira"*. El argumento sigue siendo cierto y **la conclusion era mala**: al cerrar
+F3 hay 15 filas de audiencia perfectamente escritas y ni un pixel, porque
+"cuando llegue el motor" nunca llego — el motor tambien se fue recortando.
+
+**Corregido 2026-09-25.** Lo que se aplica desde aqui:
+
+- La pantalla **no** se disena contra tablas vacias — se disena contra las que
+  el motor del propio bloque acaba de llenar. Por eso motor y pixel van juntos
+  en la misma unidad de trabajo, no en fases distintas.
+- La UX se piensa **al leer el contrato**, mientras esta fresco: que pregunta
+  responde esta tabla, a quien, y donde se contesta. Eso es la matriz de
+  audiencia, y ahora es el boceto de una pantalla, no un apunte.
+- Un bloque puede quedarse sin pixel, pero entonces **es un recorte con motivo
+  escrito** (apartado 5), como cualquier otro — no el estado por defecto.
+
+La deuda ya contraida no se reescribe fase a fase: F3 se cierra con su motor y
+sus pantallas antes de abrir F4 (apartado 8).
+
+### Como se comprueba la vista de cliente
+
+Entrando con un usuario cliente. El selector de `admin-view-mode.tsx` solo
+alterna admin/consultor — eso es un atajo que no existe, no un impedimento.
+
+En **test** existe `borregorafa99@gmail.com` (`platform_role = user`, owner de
+la organizacion `5ebc7b02`), asi que la vista de cliente se puede comprobar ahi
+sin tocar produccion. Esa organizacion no tiene tiendas conectadas, de modo que
+los modulos de datos saldran vacios: sirve para comprobar **que se ve y que no**,
+no para ver cifras.
+
+## 10. Los agentes: quien consume lo que construimos
+
+Añadido 2026-09-14, junto al apartado 9 y por el mismo motivo. La pregunta de la
+UI tiene gemela: **una tabla que ningun agente puede leer no cambia el
+comportamiento del producto.** Se contesta por bloque, al implementarlo.
+
+### Lo que ya existe
+
+Los agentes **son datos, no codigo**: `agent_definitions` (codigo, nombre,
+activo) y `agent_versions` (modelo, `prompt_code`, `allowed_tools`,
+`approval_mode`, `config`). Hay 26 definiciones y 24 activas. Consecuencia
+practica y buena: **conectar un bloque de F3 a un agente es anadir una tool y
+subir una version**, no tocar el runtime.
+
+`allowed_tools` es lista blanca por version. Un agente no puede leer nada que no
+este en su lista, por mucho que la tabla exista y la RLS se lo permita.
+
+### El estado real, 2026-09-14
+
+**Ninguna de las 23 tablas de F3 es accesible para ningun agente.** No hay tool
+que las lea. `a09_copiloto_consultor`, que es el candidato natural, tiene 20
+tools y ninguna toca `diagnostic_cases` ni `data_quality_issues`.
+
+No es un fallo: no hay nada escrito que leer. Es el punto de conexion, y tiene
+fecha — `D05`, el primer bloque que produce filas.
+
+### La regla
+
+Cada bloque contesta: **¿que agente lo consume, con que tool, y en que version?**
+"Ninguno todavia, porque nadie escribe estas tablas" es una respuesta valida.
+"No me lo he planteado" no.
+
+Cuando llegue el consumo, el patron es el de siempre: tool nueva en el runtime,
+`allowed_tools` de una version nueva del agente, y el prompt contandole cuando
+usarla. La version anterior se queda: asi se puede comparar.
+
+### Riesgo ya materializado, para no repetirlo
+
+`search_knowledge` esta en 20 de los 24 agentes activos. Cuando se vacio y
+resubio el RAG completo (2026-09-14, 315 documentos), **los 20 cambiaron de
+comportamiento a la vez** y no se midio. Existe infraestructura para medirlo
+(`packages/ai/agent-evals.ts`, `agent-eval-dataset.ts`, `release-gate.ts`), y no
+se uso.
+
+De aqui en adelante: un cambio que toque el corpus o el prompt de un agente con
+`search_knowledge` pasa por sus evals antes de darse por bueno.
+
+### Apunte suelto
+
+`a19_arquitecto_camino` corre en `claude-opus-4-8`; los otros 23 activos, en
+`claude-sonnet-5`. Puede ser deliberado — es el agente que disena el camino
+completo de un cliente — pero no esta escrito en ningun sitio que lo sea.

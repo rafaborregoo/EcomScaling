@@ -14,8 +14,8 @@ import {
   createMetaState,
   debugMetaAccessToken,
   exchangeMetaCodeForLongLivedToken,
+  META_REQUIRED_SCOPES,
   missingMetaScopes,
-  parseMetaScopes,
   resolveMetaAppEnv,
 } from "./meta-oauth.js";
 import {
@@ -984,11 +984,21 @@ export async function handleMetaOAuthCallback(
   try {
     token = await exchangeMetaCodeForLongLivedToken(appEnv, code);
   } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown_error";
+    // La respuesta HTTP se queda en el codigo corto, asi que sin esto el motivo
+    // real de Graph -- que es el unico dato accionable -- no aparece en ningun
+    // sitio.
+    logger.info("meta_token_exchange_failed", {
+      connection_id: pending.id,
+      organization_id: pending.organization_id,
+      redirect_uri: appEnv.META_REDIRECT_URI,
+      detail,
+    });
     return {
       ok: false,
       statusCode: 502,
       error: "meta_token_exchange_failed",
-      detail: error instanceof Error ? error.message : "unknown_error",
+      detail,
     };
   }
 
@@ -1013,8 +1023,13 @@ export async function handleMetaOAuthCallback(
     };
   }
 
-  const requestedScopes = parseMetaScopes(appEnv.META_SCOPES);
-  const missingScopes = missingMetaScopes(requestedScopes, debugToken.scopes);
+  // Se comprueba lo imprescindible, no todo lo que se pidio: un permiso
+  // opcional que Meta no conceda no puede dejar la conexion en error para
+  // siempre. Ver META_REQUIRED_SCOPES.
+  const missingScopes = missingMetaScopes(
+    META_REQUIRED_SCOPES,
+    debugToken.scopes,
+  );
   if (missingScopes.length > 0) {
     await supabase
       .from("integration_connections")

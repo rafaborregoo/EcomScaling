@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (177 archivos).
+-- Regenerado desde supabase/migrations (201 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -19675,3 +19675,9569 @@ using (
 create unique index if not exists knowledge_documents_global_titulo_unico
   on public.knowledge_documents (title)
   where visibility = 'global' and status in ('pending_indexing', 'active');
+
+-- =============================================================================
+-- Migracion: 20260914110000_f3_d00_contrato_de_diagnostico.sql
+-- =============================================================================
+-- FASE 3 / D00 — Contrato de diagnostico.
+--
+-- Fuente: conocimiento/fase-03/02-contratos-IA/D00-contrato-de-diagnostico.md
+--
+-- D00 no diagnostica nada: define que ES un diagnostico y que estructura debe
+-- respetar cualquier motor de la fase 3 (D01..D14) al producirlo. Esta
+-- migracion es su capa de contrato: las tablas donde vive un DIAGNOSTIC_CASE.
+--
+-- DECISION CENTRAL -- por que N tablas y no una con un jsonb.
+-- El apartado 2 del contrato impone separar capas (dato / contexto / senal /
+-- sintoma / hipotesis / evidencia / causa / constraint / severidad /
+-- confianza / diagnostico) precisamente para evitar razonamiento circular:
+-- que el motor tome un sintoma por una causa, o una correlacion por una
+-- explicacion. Guardar todo en un unico documento jsonb dejaria esa
+-- separacion en manos de quien escriba el JSON, es decir, en manos del
+-- modelo. Con una tabla por capa la separacion la sostiene el esquema:
+-- una hipotesis no puede existir sin caso, una evidencia apoya o contradice
+-- de forma explicita, y una hipotesis descartada sigue estando ahi.
+--
+-- COLUMNA O JSONB. Columna para lo que se consulta, se filtra o se restringe
+-- (estado, severidad, confianza, scope, fechas): son las que un guardrail
+-- tendra que comprobar y las que sostienen los indices. jsonb para los
+-- contextos que se leen enteros y cuya forma pertenece a otros bloques
+-- (business_context es F1, maturity_context es F2, data_quality es D01):
+-- fijarlos aqui en columnas seria decidir por ellos antes de tiempo.
+--
+-- SNAPSHOT, NO FK VIVA. business_context, maturity_context y data_quality se
+-- copian dentro del caso en vez de referenciar la fila viva. El apartado 61
+-- exige poder reconstruir despues que datos habia CUANDO se diagnostico; si
+-- apuntaramos a la configuracion actual, releer un caso de hace tres meses
+-- lo mostraria con el contexto de hoy y la traza seria mentira.
+--
+-- FRONTERA. El contrato termina en diagnostico. Prioridad (F4) y accion
+-- (F5+) no tienen columna aqui a proposito: el apartado 40 prohibe que el
+-- motor diagnostico recomiende, y no darle sitio donde escribirlo es mas
+-- barato que prohibirselo por prompt.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+-- ---------------------------------------------------------------------------
+-- DIAGNOSTIC_CASE (apartados 3, 15, 16, 17, 25, 26, 27, 28, 29, 30, 38, 45)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_cases (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  -- Nullable: un caso puede ser de toda la cuenta o de una tienda concreta.
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  -- Apartado 17 -- TARGET: el fenomeno que se intenta explicar. Sin esto
+  -- existen investigaciones sin objetivo.
+  target_metric varchar(80) not null,
+  target_question text not null,
+  -- Apartado 51 -- se conservan los dos: confundir puntos porcentuales con
+  -- porcentaje relativo produce analisis erroneos.
+  target_change_relative numeric,
+  target_change_absolute numeric,
+
+  -- Apartados 15 y 16 -- que se investiga y a que profundidad. Evita que un
+  -- problema de Meta Espana Mobile se convierta en "tu adquisicion esta rota".
+  scope varchar(40) not null,
+  granularity varchar(2) not null default 'L0',
+  -- channel / campaign / device / market / product...
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartado 6 -- anclaje temporal. Comparar periodos incorrectos genera
+  -- diagnosticos completamente falsos.
+  analysis_period_start timestamptz not null,
+  analysis_period_end timestamptz not null,
+  comparison_period_start timestamptz,
+  comparison_period_end timestamptz,
+  -- Apartado 49 -- contra que se compara. Sin baseline explicito no es
+  -- evidencia fuerte.
+  baseline_type varchar(30),
+
+  -- Apartado 25 -- un diagnostico evoluciona, no es una respuesta estatica.
+  status varchar(24) not null default 'open',
+
+  -- Apartado 45 -- diagnosticar no es solo encontrar fallos: el motor tiene
+  -- que poder concluir que algo esta sano, o que hay una oportunidad.
+  finding varchar(20),
+  -- Apartado 44 -- familia del diagnostico.
+  diagnosis_type varchar(20),
+
+  -- Apartado 38 -- la conclusion. Nula mientras el caso no concluya.
+  primary_issue text,
+  root_cause text,
+  -- Apartado 20 -- el constraint no es la root cause: la causa explica por
+  -- que pasa, el constraint que parte del sistema limita hoy el rendimiento.
+  -- ("constraint" a secas es palabra reservada en SQL.)
+  limiting_constraint varchar(60),
+  -- Apartado 22 -- capacidades de F1 afectadas.
+  affected_capabilities text[] not null default '{}',
+
+  severity varchar(20),
+  -- Apartado 29 -- MODERATE + RAPIDLY_DETERIORATING puede ser mas peligroso
+  -- que HIGH + RECOVERING, asi que la trayectoria no es decoracion.
+  trajectory varchar(24),
+  confidence varchar(20),
+
+  -- Apartado 28 -- que parte del negocio afecta. Evita alarmismo.
+  impact_scope jsonb not null default '{}'::jsonb,
+  revenue_share_affected numeric,
+
+  -- Apartado 30 -- cuando empezo. El tiempo es una herramienta causal.
+  onset_at timestamptz,
+  onset_confidence varchar(20),
+
+  -- Apartado 39 -- explicacion humana, sin recomendacion.
+  summary text,
+  -- Apartado 35 -- que no se ha podido mirar.
+  limitations text[] not null default '{}',
+
+  -- Apartado 37 -- D12 desarrolla los confusores; D00 solo exige que quepan.
+  confounders_checked jsonb not null default '{}'::jsonb,
+
+  -- Snapshots: ver cabecera.
+  business_context jsonb not null default '{}'::jsonb,
+  maturity_context jsonb not null default '{}'::jsonb,
+  data_quality jsonb not null default '{}'::jsonb,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint diagnostic_cases_scope check (
+    scope in (
+      'business_global', 'acquisition', 'meta_ads', 'google_ads', 'creative',
+      'conversion', 'product', 'offer', 'retention', 'email', 'inventory',
+      'operations', 'finance', 'data', 'technology', 'team', 'strategy'
+    )
+  ),
+  constraint diagnostic_cases_granularity check (
+    granularity in ('L0', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6')
+  ),
+  constraint diagnostic_cases_status check (
+    status in (
+      'open', 'investigating', 'partially_confirmed', 'confirmed',
+      'inconclusive', 'insufficient_data', 'invalidated'
+    )
+  ),
+  constraint diagnostic_cases_finding check (
+    finding is null or finding in (
+      'strength', 'healthy', 'watch', 'weakness', 'problem',
+      'critical_problem', 'risk', 'opportunity'
+    )
+  ),
+  constraint diagnostic_cases_type check (
+    diagnosis_type is null or diagnosis_type in (
+      'performance', 'structural', 'constraint', 'risk', 'anomaly',
+      'regression', 'dependency', 'data', 'operational', 'financial',
+      'strategic', 'opportunity'
+    )
+  ),
+  constraint diagnostic_cases_severity check (
+    severity is null or severity in (
+      'info', 'low', 'moderate', 'high', 'critical', 'business_threat'
+    )
+  ),
+  constraint diagnostic_cases_trajectory check (
+    trajectory is null or trajectory in (
+      'improving', 'stable', 'deteriorating', 'rapidly_deteriorating',
+      'recovering', 'volatile', 'unknown'
+    )
+  ),
+  constraint diagnostic_cases_confidence check (
+    confidence is null or confidence in (
+      'high', 'medium', 'low', 'insufficient_data'
+    )
+  ),
+  constraint diagnostic_cases_onset_confidence check (
+    onset_confidence is null or onset_confidence in ('high', 'medium', 'low')
+  ),
+  constraint diagnostic_cases_baseline check (
+    baseline_type is null or baseline_type in (
+      'previous_period', 'year_over_year', 'rolling_average', 'business_target',
+      'historical_normal', 'pre_event', 'control_group', 'peer_group', 'benchmark'
+    )
+  ),
+  constraint diagnostic_cases_periodo check (
+    analysis_period_end > analysis_period_start
+  ),
+  -- Apartado 46 -- no se puede afirmar una causa sin decir cuanta confianza
+  -- hay. Un caso concluido sin confianza seria exactamente el lenguaje
+  -- categorico sobre evidencia debil que el apartado 47 prohibe.
+  constraint diagnostic_cases_concluido_con_confianza check (
+    status not in ('confirmed', 'partially_confirmed')
+    or (confidence is not null and severity is not null)
+  )
+);
+
+comment on table public.diagnostic_cases is
+  'F3/D00. Una investigacion diagnostica. Termina en diagnostico: la prioridad es F4 y la accion F5+, y no tienen columna aqui a proposito.';
+
+comment on column public.diagnostic_cases.limiting_constraint is
+  'Que limita hoy el rendimiento (apartado 20). No es la root cause: un negocio puede tener muchos problemas y pocos constraints reales.';
+
+comment on column public.diagnostic_cases.business_context is
+  'Copia del contexto de negocio (F1) tal como estaba al diagnosticar, no referencia viva: releer el caso debe mostrar lo que se sabia entonces.';
+
+comment on column public.diagnostic_cases.maturity_context is
+  'Copia de la madurez detectada (F2). Una misma observacion se interpreta distinto segun la etapa (apartado 24).';
+
+create index if not exists diagnostic_cases_org_idx
+  on public.diagnostic_cases (organization_id, created_at desc);
+
+create index if not exists diagnostic_cases_store_idx
+  on public.diagnostic_cases (store_id, created_at desc)
+  where store_id is not null;
+
+-- Los casos vivos se consultan mucho mas que los cerrados.
+create index if not exists diagnostic_cases_abiertos_idx
+  on public.diagnostic_cases (organization_id, status, severity)
+  where status in ('open', 'investigating', 'partially_confirmed');
+
+drop trigger if exists set_diagnostic_cases_updated_at on public.diagnostic_cases;
+create trigger set_diagnostic_cases_updated_at
+before update on public.diagnostic_cases
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- OBSERVATION (apartados 8, 13, 49, 51) -- un hecho medido, todavia no senal
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_observations (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+
+  metric varchar(80) not null,
+  value numeric,
+  previous_value numeric,
+  change_absolute numeric,
+  change_relative numeric,
+
+  period_start timestamptz,
+  period_end timestamptz,
+  -- Apartado 50 -- device / market / browser / customer_type...
+  segment jsonb not null default '{}'::jsonb,
+
+  -- Apartado 7 -- la procedencia del dato forma parte de la evidencia.
+  source varchar(40) not null,
+  -- Apartado 13 -- UNKNOWN es informacion diagnostica, no un error. Por eso
+  -- una observacion puede existir con value nulo: "no lo se" se registra.
+  knowledge_state varchar(20) not null default 'known',
+  reliability varchar(10),
+  baseline_type varchar(30),
+
+  created_at timestamptz not null default now(),
+
+  constraint diagnostic_observations_knowledge_state check (
+    knowledge_state in ('known', 'unknown', 'unavailable', 'unreliable', 'not_applicable')
+  ),
+  constraint diagnostic_observations_reliability check (
+    reliability is null or reliability in ('high', 'medium', 'low')
+  ),
+  -- Si se afirma conocerla, tiene que haber valor. Y al reves: un valor
+  -- guardado como "unknown" seria un dato fantasma que luego alguien citaria.
+  constraint diagnostic_observations_known_con_valor check (
+    (knowledge_state = 'known') = (value is not null)
+  )
+);
+
+comment on table public.diagnostic_observations is
+  'F3/D00 apartado 8. Hecho medido. Una observacion no es una senal ni un diagnostico. knowledge_state distinto de known es informacion valida: el motor debe poder decir que no sabe.';
+
+create index if not exists diagnostic_observations_case_idx
+  on public.diagnostic_observations (case_id, metric);
+
+-- ---------------------------------------------------------------------------
+-- SIGNAL (apartados 9, 52) -- observacion que adquiere relevancia
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_signals (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  -- Una senal nace de una observacion concreta: si no se puede senalar cual,
+  -- no es una senal, es una impresion.
+  observation_id uuid not null references public.diagnostic_observations (id) on delete cascade,
+
+  signal_type varchar(60) not null,
+  direction varchar(6) not null,
+  magnitude numeric,
+  -- Apartado 52 -- magnitud y persistencia son dimensiones distintas: -11%
+  -- durante 28 dias importa mas que -40% durante una hora.
+  persistence_days integer,
+
+  statistical_relevance varchar(10),
+  business_relevance varchar(10),
+
+  created_at timestamptz not null default now(),
+
+  constraint diagnostic_signals_direction check (direction in ('up', 'down', 'flat')),
+  constraint diagnostic_signals_statistical check (
+    statistical_relevance is null or statistical_relevance in ('high', 'medium', 'low')
+  ),
+  constraint diagnostic_signals_business check (
+    business_relevance is null or business_relevance in ('high', 'medium', 'low')
+  ),
+  constraint diagnostic_signals_persistencia check (
+    persistence_days is null or persistence_days >= 0
+  )
+);
+
+comment on table public.diagnostic_signals is
+  'F3/D00 apartado 9. Observacion con relevancia empresarial. No toda variacion es una senal: esa distincion la desarrolla D05.';
+
+create index if not exists diagnostic_signals_case_idx
+  on public.diagnostic_signals (case_id, signal_type);
+
+-- ---------------------------------------------------------------------------
+-- SYMPTOM (apartado 10) -- patron formado por varias senales
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_symptoms (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  symptom_type varchar(80) not null,
+  description text,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.diagnostic_symptoms is
+  'F3/D00 apartado 10. Interpretacion empresarial de varias senales. Describe que patron parece ocurrir; todavia no afirma causa.';
+
+create index if not exists diagnostic_symptoms_case_idx
+  on public.diagnostic_symptoms (case_id);
+
+-- Un sintoma se apoya en varias senales (CTR abajo + CPC arriba + CPM plano);
+-- la relacion es N:M y es lo que permite reconstruir por que se interpreto asi.
+create table if not exists public.diagnostic_symptom_signals (
+  symptom_id uuid not null references public.diagnostic_symptoms (id) on delete cascade,
+  signal_id uuid not null references public.diagnostic_signals (id) on delete cascade,
+  primary key (symptom_id, signal_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- HYPOTHESIS (apartados 11, 34) -- incluidas las descartadas
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_hypotheses (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  -- H1, H2... dentro del caso. Es como las nombra el contrato y como se citan
+  -- entre si las evidencias y los data gaps.
+  code varchar(8) not null,
+  statement text not null,
+
+  -- Apartado 34 -- guardar solo la conclusion final destruiria la
+  -- trazabilidad: las rechazadas se quedan, con su motivo.
+  status varchar(24) not null default 'possible',
+  rejection_reason text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint diagnostic_hypotheses_status check (
+    status in ('possible', 'supported', 'strongly_supported', 'rejected', 'unsupported', 'untestable')
+  ),
+  -- Rechazar sin decir por que es exactamente perder la trazabilidad que el
+  -- apartado 34 quiere conservar.
+  constraint diagnostic_hypotheses_rechazo_motivado check (
+    status <> 'rejected' or rejection_reason is not null
+  ),
+  constraint diagnostic_hypotheses_code_unico unique (case_id, code)
+);
+
+comment on table public.diagnostic_hypotheses is
+  'F3/D00 apartado 11. Explicaciones posibles de un sintoma. Nunca sintoma -> explicacion unica automatica; el motor reduce el espacio de hipotesis, no lo salta.';
+
+create index if not exists diagnostic_hypotheses_case_idx
+  on public.diagnostic_hypotheses (case_id, status);
+
+drop trigger if exists set_diagnostic_hypotheses_updated_at on public.diagnostic_hypotheses;
+create trigger set_diagnostic_hypotheses_updated_at
+before update on public.diagnostic_hypotheses
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- EVIDENCE LEDGER (apartados 12, 32, 33)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_evidence (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  -- EV-001... dentro del caso, como en el apartado 33.
+  code varchar(8) not null,
+
+  source varchar(40) not null,
+  metric varchar(80),
+  period_start timestamptz,
+  period_end timestamptz,
+  segment jsonb not null default '{}'::jsonb,
+  observation text not null,
+  reliability varchar(10),
+
+  created_at timestamptz not null default now(),
+
+  constraint diagnostic_evidence_reliability check (
+    reliability is null or reliability in ('high', 'medium', 'low')
+  ),
+  constraint diagnostic_evidence_code_unico unique (case_id, code)
+);
+
+comment on table public.diagnostic_evidence is
+  'F3/D00 apartados 32 y 33. Registro completo de evidencias del caso, para auditoria posterior desde el panel administrativo.';
+
+create index if not exists diagnostic_evidence_case_idx
+  on public.diagnostic_evidence (case_id);
+
+-- Apartado 12 -- una evidencia apoya o contradice, y eso se guarda explicito.
+-- Es lo que evita el sesgo de confirmacion: sin la columna `relation` nadie
+-- distingue "lo tuve en cuenta y iba en contra" de "no lo mire".
+create table if not exists public.diagnostic_hypothesis_evidence (
+  hypothesis_id uuid not null references public.diagnostic_hypotheses (id) on delete cascade,
+  evidence_id uuid not null references public.diagnostic_evidence (id) on delete cascade,
+  relation varchar(12) not null,
+  primary key (hypothesis_id, evidence_id),
+  constraint diagnostic_hypothesis_evidence_relation check (
+    relation in ('supports', 'contradicts')
+  )
+);
+
+comment on table public.diagnostic_hypothesis_evidence is
+  'F3/D00 apartado 12. Evidencia a favor y en contra de cada hipotesis. Guardar solo lo que apoya es sesgo de confirmacion.';
+
+-- ---------------------------------------------------------------------------
+-- DATA_GAP (apartado 14) -- lo que falta para poder concluir
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_data_gaps (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  -- Nullable: puede faltar un dato para el caso entero, no solo para una
+  -- hipotesis concreta.
+  hypothesis_id uuid references public.diagnostic_hypotheses (id) on delete cascade,
+
+  required_data text not null,
+  reason text not null,
+  impact_on_diagnosis varchar(10) not null default 'medium',
+
+  created_at timestamptz not null default now(),
+
+  constraint diagnostic_data_gaps_impact check (
+    impact_on_diagnosis in ('high', 'medium', 'low')
+  )
+);
+
+comment on table public.diagnostic_data_gaps is
+  'F3/D00 apartado 14. Lo que haria falta para distinguir entre hipotesis. Decir que falta es mas valioso que inventar la explicacion.';
+
+create index if not exists diagnostic_data_gaps_case_idx
+  on public.diagnostic_data_gaps (case_id);
+
+-- ---------------------------------------------------------------------------
+-- CASOS RELACIONADOS (apartados 42, 43)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_case_links (
+  from_case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  to_case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  relation varchar(20) not null,
+  created_at timestamptz not null default now(),
+  primary key (from_case_id, to_case_id, relation),
+  constraint diagnostic_case_links_relation check (
+    relation in ('causes', 'consequence', 'secondary', 'associated_risk')
+  ),
+  constraint diagnostic_case_links_no_reflexivo check (from_case_id <> to_case_id)
+);
+
+comment on table public.diagnostic_case_links is
+  'F3/D00 apartados 42 y 43. Un ecommerce tiene varios problemas a la vez y encadenados. Sin esto, la ineficiencia publicitaria parece el problema principal cuando el trafico llega a productos sin stock.';
+
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+--
+-- Lectura de staff, no del cliente final. Un caso abierto contiene hipotesis
+-- a medio contrastar y evidencia todavia sin pesar: ensenarlo antes de que el
+-- consultor lo revise es ensenar sospechas como si fueran conclusiones, justo
+-- lo que el apartado 47 prohibe. Abrirlo al cliente mas adelante (por ejemplo
+-- solo casos `confirmed`) es una policy nueva; cerrarlo despues de haberlo
+-- filtrado no tiene vuelta atras.
+--
+-- Escritura solo por service role, sin policy de insert, como el resto del
+-- runtime de IA.
+
+alter table public.diagnostic_cases enable row level security;
+alter table public.diagnostic_observations enable row level security;
+alter table public.diagnostic_signals enable row level security;
+alter table public.diagnostic_symptoms enable row level security;
+alter table public.diagnostic_symptom_signals enable row level security;
+alter table public.diagnostic_hypotheses enable row level security;
+alter table public.diagnostic_evidence enable row level security;
+alter table public.diagnostic_hypothesis_evidence enable row level security;
+alter table public.diagnostic_data_gaps enable row level security;
+alter table public.diagnostic_case_links enable row level security;
+
+drop policy if exists "diagnostic_cases_select_staff" on public.diagnostic_cases;
+create policy "diagnostic_cases_select_staff" on public.diagnostic_cases
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+-- Las tablas hijas heredan el permiso de su caso: quien puede ver el caso ve
+-- su trazabilidad, y quien no, no. Repetir aqui la condicion de organizacion
+-- la duplicaria en diez sitios y dejaria diez sitios donde equivocarse.
+drop policy if exists "diagnostic_observations_select_staff" on public.diagnostic_observations;
+create policy "diagnostic_observations_select_staff" on public.diagnostic_observations
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = case_id));
+
+drop policy if exists "diagnostic_signals_select_staff" on public.diagnostic_signals;
+create policy "diagnostic_signals_select_staff" on public.diagnostic_signals
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = case_id));
+
+drop policy if exists "diagnostic_symptoms_select_staff" on public.diagnostic_symptoms;
+create policy "diagnostic_symptoms_select_staff" on public.diagnostic_symptoms
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = case_id));
+
+drop policy if exists "diagnostic_symptom_signals_select_staff" on public.diagnostic_symptom_signals;
+create policy "diagnostic_symptom_signals_select_staff" on public.diagnostic_symptom_signals
+  for select to authenticated
+  using (
+    exists (select 1 from public.diagnostic_symptoms s where s.id = symptom_id)
+  );
+
+drop policy if exists "diagnostic_hypotheses_select_staff" on public.diagnostic_hypotheses;
+create policy "diagnostic_hypotheses_select_staff" on public.diagnostic_hypotheses
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = case_id));
+
+drop policy if exists "diagnostic_evidence_select_staff" on public.diagnostic_evidence;
+create policy "diagnostic_evidence_select_staff" on public.diagnostic_evidence
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = case_id));
+
+drop policy if exists "diagnostic_hypothesis_evidence_select_staff" on public.diagnostic_hypothesis_evidence;
+create policy "diagnostic_hypothesis_evidence_select_staff" on public.diagnostic_hypothesis_evidence
+  for select to authenticated
+  using (
+    exists (select 1 from public.diagnostic_hypotheses h where h.id = hypothesis_id)
+  );
+
+drop policy if exists "diagnostic_data_gaps_select_staff" on public.diagnostic_data_gaps;
+create policy "diagnostic_data_gaps_select_staff" on public.diagnostic_data_gaps
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = case_id));
+
+drop policy if exists "diagnostic_case_links_select_staff" on public.diagnostic_case_links;
+create policy "diagnostic_case_links_select_staff" on public.diagnostic_case_links
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = from_case_id));
+
+-- =============================================================================
+-- Migracion: 20260914160000_f3_d01_calidad_y_fiabilidad_de_datos.sql
+-- =============================================================================
+-- FASE 3 / D01 — Calidad y fiabilidad de los datos.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d01-requisitos-contrato-calidad-datos.md
+--          conocimiento/fase-03/04-policies-guardrails/d01-guardrails-calidad-diagnostico.md
+--          conocimiento/fase-03/06-tenant-context/d01-configuracion-calidad-y-semantica.md
+--
+-- D01 responde a una sola pregunta, antes que cualquier motor de la fase 3:
+-- ¿el dato disponible aguanta la interpretacion que se le quiere dar? Es el
+-- bloque que impide que "las ventas han caido" signifique en realidad "el
+-- pixel dejo de disparar".
+--
+-- QUE LE FALTABA A D00. `diagnostic_cases.data_quality` es un jsonb libre: el
+-- contrato exigia que la calidad del dato cupiera en el caso, pero no habia
+-- catalogo detras. Esta migracion es ese catalogo. El jsonb se queda como
+-- snapshot (apartado 61 de D00: releer un caso debe mostrar lo que se sabia
+-- entonces) y las tablas de aqui son la evaluacion viva.
+--
+-- EL ARTEFACTO NO DEFINE ESQUEMA, A PROPOSITO. Su apartado 18 dice
+-- explicitamente que no se inventen tablas, columnas ni ids a partir de el, y
+-- que eso es trabajo de un contrato tecnico posterior. Esta migracion ES ese
+-- contrato tecnico: los vocabularios cerrados (freshness, missingness,
+-- variance, roles de fuente) salen literalmente del documento; los nombres de
+-- tabla y columna son decision de aqui.
+--
+-- CONFIGURACION Y OBSERVACION SON COSAS DISTINTAS. El apartado 13 del tenant
+-- context lo exige: `data_source_expectations` y `tenant_metric_definitions`
+-- son configuracion estable del ecommerce (que cadencia se espera, que es
+-- "revenue" en esta tienda); `data_quality_assessments`, `_issues` y
+-- `data_source_reconciliations` son telemetria de una evaluacion concreta.
+-- Mezclarlas haria que cambiar la definicion de CAC reescribiera el pasado.
+--
+-- LA DEFINICION DE UNA METRICA ES UNA SERIE TEMPORAL, NO UN VALOR. El
+-- apartado 3 exige poder declarar METRIC_DEFINITION_DRIFT. Con una fila por
+-- metrica no se puede: se sobreescribe y el historico queda comparado contra
+-- una formula que entonces no existia (guardrail 10). Por eso la definicion
+-- lleva `effective_from`/`effective_to` y el drift es, simplemente, que haya
+-- mas de una fila vigente en el periodo comparado.
+--
+-- LO QUE NO SE COMPARA, NO SE RESTA. En `data_source_reconciliations`, si las
+-- fuentes no son comparables las columnas de diferencia tienen que quedar
+-- nulas (guardrail 6). Y una discrepancia no se convierte en error hasta que
+-- alguien escribe por que (guardrail 4): son dos fuentes que pueden estar
+-- midiendo cosas distintas, no una rota.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+-- ---------------------------------------------------------------------------
+-- TENANT CONTEXT 1 — que se espera de cada fuente (tenant apartados 1, 2, 6)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.data_source_expectations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  -- De donde viene el dato y que mide. `phenomenon` es lo que el negocio
+  -- quiere saber (orders, revenue, spend...); `dataset` es como lo llama esa
+  -- fuente. No son lo mismo y confundirlos es el guardrail 8.
+  source varchar(40) not null,
+  dataset varchar(60) not null,
+  phenomenon varchar(40) not null,
+
+  -- Apartado 2 del tenant context -- no se asume que Shopify sea siempre la
+  -- fuente primaria de revenue ni que analytics lo sea de traffic: cada
+  -- ecommerce lo resuelve con su arquitectura.
+  source_role varchar(20) not null,
+
+  -- Apartado 1 -- la freshness no tiene un umbral global (guardrail 1).
+  -- Pedidos live se miden en minutos y un P&L mensual en dias: el umbral es
+  -- esta columna, no una constante del codigo.
+  expected_cadence_minutes integer,
+  delay_tolerance_minutes integer,
+  time_sensitivity varchar(20),
+
+  ingestion_mechanism varchar(20),
+  -- Apartado 5 -- la referencia temporal de reporting. Sin esto, comparar
+  -- dias entre fuentes en husos distintos produce caidas que no existen.
+  source_timezone text,
+  notes text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint data_source_expectations_role check (
+    source_role in ('primary', 'secondary', 'validation', 'derived')
+  ),
+  constraint data_source_expectations_sensibilidad check (
+    time_sensitivity is null
+    or time_sensitivity in ('real_time', 'high', 'medium', 'low')
+  ),
+  constraint data_source_expectations_ingesta check (
+    ingestion_mechanism is null
+    or ingestion_mechanism in ('webhook', 'batch', 'api_pull', 'manual', 'derived')
+  ),
+  constraint data_source_expectations_cadencia_positiva check (
+    expected_cadence_minutes is null or expected_cadence_minutes > 0
+  ),
+  -- Guardrail 22 -- una fuente derivada no puede declararse mas fresca que
+  -- sus inputs, asi que tampoco puede prometer cadencia propia.
+  constraint data_source_expectations_derivada_sin_cadencia check (
+    source_role <> 'derived' or expected_cadence_minutes is null
+  )
+);
+
+comment on table public.data_source_expectations is
+  'F3/D01 tenant-context. Que se espera de cada fuente en ESTA tienda: cadencia, rol y huso. Configuracion estable, no telemetria (tenant apartado 13).';
+
+comment on column public.data_source_expectations.expected_cadence_minutes is
+  'Cadencia esperada de actualizacion. El guardrail 1 prohibe un umbral global de freshness: el umbral vive aqui, por fuente y uso.';
+
+create unique index if not exists data_source_expectations_unico_idx
+  on public.data_source_expectations (
+    organization_id,
+    coalesce(store_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    source,
+    dataset,
+    phenomenon
+  );
+
+-- Apartado 2 -- un fenomeno tiene una sola fuente primaria. Dos primarias es
+-- justo la ambiguedad que el paso 4 del runtime tiene que resolver antes de
+-- reconciliar nada.
+create unique index if not exists data_source_expectations_primaria_idx
+  on public.data_source_expectations (
+    organization_id,
+    coalesce(store_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    phenomenon
+  )
+  where source_role = 'primary';
+
+drop trigger if exists set_data_source_expectations_updated_at on public.data_source_expectations;
+create trigger set_data_source_expectations_updated_at
+before update on public.data_source_expectations
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- TENANT CONTEXT 2 — que significa cada metrica AQUI (tenant apartados 3, 4, 8, 9)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.tenant_metric_definitions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  metric varchar(80) not null,
+  definition text not null,
+  -- Solo si es derivada. El guardrail 24 pide lineage para usarla como
+  -- evidencia fuerte; la formula es el minimo de ese lineage.
+  formula text,
+
+  -- Apartado 11 del contrato -- gross, net, total y recognized revenue no son
+  -- sinonimos, y mezclarlos es el guardrail 9.
+  revenue_basis varchar(24),
+  includes_shipping boolean,
+  includes_taxes boolean,
+  discount_treatment varchar(24),
+  refund_recognition varchar(24),
+  -- Apartado 9 del tenant context -- que estados de pedido cuentan como
+  -- negocio real en esta tienda.
+  included_order_states text[] not null default '{}',
+
+  reporting_currency char(3),
+  scope varchar(40),
+
+  -- Apartado 3 del contrato -- METRIC_DEFINITION_DRIFT. La definicion es una
+  -- serie temporal: comparar dos periodos que caen a lados distintos de un
+  -- cambio de formula es el guardrail 10.
+  effective_from timestamptz not null default now(),
+  effective_to timestamptz,
+  change_reason text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint tenant_metric_definitions_revenue_basis check (
+    revenue_basis is null or revenue_basis in (
+      'gross_sales', 'net_sales', 'total_sales', 'recognized_revenue'
+    )
+  ),
+  constraint tenant_metric_definitions_descuentos check (
+    discount_treatment is null or discount_treatment in (
+      'included', 'excluded', 'net_of_discounts'
+    )
+  ),
+  constraint tenant_metric_definitions_refunds check (
+    refund_recognition is null or refund_recognition in (
+      'at_order_date', 'at_refund_date', 'not_deducted'
+    )
+  ),
+  constraint tenant_metric_definitions_vigencia check (
+    effective_to is null or effective_to > effective_from
+  ),
+  -- Una definicion que se sustituye sin decir por que borra la razon del
+  -- drift, que es justo lo que hay que leer al comparar historico.
+  constraint tenant_metric_definitions_cierre_motivado check (
+    effective_to is null or change_reason is not null
+  )
+);
+
+comment on table public.tenant_metric_definitions is
+  'F3/D01 tenant-context. Que significa una metrica en ESTA tienda, con vigencia: dos filas del mismo metric son METRIC_DEFINITION_DRIFT (contrato apartado 3).';
+
+comment on column public.tenant_metric_definitions.effective_to is
+  'Null = definicion vigente. Al cerrarla se exige change_reason: sin el motivo, una comparacion historica no puede saber que cambio.';
+
+create unique index if not exists tenant_metric_definitions_unico_idx
+  on public.tenant_metric_definitions (
+    organization_id,
+    coalesce(store_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    metric,
+    effective_from
+  );
+
+-- Una sola definicion vigente por metrica: si hubiera dos, ningun motor
+-- sabria cual aplica y el guardrail 8 dejaria de poder comprobarse.
+create unique index if not exists tenant_metric_definitions_vigente_idx
+  on public.tenant_metric_definitions (
+    organization_id,
+    coalesce(store_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    metric
+  )
+  where effective_to is null;
+
+drop trigger if exists set_tenant_metric_definitions_updated_at on public.tenant_metric_definitions;
+create trigger set_tenant_metric_definitions_updated_at
+before update on public.tenant_metric_definitions
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- EVALUACION — freshness, cobertura y fiabilidad (contrato apartados 1, 7, 13, 14, 15)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.data_quality_assessments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  source varchar(40) not null,
+  dataset varchar(60) not null,
+  phenomenon varchar(40) not null,
+
+  -- Apartado 15 -- la fiabilidad no es global. Una fuente puede ser solida en
+  -- Espana y no cubrir Francia; declararla "buena" a secas es el guardrail 3.
+  scope varchar(40) not null default 'global',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  period_start timestamptz not null,
+  period_end timestamptz not null,
+  -- Apartado 14 -- un periodo abierto no se compara contra uno cerrado
+  -- (guardrail 18).
+  period_settlement varchar(20) not null default 'unknown',
+
+  -- Freshness contra la cadencia esperada, no contra un umbral fijo: se copia
+  -- la cadencia que regia al evaluar, por el mismo motivo que D00 guarda
+  -- snapshots -- releer la evaluacion debe mostrar contra que se juzgo.
+  last_sync_at timestamptz,
+  expected_cadence_minutes integer,
+  freshness varchar(20) not null,
+
+  -- Apartado 1 -- cobertura y ausencias.
+  expected_observations bigint,
+  available_observations bigint,
+  coverage numeric,
+  missingness varchar(30),
+
+  -- Apartado 7 -- granularidad. Una senal real con granularidad insuficiente
+  -- no se confirma: se declara el gap (rama E del runtime).
+  granularity_available varchar(20),
+  granularity_required varchar(20),
+  granularity_sufficient boolean,
+
+  -- Apartado 13 -- fragilidad estadistica (guardrails 29, 30, 31).
+  sampled boolean not null default false,
+  sampling_rate numeric,
+  evidence_fragility varchar(30),
+
+  -- Apartado 6 -- moneda y tiempo. Sin esto, FX y husos se confunden con
+  -- negocio (guardrails 20, 21).
+  source_timezone text,
+  reporting_timezone text,
+  native_currency char(3),
+  reporting_currency char(3),
+  conversion_rate numeric,
+  conversion_at timestamptz,
+
+  reliability varchar(20) not null,
+  -- Apartado 1 -- "razones que justifican la degradacion". Una fiabilidad
+  -- baja sin motivo no es evaluable ni discutible.
+  degradation_reasons text[] not null default '{}',
+
+  assessed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint data_quality_assessments_freshness check (
+    freshness in (
+      'real_time', 'fresh', 'delayed', 'stale', 'severely_stale', 'unknown'
+    )
+  ),
+  constraint data_quality_assessments_missingness check (
+    missingness is null or missingness in (
+      'random', 'systematic', 'time_range', 'segment', 'source'
+    )
+  ),
+  constraint data_quality_assessments_reliability check (
+    reliability in ('high', 'medium', 'low', 'unusable')
+  ),
+  constraint data_quality_assessments_settlement check (
+    period_settlement in ('open', 'partially_settled', 'settled', 'unknown')
+  ),
+  constraint data_quality_assessments_fragilidad check (
+    evidence_fragility is null or evidence_fragility in (
+      'low_sample', 'high_variance', 'insufficient_observations'
+    )
+  ),
+  constraint data_quality_assessments_granularidad check (
+    (
+      granularity_available is null or granularity_available in (
+        'real_time', 'hourly', 'daily', 'weekly', 'monthly', 'campaign',
+        'adset', 'ad', 'product', 'sku', 'customer'
+      )
+    )
+    and (
+      granularity_required is null or granularity_required in (
+        'real_time', 'hourly', 'daily', 'weekly', 'monthly', 'campaign',
+        'adset', 'ad', 'product', 'sku', 'customer'
+      )
+    )
+  ),
+  constraint data_quality_assessments_periodo check (period_end > period_start),
+  constraint data_quality_assessments_coverage_rango check (
+    coverage is null or (coverage >= 0 and coverage <= 1)
+  ),
+  constraint data_quality_assessments_observaciones check (
+    expected_observations is null
+    or available_observations is null
+    or (expected_observations >= 0 and available_observations >= 0)
+  ),
+  -- Guardrail 32 -- una cobertura sin denominador es un porcentaje inventado.
+  constraint data_quality_assessments_coverage_con_denominador check (
+    coverage is null or expected_observations is not null
+  ),
+  -- Guardrail 2 -- no tratar datos incompletos como completos. Si falta algo,
+  -- hay que decir de que tipo es la ausencia: no es lo mismo que falten dias
+  -- sueltos que que falte entero un mercado.
+  constraint data_quality_assessments_incompleto_declara_ausencia check (
+    coverage is null or coverage >= 1 or missingness is not null
+  ),
+  -- Guardrail 1 + 22 -- un dato obsoleto o de frescura desconocida no sostiene
+  -- fiabilidad alta.
+  constraint data_quality_assessments_alta_exige_frescura check (
+    reliability <> 'high'
+    or freshness in ('real_time', 'fresh', 'delayed')
+  ),
+  -- Guardrails 29, 30 -- evidencia fragil no es evidencia fuerte.
+  constraint data_quality_assessments_fragil_no_es_alta check (
+    evidence_fragility is null or reliability <> 'high'
+  ),
+  -- Apartado 1 -- degradar sin motivo escrito no es evaluar, es opinar.
+  constraint data_quality_assessments_degradacion_motivada check (
+    reliability not in ('low', 'unusable')
+    or cardinality(degradation_reasons) > 0
+  ),
+  -- Guardrail 21 -- si hay dos monedas hay conversion, y una conversion sin
+  -- tipo ni momento no se puede auditar.
+  constraint data_quality_assessments_fx_completo check (
+    native_currency is null
+    or reporting_currency is null
+    or native_currency = reporting_currency
+    or (conversion_rate is not null and conversion_at is not null)
+  )
+);
+
+comment on table public.data_quality_assessments is
+  'F3/D01. Una evaluacion de si el dato de una fuente aguanta el uso: freshness, cobertura y fiabilidad para un scope y periodo concretos.';
+
+comment on column public.data_quality_assessments.scope is
+  'La fiabilidad se evalua por segmento, no solo por integracion (contrato apartado 15). "La fuente esta bien" a secas es el guardrail 3.';
+
+comment on column public.data_quality_assessments.expected_cadence_minutes is
+  'Copia de la cadencia esperada al evaluar, no referencia viva: releer la evaluacion debe mostrar contra que umbral se juzgo entonces.';
+
+create index if not exists data_quality_assessments_org_idx
+  on public.data_quality_assessments (organization_id, assessed_at desc);
+
+create index if not exists data_quality_assessments_fuente_idx
+  on public.data_quality_assessments (organization_id, source, phenomenon, assessed_at desc);
+
+-- Lo que se consulta antes de diagnosticar: que fuentes NO aguantan.
+create index if not exists data_quality_assessments_degradadas_idx
+  on public.data_quality_assessments (organization_id, reliability, assessed_at desc)
+  where reliability in ('low', 'unusable');
+
+drop trigger if exists set_data_quality_assessments_updated_at on public.data_quality_assessments;
+create trigger set_data_quality_assessments_updated_at
+before update on public.data_quality_assessments
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- ISSUE — la anomalia tecnica concreta (contrato apartados 4, 8, 12, 17)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.data_quality_issues (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+  -- Nullable: un permission gap se detecta al conectar, sin evaluacion previa.
+  assessment_id uuid references public.data_quality_assessments (id) on delete set null,
+
+  issue_type varchar(40) not null,
+  source varchar(40) not null,
+  dataset varchar(60),
+  phenomenon varchar(40),
+  scope varchar(40) not null default 'global',
+
+  description text not null,
+  severity varchar(20) not null,
+  -- "Material" = cambia la interpretacion. Un issue real pero irrelevante
+  -- para la pregunta no debe bloquear nada (guardrail 34 al reves).
+  material boolean not null default false,
+
+  status varchar(20) not null default 'open',
+  -- Apartado 17 -- que le pasa al diagnostico de aguas abajo.
+  downstream_effect varchar(20) not null default 'none',
+  explanation text,
+
+  detected_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint data_quality_issues_tipo check (
+    issue_type in (
+      -- Salud de integracion (apartado 8, guardrails 12, 13, 14)
+      'permission_gap', 'credential_expired', 'rate_limited', 'partial_sync',
+      'webhook_failure', 'duplicate_delivery', 'ingestion_degraded',
+      -- Tracking y schema (apartado 4, guardrails 15, 16)
+      'schema_drift', 'missing_events', 'duplicate_events', 'payload_error',
+      'timestamp_error', 'funnel_inconsistency', 'tracking_regression',
+      -- Semantica y atribucion (apartados 3, 10, guardrails 8, 9, 10, 11)
+      'definition_drift', 'attribution_change', 'modeled_conversions',
+      'consent_loss',
+      -- Tiempo, moneda y cierre (apartados 6, 14, guardrails 18, 19, 20, 21)
+      'historical_backfill', 'late_arriving_data', 'timezone_misalignment',
+      'currency_unresolved', 'partial_period',
+      -- Contaminacion y muestreo (apartados 12, 13, guardrails 16, 29)
+      'contaminated_data', 'sampling',
+      -- Integridad logica (apartado 5, guardrail 8)
+      'math_inconsistency'
+    )
+  ),
+  constraint data_quality_issues_severidad check (
+    severity in ('info', 'low', 'moderate', 'high', 'critical')
+  ),
+  constraint data_quality_issues_estado check (
+    status in ('open', 'investigating', 'explained', 'resolved', 'false_positive')
+  ),
+  constraint data_quality_issues_efecto check (
+    downstream_effect in ('none', 'degraded', 'blocked')
+  ),
+  -- Guardrail 4 -- cerrar un issue como explicado, resuelto o falso positivo
+  -- sin escribir por que es convertir una sospecha en veredicto.
+  constraint data_quality_issues_cierre_motivado check (
+    status not in ('explained', 'resolved', 'false_positive')
+    or explanation is not null
+  ),
+  constraint data_quality_issues_resuelto_con_fecha check (
+    (resolved_at is not null) = (status in ('resolved', 'false_positive'))
+  ),
+  -- Guardrail 36 -- bloquear o degradar aguas abajo solo tiene sentido si el
+  -- fallo es material. Al reves, un fallo material que no toca el diagnostico
+  -- deja de ser una advertencia util.
+  constraint data_quality_issues_bloqueo_material check (
+    downstream_effect = 'none' or material
+  ),
+  -- Un issue ya resuelto no puede seguir bloqueando el diagnostico.
+  constraint data_quality_issues_resuelto_no_bloquea check (
+    status not in ('resolved', 'false_positive') or downstream_effect = 'none'
+  )
+);
+
+comment on table public.data_quality_issues is
+  'F3/D01. La anomalia tecnica concreta y que le hace al diagnostico de aguas abajo: nada, degradarlo o bloquearlo (contrato apartado 17).';
+
+comment on column public.data_quality_issues.material is
+  'Si cambia la interpretacion. Un issue real pero inmaterial para la pregunta no debe bloquear el diagnostico ni degradar su confianza.';
+
+comment on column public.data_quality_issues.downstream_effect is
+  'Guardrail 36. `blocked` significa que ningun caso puede confirmarse sobre esta fuente hasta resolverlo; `degraded`, que puede pero no con confianza alta.';
+
+create index if not exists data_quality_issues_org_idx
+  on public.data_quality_issues (organization_id, detected_at desc);
+
+create index if not exists data_quality_issues_abiertos_idx
+  on public.data_quality_issues (organization_id, source, severity)
+  where status in ('open', 'investigating');
+
+create index if not exists data_quality_issues_bloqueantes_idx
+  on public.data_quality_issues (organization_id, phenomenon)
+  where downstream_effect in ('degraded', 'blocked');
+
+drop trigger if exists set_data_quality_issues_updated_at on public.data_quality_issues;
+create trigger set_data_quality_issues_updated_at
+before update on public.data_quality_issues
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- RECONCILIACION — dos fuentes sobre el mismo fenomeno (contrato apartado 2)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.data_source_reconciliations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  phenomenon varchar(40) not null,
+  scope varchar(40) not null default 'global',
+  period_start timestamptz not null,
+  period_end timestamptz not null,
+
+  source_a varchar(40) not null,
+  source_b varchar(40) not null,
+
+  -- Guardrail 6 -- comparar dos fuentes exige antes comprobar que miden lo
+  -- mismo, en el mismo periodo, con la misma metodologia.
+  comparable boolean not null,
+  non_comparability_reason varchar(40),
+
+  value_a numeric,
+  value_b numeric,
+  difference_absolute numeric,
+  difference_relative numeric,
+
+  status varchar(24) not null,
+  -- Guardrail 4 -- una discrepancia NO es un error. Dos fuentes pueden diferir
+  -- porque miden distinto; llamarlo error sin explicacion inventa una averia.
+  classification varchar(20) not null default 'unknown',
+  explanation text,
+
+  assessed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint data_source_reconciliations_estado check (
+    status in (
+      'matched', 'acceptable_variance', 'material_variance',
+      'severe_variance', 'not_comparable'
+    )
+  ),
+  constraint data_source_reconciliations_clasificacion check (
+    classification in ('unknown', 'discrepancy', 'error')
+  ),
+  constraint data_source_reconciliations_motivo check (
+    non_comparability_reason is null or non_comparability_reason in (
+      'different_definition', 'different_scope', 'different_period',
+      'different_methodology', 'attribution_overlap', 'different_currency',
+      'different_timezone'
+    )
+  ),
+  constraint data_source_reconciliations_fuentes_distintas check (
+    source_a <> source_b
+  ),
+  constraint data_source_reconciliations_periodo check (period_end > period_start),
+  -- Guardrail 6 -- `not_comparable` y `comparable` son la misma afirmacion
+  -- dicha dos veces; si se separan, acaban contradiciendose.
+  constraint data_source_reconciliations_coherencia check (
+    (status = 'not_comparable') = (comparable = false)
+  ),
+  constraint data_source_reconciliations_incomparable_motivado check (
+    comparable or non_comparability_reason is not null
+  ),
+  -- Lo que no es comparable no se resta. Una diferencia calculada sobre dos
+  -- definiciones distintas es un numero sin significado que despues alguien
+  -- citara como evidencia.
+  constraint data_source_reconciliations_incomparable_sin_diferencia check (
+    comparable
+    or (difference_absolute is null and difference_relative is null)
+  ),
+  -- Guardrail 4 -- declarar error exige decir cual.
+  constraint data_source_reconciliations_error_explicado check (
+    classification <> 'error' or explanation is not null
+  )
+);
+
+comment on table public.data_source_reconciliations is
+  'F3/D01. Contraste entre dos fuentes sobre el mismo fenomeno. Distingue discrepancia de error (contrato apartado 2): que difieran no prueba que una falle.';
+
+comment on column public.data_source_reconciliations.comparable is
+  'Guardrail 6. Si es false, las columnas de diferencia quedan nulas: restar dos metricas con definicion o periodo distintos produce un numero sin significado.';
+
+create index if not exists data_source_reconciliations_org_idx
+  on public.data_source_reconciliations (organization_id, assessed_at desc);
+
+create index if not exists data_source_reconciliations_divergentes_idx
+  on public.data_source_reconciliations (organization_id, phenomenon, assessed_at desc)
+  where status in ('material_variance', 'severe_variance');
+
+drop trigger if exists set_data_source_reconciliations_updated_at on public.data_source_reconciliations;
+create trigger set_data_source_reconciliations_updated_at
+before update on public.data_source_reconciliations
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- PUENTE CON D00 — que evaluaciones sostienen un caso
+-- ---------------------------------------------------------------------------
+--
+-- `diagnostic_cases.data_quality` sigue siendo el snapshot (lo que se sabia al
+-- diagnosticar). Esta tabla es lo otro: que evaluaciones concretas se miraron,
+-- para poder contestar despues "¿por que se degrado este caso?" sin adivinar.
+
+create table if not exists public.diagnostic_case_data_quality (
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  assessment_id uuid not null references public.data_quality_assessments (id) on delete cascade,
+  -- Para que se miro esa fuente en este caso.
+  role varchar(20) not null default 'primary',
+  created_at timestamptz not null default now(),
+
+  primary key (case_id, assessment_id),
+
+  constraint diagnostic_case_data_quality_rol check (
+    role in ('primary', 'validation', 'context')
+  )
+);
+
+comment on table public.diagnostic_case_data_quality is
+  'F3/D01<->D00. Que evaluaciones de calidad sostienen un caso diagnostico. El snapshot sigue en diagnostic_cases.data_quality; esto es la traza consultable.';
+
+create index if not exists diagnostic_case_data_quality_assessment_idx
+  on public.diagnostic_case_data_quality (assessment_id);
+
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+--
+-- Staff, igual que D00. Un issue de calidad es informacion que el cliente
+-- acabara queriendo ver ("no vemos tu gasto de Meta, faltan permisos"), pero
+-- hasta que exista pantalla y redaccion para eso, abrirlo seria ensenar
+-- diagnostico tecnico a medio hacer. Abrirlo despues es cambiar una politica;
+-- cerrarlo despues de una fuga, no.
+
+alter table public.data_source_expectations enable row level security;
+alter table public.tenant_metric_definitions enable row level security;
+alter table public.data_quality_assessments enable row level security;
+alter table public.data_quality_issues enable row level security;
+alter table public.data_source_reconciliations enable row level security;
+alter table public.diagnostic_case_data_quality enable row level security;
+
+drop policy if exists "data_source_expectations_select_staff" on public.data_source_expectations;
+create policy "data_source_expectations_select_staff" on public.data_source_expectations
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "tenant_metric_definitions_select_staff" on public.tenant_metric_definitions;
+create policy "tenant_metric_definitions_select_staff" on public.tenant_metric_definitions
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "data_quality_assessments_select_staff" on public.data_quality_assessments;
+create policy "data_quality_assessments_select_staff" on public.data_quality_assessments
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "data_quality_issues_select_staff" on public.data_quality_issues;
+create policy "data_quality_issues_select_staff" on public.data_quality_issues
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "data_source_reconciliations_select_staff" on public.data_source_reconciliations;
+create policy "data_source_reconciliations_select_staff" on public.data_source_reconciliations
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+-- Hereda del caso, igual que las hijas de D00.
+drop policy if exists "diagnostic_case_data_quality_select_staff" on public.diagnostic_case_data_quality;
+create policy "diagnostic_case_data_quality_select_staff" on public.diagnostic_case_data_quality
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = case_id));
+
+-- =============================================================================
+-- Migracion: 20260914190000_f3_d02_contextualizacion.sql
+-- =============================================================================
+-- FASE 3 / D02 — Contextualizacion.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d02-requisitos-contrato-contextualizacion.md
+--          conocimiento/fase-03/04-policies-guardrails/d02-guardrails-contextualizacion.md
+--          conocimiento/fase-03/06-tenant-context/d02-contexto-configurable-ecommerce.md
+--          conocimiento/fase-03/05-experience-learning/d02-experiencia-historica-y-aprendizaje-contextual.md
+--
+-- D01 pregunta si el dato es fiable. D02 pregunta otra cosa: **si lo es, que
+-- significa aqui**. La misma caida de CVR es un fallo en una tienda y un
+-- trade-off deliberado en otra que acaba de retirar un descuento para
+-- recuperar margen.
+--
+-- LA FRONTERA, OTRA VEZ ESTRUCTURAL. El limite funcional del artefacto es
+-- explicito: "D2 no debe cerrar causalidad". Su trabajo es eliminar
+-- comparaciones invalidas, elegir baseline, localizar cambios y acotar
+-- hipotesis. Por eso aqui no hay ninguna columna `root_cause`, `causes` ni
+-- `explains`: un cambio se relaciona con una senal por su posicion en el
+-- tiempo (`temporal_relation`) y nada mas. El guardrail 20 dice que la
+-- proximidad temporal no es causalidad, y la forma mas barata de cumplirlo es
+-- no darle sitio donde escribirla.
+--
+-- POR QUE `tenant_context_facts` ES UNA TABLA ESTRECHA Y NO 200 COLUMNAS. El
+-- tenant context de D02 enumera 23 familias de contexto (modelo de negocio,
+-- mix de producto, canales, mercados, objetivos, restricciones...) y avisa dos
+-- veces de que "la taxonomia no debe asumirse cerrada". Una columna por
+-- concepto seria una migracion por cada matiz nuevo de un cliente. Una fila
+-- por (dimension, valor, origen) aguanta el catalogo abierto y ademas resuelve
+-- el apartado 22, que es el verdaderamente dificil: contexto **declarado** por
+-- el cliente y contexto **observado** por los sistemas conviven como dos filas
+-- distintas. Una contradiccion entre ambos no se resuelve sola ni se pisa
+-- (guardrail 28): se ve, que es justo lo que el documento llama "informacion
+-- util".
+--
+-- MIX ANTES QUE RENDIMIENTO. `context_mix_segments` guarda peso ANTES y peso
+-- DESPUES, los dos obligatorios. Sin las dos cifras no se puede distinguir un
+-- PERFORMANCE_CHANGE de un MIX_SHIFT (guardrail 6), y el agregado se atribuye
+-- a rendimiento interno por defecto, que es el error que el apartado 3 intenta
+-- evitar. Con las dos, la paradoja de Simpson deja de ser una advertencia de
+-- manual y pasa a ser calculable.
+--
+-- RUPTURAS DE COMPARABILIDAD, UNA TABLA PARA DOS COSAS. REGIME_CHANGE
+-- (apartado 9) y MEASUREMENT_DISCONTINUITY (apartado 11) llegan por caminos
+-- distintos -- uno es el negocio, otro la medicion -- pero hacen exactamente
+-- lo mismo: a partir de una fecha, el historico anterior deja de ser un
+-- baseline limpio (guardrails 18 y 19). Separarlas en dos tablas duplicaria la
+-- unica consulta que importa: "¿hay alguna ruptura entre mi baseline y mi
+-- periodo?".
+--
+-- EL SNAPSHOT NO SE REESCRIBE, Y LO IMPIDE UN TRIGGER. El guardrail 38 prohibe
+-- sobrescribir retrospectivamente un snapshot historico con la configuracion
+-- actual del tenant. Es la clase de regla que se incumple sin mala intencion,
+-- en un `update` que parecia inocente, asi que no depende de que nadie se
+-- acuerde: la base lo rechaza.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+-- ---------------------------------------------------------------------------
+-- TENANT CONTEXT — declarado y observado, conviviendo (tenant apartados 1-23)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.tenant_context_facts (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  -- Catalogo abierto a proposito: el artefacto repite que la taxonomia no es
+  -- cerrada. Los valores que se usan hoy estan en packages/contracts.
+  dimension varchar(60) not null,
+  value text not null,
+  value_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartado 22 -- el eje del bloque. Lo que el cliente dice de si mismo y lo
+  -- que sus datos dicen de el son dos afirmaciones, no una con correcciones.
+  source varchar(20) not null,
+  -- De donde salio la observacion: shopify, meta_ads, onboarding, consultor...
+  origin varchar(40),
+
+  effective_from timestamptz not null default now(),
+  effective_to timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint tenant_context_facts_origen check (
+    source in ('declared', 'observed')
+  ),
+  constraint tenant_context_facts_vigencia check (
+    effective_to is null or effective_to > effective_from
+  )
+);
+
+comment on table public.tenant_context_facts is
+  'F3/D02 tenant-context. Contexto del ecommerce como pares (dimension, valor) con origen declarado u observado. Una contradiccion entre ambos es informacion, no un error a corregir (tenant apartado 22).';
+
+comment on column public.tenant_context_facts.source is
+  'declared = lo dice el cliente; observed = lo dicen sus datos. Guardrail 28: una contradiccion no se resuelve en silencio, se conserva como dos filas.';
+
+create unique index if not exists tenant_context_facts_unico_idx
+  on public.tenant_context_facts (
+    organization_id,
+    coalesce(store_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    dimension,
+    source,
+    effective_from
+  );
+
+-- Un solo valor vigente por (dimension, origen). Declarado y observado siguen
+-- siendo dos filas vivas: eso es lo que permite ver la contradiccion.
+create unique index if not exists tenant_context_facts_vigente_idx
+  on public.tenant_context_facts (
+    organization_id,
+    coalesce(store_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    dimension,
+    source
+  )
+  where effective_to is null;
+
+drop trigger if exists set_tenant_context_facts_updated_at on public.tenant_context_facts;
+create trigger set_tenant_context_facts_updated_at
+before update on public.tenant_context_facts
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- CHANGE EVENTS — que paso y cuando (contrato apartado 4, tenant apartado 19)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.context_change_events (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  event_type varchar(40) not null,
+  description text not null,
+  area varchar(40),
+  scope varchar(40) not null default 'global',
+
+  occurred_at timestamptz not null,
+  -- Un evento puede durar (una promocion, una rotura de stock).
+  ended_at timestamptz,
+
+  source varchar(20) not null default 'declared',
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint context_change_events_tipo check (
+    event_type in (
+      -- Tecnicos (tenant apartado 19)
+      'deployment', 'checkout_change', 'tracking_change', 'theme_change',
+      'platform_change',
+      -- Comerciales (tenant apartados 16 y 19)
+      'promotion', 'sale_event', 'price_change', 'free_shipping',
+      'bundle_change', 'launch', 'discount_policy_change',
+      -- Marketing
+      'campaign_change', 'creative_change', 'agency_change',
+      'email_flow_change', 'influencer_activation', 'budget_change',
+      -- Operaciones y catalogo
+      'product_mix_change', 'inventory_event', 'warehouse_change',
+      'shipping_change', 'supplier_change',
+      -- Expansion
+      'market_launch', 'channel_launch',
+      -- Externo (guardrail 24: candidato, no explicacion)
+      'external_event'
+    )
+  ),
+  constraint context_change_events_origen check (
+    source in ('declared', 'observed', 'detected')
+  ),
+  constraint context_change_events_duracion check (
+    ended_at is null or ended_at >= occurred_at
+  )
+);
+
+comment on table public.context_change_events is
+  'F3/D02. Un cambio conocido con su fecha. No dice que causo nada: la relacion con una senal concreta vive en context_assessment_change_events (guardrail 20).';
+
+create index if not exists context_change_events_org_idx
+  on public.context_change_events (organization_id, occurred_at desc);
+
+create index if not exists context_change_events_tipo_idx
+  on public.context_change_events (organization_id, event_type, occurred_at desc);
+
+drop trigger if exists set_context_change_events_updated_at on public.context_change_events;
+create trigger set_context_change_events_updated_at
+before update on public.context_change_events
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- RUPTURAS DE COMPARABILIDAD (contrato apartados 9 y 11)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.context_comparability_breaks (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  -- El negocio cambio (regime_change) o cambio como se mide
+  -- (measurement_discontinuity). Distinto origen, mismo efecto sobre el
+  -- baseline.
+  break_type varchar(30) not null,
+  subtype varchar(40),
+  description text not null,
+  scope varchar(40) not null default 'global',
+
+  effective_from timestamptz not null,
+  -- Casi siempre true: se guarda explicito porque una ruptura puede afectar a
+  -- una metrica y no a otras, y darlo por supuesto invalidaria historico bueno.
+  invalidates_history_before boolean not null default true,
+  affected_metrics text[] not null default '{}',
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint context_comparability_breaks_tipo check (
+    break_type in ('regime_change', 'measurement_discontinuity')
+  ),
+  constraint context_comparability_breaks_subtipo check (
+    subtype is null or subtype in (
+      -- regime_change (contrato apartado 9, tenant apartado 21)
+      'international_expansion', 'subscription_launch', 'marketplace_entry',
+      'price_repositioning', 'warehouse_model_change', 'category_expansion',
+      'business_model_change',
+      -- measurement_discontinuity (contrato apartado 11)
+      'attribution_window_change', 'consent_rate_change',
+      'pixel_implementation_change', 'event_definition_change',
+      'reporting_logic_change', 'currency_logic_change'
+    )
+  )
+);
+
+comment on table public.context_comparability_breaks is
+  'F3/D02. Fecha a partir de la cual el historico anterior deja de ser baseline limpio, venga del negocio (REGIME_CHANGE) o de la medicion (MEASUREMENT_DISCONTINUITY). Guardrails 18 y 19.';
+
+create index if not exists context_comparability_breaks_org_idx
+  on public.context_comparability_breaks (organization_id, effective_from desc);
+
+drop trigger if exists set_context_comparability_breaks_updated_at on public.context_comparability_breaks;
+create trigger set_context_comparability_breaks_updated_at
+before update on public.context_comparability_breaks
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- LA SALIDA DE D02 (contrato apartados 13, 16, 17)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.context_assessments (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+
+  scope varchar(40) not null default 'global',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartado 10 -- contra que se compara y por que. El guardrail 3 prohibe
+  -- comparar periodos solo por proximidad temporal.
+  baseline_type varchar(30),
+  baseline_period_start timestamptz,
+  baseline_period_end timestamptz,
+  baseline_rationale text,
+
+  -- Apartado 17 -- el veredicto de comparabilidad, que es lo que D02 aporta
+  -- aguas abajo.
+  comparability varchar(20) not null default 'limited',
+  comparability_reasons text[] not null default '{}',
+
+  -- Apartado 3 -- ¿cambio el rendimiento o cambio la composicion? Empieza en
+  -- `undetermined` a proposito: afirmarlo sin descomponer el mix es el
+  -- guardrail 6.
+  aggregate_interpretation varchar(24) not null default 'undetermined',
+
+  -- Apartado 13 -- completitud contextual. El guardrail 27 dice que la
+  -- profundidad se adapta a la pregunta: no todo diagnostico exige el mismo
+  -- contexto.
+  context_depth varchar(20) not null default 'standard',
+  context_sufficient boolean not null default false,
+  missing_context text[] not null default '{}',
+  critical_unknowns text[] not null default '{}',
+
+  -- Apartado 17 -- factores contextuales plausibles. "Plausible" es la palabra:
+  -- no son causas (guardrail 21) y no hay columna que permita ascenderlos.
+  primary_factors text[] not null default '{}',
+  -- Apartado 12 -- contradicciones declarado/observado que afectan a esta
+  -- lectura. Guardrail 28: se declaran, no se resuelven en silencio.
+  declared_contradictions text[] not null default '{}',
+  uncertainty_notes text,
+
+  -- Apartado 16 -- el contexto vigente ENTONCES. No se reescribe nunca: ver el
+  -- trigger de mas abajo (guardrail 38).
+  context_snapshot jsonb not null default '{}'::jsonb,
+
+  assessed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint context_assessments_comparabilidad check (
+    comparability in ('comparable', 'limited', 'not_comparable')
+  ),
+  constraint context_assessments_interpretacion check (
+    aggregate_interpretation in (
+      'performance_change', 'mix_shift', 'mixed', 'undetermined'
+    )
+  ),
+  constraint context_assessments_profundidad check (
+    context_depth in ('shallow', 'standard', 'deep')
+  ),
+  constraint context_assessments_baseline check (
+    baseline_type is null or baseline_type in (
+      'previous_period', 'year_over_year', 'rolling_average', 'business_target',
+      'historical_normal', 'pre_event', 'control_group', 'peer_group', 'benchmark'
+    )
+  ),
+  constraint context_assessments_baseline_periodo check (
+    baseline_period_start is null
+    or baseline_period_end is null
+    or baseline_period_end > baseline_period_start
+  ),
+  -- Guardrail 3 -- un baseline sin motivo escrito es una comparacion elegida
+  -- por cercania, que es exactamente lo que el guardrail prohibe.
+  constraint context_assessments_baseline_motivado check (
+    baseline_type is null or baseline_rationale is not null
+  ),
+  -- Degradar la comparabilidad sin decir por que no sirve aguas abajo: D05 no
+  -- puede decidir si el motivo le afecta.
+  constraint context_assessments_degradacion_motivada check (
+    comparability = 'comparable' or cardinality(comparability_reasons) > 0
+  ),
+  -- Guardrails 25 y 26 -- el contexto que falta no se rellena con supuestos;
+  -- se conserva como incertidumbre explicita. Declarar el contexto
+  -- insuficiente sin decir que falta es lo mismo que no declararlo.
+  constraint context_assessments_falta_declarada check (
+    context_sufficient or cardinality(missing_context) > 0
+  ),
+  -- Guardrail 26 -- si hay variables criticas desconocidas, la comparacion no
+  -- puede declararse limpia.
+  constraint context_assessments_incognita_critica check (
+    cardinality(critical_unknowns) = 0 or comparability <> 'comparable'
+  )
+);
+
+comment on table public.context_assessments is
+  'F3/D02. La lectura contextual de un caso: baseline, comparabilidad y factores plausibles. No cierra causalidad -- no hay columna donde escribirla (limite funcional del artefacto).';
+
+comment on column public.context_assessments.aggregate_interpretation is
+  'PERFORMANCE_CHANGE frente a MIX_SHIFT (apartado 3). Empieza en undetermined: afirmarlo sin descomponer el mix es el guardrail 6.';
+
+comment on column public.context_assessments.context_snapshot is
+  'Contexto vigente al evaluar (apartado 16). Inmutable una vez escrito: el guardrail 38 prohibe reescribirlo con la configuracion actual del tenant.';
+
+create index if not exists context_assessments_case_idx
+  on public.context_assessments (case_id, assessed_at desc);
+
+drop trigger if exists set_context_assessments_updated_at on public.context_assessments;
+create trigger set_context_assessments_updated_at
+before update on public.context_assessments
+for each row execute function private.set_updated_at();
+
+-- Guardrail 38 -- el snapshot historico no se reescribe con el estado actual.
+-- Va en trigger y no en revision humana porque es la clase de regla que se
+-- rompe sin querer, en un update que parecia rutinario.
+create or replace function private.prevent_context_snapshot_overwrite()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if old.context_snapshot <> '{}'::jsonb
+     and new.context_snapshot is distinct from old.context_snapshot then
+    raise exception
+      'El snapshot contextual es inmutable (F3/D02 guardrail 38): reescribirlo con el contexto actual falsea la traza del diagnostico.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_context_assessments_snapshot_overwrite on public.context_assessments;
+create trigger prevent_context_assessments_snapshot_overwrite
+before update on public.context_assessments
+for each row execute function private.prevent_context_snapshot_overwrite();
+
+-- ---------------------------------------------------------------------------
+-- MIX — la descomposicion que separa rendimiento de composicion (apartado 3)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.context_mix_segments (
+  id uuid primary key default gen_random_uuid(),
+  assessment_id uuid not null references public.context_assessments (id) on delete cascade,
+
+  -- channel, market, device, product, cohort...
+  dimension varchar(40) not null,
+  segment varchar(80) not null,
+
+  -- Los dos pesos son obligatorios: con uno solo no se puede distinguir un
+  -- cambio de rendimiento de un cambio de composicion (guardrail 6).
+  weight_before numeric not null,
+  weight_after numeric not null,
+
+  -- El rendimiento dentro del segmento. Nullable porque hay dimensiones donde
+  -- solo interesa el peso.
+  performance_before numeric,
+  performance_after numeric,
+
+  created_at timestamptz not null default now(),
+
+  constraint context_mix_segments_pesos check (
+    weight_before >= 0 and weight_before <= 1
+    and weight_after >= 0 and weight_after <= 1
+  ),
+  -- Un rendimiento a medias no compara nada.
+  constraint context_mix_segments_rendimiento_par check (
+    (performance_before is null) = (performance_after is null)
+  )
+);
+
+comment on table public.context_mix_segments is
+  'F3/D02. Peso y rendimiento de cada segmento, antes y despues. Es lo que permite calcular la paradoja de Simpson en vez de advertir de ella (guardrail 8).';
+
+create unique index if not exists context_mix_segments_unico_idx
+  on public.context_mix_segments (assessment_id, dimension, segment);
+
+-- ---------------------------------------------------------------------------
+-- CAMBIOS CONSIDERADOS EN ESTE CASO (contrato apartado 4, guardrail 20)
+-- ---------------------------------------------------------------------------
+--
+-- Aqui esta la decision mas importante del bloque, y es una ausencia: no hay
+-- columna `causes`. Un cambio se relaciona con la senal por su posicion en el
+-- tiempo y por si se descarto o no. Convertir eso en causa es trabajo de D07 a
+-- D09, con evidencia.
+
+create table if not exists public.context_assessment_change_events (
+  assessment_id uuid not null references public.context_assessments (id) on delete cascade,
+  change_event_id uuid not null references public.context_change_events (id) on delete cascade,
+
+  temporal_relation varchar(20) not null,
+  -- Guardrail 17 -- hay efectos que tardan. Solo tiene sentido si el cambio
+  -- precede a la senal.
+  lag_days integer,
+
+  considered_as varchar(20) not null default 'candidate',
+  -- Mismo principio que las hipotesis descartadas de D00: descartar sin motivo
+  -- borra el razonamiento.
+  rule_out_reason text,
+
+  created_at timestamptz not null default now(),
+
+  primary key (assessment_id, change_event_id),
+
+  constraint context_assessment_change_events_relacion check (
+    temporal_relation in ('before', 'concurrent', 'after', 'unknown')
+  ),
+  constraint context_assessment_change_events_consideracion check (
+    considered_as in ('candidate', 'plausible_factor', 'ruled_out')
+  ),
+  constraint context_assessment_change_events_lag check (
+    lag_days is null or (temporal_relation = 'before' and lag_days >= 0)
+  ),
+  constraint context_assessment_change_events_descarte_motivado check (
+    considered_as <> 'ruled_out' or rule_out_reason is not null
+  )
+);
+
+comment on table public.context_assessment_change_events is
+  'F3/D02. Que cambios se miraron para este caso y en que relacion temporal estan con la senal. No hay columna de causa: guardrail 20, la proximidad temporal no es causalidad.';
+
+create index if not exists context_assessment_change_events_evento_idx
+  on public.context_assessment_change_events (change_event_id);
+
+-- ---------------------------------------------------------------------------
+-- CONFOUNDERS (contrato apartado 8, guardrails 22, 23, 24)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.context_confounders (
+  id uuid primary key default gen_random_uuid(),
+  assessment_id uuid not null references public.context_assessments (id) on delete cascade,
+
+  variable varchar(120) not null,
+  scope varchar(40) not null default 'global',
+  occurred_at timestamptz,
+
+  -- Apartado 8 -- "grado de conocimiento". El documento no define scoring
+  -- causal y aqui tampoco se inventa.
+  knowledge_state varchar(20) not null default 'suspected',
+  -- Guardrail 24 -- las variables externas son candidatas. La columna dice que
+  -- relacion es POSIBLE, nunca cual es.
+  possible_relation text,
+  material boolean not null default false,
+  coexists_with text[] not null default '{}',
+
+  created_at timestamptz not null default now(),
+
+  constraint context_confounders_conocimiento check (
+    knowledge_state in ('known', 'suspected', 'unknown')
+  ),
+  -- Un confusor "conocido" sin fecha no se puede contrastar con la senal: o se
+  -- sabe cuando paso, o es una sospecha.
+  constraint context_confounders_conocido_con_fecha check (
+    knowledge_state <> 'known' or occurred_at is not null
+  )
+);
+
+comment on table public.context_confounders is
+  'F3/D02. Variables que podrian explicar la senal ademas de la hipotesis en curso. Candidatas, no explicaciones (guardrail 24): no existe columna que las promueva.';
+
+create index if not exists context_confounders_assessment_idx
+  on public.context_confounders (assessment_id);
+
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+--
+-- Igual que D00 y D01: staff. Las tablas colgadas de un caso heredan su
+-- permiso; las de organizacion lo comprueban directamente.
+
+alter table public.tenant_context_facts enable row level security;
+alter table public.context_change_events enable row level security;
+alter table public.context_comparability_breaks enable row level security;
+alter table public.context_assessments enable row level security;
+alter table public.context_mix_segments enable row level security;
+alter table public.context_assessment_change_events enable row level security;
+alter table public.context_confounders enable row level security;
+
+drop policy if exists "tenant_context_facts_select_staff" on public.tenant_context_facts;
+create policy "tenant_context_facts_select_staff" on public.tenant_context_facts
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "context_change_events_select_staff" on public.context_change_events;
+create policy "context_change_events_select_staff" on public.context_change_events
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "context_comparability_breaks_select_staff" on public.context_comparability_breaks;
+create policy "context_comparability_breaks_select_staff" on public.context_comparability_breaks
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "context_assessments_select_staff" on public.context_assessments;
+create policy "context_assessments_select_staff" on public.context_assessments
+  for select to authenticated
+  using (exists (select 1 from public.diagnostic_cases c where c.id = case_id));
+
+drop policy if exists "context_mix_segments_select_staff" on public.context_mix_segments;
+create policy "context_mix_segments_select_staff" on public.context_mix_segments
+  for select to authenticated
+  using (
+    exists (select 1 from public.context_assessments a where a.id = assessment_id)
+  );
+
+drop policy if exists "context_assessment_change_events_select_staff" on public.context_assessment_change_events;
+create policy "context_assessment_change_events_select_staff" on public.context_assessment_change_events
+  for select to authenticated
+  using (
+    exists (select 1 from public.context_assessments a where a.id = assessment_id)
+  );
+
+drop policy if exists "context_confounders_select_staff" on public.context_confounders;
+create policy "context_confounders_select_staff" on public.context_confounders
+  for select to authenticated
+  using (
+    exists (select 1 from public.context_assessments a where a.id = assessment_id)
+  );
+
+-- =============================================================================
+-- Migracion: 20260914213000_f3_d01_issues_accionables_por_el_cliente.sql
+-- =============================================================================
+-- FASE 3 / D01 — Los fallos de datos que el cliente puede arreglar, los ve.
+--
+-- Decision 2026-09-14. La migracion original dejo `data_quality_issues` en
+-- staff-only, con esta nota: "un issue de calidad es informacion que el cliente
+-- acabara queriendo ver, pero hasta que exista pantalla y redaccion para eso,
+-- abrirlo seria ensenar diagnostico tecnico a medio hacer".
+--
+-- Lo que la hace cambiar: hay una familia de fallos que **solo el cliente puede
+-- resolver** -- dar un permiso en su cuenta de anuncios, reconectar una
+-- credencial caducada, confirmar que esos pedidos eran pruebas suyas.
+-- Ocultarselos garantiza que no se resuelvan y convierte al consultor en
+-- recadero de algo que podria ser automatico.
+--
+-- DOS CONDICIONES, NO UNA. El riesgo del razonamiento a medias sigue siendo
+-- real, asi que el cliente no ve un issue por ser de su incumbencia: lo ve
+-- cuando ademas ha dejado de estar en `open`, es decir, cuando alguien
+-- confirmo que el fallo existe. Avisar de una averia que no lo era erosiona la
+-- confianza mas rapido que el fallo original.
+--
+-- POR QUE UNA COLUMNA Y NO UNA LISTA DE TIPOS EN LA POLITICA. "Accionable por
+-- el cliente" no es una propiedad del tipo, es del caso: una regresion de
+-- tracking en el tema de su tienda la arregla el cliente, y la misma regresion
+-- en nuestro pixel la arreglamos nosotros. Quien escribe el issue lo sabe y lo
+-- declara. La check constraint solo impide lo absurdo: marcar como accionable
+-- por el cliente un rate limit de nuestra ingesta.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+alter table public.data_quality_issues
+  add column if not exists client_actionable boolean not null default false;
+
+comment on column public.data_quality_issues.client_actionable is
+  'Si el fallo vive en los sistemas del cliente y solo el puede resolverlo. Con status distinto de open, es lo que lo hace visible en su panel.';
+
+-- El catalogo de lo que PUEDE ser del cliente. Todo lo de esta lista ocurre en
+-- algo suyo: su cuenta de anuncios, sus credenciales, su web, su configuracion
+-- de consentimiento, sus pedidos de prueba. Lo que no esta aqui es nuestro
+-- (rate limits, webhooks, backfills, agregaciones) y presentarselo a el seria
+-- pedirle que arregle nuestra tuberia.
+alter table public.data_quality_issues
+  drop constraint if exists data_quality_issues_accionable_por_cliente;
+
+alter table public.data_quality_issues
+  add constraint data_quality_issues_accionable_por_cliente check (
+    not client_actionable
+    or issue_type in (
+      'permission_gap',
+      'credential_expired',
+      'consent_loss',
+      'tracking_regression',
+      'missing_events',
+      'schema_drift',
+      'contaminated_data'
+    )
+  );
+
+-- Lo que se consulta desde el panel del cliente: sus fallos accionables y ya
+-- verificados.
+create index if not exists data_quality_issues_cliente_idx
+  on public.data_quality_issues (organization_id, detected_at desc)
+  where client_actionable and status <> 'open';
+
+-- La politica de staff sigue igual y se mantiene: el consultor lo ve todo.
+-- Esta se suma para el miembro de la organizacion.
+--
+-- `can_access_org` ya incluye a platform_admin y al consultor asignado, asi que
+-- esta politica no les quita nada; lo unico que anade es al miembro activo con
+-- suscripcion al dia, y solo sobre las dos condiciones de arriba.
+drop policy if exists "data_quality_issues_select_cliente" on public.data_quality_issues;
+create policy "data_quality_issues_select_cliente" on public.data_quality_issues
+  for select to authenticated
+  using (
+    client_actionable
+    and status <> 'open'
+    and private.can_access_org(organization_id)
+  );
+
+-- =============================================================================
+-- Migracion: 20260915090000_f3_d03_madurez_por_capacidad.sql
+-- =============================================================================
+-- FASE 3 / D03 — Deteccion de etapa de madurez.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d03-requisitos-contrato-madurez.md
+--          conocimiento/fase-03/04-policies-guardrails/d03-guardrails-madurez.md
+--          conocimiento/fase-03/05-experience-learning/d03-aprendizaje-y-evolucion-madurez.md
+--          conocimiento/fase-03/06-tenant-context/d03-contexto-madurez-ecommerce.md
+--
+-- D03 responde a "¿que es capaz de hacer este negocio?", que no es lo mismo que
+-- "¿como le esta yendo?". Un ecommerce puede facturar mucho con capacidades
+-- fragiles, y otro poco con un sistema solido y joven.
+--
+-- LOS 30 GUARDRAILS SON CASI TODOS LA MISMA FRASE: `X != MADUREZ`. Facturacion,
+-- rendimiento, usar una herramienta, automatizar, tamano del equipo,
+-- documentacion. Todos se mecanizan igual y en negativo: **no existe columna
+-- donde escribir X**. Si no hay sitio para la facturacion ni para el numero de
+-- personas, no pueden entrar en el calculo por descuido.
+--
+-- NO HAY PUNTUACION. El guardrail 11 prohibe una nota vanity sin interpretacion
+-- diagnostica, asi que no hay `score`, `overall_score` ni `maturity_index` en
+-- ninguna tabla. Un perfil de madurez es un nivel por capacidad, su nivel
+-- requerido y el hallazgo que explica la diferencia. Reducirlo a un 72/100 es
+-- justo lo que el documento no quiere.
+--
+-- ESTADO NO ES ETAPA (apartado 9, guardrail 7). Aqui no hay columna de salud ni
+-- de incidencia: un problema de hoy no mueve la etapa estructural. La salud por
+-- capacidad es D04 y vive en otro sitio a proposito.
+--
+-- LA JERARQUIA DE EVIDENCIA ES EL NUCLEO MECANIZABLE. El apartado 10 la ordena:
+-- comportamiento observado > dato del sistema > proceso documentado > lo que
+-- dice el cliente. De ahi salen los guardrails 15, 16 y 23, y de ahi sale la
+-- regla dura de este bloque: **a partir de DEFINED hace falta evidencia por
+-- encima de la autopercepcion**. Se anade `tool_presence` como tipo propio
+-- porque los guardrails 3 y 14 avisan exactamente de eso -- tener Klaviyo, un
+-- ERP o un dashboard no es tener la capacidad.
+--
+-- LAS DIMENSIONES NO SON DECORACION. El apartado 5 lista diez (existencia,
+-- consistencia, repetibilidad, medicion, ownership, automatizacion,
+-- predictibilidad, optimizacion, resiliencia, aprendizaje) y varias sostienen
+-- un nivel concreto: sin medicion no se puede estar en MEASURED (guardrails 20
+-- y 21), sin ownership no se llega a OPTIMIZED (guardrail 29), y sin
+-- aprendizaje no se es ADAPTIVE (guardrail 30). Son check constraints, no
+-- casillas informativas.
+--
+-- E0..E12 NO SE REDEFINEN AQUI. El apartado 2 es explicito: "D3 consume estos
+-- stages; no los redefine". La columna guarda el codigo y su significado
+-- pertenece a la fase 2.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+-- ---------------------------------------------------------------------------
+-- PERFIL — la foto estructural del negocio, con historia (apartados 1, 2, 16)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.maturity_profiles (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  -- Apartado 2 -- stage gate de la fase 2. Aqui solo se referencia.
+  business_stage varchar(3),
+
+  -- Apartado 16 / experience apartado 1 -- por que cambia este perfil respecto
+  -- al anterior. El ejemplo del documento es exacto: pasar de "Finance E3-E5
+  -- con confianza baja" a "Finance E4 con confianza alta" NO es una mejora del
+  -- negocio, es una mejora de la observacion. Si no se distinguen, el sistema
+  -- celebra progresos que no existieron (guardrail 28).
+  change_type varchar(24),
+  supersedes_id uuid references public.maturity_profiles (id) on delete set null,
+  change_summary text,
+
+  confidence varchar(20) not null default 'low',
+
+  assessed_at timestamptz not null default now(),
+  superseded_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint maturity_profiles_stage check (
+    business_stage is null or business_stage in (
+      'e0', 'e1', 'e2', 'e3', 'e4', 'e5', 'e6',
+      'e7', 'e8', 'e9', 'e10', 'e11', 'e12'
+    )
+  ),
+  constraint maturity_profiles_confianza check (
+    confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint maturity_profiles_tipo_de_cambio check (
+    change_type is null or change_type in (
+      'initial', 'real_change', 'uncertainty_reduction', 'confidence_increase'
+    )
+  ),
+  -- Un perfil que sustituye a otro tiene que decir en que sentido cambia. Sin
+  -- esto, "subio Finance" y "ahora vemos mejor Finance" son indistinguibles.
+  constraint maturity_profiles_sustitucion_declarada check (
+    supersedes_id is null or change_type is not null
+  ),
+  constraint maturity_profiles_vigencia check (
+    superseded_at is null or superseded_at >= assessed_at
+  )
+);
+
+comment on table public.maturity_profiles is
+  'F3/D03. Que es capaz de hacer un negocio, no como le va. Sin puntuacion global: el guardrail 11 prohibe la nota vanity sin interpretacion.';
+
+comment on column public.maturity_profiles.change_type is
+  'Por que cambia respecto al perfil anterior. `confidence_increase` y `uncertainty_reduction` NO son mejoras del negocio (guardrail 28): son mejoras de la observacion.';
+
+comment on column public.maturity_profiles.business_stage is
+  'Stage E0..E12 definido en la fase 2. D03 lo consume y no lo redefine (contrato apartado 2).';
+
+create index if not exists maturity_profiles_org_idx
+  on public.maturity_profiles (organization_id, assessed_at desc);
+
+-- Un solo perfil vigente por tienda: si hubiera dos, ningun motor sabria cual
+-- describe al negocio hoy.
+create unique index if not exists maturity_profiles_vigente_idx
+  on public.maturity_profiles (
+    organization_id,
+    coalesce(store_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  )
+  where superseded_at is null;
+
+drop trigger if exists set_maturity_profiles_updated_at on public.maturity_profiles;
+create trigger set_maturity_profiles_updated_at
+before update on public.maturity_profiles
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- CAPACIDAD — nivel actual, nivel requerido y la diferencia
+-- (apartados 1, 3, 4, 5, 7, 8)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.capability_maturity (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.maturity_profiles (id) on delete cascade,
+
+  -- Apartado 3. Son las capacidades de la fase 1, las mismas que el
+  -- `affected_capabilities` de un caso diagnostico de D00.
+  capability varchar(24) not null,
+
+  -- Apartado 4 -- la escalera. Cerrada.
+  current_level varchar(16) not null,
+  -- Apartado 6 -- lo que ESTE negocio necesita, derivado de su complejidad
+  -- (volumen, SKUs, mercados, canales...), no de un estandar universal. El
+  -- guardrail 25 prohibe exigir capacidades enterprise a quien no las necesita
+  -- y el 12 prohibe comparar empresas entre si en vez de capacidad actual
+  -- contra capacidad requerida.
+  required_level varchar(16),
+  -- Apartado 7 -- en que banda cae lo requerido.
+  expectation_band varchar(16),
+
+  -- Apartado 8 -- que significa la diferencia. Esto es la "interpretacion
+  -- diagnostica" que el guardrail 11 exige a cambio de no dar una nota.
+  finding varchar(32),
+  gap_interpretation text,
+
+  -- Apartado 5 -- las diez dimensiones. No son informativas: tres de ellas
+  -- sostienen un nivel por check constraint (ver mas abajo).
+  has_existence boolean not null default false,
+  has_consistency boolean not null default false,
+  has_repeatability boolean not null default false,
+  has_measurement boolean not null default false,
+  has_ownership boolean not null default false,
+  has_automation boolean not null default false,
+  has_predictability boolean not null default false,
+  has_optimization boolean not null default false,
+  has_resilience boolean not null default false,
+  has_learning boolean not null default false,
+
+  -- Guardrail 20 -- una capacidad que existe pero no se usa, no se mide o no
+  -- cambia decisiones no es una capacidad madura. Medir y que la medida sirva
+  -- para algo son cosas distintas y hacen falta las dos.
+  influences_decisions boolean not null default false,
+
+  -- Apartado 17 -- ownership y dependencia de personas.
+  owner_role varchar(60),
+  key_person_dependency boolean not null default false,
+
+  confidence varchar(20) not null default 'low',
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint capability_maturity_capacidad check (
+    capability in (
+      'market', 'product', 'offer', 'unit_economics', 'acquisition',
+      'creative', 'conversion', 'retention', 'inventory', 'operations',
+      'finance', 'data', 'technology', 'team', 'strategy'
+    )
+  ),
+  constraint capability_maturity_nivel check (
+    current_level in (
+      'absent', 'ad_hoc', 'repeatable', 'defined', 'measured',
+      'optimized', 'adaptive'
+    )
+  ),
+  constraint capability_maturity_requerido check (
+    required_level is null or required_level in (
+      'absent', 'ad_hoc', 'repeatable', 'defined', 'measured',
+      'optimized', 'adaptive'
+    )
+  ),
+  constraint capability_maturity_banda check (
+    expectation_band is null or expectation_band in (
+      'minimum_viable', 'minimum', 'expected', 'advanced'
+    )
+  ),
+  constraint capability_maturity_hallazgo check (
+    finding is null or finding in (
+      'capability_not_yet_developed', 'structural_weakness',
+      'growth_system_gap', 'overengineering', 'structural_debt',
+      'fragile_growth', 'sustainable_growth', 'maturity_bottleneck',
+      'maturity_regression', 'latent_structural_risk',
+      'structural_imbalance', 'complexity_theater', 'premature_scaling',
+      'appropriate', 'critically_behind'
+    )
+  ),
+  constraint capability_maturity_confianza check (
+    confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  -- Lo que no existe no tiene nivel, y lo que tiene nivel existe. La
+  -- existencia es el suelo de la escalera, no una dimension mas.
+  constraint capability_maturity_existencia_es_el_suelo check (
+    (current_level = 'absent') = (has_existence = false)
+  ),
+  -- Guardrails 20 y 21 -- no se es MEASURED sin medir, y medir sin que cambie
+  -- ninguna decision es un panel que nadie mira. El 21 lo dice del forecasting:
+  -- no es maduro si no se mide su acierto ni se analizan los errores.
+  constraint capability_maturity_medido_exige_medicion check (
+    current_level not in ('measured', 'optimized', 'adaptive')
+    or (has_measurement and influences_decisions)
+  ),
+  -- Guardrail 29 -- sin ownership suficiente no hay capacidad madura.
+  constraint capability_maturity_optimizado_exige_ownership check (
+    current_level not in ('optimized', 'adaptive') or has_ownership
+  ),
+  -- Guardrail 30 -- adaptive exige capacidad real de detectar, aprender y
+  -- ajustar. Es el nivel mas alto y el que mas se regala.
+  constraint capability_maturity_adaptativo_exige_aprendizaje check (
+    current_level <> 'adaptive' or (has_learning and has_resilience)
+  ),
+  -- Guardrail 11 -- la nota se cambia por interpretacion. Un hallazgo sin
+  -- explicacion vuelve a ser una etiqueta vacia.
+  constraint capability_maturity_hallazgo_explicado check (
+    finding is null or gap_interpretation is not null
+  )
+);
+
+comment on table public.capability_maturity is
+  'F3/D03. Nivel de una capacidad, el que este negocio necesita y que significa la diferencia. Sin columnas de facturacion, equipo ni herramientas: los guardrails 1 a 6 dicen que nada de eso es madurez.';
+
+comment on column public.capability_maturity.required_level is
+  'Lo que ESTE negocio necesita por su complejidad, no un estandar. El guardrail 25 prohibe exigir capacidades enterprise a quien no las necesita.';
+
+comment on column public.capability_maturity.influences_decisions is
+  'Guardrail 20: una capacidad que existe pero no cambia ninguna decision no esta madura. Medir y que la medida sirva no son lo mismo.';
+
+create unique index if not exists capability_maturity_unico_idx
+  on public.capability_maturity (profile_id, capability);
+
+create index if not exists capability_maturity_hallazgo_idx
+  on public.capability_maturity (finding)
+  where finding is not null;
+
+drop trigger if exists set_capability_maturity_updated_at on public.capability_maturity;
+create trigger set_capability_maturity_updated_at
+before update on public.capability_maturity
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- EVIDENCIA — por que se afirma ese nivel (apartados 10, 11, 12)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.maturity_evidence (
+  id uuid primary key default gen_random_uuid(),
+  capability_maturity_id uuid not null
+    references public.capability_maturity (id) on delete cascade,
+
+  -- Apartado 10, en su orden de fuerza. `tool_presence` no esta en la lista
+  -- original: se anade porque los guardrails 3 y 14 avisan de el
+  -- explicitamente, y sin tipo propio se colaria disfrazado de dato del
+  -- sistema. Tener Klaviyo no es saber hacer email marketing.
+  evidence_type varchar(24) not null,
+  description text not null,
+  source varchar(60),
+  observed_at timestamptz,
+
+  -- Apartado 11 frente a 12: no es lo mismo justificar un ascenso que una
+  -- regresion, y la regresion exige mas.
+  supports varchar(20) not null default 'current_level',
+  -- Apartado 12 / guardrails 13 y 26 -- lo persistente distingue una regresion
+  -- estructural de una averia de esta semana.
+  persistent boolean not null default false,
+
+  created_at timestamptz not null default now(),
+
+  constraint maturity_evidence_tipo check (
+    evidence_type in (
+      'observed_behavior', 'system_data', 'documented_process',
+      'tool_presence', 'user_claim'
+    )
+  ),
+  constraint maturity_evidence_sostiene check (
+    supports in ('current_level', 'advancement', 'regression')
+  ),
+  -- Guardrails 13 y 26 -- una incidencia puntual no baja la madurez. Si la
+  -- evidencia sostiene una regresion, tiene que ser persistente y estar
+  -- fechada; de lo contrario es un mal dia.
+  constraint maturity_evidence_regresion_persistente check (
+    supports <> 'regression' or (persistent and observed_at is not null)
+  )
+);
+
+comment on table public.maturity_evidence is
+  'F3/D03. Por que se afirma un nivel. `evidence_type` esta ordenado por fuerza (apartado 10): comportamiento observado > dato del sistema > proceso documentado > herramienta presente > lo que dice el cliente.';
+
+comment on column public.maturity_evidence.evidence_type is
+  'tool_presence se anade a la lista del artefacto porque los guardrails 3 y 14 avisan de el: usar una herramienta no es tener la capacidad.';
+
+create index if not exists maturity_evidence_capacidad_idx
+  on public.maturity_evidence (capability_maturity_id);
+
+-- ---------------------------------------------------------------------------
+-- DEPENDENCIAS ENTRE CAPACIDADES (apartados 13 y 14)
+-- ---------------------------------------------------------------------------
+--
+-- Que una capacidad necesite a otra, o le ponga techo. El ejemplo del
+-- artefacto: escalar adquisicion pagada necesita inventario, finanzas,
+-- creatividad, conversion, operaciones y datos; y la capacidad de producir
+-- creatividades pone techo a cuanto se puede escalar en paid.
+--
+-- LA TABLA SE CREA VACIA, A PROPOSITO. El grafo concreto es conocimiento de
+-- ecommerce, y el artefacto solo da un ejemplo. Inventarme el resto seria
+-- exactamente lo que el plan maestro prohibe: convertir criterio en codigo. Se
+-- llena cuando alguien lo escriba con el prompt maestro, o desde el panel.
+
+create table if not exists public.capability_dependencies (
+  id uuid primary key default gen_random_uuid(),
+  -- Sin organizacion: es como funciona el ecommerce, no como funciona una
+  -- tienda. Si algun dia un tenant necesita una excepcion, se anade entonces.
+  capability varchar(24) not null,
+  depends_on varchar(24) not null,
+  relation varchar(16) not null default 'requires',
+  rationale text not null,
+
+  created_at timestamptz not null default now(),
+
+  constraint capability_dependencies_capacidad check (
+    capability in (
+      'market', 'product', 'offer', 'unit_economics', 'acquisition',
+      'creative', 'conversion', 'retention', 'inventory', 'operations',
+      'finance', 'data', 'technology', 'team', 'strategy'
+    )
+  ),
+  constraint capability_dependencies_dependencia check (
+    depends_on in (
+      'market', 'product', 'offer', 'unit_economics', 'acquisition',
+      'creative', 'conversion', 'retention', 'inventory', 'operations',
+      'finance', 'data', 'technology', 'team', 'strategy'
+    )
+  ),
+  constraint capability_dependencies_relacion check (
+    relation in ('requires', 'ceiling')
+  ),
+  constraint capability_dependencies_no_circular check (capability <> depends_on)
+);
+
+comment on table public.capability_dependencies is
+  'F3/D03. Que capacidad necesita a cual, o le pone techo (apartados 13 y 14). Se crea vacia: el grafo es conocimiento de ecommerce y no se inventa desde una migracion.';
+
+create unique index if not exists capability_dependencies_unico_idx
+  on public.capability_dependencies (capability, depends_on, relation);
+
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+--
+-- Staff para el perfil y sus hijas, igual que el resto de F3. La madurez es
+-- material de conversacion del consultor: decirle a un cliente "tu capacidad
+-- de retencion es AD_HOC" sin contexto ni acompanamiento es un juicio, no una
+-- ayuda. Cuando haya pantalla y redaccion para ensenarselo bien, se revisa.
+--
+-- `capability_dependencies` es la excepcion: no tiene organizacion porque no es
+-- de nadie, asi que la lee cualquier usuario autenticado. Saber que escalar
+-- adquisicion necesita inventario no revela nada de ningun cliente.
+
+alter table public.maturity_profiles enable row level security;
+alter table public.capability_maturity enable row level security;
+alter table public.maturity_evidence enable row level security;
+alter table public.capability_dependencies enable row level security;
+
+drop policy if exists "maturity_profiles_select_staff" on public.maturity_profiles;
+create policy "maturity_profiles_select_staff" on public.maturity_profiles
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "capability_maturity_select_staff" on public.capability_maturity;
+create policy "capability_maturity_select_staff" on public.capability_maturity
+  for select to authenticated
+  using (
+    exists (select 1 from public.maturity_profiles p where p.id = profile_id)
+  );
+
+drop policy if exists "maturity_evidence_select_staff" on public.maturity_evidence;
+create policy "maturity_evidence_select_staff" on public.maturity_evidence
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.capability_maturity c where c.id = capability_maturity_id
+    )
+  );
+
+drop policy if exists "capability_dependencies_select_all" on public.capability_dependencies;
+create policy "capability_dependencies_select_all" on public.capability_dependencies
+  for select to authenticated
+  using (true);
+
+-- =============================================================================
+-- Migracion: 20260915140000_f3_d04_salud_por_capacidad.sql
+-- =============================================================================
+-- FASE 3 / D04 — Diagnostico de salud por capacidad.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d04-requisitos-contrato-health.md
+--          conocimiento/fase-03/04-policies-guardrails/d04-guardrails-health.md
+--          conocimiento/fase-03/05-experience-learning/d04-health-memory-y-aprendizaje.md
+--          conocimiento/fase-03/06-tenant-context/d04-contexto-health-ecommerce.md
+--
+-- D03 dijo de que es capaz el negocio. D04 dice como esta **hoy**. Son la misma
+-- distincion que el guardrail 7 de D03 (STATE != STAGE) vista desde el otro
+-- lado, y por eso viven en tablas distintas: una capacidad puede ser madura y
+-- estar rota esta semana, o ser joven y funcionar perfectamente.
+--
+-- DIEZ GUARDRAILS SON `X != SALUD`: madurez, un KPI suelto, las ventas, la
+-- causa, la prioridad, la severidad, la disposicion a escalar, lo no optimo, la
+-- ausencia de datos y un heatmap. Se cumplen como en D03 -- **no hay donde
+-- escribir X**:
+--   * sin `priority` ni `rank` (guardrails 5, 35, 36, 37): que atacar antes es F4;
+--   * sin `root_cause` (guardrails 4, 30): la causa es D07-D09, aqui solo cabe
+--     una sospecha de si el problema es de origen o arrastrado, y la columna se
+--     llama `issue_role` con valores que dicen "suspected" en voz alta;
+--   * sin `severity` en la capacidad (guardrail 6, apartado 13): la severidad es
+--     el dano de un hallazgo concreto y vive en `health_findings`;
+--   * sin `scaling_readiness` (guardrail 7);
+--   * sin `score` ni `health_index` (guardrails 10 y 21): un heatmap no es
+--     razonamiento y una nota opaca no es un diagnostico.
+--
+-- LA AUSENCIA DE DATOS NO ES SALUD. Es el guardrail 9 y el apartado 21, y es el
+-- error mas facil de cometer: si no vemos anomalias, asumimos que todo va bien.
+-- Aqui no se puede: con `confidence = insufficient_data` el estado tiene que ser
+-- `not_assessable` o `unknown`, nunca `healthy`. Y `not_assessable` exige decir
+-- **que** falta.
+--
+-- SALUD Y RIESGO SON INDEPENDIENTES A PROPOSITO. Los guardrails 22 y 23 dicen
+-- que HEALTHY puede convivir con riesgo alto. Por eso no hay ninguna constraint
+-- que obligue a `health_state` y `structural_risk` a coincidir: forzar que
+-- cuadren destruiria justo la informacion que hace util al bloque. La unica
+-- regla es la del guardrail 25: un riesgo a corto plazo alto exige indicadores
+-- adelantados, porque si solo miras los rezagados el aviso llega tarde.
+--
+-- JERARQUIA DE SCOPE, NO AGREGACION AUTOMATICA. El apartado 4 exige que un
+-- padre HEALTHY pueda convivir con una subcapacidad CRITICAL. Se modela con
+-- `parent_id` y **sin formula de agregacion**: el apartado 23 dice que la
+-- politica exacta de agregacion no esta definida, y el guardrail 17 (no
+-- esconder un desastre local) y el 18 (no degradar el todo por un subsegmento
+-- pequeno) tiran en direcciones opuestas. Lo que hace la base es guardar los
+-- dos niveles; lo que comprueba `checkHealthInvariants` es que la relacion
+-- entre ellos se haya declarado.
+--
+-- `suspected_downstream_of` EN VEZ DE UNA TABLA DE PROPAGACION. El apartado 10
+-- pide poder expresar que capacidades podrian verse afectadas desde un origen.
+-- Una auto-referencia lo resuelve en la direccion que necesitan los guardrails
+-- 33 y 34 -- no contar dos efectos arrastrados como dos problemas
+-- independientes -- y evita una tabla que hoy nadie llenaria.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+-- ---------------------------------------------------------------------------
+-- TENANT — que significa cada capacidad para ESTE negocio
+-- (tenant apartados 5, 7, 8; guardrails 42, 43, 44)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.tenant_capability_config (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  capability varchar(24) not null,
+
+  -- Guardrail 43 -- no se impone el mismo registro critico a un DTC, a una
+  -- suscripcion y a un marketplace. Billing es critico en suscripcion y casi
+  -- irrelevante en un DTC de compra unica.
+  business_critical boolean not null default false,
+  criticality_rationale text,
+
+  -- Guardrail 19 -- la exposicion cambia la interpretacion. Que falle algo que
+  -- sostiene el 70% del negocio no es lo mismo que falle algo que sostiene el 3%.
+  business_exposure varchar(20),
+  revenue_share numeric,
+
+  -- Tenant apartado 8 -- limites de capacidad conocidos (almacen, equipo,
+  -- proveedor). No es un umbral universal: es lo que aguanta esta tienda.
+  capacity_limit_notes text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint tenant_capability_config_capacidad check (
+    capability in (
+      'market', 'product', 'offer', 'unit_economics', 'acquisition',
+      'creative', 'conversion', 'retention', 'inventory', 'operations',
+      'finance', 'data', 'technology', 'team', 'strategy'
+    )
+  ),
+  constraint tenant_capability_config_exposicion check (
+    business_exposure is null
+    or business_exposure in ('minimal', 'low', 'moderate', 'high', 'existential')
+  ),
+  constraint tenant_capability_config_cuota check (
+    revenue_share is null or (revenue_share >= 0 and revenue_share <= 1)
+  ),
+  -- Guardrail 44 -- declarar algo critico sin decir por que convierte una
+  -- decision del negocio en una opinion heredada de un framework.
+  constraint tenant_capability_config_criticidad_motivada check (
+    not business_critical or criticality_rationale is not null
+  )
+);
+
+comment on table public.tenant_capability_config is
+  'F3/D04 tenant-context. Que es critico y cuanto pesa cada capacidad en ESTE negocio (guardrail 43: el registro critico de un DTC no es el de una suscripcion).';
+
+create unique index if not exists tenant_capability_config_unico_idx
+  on public.tenant_capability_config (
+    organization_id,
+    coalesce(store_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    capability
+  );
+
+drop trigger if exists set_tenant_capability_config_updated_at on public.tenant_capability_config;
+create trigger set_tenant_capability_config_updated_at
+before update on public.tenant_capability_config
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- TENANT — contra que se juzga (apartado 6; tenant apartados 2, 3, 4)
+-- ---------------------------------------------------------------------------
+--
+-- El guardrail 11 prohibe clasificar CAC, CVR o refund rate por umbral
+-- universal, y el 13 prohibe depender de benchmarks externos. Lo que manda es
+-- lo de esta tabla: el baseline del propio negocio, su objetivo y su guardrail
+-- economico. Un CAC alto puede ser sano si cabe en la economia del producto
+-- (guardrail 39) y uno bajo puede ser critico si destruye contribucion (40).
+
+create table if not exists public.health_references (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  capability varchar(24),
+  metric varchar(80) not null,
+  scope varchar(40) not null default 'global',
+
+  reference_type varchar(24) not null,
+  value numeric,
+  value_text text,
+  unit varchar(16),
+  -- Cuando la referencia acota por arriba o por abajo: un CAC sostenible es un
+  -- techo, una cobertura de stock es un suelo.
+  direction varchar(10),
+
+  source text,
+  effective_from timestamptz not null default now(),
+  effective_to timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint health_references_tipo check (
+    reference_type in (
+      'self_baseline', 'adjusted_baseline', 'business_target',
+      'economic_guardrail', 'external_benchmark'
+    )
+  ),
+  constraint health_references_direccion check (
+    direction is null or direction in ('max', 'min', 'range')
+  ),
+  constraint health_references_capacidad check (
+    capability is null or capability in (
+      'market', 'product', 'offer', 'unit_economics', 'acquisition',
+      'creative', 'conversion', 'retention', 'inventory', 'operations',
+      'finance', 'data', 'technology', 'team', 'strategy'
+    )
+  ),
+  constraint health_references_valor check (
+    value is not null or value_text is not null
+  ),
+  constraint health_references_vigencia check (
+    effective_to is null or effective_to > effective_from
+  ),
+  -- Guardrail 13 -- un benchmark externo no es verdad del tenant, asi que al
+  -- menos tiene que decir de donde sale para poder discutirlo.
+  constraint health_references_benchmark_con_fuente check (
+    reference_type <> 'external_benchmark' or source is not null
+  )
+);
+
+comment on table public.health_references is
+  'F3/D04 tenant-context. Contra que se juzga una metrica en ESTA tienda: su propio baseline, su objetivo, su guardrail economico. El guardrail 11 prohibe el umbral universal.';
+
+comment on column public.health_references.reference_type is
+  'Apartado 6. D4 debe poder funcionar sin `external_benchmark`: el guardrail 13 prohibe depender de el.';
+
+create index if not exists health_references_org_idx
+  on public.health_references (organization_id, metric)
+  where effective_to is null;
+
+drop trigger if exists set_health_references_updated_at on public.health_references;
+create trigger set_health_references_updated_at
+before update on public.health_references
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- LA TARJETA DE SALUD (apartados 1, 3, 4, 7, 9, 11, 12, 16, 17, 20, 21)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.capability_health (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  capability varchar(24) not null,
+  -- Apartado 4 -- una evaluacion puede ser de la capacidad entera o de un
+  -- canal, mercado, cohorte o SKU. `parent_id` sostiene la jerarquia sin
+  -- imponer agregacion automatica.
+  scope varchar(40) not null default 'global',
+  scope_detail jsonb not null default '{}'::jsonb,
+  parent_id uuid references public.capability_health (id) on delete cascade,
+
+  health_state varchar(20) not null,
+  -- Apartado 3 -- salud y trayectoria son campos separados: BAD mejorando y
+  -- HEALTHY cayendo en picado son situaciones muy distintas.
+  trajectory varchar(24),
+
+  -- Apartado 7 -- ahora frente a lo que viene.
+  near_term_risk varchar(20) not null default 'none',
+  risk_horizon varchar(4),
+  -- Guardrails 24 y 25 -- sin indicadores adelantados el aviso llega cuando ya
+  -- hay dano.
+  has_leading_signals boolean not null default false,
+
+  -- Apartado 11 -- riesgo estructural convive con salud actual. Un HEALTHY con
+  -- riesgo estructural alto es exactamente el caso que el guardrail 22
+  -- describe, y no hay constraint que lo impida.
+  structural_risk varchar(20) not null default 'none',
+
+  -- Apartado 12 -- agudo frente a cronico. La fuente no define umbrales
+  -- temporales y aqui tampoco se inventan: es una etiqueta, no un calculo.
+  chronicity varchar(24),
+
+  -- Apartado 9 -- origen sospechado o efecto arrastrado. Los valores dicen
+  -- "suspected" a proposito: el guardrail 31 permite registrar la sospecha y
+  -- el 30 prohibe afirmar la causa.
+  issue_role varchar(24),
+  suspected_downstream_of uuid references public.capability_health (id) on delete set null,
+
+  -- Apartado 16 -- sobre que parte del negocio impacta.
+  impact_vector text[] not null default '{}',
+  current_failure text,
+
+  -- Apartado 16 de D03 y guardrail 16 de aqui: la madurez se conserva JUNTO a
+  -- la salud, nunca mezclada con ella. Referencia al perfil, no copia del nivel.
+  maturity_profile_id uuid references public.maturity_profiles (id) on delete set null,
+
+  confidence varchar(20) not null default 'low',
+  -- Apartado 21 -- si no se puede evaluar, hay que decir que falta.
+  assessment_blocker text,
+  -- Guardrail 28 -- si hay senales que contradicen el estado, se resuelve la
+  -- inconsistencia por escrito en vez de ignorarla.
+  contradiction_resolution text,
+  -- Guardrails 48, 49 y 50 -- los estados extremos no son un recurso retorico.
+  state_justification text,
+
+  assessed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint capability_health_capacidad check (
+    capability in (
+      'market', 'product', 'offer', 'unit_economics', 'acquisition',
+      'creative', 'conversion', 'retention', 'inventory', 'operations',
+      'finance', 'data', 'technology', 'team', 'strategy'
+    )
+  ),
+  constraint capability_health_estado check (
+    health_state in (
+      'elite', 'healthy', 'fragile', 'bad', 'critical', 'disaster',
+      'unknown', 'not_assessable'
+    )
+  ),
+  constraint capability_health_trayectoria check (
+    trajectory is null or trajectory in (
+      'improving', 'stable', 'deteriorating', 'rapidly_deteriorating',
+      'recovering', 'volatile'
+    )
+  ),
+  constraint capability_health_riesgo_corto check (
+    near_term_risk in ('none', 'low', 'moderate', 'high', 'critical')
+  ),
+  constraint capability_health_riesgo_estructural check (
+    structural_risk in ('none', 'low', 'moderate', 'high', 'critical')
+  ),
+  constraint capability_health_horizonte check (
+    risk_horizon is null or risk_horizon in ('now', '7d', '30d', '90d')
+  ),
+  constraint capability_health_cronicidad check (
+    chronicity is null or chronicity in (
+      'acute_failure', 'chronic_weakness', 'chronic_fragility', 'health_debt'
+    )
+  ),
+  constraint capability_health_rol check (
+    issue_role is null or issue_role in (
+      'primary_suspected', 'downstream_suspected', 'unclear'
+    )
+  ),
+  constraint capability_health_confianza check (
+    confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  -- Guardrail 9 y apartado 21 -- ausencia de datos NO es salud. Es el error mas
+  -- facil de cometer: no ver anomalias y concluir que todo va bien.
+  constraint capability_health_sin_datos_no_es_sano check (
+    confidence <> 'insufficient_data'
+    or health_state in ('not_assessable', 'unknown')
+  ),
+  -- Apartado 21 -- y si no se puede evaluar, hay que decir que falta.
+  constraint capability_health_no_evaluable_declarado check (
+    health_state <> 'not_assessable' or assessment_blocker is not null
+  ),
+  -- Guardrail 25 -- un riesgo a corto plazo alto sin indicadores adelantados es
+  -- una prediccion hecha mirando por el retrovisor.
+  constraint capability_health_riesgo_con_senales check (
+    near_term_risk not in ('high', 'critical') or has_leading_signals
+  ),
+  -- Guardrail 23 -- si hay riesgo a corto, hay que decir a que plazo; "pronto"
+  -- no es accionable.
+  constraint capability_health_riesgo_con_horizonte check (
+    near_term_risk in ('none', 'low') or risk_horizon is not null
+  ),
+  -- Guardrails 48, 49 y 50 -- CRITICAL refleja dano grave, rapido o muy
+  -- propagado, y DISASTER se reserva para lo excepcional. Exigir que se
+  -- justifique y se diga sobre que impacta es lo que impide usarlos como
+  -- adjetivo.
+  constraint capability_health_extremos_justificados check (
+    health_state not in ('critical', 'disaster')
+    or (state_justification is not null and cardinality(impact_vector) > 0)
+  ),
+  -- Apartado 9 -- decir que algo es arrastrado exige decir de donde.
+  constraint capability_health_downstream_con_origen check (
+    issue_role <> 'downstream_suspected' or suspected_downstream_of is not null
+  ),
+  constraint capability_health_no_es_su_propio_origen check (
+    suspected_downstream_of is null or suspected_downstream_of <> id
+  )
+);
+
+comment on table public.capability_health is
+  'F3/D04. Como esta hoy una capacidad. Sin severidad (eso es del hallazgo), sin prioridad (eso es F4), sin causa (eso es D07-D09) y sin nota global (guardrail 21).';
+
+comment on column public.capability_health.issue_role is
+  'Apartado 9. Los valores dicen "suspected" a proposito: el guardrail 31 permite registrar la sospecha y el 30 prohibe afirmar causalidad.';
+
+comment on column public.capability_health.structural_risk is
+  'Apartado 11. No hay constraint que lo obligue a coincidir con health_state: el guardrail 22 dice que HEALTHY y riesgo alto pueden convivir, y forzarlos a cuadrar destruiria esa informacion.';
+
+comment on column public.capability_health.maturity_profile_id is
+  'Guardrail 16: la madurez de D03 se conserva junto a la salud, nunca mezclada. Referencia al perfil, no copia del nivel.';
+
+create index if not exists capability_health_org_idx
+  on public.capability_health (organization_id, assessed_at desc);
+
+create index if not exists capability_health_capacidad_idx
+  on public.capability_health (organization_id, capability, assessed_at desc);
+
+-- Apartado 20 -- lo que se consulta para monitorizar: lo que no esta sano.
+create index if not exists capability_health_degradadas_idx
+  on public.capability_health (organization_id, health_state, assessed_at desc)
+  where health_state in ('fragile', 'bad', 'critical', 'disaster');
+
+create index if not exists capability_health_padre_idx
+  on public.capability_health (parent_id)
+  where parent_id is not null;
+
+drop trigger if exists set_capability_health_updated_at on public.capability_health;
+create trigger set_capability_health_updated_at
+before update on public.capability_health
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- HALLAZGOS — aqui si vive la severidad (apartados 13, 14; guardrails 6, 45-47)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.health_findings (
+  id uuid primary key default gen_random_uuid(),
+  capability_health_id uuid not null
+    references public.capability_health (id) on delete cascade,
+
+  -- Guardrails 45, 46 y 47 -- HEALTHY no significa optimizado, y una
+  -- oportunidad de mejora no es una enfermedad. Separarlas por tipo es lo que
+  -- impide que "se puede mejorar el asunto de los emails" acabe pintando la
+  -- capacidad de rojo.
+  kind varchar(16) not null default 'issue',
+  description text not null,
+
+  -- Apartado 13 -- la severidad es del hallazgo, no de la capacidad.
+  severity varchar(20) not null,
+  scope varchar(40) not null default 'global',
+  impact text,
+  trajectory varchar(24),
+  confidence varchar(20) not null default 'low',
+
+  created_at timestamptz not null default now(),
+
+  constraint health_findings_tipo check (kind in ('issue', 'opportunity')),
+  constraint health_findings_severidad check (
+    severity in ('info', 'low', 'moderate', 'high', 'critical', 'business_threat')
+  ),
+  constraint health_findings_trayectoria check (
+    trajectory is null or trajectory in (
+      'improving', 'stable', 'deteriorating', 'rapidly_deteriorating',
+      'recovering', 'volatile'
+    )
+  ),
+  constraint health_findings_confianza check (
+    confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  -- Guardrail 46 -- una oportunidad no se convierte en enfermedad subiendole la
+  -- severidad. Si de verdad hace dano, es un `issue`.
+  constraint health_findings_oportunidad_no_es_enfermedad check (
+    kind <> 'opportunity' or severity in ('info', 'low')
+  )
+);
+
+comment on table public.health_findings is
+  'F3/D04. El dano concreto dentro de una capacidad. Aqui vive la severidad (apartado 13) y aqui se separa una oportunidad de una enfermedad (guardrail 46).';
+
+create index if not exists health_findings_salud_idx
+  on public.health_findings (capability_health_id);
+
+-- ---------------------------------------------------------------------------
+-- EVIDENCIA (apartado 5; guardrails 2, 26, 27, 28)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.health_evidence (
+  id uuid primary key default gen_random_uuid(),
+  capability_health_id uuid not null
+    references public.capability_health (id) on delete cascade,
+
+  -- Guardrails 26 y 27 -- la evidencia positiva cuenta, y la que contradice no
+  -- se tira. Un diagnostico que solo recoge anomalias no es un diagnostico, es
+  -- una lista de quejas.
+  relation varchar(16) not null default 'supporting',
+
+  metric varchar(80) not null,
+  observation text not null,
+  value numeric,
+  -- Guardrail 25 -- distinguir el indicador que avisa del que confirma.
+  indicator_type varchar(12) not null default 'lagging',
+
+  -- Apartado 5 -- contra que se comparo y en que ventana.
+  reference_id uuid references public.health_references (id) on delete set null,
+  window_start timestamptz,
+  window_end timestamptz,
+
+  source varchar(40),
+  confidence varchar(20) not null default 'low',
+
+  created_at timestamptz not null default now(),
+
+  constraint health_evidence_relacion check (
+    relation in ('supporting', 'contradicting', 'positive')
+  ),
+  constraint health_evidence_indicador check (
+    indicator_type in ('leading', 'lagging')
+  ),
+  constraint health_evidence_confianza check (
+    confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint health_evidence_ventana check (
+    window_start is null or window_end is null or window_end > window_start
+  )
+);
+
+comment on table public.health_evidence is
+  'F3/D04. Por que se afirma ese estado. `relation` conserva la evidencia positiva y la que contradice (guardrails 26 y 27): tirarlas deja un diagnostico que solo sabe quejarse.';
+
+comment on column public.health_evidence.indicator_type is
+  'Guardrail 25: un indicador rezagado confirma el dano cuando ya ocurrio. Sin adelantados no hay aviso temprano posible.';
+
+create index if not exists health_evidence_salud_idx
+  on public.health_evidence (capability_health_id);
+
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+--
+-- Staff, como el resto de la fase. La salud por capacidad es la materia prima
+-- de la conversacion del consultor con su cliente, y "tu operativa esta BAD"
+-- sin acompanamiento es una etiqueta, no una ayuda.
+
+alter table public.tenant_capability_config enable row level security;
+alter table public.health_references enable row level security;
+alter table public.capability_health enable row level security;
+alter table public.health_findings enable row level security;
+alter table public.health_evidence enable row level security;
+
+drop policy if exists "tenant_capability_config_select_staff" on public.tenant_capability_config;
+create policy "tenant_capability_config_select_staff" on public.tenant_capability_config
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "health_references_select_staff" on public.health_references;
+create policy "health_references_select_staff" on public.health_references
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "capability_health_select_staff" on public.capability_health;
+create policy "capability_health_select_staff" on public.capability_health
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "health_findings_select_staff" on public.health_findings;
+create policy "health_findings_select_staff" on public.health_findings
+  for select to authenticated
+  using (
+    exists (select 1 from public.capability_health h where h.id = capability_health_id)
+  );
+
+drop policy if exists "health_evidence_select_staff" on public.health_evidence;
+create policy "health_evidence_select_staff" on public.health_evidence
+  for select to authenticated
+  using (
+    exists (select 1 from public.capability_health h where h.id = capability_health_id)
+  );
+
+-- =============================================================================
+-- Migracion: 20260916090000_f3_d05_motor_de_senales.sql
+-- =============================================================================
+-- FASE 3 / D05 — Motor de senales y anomalias.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d05-requisitos-contrato-senales.md
+--          conocimiento/fase-03/04-policies-guardrails/d05-guardrails-senales.md
+--          conocimiento/fase-03/03-runtime/d05-flujo-motor-senales.md
+--          conocimiento/fase-03/06-tenant-context/d05-configuracion-motor-senales.md
+--          conocimiento/fase-03/05-experience-learning/d05-pattern-memory-y-baseline-learning.md
+--
+-- El primer bloque de la fase que **escribe filas leyendo datos reales**. D00 a
+-- D04 definieron que es un diagnostico, cuando el dato aguanta, que significa
+-- aqui, de que es capaz el negocio y como esta hoy. D05 es el que mira las
+-- cifras y dice "esto ha cambiado y merece que alguien lo investigue".
+--
+-- LAS SEIS PRIMERAS LINEAS DE LOS GUARDRAILS SON LA FRONTERA DEL BLOQUE: no
+-- todo cambio es senal, no toda senal es problema, y senal no es anomalia, ni
+-- sintoma, ni causa, ni recomendacion. El ejemplo del guardrail 49-50 lo deja
+-- exacto: **D5 puede decir "el CTR se esta deteriorando"; no puede decir
+-- "fatiga creativa confirmada"**. Por eso aqui no hay columna `symptom`,
+-- `cause`, `action` ni `recommendation`: interpretar es D06, la causa D07-D09 y
+-- la accion F5+.
+--
+-- LOS BASELINES Y GUARDRAILS NO SE DUPLICAN: YA EXISTEN. `health_references`
+-- (D04) guarda por metrica el baseline propio, el objetivo del negocio y el
+-- guardrail economico, que es exactamente lo que piden los apartados 1 y 2 del
+-- tenant-context de D05. Crear aqui una segunda tabla de umbrales seria
+-- garantizar que dentro de seis meses digan cosas distintas sobre el mismo CAC.
+-- Una senal referencia la fila que uso.
+--
+-- MAGNITUD NO ES IMPACTO. Es el guardrail 8 y su ejemplo del 57: un +200% en
+-- una campana minuscula puede ser irrelevante. Por eso `magnitude_relative` y
+-- `business_relevance` son columnas distintas, y la relevancia alta exige
+-- exposicion declarada. Sin eso, el motor grita mas fuerte cuanto menos importa
+-- lo que mira.
+--
+-- SIGNIFICANCIA ESTADISTICA NO ES SIGNIFICANCIA DE NEGOCIO (guardrail 7), y con
+-- pocos eventos ni siquiera es estadistica (21, 22). `sample_size`,
+-- `low_sample` y `statistical_strength` se guardan aparte de la relevancia, y
+-- una senal con muestra baja no puede ser critica.
+--
+-- UN COMPOSITE SIN SUS INPUTS ES UN SCORE OPACO (guardrails 40, 41, 42). Si
+-- `is_composite`, la senal esta obligada a declarar sus componentes y la
+-- contribucion de cada uno. Un numero normalizado no sustituye la explicacion.
+--
+-- AGRUPAR NO ES PERDER (guardrails 29, 30, 31). Los clusters existen para no
+-- mandar cinco avisos del mismo fenomeno, pero las senales siguen enteras en su
+-- tabla: el cluster es una relacion, no un resumen que sustituya a sus miembros.
+--
+-- LO POSITIVO SE DETECTA CON EL MISMO RIGOR (guardrails 43, 44, 45). Hay
+-- `positive` como tipo de senal y como direccion, las positivas y negativas
+-- conviven sin cancelarse, y declarar un `breakthrough` exige persistencia: un
+-- periodo suelto no es una mejora estructural.
+--
+-- EVENT-LINKED NO ES EVENT-CAUSED (guardrail 35). Una senal puede apuntar al
+-- evento de negocio con el que coincide en el tiempo, y esa columna se llama
+-- `linked_event_id` con un `event_link_status`, nunca `caused_by`.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+-- ---------------------------------------------------------------------------
+-- GRAFO DE METRICAS — para no contar lo mismo dos veces
+-- (apartados 16 y 21; guardrails 9, 25, 26)
+-- ---------------------------------------------------------------------------
+--
+-- Dos metricas que comparten inputs no son dos evidencias independientes. CVR y
+-- revenue por sesion se mueven juntas porque una esta dentro de la otra, y
+-- tratarlas como corroboracion mutua infla la confianza de un solo hecho.
+
+create table if not exists public.metric_dependencies (
+  id uuid primary key default gen_random_uuid(),
+  -- Sin organizacion cuando es aritmetica del ecommerce (revenue = pedidos x
+  -- AOV). Con organizacion cuando es una metrica propia del tenant.
+  organization_id uuid references public.organizations (id) on delete cascade,
+
+  metric varchar(80) not null,
+  depends_on varchar(80) not null,
+  relation varchar(16) not null default 'component',
+  rationale text not null,
+
+  created_at timestamptz not null default now(),
+
+  constraint metric_dependencies_relacion check (
+    relation in ('component', 'derived_from', 'shares_input')
+  ),
+  constraint metric_dependencies_no_circular check (metric <> depends_on)
+);
+
+comment on table public.metric_dependencies is
+  'F3/D05. Que metrica depende de cual. Sirve para el guardrail 25: dos metricas con inputs compartidos no son evidencia independiente.';
+
+create unique index if not exists metric_dependencies_unico_idx
+  on public.metric_dependencies (
+    coalesce(organization_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    metric,
+    depends_on,
+    relation
+  );
+
+-- ---------------------------------------------------------------------------
+-- PATRONES CONOCIDOS DEL TENANT (apartados 24, 25, 26; guardrails 46, 47, 48)
+-- ---------------------------------------------------------------------------
+--
+-- Cada tienda tiene sus propios patrones: la caida de agosto, el pico de Black
+-- Friday, la resaca de la semana siguiente. El guardrail 48 es explicito: estos
+-- patrones **no** se promueven automaticamente a reglas globales, asi que la
+-- tabla lleva organizacion obligatoria y no hay forma de que uno se escape al
+-- RAG global.
+
+create table if not exists public.tenant_signal_patterns (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  label varchar(120) not null,
+  description text not null,
+  metric varchar(80),
+  scope varchar(40) not null default 'global',
+
+  -- Guardrail 47 -- un patron conocido solo reduce atencion si esta lo bastante
+  -- explicado. `explanation` no es opcional cuando se suprime.
+  explanation text,
+  suppression varchar(16) not null default 'none',
+
+  -- Apartado 25 -- que paso la ultima vez. Guardrail 46: que se repita el
+  -- patron no confirma que se repita el desenlace.
+  previous_outcome text,
+  occurrences integer not null default 1,
+  last_seen_at timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint tenant_signal_patterns_supresion check (
+    suppression in ('none', 'reduce_attention', 'suppress')
+  ),
+  -- Guardrail 47 -- suprimir sin explicar es esconder.
+  constraint tenant_signal_patterns_supresion_explicada check (
+    suppression = 'none' or explanation is not null
+  ),
+  constraint tenant_signal_patterns_ocurrencias check (occurrences > 0)
+);
+
+comment on table public.tenant_signal_patterns is
+  'F3/D05 experience. Patrones que esta tienda ya conoce. Guardrail 48: llevan organizacion obligatoria y nunca ascienden a regla global.';
+
+comment on column public.tenant_signal_patterns.previous_outcome is
+  'Que paso la ultima vez. Guardrail 46: que el patron se repita no confirma que el desenlace se repita.';
+
+create index if not exists tenant_signal_patterns_org_idx
+  on public.tenant_signal_patterns (organization_id, metric);
+
+drop trigger if exists set_tenant_signal_patterns_updated_at on public.tenant_signal_patterns;
+create trigger set_tenant_signal_patterns_updated_at
+before update on public.tenant_signal_patterns
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- LA SENAL (apartados 1 a 12, 17 a 24, 27)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.signals (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  -- Apartado 2 -- que clase de cambio es.
+  signal_type varchar(24) not null,
+  -- Apartado 3 -- y si ademas es una anomalia, de que clase. Nullable a
+  -- proposito: el guardrail 3 dice que senal y anomalia no son lo mismo, y la
+  -- mayoria de las senales no son anomalias.
+  anomaly_type varchar(24),
+
+  capability varchar(24),
+  metric varchar(80) not null,
+  scope varchar(40) not null default 'global',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartado 1 -- forma del cambio.
+  direction varchar(12) not null,
+  observed_value numeric,
+  baseline_value numeric,
+  magnitude_absolute numeric,
+  magnitude_relative numeric,
+  expected_low numeric,
+  expected_high numeric,
+
+  onset_at timestamptz,
+  detected_at timestamptz not null default now(),
+  window_start timestamptz not null,
+  window_end timestamptz not null,
+
+  -- Apartado 4 -- cuanto lleva pasando. Guardrail 44: un periodo suelto no es
+  -- un cambio estructural.
+  persistence varchar(16) not null default 'transient',
+  trajectory varchar(24),
+  -- Apartado 6 -- si esto es el mundo nuevo o una desviacion del de siempre.
+  regime varchar(16) not null default 'normal_regime',
+
+  -- Apartado 7 -- contra que se comparo. Referencia a la tabla de D04: los
+  -- baselines y guardrails no se duplican.
+  reference_id uuid references public.health_references (id) on delete set null,
+  baseline_kind varchar(24),
+  -- Guardrail 12 -- si dos baselines dicen cosas distintas, se dice.
+  baseline_conflict boolean not null default false,
+
+  -- Apartado 9 -- guardrail de negocio. Guardrail 20: acercarse cuenta, no solo
+  -- traspasar.
+  guardrail_status varchar(16),
+  distance_to_guardrail numeric,
+
+  -- Apartados 11 y 12 -- lo estadistico y lo empresarial, separados
+  -- (guardrail 7).
+  sample_size bigint,
+  event_count bigint,
+  low_sample boolean not null default false,
+  statistical_method varchar(40),
+  statistical_strength varchar(16),
+
+  -- Guardrail 8 y 57 -- la magnitud no es el impacto.
+  business_relevance varchar(16) not null default 'low',
+  business_exposure varchar(20),
+  impact_estimate varchar(16),
+
+  -- Apartado 10 -- tres confianzas distintas, porque se degradan por motivos
+  -- distintos. La del dato viene de D01, la del contexto de D02.
+  data_confidence varchar(20) not null default 'low',
+  context_confidence varchar(20) not null default 'low',
+  signal_confidence varchar(20) not null default 'low',
+
+  -- Apartado 21 -- si es compuesta, tiene que explicarse (guardrails 40-42).
+  is_composite boolean not null default false,
+  composite_inputs jsonb not null default '[]'::jsonb,
+  composite_explanation text,
+
+  -- Apartado 24 -- ¿ya habiamos visto esto?
+  novelty varchar(16),
+  matched_pattern_id uuid references public.tenant_signal_patterns (id) on delete set null,
+  suppression varchar(16) not null default 'none',
+
+  -- Apartado 19 -- coincide en el tiempo con un cambio conocido. `linked`, no
+  -- `caused`: guardrail 35.
+  linked_event_id uuid references public.context_change_events (id) on delete set null,
+  event_link_status varchar(20),
+  expected_lag_days integer,
+
+  -- Apartado 20 -- si adelanta algo que pasara aguas abajo.
+  is_leading_indicator boolean not null default false,
+  downstream_metric varchar(80),
+
+  -- Apartado 18 -- por que este segmento merecia mirarse (guardrails 36-38).
+  segment_eligibility varchar(24),
+
+  -- El texto que lee un humano. Descriptivo, nunca interpretativo: "el CTR cae
+  -- un 34% desde el 3 de septiembre", no "fatiga creativa".
+  description text not null,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint signals_tipo check (
+    signal_type in (
+      'level', 'trend', 'change', 'rate', 'volatility', 'concentration',
+      'mix', 'ratio', 'capacity', 'dependency', 'regression', 'positive',
+      'risk'
+    )
+  ),
+  constraint signals_anomalia check (
+    anomaly_type is null or anomaly_type in (
+      'point', 'contextual', 'collective', 'sequence', 'periodic', 'localized'
+    )
+  ),
+  constraint signals_direccion check (
+    direction in ('up', 'down', 'flat', 'diverging', 'unstable')
+  ),
+  constraint signals_persistencia check (
+    persistence in ('transient', 'emerging', 'persistent', 'chronic')
+  ),
+  constraint signals_regimen check (
+    regime in ('normal_regime', 'anomaly', 'new_regime', 'regime_shift')
+  ),
+  constraint signals_trayectoria check (
+    trajectory is null or trajectory in (
+      'improving', 'stable', 'deteriorating', 'rapidly_deteriorating',
+      'recovering', 'volatile'
+    )
+  ),
+  constraint signals_guardrail check (
+    guardrail_status is null or guardrail_status in (
+      'within', 'approaching', 'breached', 'crossed'
+    )
+  ),
+  constraint signals_fuerza check (
+    statistical_strength is null or statistical_strength in (
+      'none', 'weak', 'moderate', 'strong'
+    )
+  ),
+  constraint signals_relevancia check (
+    business_relevance in ('low', 'medium', 'high', 'critical')
+  ),
+  constraint signals_impacto check (
+    impact_estimate is null or impact_estimate in ('low', 'medium', 'high', 'critical')
+  ),
+  constraint signals_exposicion check (
+    business_exposure is null
+    or business_exposure in ('minimal', 'low', 'moderate', 'high', 'existential')
+  ),
+  constraint signals_confianza_dato check (
+    data_confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint signals_confianza_contexto check (
+    context_confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint signals_confianza_senal check (
+    signal_confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint signals_novedad check (
+    novelty is null or novelty in ('first_ever', 'rare', 'common', 'recurring')
+  ),
+  constraint signals_supresion check (
+    suppression in ('none', 'reduce_attention', 'suppress')
+  ),
+  constraint signals_evento check (
+    event_link_status is null or event_link_status in (
+      'within_window', 'outside_window', 'lagged', 'unclear'
+    )
+  ),
+  constraint signals_elegibilidad check (
+    segment_eligibility is null or segment_eligibility in (
+      'meets_minimum', 'critical_segment', 'high_value', 'below_minimum'
+    )
+  ),
+  constraint signals_ventana check (window_end > window_start),
+  constraint signals_rango check (
+    expected_low is null or expected_high is null or expected_high >= expected_low
+  ),
+
+  -- Guardrail 8 y 57 -- un +200% en una campana minuscula no es una senal
+  -- relevante. La relevancia alta exige exposicion declarada y material.
+  constraint signals_relevancia_exige_exposicion check (
+    business_relevance not in ('high', 'critical')
+    or business_exposure in ('moderate', 'high', 'existential')
+  ),
+  -- Guardrails 21 y 22 -- un porcentaje extremo con cuatro eventos no es una
+  -- senal critica, es ruido con buena presentacion.
+  constraint signals_muestra_baja_no_es_critica check (
+    not low_sample or business_relevance <> 'critical'
+  ),
+  -- Guardrails 40, 41 y 42 -- un composite sin inputs es un score opaco.
+  constraint signals_composite_explicado check (
+    not is_composite
+    or (jsonb_array_length(composite_inputs) > 0 and composite_explanation is not null)
+  ),
+  -- Guardrail 44 -- declarar un cambio de regimen o una mejora estructural
+  -- desde un periodo aislado es exactamente lo que el guardrail prohibe.
+  constraint signals_regimen_exige_persistencia check (
+    regime not in ('new_regime', 'regime_shift')
+    or persistence in ('persistent', 'chronic')
+  ),
+  -- Guardrail 47 -- reducir atencion sin patron identificado es silenciar a
+  -- ciegas.
+  constraint signals_supresion_con_patron check (
+    suppression = 'none' or matched_pattern_id is not null
+  ),
+  -- Apartado 19 -- si se enlaza con un evento hay que decir en que relacion
+  -- temporal, porque el enlace NO es la causa (guardrail 35).
+  constraint signals_evento_con_relacion check (
+    linked_event_id is null or event_link_status is not null
+  ),
+  -- Apartado 20 -- un indicador adelantado sin decir que adelanta no adelanta
+  -- nada.
+  constraint signals_leading_con_destino check (
+    not is_leading_indicator or downstream_metric is not null
+  ),
+  -- Guardrail 28 -- si el dato no se sostiene, no se emite una senal de
+  -- negocio. D01 manda sobre D05.
+  constraint signals_sin_dato_no_hay_senal check (
+    data_confidence <> 'insufficient_data' or business_relevance = 'low'
+  )
+);
+
+comment on table public.signals is
+  'F3/D05. Un cambio que merece investigarse. Descriptivo, nunca interpretativo: puede decir "el CTR cae un 34%", no "fatiga creativa" (guardrails 49 y 50).';
+
+comment on column public.signals.business_relevance is
+  'Guardrail 8 y 57: la magnitud no es el impacto. Un +200% en una campana minuscula es LOW, y por eso la relevancia alta exige exposicion material.';
+
+comment on column public.signals.linked_event_id is
+  'Coincidencia temporal con un cambio conocido. Se llama `linked` y no `caused` por el guardrail 35: event-linked no es event-caused.';
+
+comment on column public.signals.description is
+  'Texto descriptivo para un humano. La interpretacion es D06 y la causa D07-D09: aqui no cabe ni una ni la otra.';
+
+create index if not exists signals_org_idx
+  on public.signals (organization_id, detected_at desc);
+
+create index if not exists signals_metrica_idx
+  on public.signals (organization_id, metric, window_end desc);
+
+-- Lo que se consulta al abrir un diagnostico: lo relevante y no suprimido.
+create index if not exists signals_relevantes_idx
+  on public.signals (organization_id, business_relevance, detected_at desc)
+  where suppression = 'none' and business_relevance in ('high', 'critical');
+
+drop trigger if exists set_signals_updated_at on public.signals;
+create trigger set_signals_updated_at
+before update on public.signals
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- EVIDENCIA Y CORROBORACION (apartados 15, 16; guardrails 9, 25, 26)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.signal_evidence (
+  id uuid primary key default gen_random_uuid(),
+  signal_id uuid not null references public.signals (id) on delete cascade,
+
+  source varchar(40) not null,
+  metric varchar(80) not null,
+  observation text not null,
+  value numeric,
+
+  -- Guardrail 26 -- la confianza solo sube con corroboracion **verdaderamente**
+  -- independiente. Una metrica derivada de la misma fuente no corrobora nada:
+  -- es el mismo hecho contado dos veces.
+  independent boolean not null default false,
+  independence_rationale text,
+
+  created_at timestamptz not null default now(),
+
+  -- Guardrail 25 -- declarar independencia exige justificarla, justo porque es
+  -- lo que sube la confianza.
+  constraint signal_evidence_independencia_justificada check (
+    not independent or independence_rationale is not null
+  )
+);
+
+comment on table public.signal_evidence is
+  'F3/D05. De donde sale la senal. `independent` solo es true con justificacion: el guardrail 26 exige corroboracion de verdad independiente para subir la confianza.';
+
+create index if not exists signal_evidence_senal_idx
+  on public.signal_evidence (signal_id);
+
+-- ---------------------------------------------------------------------------
+-- CLUSTERS — agrupar sin perder (apartados 13; guardrails 29, 30, 31)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.signal_clusters (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  label varchar(160) not null,
+  shared_scope varchar(40),
+  window_start timestamptz not null,
+  window_end timestamptz not null,
+  -- Por que estan juntas: coinciden en el tiempo, en el scope, o una metrica
+  -- depende de otra.
+  grouping_reason varchar(24) not null,
+  confidence varchar(20) not null default 'low',
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint signal_clusters_motivo check (
+    grouping_reason in (
+      'temporal_overlap', 'shared_scope', 'metric_dependency', 'mixed'
+    )
+  ),
+  constraint signal_clusters_confianza check (
+    confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint signal_clusters_ventana check (window_end > window_start)
+);
+
+comment on table public.signal_clusters is
+  'F3/D05. Varias senales del mismo fenomeno, agrupadas para no mandar cinco avisos (guardrail 29). D06 convierte clusters en sintomas; aqui no se interpretan.';
+
+create index if not exists signal_clusters_org_idx
+  on public.signal_clusters (organization_id, window_end desc);
+
+drop trigger if exists set_signal_clusters_updated_at on public.signal_clusters;
+create trigger set_signal_clusters_updated_at
+before update on public.signal_clusters
+for each row execute function private.set_updated_at();
+
+-- Guardrail 31 -- agrupar no puede perder la evidencia individual. Por eso el
+-- cluster es una relacion y las senales siguen enteras en su propia tabla.
+create table if not exists public.signal_cluster_members (
+  cluster_id uuid not null references public.signal_clusters (id) on delete cascade,
+  signal_id uuid not null references public.signals (id) on delete cascade,
+  -- Cual de ellas se enseña primero. No es prioridad: es representatividad.
+  is_representative boolean not null default false,
+  created_at timestamptz not null default now(),
+
+  primary key (cluster_id, signal_id)
+);
+
+comment on table public.signal_cluster_members is
+  'F3/D05. Guardrail 31: agrupar no pierde evidencia. El cluster es una relacion, no un resumen que sustituya a sus miembros.';
+
+create index if not exists signal_cluster_members_signal_idx
+  on public.signal_cluster_members (signal_id);
+
+-- ---------------------------------------------------------------------------
+-- CONFLICTOS (apartado 14; guardrails 27, 28)
+-- ---------------------------------------------------------------------------
+--
+-- Cuando dos senales dicen cosas incompatibles, el conflicto ES informacion. El
+-- guardrail 27 obliga a conservarlo y el 28 a no forzar una lectura de negocio
+-- cuando lo que sugiere la evidencia es un problema de datos.
+
+create table if not exists public.signal_conflicts (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+
+  signal_a_id uuid not null references public.signals (id) on delete cascade,
+  signal_b_id uuid not null references public.signals (id) on delete cascade,
+
+  expected_relationship text not null,
+  observed_disagreement text not null,
+  -- Guardrail 28 -- la sospecha de que esto huele a problema de datos y no a
+  -- cambio del negocio.
+  suggests_data_issue boolean not null default false,
+  degrades_confidence boolean not null default true,
+  resolution text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint signal_conflicts_distintas check (signal_a_id <> signal_b_id)
+);
+
+comment on table public.signal_conflicts is
+  'F3/D05. Dos senales que no encajan. El guardrail 27 obliga a conservar el conflicto en vez de elegir la version que gusta.';
+
+create unique index if not exists signal_conflicts_unico_idx
+  on public.signal_conflicts (least(signal_a_id, signal_b_id), greatest(signal_a_id, signal_b_id));
+
+drop trigger if exists set_signal_conflicts_updated_at on public.signal_conflicts;
+create trigger set_signal_conflicts_updated_at
+before update on public.signal_conflicts
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- PUENTE CON D00 — una senal diagnostica puede venir de aqui
+-- ---------------------------------------------------------------------------
+
+alter table public.diagnostic_signals
+  add column if not exists source_signal_id uuid
+    references public.signals (id) on delete set null;
+
+comment on column public.diagnostic_signals.source_signal_id is
+  'F3/D05. La senal del motor que dio origen a esta. Nullable: un consultor puede anotar una senal a mano sin que el motor la haya detectado.';
+
+create index if not exists diagnostic_signals_source_idx
+  on public.diagnostic_signals (source_signal_id)
+  where source_signal_id is not null;
+
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+--
+-- Staff, como el resto de la fase. Una senal sin interpretar es justo el
+-- material que el guardrail 2 advierte que no es un problema todavia:
+-- ensenarsela al cliente convertiria cada variacion en una alarma.
+--
+-- `metric_dependencies` sin organizacion es aritmetica del ecommerce y la lee
+-- cualquiera autenticado; con organizacion, solo staff.
+
+alter table public.metric_dependencies enable row level security;
+alter table public.tenant_signal_patterns enable row level security;
+alter table public.signals enable row level security;
+alter table public.signal_evidence enable row level security;
+alter table public.signal_clusters enable row level security;
+alter table public.signal_cluster_members enable row level security;
+alter table public.signal_conflicts enable row level security;
+
+drop policy if exists "metric_dependencies_select" on public.metric_dependencies;
+create policy "metric_dependencies_select" on public.metric_dependencies
+  for select to authenticated
+  using (
+    organization_id is null
+    or private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "tenant_signal_patterns_select_staff" on public.tenant_signal_patterns;
+create policy "tenant_signal_patterns_select_staff" on public.tenant_signal_patterns
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "signals_select_staff" on public.signals;
+create policy "signals_select_staff" on public.signals
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "signal_evidence_select_staff" on public.signal_evidence;
+create policy "signal_evidence_select_staff" on public.signal_evidence
+  for select to authenticated
+  using (exists (select 1 from public.signals s where s.id = signal_id));
+
+drop policy if exists "signal_clusters_select_staff" on public.signal_clusters;
+create policy "signal_clusters_select_staff" on public.signal_clusters
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "signal_cluster_members_select_staff" on public.signal_cluster_members;
+create policy "signal_cluster_members_select_staff" on public.signal_cluster_members
+  for select to authenticated
+  using (exists (select 1 from public.signal_clusters c where c.id = cluster_id));
+
+drop policy if exists "signal_conflicts_select_staff" on public.signal_conflicts;
+create policy "signal_conflicts_select_staff" on public.signal_conflicts
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+-- =============================================================================
+-- Migracion: 20260916120000_f3_d05_huella_unica_de_senal.sql
+-- =============================================================================
+-- FASE 3 / D05 — Huella unica de una senal.
+--
+-- El motor se reejecuta: si corre dos veces el mismo dia sobre la misma tienda,
+-- vuelve a detectar la misma desviacion. Sin una huella unica eso serian dos
+-- filas identicas y, aguas abajo, dos avisos del mismo fenomeno -- que es
+-- exactamente lo que el guardrail 29 prohibe, solo que por un motivo tonto.
+--
+-- La huella es (organizacion, metrica, scope, fin de ventana, tipo). Dos
+-- senales distintas sobre la misma metrica el mismo dia existen de verdad --
+-- un cambio de nivel y una tendencia son cosas distintas -- y por eso el tipo
+-- entra en la clave.
+--
+-- Va en migracion aparte y no editando `20260916090000` porque aquella ya esta
+-- aplicada en test: cambiarla dejaria test y produccion con esquemas distintos
+-- sin que nadie se enterara.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+create unique index if not exists signals_huella_idx
+  on public.signals (organization_id, metric, scope, window_end, signal_type);
+
+comment on index public.signals_huella_idx is
+  'F3/D05. Reejecutar el motor el mismo dia actualiza la senal en vez de duplicarla.';
+
+-- =============================================================================
+-- Migracion: 20260916150000_shopify_net_sales_coherente.sql
+-- =============================================================================
+-- El ingreso neto de un pedido se estaba calculando en dos sitios y solo uno lo
+-- hacia bien. El sync bulk escribia `net_sales = total - devoluciones`; el
+-- webhook de `orders/create` y `orders/updated` **no escribia la columna**, y
+-- como es `not null default 0`, todo pedido que entraba por webhook quedaba con
+-- ingreso cero sin que fallara nada.
+--
+-- El efecto en produccion: desde el 14-08-2026, cuando el webhook paso a ser la
+-- via principal de ingesta, el 99% de los pedidos de septiembre figuraban con
+-- cero euros. Ninguna alerta salto, porque `orders_count` seguia siendo correcto
+-- y la unica senal era que el dinero no aparecia.
+--
+-- Esta migracion hace dos cosas: recalcula lo que ya esta mal y deja la
+-- coherencia como check constraint, para que la proxima via de escritura que se
+-- olvide de `net_sales` falle en voz alta en lugar de guardar un cero.
+
+-- 1. Recalculo. La formula es la del sync bulk, que es la buena: reproduce
+--    exactamente las filas ya correctas, asi que solo mueve las rotas.
+update public.shopify_order_facts
+set net_sales = current_total_price - refunds
+where net_sales is distinct from current_total_price - refunds;
+
+-- 2. La garantia. Idempotente: si ya existe, no se toca.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.shopify_order_facts'::regclass
+      and conname = 'order_facts_net_sales_coherente'
+  ) then
+    alter table public.shopify_order_facts
+      add constraint order_facts_net_sales_coherente
+      check (net_sales = current_total_price - refunds);
+  end if;
+end $$;
+
+comment on column public.shopify_order_facts.net_sales is
+  'Ingreso neto del pedido = current_total_price - refunds. La igualdad la impone '
+  'order_facts_net_sales_coherente: no es una convencion, es un check. Cualquier '
+  'escritura que omita la columna falla en vez de guardar el default 0.';
+
+-- =============================================================================
+-- Migracion: 20260916160000_shopify_net_sales_derivado.sql
+-- =============================================================================
+-- Correccion de la migracion anterior (20260916150000).
+--
+-- Aquella dejo la coherencia de `net_sales` como check constraint. El
+-- razonamiento era bueno y el resultado peligroso: **la API desplegada en el
+-- VPS no escribe la columna**. Con solo el check, el siguiente webhook de
+-- pedido habria sido rechazado, Shopify habria reintentado y el pedido se
+-- habria perdido. Se cambio un dato mal calculado por una ingesta rota, que es
+-- peor.
+--
+-- El arreglo correcto no es rechazar: es **derivar**. Un trigger `before` que
+-- calcula `net_sales` siempre deja bien el dato venga de donde venga, sin
+-- depender de que nadie despliegue nada:
+--
+--   - el codigo desplegado hoy, que omite la columna, pasa a guardar el valor
+--     correcto desde el proximo webhook;
+--   - el sync bulk, que si la manda, obtiene el mismo numero;
+--   - ninguna via futura puede escribir un valor incoherente.
+--
+-- El check se conserva como cable trampa: con el trigger puesto no puede
+-- saltar nunca, pero si alguien quita el trigger, vuelve a fallar en voz alta
+-- en lugar de guardar ceros en silencio.
+
+create or replace function private.shopify_order_facts_net_sales()
+returns trigger language plpgsql set search_path = '' as $$
+begin
+  -- Misma formula que el sync bulk, ahora en un solo sitio y de verdad.
+  new.net_sales := coalesce(new.current_total_price, 0) - coalesce(new.refunds, 0);
+  return new;
+end;
+$$;
+
+comment on function private.shopify_order_facts_net_sales() is
+  'Deriva net_sales = current_total_price - refunds en cada escritura. Existe '
+  'porque el ingreso neto se calculaba en dos mappers y el de webhooks se '
+  'olvidaba de la columna, que es not null default 0: 248 pedidos quedaron a '
+  'cero euros sin que fallara nada.';
+
+drop trigger if exists shopify_order_facts_net_sales on public.shopify_order_facts;
+create trigger shopify_order_facts_net_sales
+  before insert or update on public.shopify_order_facts
+  for each row execute function private.shopify_order_facts_net_sales();
+
+-- =============================================================================
+-- Migracion: 20260917090000_f3_d06_motor_de_sintomas.sql
+-- =============================================================================
+-- FASE 3 / D06 — Motor de sintomas.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d06-requisitos-contrato-sintomas.md
+--          conocimiento/fase-03/04-policies-guardrails/d06-guardrails-sintomas.md
+--          conocimiento/fase-03/03-runtime/d06-flujo-motor-sintomas.md
+--          conocimiento/fase-03/06-tenant-context/d06-contexto-motor-sintomas.md
+--          conocimiento/fase-03/05-experience-learning/d06-memoria-diagnostica-sintomas.md
+--
+-- D05 tiene prohibido interpretar: puede decir "el CTR cae un 34%" y nada mas.
+-- D06 es el bloque que cruza esa linea y solo esa. Convierte senales coherentes
+-- entre si en un patron empresarial observable. Sigue sin poder decir por que
+-- pasa (D07-D09) ni que hacer (F5+).
+--
+-- LAS OCHO PRIMERAS LINEAS DE LOS GUARDRAILS SON LA FRONTERA: senal no es
+-- sintoma, y sintoma no es hipotesis, ni causa, ni restriccion, ni salud, ni
+-- gap de madurez, ni prioridad, ni recomendacion. Por eso aqui no existe
+-- ninguna columna `hypothesis`, `root_cause`, `cause`, `constraint`, `action`,
+-- `recommendation`, `priority`, `severity` ni `health_state`.
+--
+-- LA OMISION MAS IMPORTANTE ES `direction`, Y ES DELIBERADA. El guardrail 21
+-- dice que la valencia es contextual y el 22 lo ejemplifica: "CAC arriba" no es
+-- automaticamente un sintoma negativo -- puede ser el precio de entrar en un
+-- mercado nuevo. Si el sintoma guardase la direccion de la metrica, calcular la
+-- valencia a partir de ella seria la cosa mas natural del mundo y nadie se
+-- daria cuenta. La direccion vive en las senales de D05, a un join de
+-- distancia: consultarla exige un acto deliberado. **La garantia no es que
+-- este prohibido derivar valencia de direccion; es que el dato no esta aqui.**
+--
+-- SIMULTANEIDAD NO ES SINTOMA (guardrails 9 y 10). Que cinco senales caigan el
+-- mismo martes no las relaciona. Por eso los factores de coherencia son
+-- columnas separadas -- `same_time_window` no es lo mismo que
+-- `known_relationship` -- y un sintoma no puede declararse de confianza alta
+-- sin relacion conocida, scope compatible y calidad de senal suficiente.
+--
+-- LO LOCAL NO SE GENERALIZA NI SE ESCONDE (guardrails 23, 24, 25 y 26). Un
+-- sintoma con scope distinto de `business` esta obligado a decir donde: el
+-- check exige `scope_detail` no vacio. "Deterioro de adquisicion" y "deterioro
+-- de prospecting en Francia" no son el mismo hallazgo, y el agregado estable no
+-- es excusa para tapar el segundo.
+--
+-- LAS RELACIONES SON CANDIDATAS, NO ARISTAS CAUSALES (guardrails 14 y 18). El
+-- catalogo de `symptom_relations.relation` contiene `may_precede`,
+-- `may_follow`, `often_cooccurs` y `related`. No contiene `causes` ni
+-- `caused_by`, y anadirlo exigiria tocar este check, que es justo la friccion
+-- que se busca. El grafo causal es D07.
+--
+-- LA MEMORIA ORIENTA, NO CONFIRMA (guardrail 36, experience-learning 11). Un
+-- sintoma puede apuntar al episodio anterior parecido con `previous_symptom_id`
+-- y guardar el contexto de entonces, pero el snapshot es inmutable por trigger:
+-- reescribirlo con el contexto de hoy convierte la memoria en una profecia
+-- cumplida. Mismo guardrail que en D02.
+--
+-- SALUD Y SINTOMA COEXISTEN, A PROPOSITO SIN CHECK (guardrails 40, 41 y 42).
+-- Una capacidad HEALTHY puede presentar un sintoma adelantado de riesgo, y un
+-- gap de madurez de D03 no es un sintoma. No hay ninguna restriccion que ate
+-- `symptoms` a `capability_health` ni a `capability_maturity`: la combinacion
+-- aparentemente contradictoria tiene que poder existir, y hay tests que
+-- comprueban que se permite para que nadie la "arregle" mas adelante.
+
+-- ---------------------------------------------------------------------------
+-- 1. El sintoma
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.symptoms (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete cascade,
+
+  -- Apartados 1 y 2: familia de dominio y tipo canonico.
+  symptom_family varchar(24) not null,
+  canonical_type varchar(80) not null,
+  label text not null,
+
+  -- Apartado 3. Sin `direction` de la que derivarla (ver cabecera).
+  valence varchar(12) not null,
+
+  capability varchar(24),
+
+  -- Apartados 6 y 19: donde pasa, con el detalle obligatorio si no es global.
+  scope varchar(16) not null default 'business',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartados 8, 9 y 10.
+  diagnostic_depth varchar(16) not null default 'surface',
+  process_position varchar(12),
+  time_role varchar(12),
+
+  -- Apartado 11 y memoria diagnostica.
+  onset_at timestamptz,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  persistence varchar(12) not null default 'acute',
+  recurrence_count integer not null default 0,
+
+  -- Apartados 4 y 18: los factores de coherencia, uno a uno. El resultado no se
+  -- resume en un campo: los factores SON el resultado, y un resumen invitaria a
+  -- mirarlo en lugar de a ellos.
+  same_time_window boolean not null default false,
+  compatible_scope boolean not null default false,
+  compatible_direction boolean not null default false,
+  known_relationship boolean not null default false,
+  sufficient_signal_quality boolean not null default false,
+  coherence_relationship varchar(16),
+
+  confidence varchar(20) not null default 'low',
+  -- Guardrail 33: D01 limita que senales pueden usarse. Se hereda, no se supone.
+  data_confidence varchar(20) not null default 'low',
+
+  -- Guardrails 19 y 20: D02 tiene que poder corregir el patron.
+  context_assessment_id uuid references public.context_assessments (id) on delete set null,
+  context_reviewed boolean not null default false,
+
+  business_relevance varchar(12) not null default 'medium',
+
+  -- Apartado 7: jerarquia padre-hijo.
+  parent_symptom_id uuid references public.symptoms (id) on delete set null,
+  -- Apartado 21: el episodio anterior parecido.
+  previous_symptom_id uuid references public.symptoms (id) on delete set null,
+  context_snapshot jsonb not null default '{}'::jsonb,
+
+  status varchar(16) not null default 'active',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint symptoms_familia check (symptom_family in (
+    'acquisition','creative','conversion','offer','product','retention',
+    'inventory','operations','financial','data','technology','team',
+    'strategy','cross_capability'
+  )),
+  constraint symptoms_valencia check (valence in ('negative','positive','neutral','mixed')),
+  constraint symptoms_capacidad check (capability is null or capability in (
+    'market','product','offer','unit_economics','acquisition','creative',
+    'conversion','retention','inventory','operations','finance','data',
+    'technology','team','strategy'
+  )),
+  constraint symptoms_scope check (scope in (
+    'business','capability','subcapability','channel','market','product','segment'
+  )),
+  constraint symptoms_profundidad check (diagnostic_depth in ('surface','intermediate','deep')),
+  constraint symptoms_posicion check (
+    process_position is null or process_position in ('upstream','midstream','downstream')
+  ),
+  constraint symptoms_rol_temporal check (
+    time_role is null or time_role in ('leading','coincident','lagging')
+  ),
+  constraint symptoms_persistencia check (
+    persistence in ('acute','recurring','chronic','persistent')
+  ),
+  constraint symptoms_confianza check (
+    confidence in ('insufficient_data','low','medium','high')
+  ),
+  constraint symptoms_confianza_dato check (
+    data_confidence in ('insufficient_data','low','medium','high')
+  ),
+  constraint symptoms_relevancia check (
+    business_relevance in ('low','medium','high','critical')
+  ),
+  constraint symptoms_estado check (status in ('active','resolved','superseded')),
+  constraint symptoms_relacion_catalogo check (
+    coherence_relationship is null or coherence_relationship in (
+      'temporal','mathematical','funnel','functional','economic','operational'
+    )
+  ),
+
+  -- Guardrails 9 y 10: si se afirma que hay relacion conocida, hay que decir de
+  -- que clase. "Pasaron a la vez" no es una clase de relacion.
+  constraint symptoms_relacion_declarada check (
+    not known_relationship or coherence_relationship is not null
+  ),
+
+  -- Guardrails 12 y 34: no elevar un cluster debil a sintoma fuerte.
+  constraint symptoms_confianza_exige_coherencia check (
+    confidence <> 'high'
+    or (sufficient_signal_quality and known_relationship and compatible_scope)
+  ),
+
+  -- Guardrail 33: la confianza del sintoma no puede superar a la del dato.
+  constraint symptoms_sin_dato_no_hay_confianza check (
+    data_confidence <> 'insufficient_data'
+    or confidence in ('insufficient_data','low')
+  ),
+
+  -- Guardrails 19 y 20: afirmar con fuerza sin haber mirado el contexto es como
+  -- se fabrican los sintomas falsos de temporada, promocion o mix.
+  constraint symptoms_alta_confianza_exige_contexto check (
+    confidence <> 'high' or context_reviewed
+  ),
+
+  -- Guardrails 23, 25 y 26: si no es global, tiene que decir donde.
+  constraint symptoms_local_se_localiza check (
+    scope = 'business' or scope_detail <> '{}'::jsonb
+  ),
+
+  -- Experience-learning 2: recurrente exige haberlo visto mas de una vez.
+  constraint symptoms_recurrente_tiene_historia check (
+    persistence <> 'recurring' or recurrence_count >= 2
+  ),
+
+  constraint symptoms_resuelto_tiene_fecha check (
+    status <> 'resolved' or resolved_at is not null
+  ),
+  constraint symptoms_ventana_coherente check (last_seen_at >= first_seen_at)
+);
+
+comment on table public.symptoms is
+  'F3/D06. Patron empresarial observable formado por senales coherentes entre si. '
+  'No guarda direccion de metrica (la valencia es contextual, guardrail 22), ni causa, '
+  'ni accion, ni prioridad: esas fronteras se garantizan por ausencia de columna.';
+
+comment on column public.symptoms.valence is
+  'Guardrail 21: contextual. No se deriva de la direccion de ninguna metrica; la '
+  'direccion ni siquiera esta en esta tabla.';
+
+comment on column public.symptoms.context_snapshot is
+  'Contexto de cuando se observo, inmutable por trigger. Reescribirlo con el contexto '
+  'de hoy convierte la memoria diagnostica en una profecia cumplida.';
+
+create index if not exists symptoms_org_idx on public.symptoms (organization_id, status);
+create index if not exists symptoms_familia_idx on public.symptoms (organization_id, symptom_family);
+create index if not exists symptoms_padre_idx on public.symptoms (parent_symptom_id);
+create index if not exists symptoms_anterior_idx on public.symptoms (previous_symptom_id);
+
+drop trigger if exists set_symptoms_updated_at on public.symptoms;
+create trigger set_symptoms_updated_at before update on public.symptoms
+for each row execute function private.set_updated_at();
+
+-- Un sintoma no puede ser su propio padre ni su propio antecedente. Va como
+-- trigger y no como check porque `id` se genera por default y el check sobre la
+-- propia fila no lo ve en el insert.
+create or replace function private.symptoms_sin_ciclo_directo()
+returns trigger language plpgsql set search_path = '' as $$
+begin
+  if new.parent_symptom_id = new.id then
+    raise exception 'Un sintoma no puede ser su propio padre (F3/D06 apartado 7).';
+  end if;
+  if new.previous_symptom_id = new.id then
+    raise exception 'Un sintoma no puede ser su propio episodio anterior (F3/D06 apartado 21).';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists symptoms_sin_ciclo_directo on public.symptoms;
+create trigger symptoms_sin_ciclo_directo
+  before insert or update on public.symptoms
+  for each row execute function private.symptoms_sin_ciclo_directo();
+
+-- Guardrail 36 y experience-learning 10: la memoria solo sirve si conserva el
+-- contexto de entonces. Mismo guardrail que D02, y por el mismo motivo.
+create or replace function private.prevent_symptom_snapshot_overwrite()
+returns trigger language plpgsql set search_path = '' as $$
+begin
+  if old.context_snapshot <> '{}'::jsonb
+     and new.context_snapshot is distinct from old.context_snapshot then
+    raise exception
+      'El snapshot contextual de un sintoma es inmutable (F3/D06): reescribirlo con el contexto actual hace que dos episodios parezcan comparables cuando no lo son.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_symptom_snapshot_overwrite on public.symptoms;
+create trigger prevent_symptom_snapshot_overwrite
+  before update on public.symptoms
+  for each row execute function private.prevent_symptom_snapshot_overwrite();
+
+-- ---------------------------------------------------------------------------
+-- 2. Las senales que lo sostienen (apartado 5)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.symptom_signals (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  symptom_id uuid not null references public.symptoms (id) on delete cascade,
+  signal_id uuid not null references public.signals (id) on delete cascade,
+
+  -- Guardrail 13: la evidencia contradictoria se preserva, no se descarta. Por
+  -- eso `contradicting` es un rol de primera clase y no un borrado.
+  role varchar(16) not null default 'supporting',
+  note text,
+  created_at timestamptz not null default now(),
+
+  constraint symptom_signals_rol check (
+    role in ('required','supporting','contradicting','neutral')
+  ),
+  constraint symptom_signals_unica unique (symptom_id, signal_id)
+);
+
+comment on table public.symptom_signals is
+  'F3/D06 apartado 5. Une sintoma y senales de D05 diciendo que papel juega cada una. '
+  'El rol `contradicting` existe porque el guardrail 13 obliga a conservar lo que no encaja.';
+
+create index if not exists symptom_signals_sintoma_idx on public.symptom_signals (symptom_id);
+create index if not exists symptom_signals_senal_idx on public.symptom_signals (signal_id);
+
+-- ---------------------------------------------------------------------------
+-- 3. Evidencia multimodal (apartado 17, guardrail 35)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.symptom_evidence (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  symptom_id uuid not null references public.symptoms (id) on delete cascade,
+
+  source_kind varchar(16) not null,
+  stance varchar(16) not null default 'supporting',
+  observation text not null,
+  -- Guardrail 35: un texto cualitativo sin representatividad es una anecdota.
+  representativeness varchar(12),
+  sample_size integer,
+  reference jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+
+  constraint symptom_evidence_fuente check (
+    source_kind in ('metric','review','ticket','call','survey','log','other')
+  ),
+  constraint symptom_evidence_postura check (stance in ('supporting','contradicting')),
+  constraint symptom_evidence_representatividad check (
+    representativeness is null
+    or representativeness in ('unknown','low','medium','high')
+  ),
+  -- Lo cualitativo esta obligado a declarar cuanto representa. Puede ser
+  -- `unknown` -- lo que no puede es callarlo.
+  constraint symptom_evidence_cualitativa_declara_alcance check (
+    source_kind not in ('review','ticket','call','survey')
+    or representativeness is not null
+  ),
+  constraint symptom_evidence_muestra_para_afirmar check (
+    representativeness is null
+    or representativeness not in ('medium','high')
+    or sample_size is not null
+  )
+);
+
+comment on table public.symptom_evidence is
+  'F3/D06 apartado 17. Evidencia mas alla de las metricas (resenas, tickets, llamadas, '
+  'encuestas, logs). La cualitativa esta obligada a declarar su representatividad: '
+  'el guardrail 35 no deja que tres resenas sostengan un sintoma como si fueran trescientas.';
+
+create index if not exists symptom_evidence_sintoma_idx on public.symptom_evidence (symptom_id, stance);
+
+-- ---------------------------------------------------------------------------
+-- 4. Relaciones candidatas (apartados 12 y 13)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.symptom_relations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  from_symptom_id uuid not null references public.symptoms (id) on delete cascade,
+  to_symptom_id uuid not null references public.symptoms (id) on delete cascade,
+
+  -- El catalogo entero. No hay `causes` ni `caused_by`, y anadirlos obligaria a
+  -- tocar este check: esa friccion es el guardrail 18 hecho codigo.
+  relation varchar(20) not null,
+  rationale text,
+  observed_lag_days integer,
+  created_at timestamptz not null default now(),
+
+  constraint symptom_relations_catalogo check (
+    relation in ('may_precede','may_follow','often_cooccurs','related')
+  ),
+  constraint symptom_relations_no_reflexiva check (from_symptom_id <> to_symptom_id),
+  constraint symptom_relations_unica unique (from_symptom_id, to_symptom_id, relation)
+);
+
+comment on table public.symptom_relations is
+  'F3/D06 apartados 12 y 13. Grafo de sintomas NO causal: solo puede decir que uno '
+  'suele preceder, seguir o coincidir con otro. El grafo causal es D07, y el catalogo '
+  'de `relation` esta cerrado precisamente para que nadie cruce esa linea sin migracion.';
+
+create index if not exists symptom_relations_desde_idx on public.symptom_relations (from_symptom_id);
+create index if not exists symptom_relations_hacia_idx on public.symptom_relations (to_symptom_id);
+
+-- ---------------------------------------------------------------------------
+-- 5. Puente con D00
+-- ---------------------------------------------------------------------------
+
+alter table public.diagnostic_symptoms
+  add column if not exists source_symptom_id uuid references public.symptoms (id) on delete set null;
+
+comment on column public.diagnostic_symptoms.source_symptom_id is
+  'F3/D06. El sintoma del motor que originó esta fila del caso diagnostico de D00.';
+
+-- ---------------------------------------------------------------------------
+-- 6. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.symptoms enable row level security;
+alter table public.symptom_signals enable row level security;
+alter table public.symptom_evidence enable row level security;
+alter table public.symptom_relations enable row level security;
+
+-- Audiencia (punto 7 del DoD del plan): material de trabajo del consultor. El
+-- cliente no ve sintomas en crudo -- ve lo que se le puede explicar o accionar,
+-- y eso llega mas adelante en la cadena. platform_admin ve todo.
+drop policy if exists "symptoms_select_staff" on public.symptoms;
+create policy "symptoms_select_staff" on public.symptoms
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "symptom_signals_select_staff" on public.symptom_signals;
+create policy "symptom_signals_select_staff" on public.symptom_signals
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "symptom_evidence_select_staff" on public.symptom_evidence;
+create policy "symptom_evidence_select_staff" on public.symptom_evidence
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "symptom_relations_select_staff" on public.symptom_relations;
+create policy "symptom_relations_select_staff" on public.symptom_relations
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+-- =============================================================================
+-- Migracion: 20260918090000_f3_d07_grafo_causal.sql
+-- =============================================================================
+-- FASE 3 / D07 — Grafo causal del ecommerce.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d07-requisitos-contrato-grafo-causal.md
+--          conocimiento/fase-03/04-policies-guardrails/d07-guardrails-causalidad.md
+--          conocimiento/fase-03/03-runtime/d07-flujo-razonamiento-causal.md
+--          conocimiento/fase-03/05-experience-learning/d07-aprendizaje-causal-tenant.md
+--
+-- El primer bloque que puede hablar de causas. D06 dejo las relaciones
+-- candidatas (`may_precede`, `often_cooccurs`) escritas y sin recorrer; aqui se
+-- recorren. Pero D07 **no decide la causa raiz** (guardrail 46), no prescribe
+-- (47) y no prioriza (48): produce rutas plausibles con su soporte, sus
+-- contradicciones y lo que falta por comprobar. Decidir es D08-D09.
+--
+-- LOS SEIS PRINCIPIOS DE LA CABECERA SON EL BLOQUE ENTERO:
+--   PLAUSIBLE != PROBADO. CORRELACION != CAUSALIDAD. PRIOR DEL EDGE !=
+--   CONFIANZA DEL CASO. LINAJE != GRAFO CAUSAL. CENTRALIDAD != PRIORIDAD.
+--   COINCIDIR CON UN EVENTO != CAUSADO POR EL EVENTO.
+--
+-- SIN MECANISMO NO HAY ARISTA CAUSAL (guardrail 7). Es el check central del
+-- bloque: `causal_edges.mechanism` es obligatorio cuando `edge_kind` es
+-- `causal`. Una correlacion sin mecanismo tambien cabe aqui, pero como
+-- `unvalidated_relation` (apartado 22) y con el techo puesto: no puede declarar
+-- evidencia por encima de `speculative` ni fuerza por encima de `weak`. Guardar
+-- una correlacion como si fuera una causa es exactamente lo que el guardrail 8
+-- prohibe, y aqui cuesta una migracion.
+--
+-- EL PRIOR GLOBAL Y LA CONFIANZA DEL CASO SON DOS TABLAS DISTINTAS (guardrail 3
+-- y apartado 11). `causal_edges.strength` dice lo fuerte que es la relacion **en
+-- general**; `causal_path_steps.case_support` dice que pasa **en este caso**.
+-- Mezclarlas es como se acaba afirmando que una tienda tiene un problema porque
+-- el libro dice que suele pasar.
+--
+-- LINAJE NO ES CAUSALIDAD (guardrail 4). Que `revenue = sesiones x CVR x AOV`
+-- es aritmetica: descompone, no explica. Por eso `relation_type` distingue
+-- `mathematical` del resto, y hay una regla de contrato que impide que una ruta
+-- hecha solo de aristas matematicas se presente como explicacion.
+--
+-- LA CAUSA PRECEDE AL EFECTO, Y CUANDO NO, SE DICE (guardrails 19 y 20). Si el
+-- efecto empezo antes que la causa candidata, esa causa no explica el arranque:
+-- el check obliga a que ese paso quede marcado como `contradicted`. Pero el
+-- guardrail 22 pide lo contrario del celo: no exigir efecto inmediato cuando el
+-- mecanismo tiene retardo, y por eso `expected_lag_days` vive en la arista.
+--
+-- NO SE FUERZA UNA CAUSA UNICA (guardrails 28, 29, 30 y 31). `cause_role`
+-- admite `contributory`, varias rutas pueden estar soportadas a la vez, y las
+-- aristas que solo actuan juntas comparten `interaction_group` en lugar de
+-- fingir que cada una basta por su cuenta.
+--
+-- MEDIR NO ES QUE PASE (guardrails 37, 38 y 39). Un fallo de tracking cambia las
+-- compras observadas sin cambiar las compras. `causal_nodes.measurement_layer`
+-- separa la variable real del sistema de medida y de la metrica observada, y una
+-- ruta que pasa por una metrica observada sin validar la medicion no puede
+-- declararse de confianza alta.
+--
+-- LO QUE NO ESTA AQUI, A PROPOSITO: no hay `root_cause`, ni `priority`, ni
+-- `action`, ni `recommendation`, ni metricas de centralidad. El guardrail 5 dice
+-- que la centralidad en el grafo no es prioridad de negocio, y la forma mas
+-- segura de que nadie ordene por `betweenness` es no guardarlo.
+
+-- ---------------------------------------------------------------------------
+-- 1. Los nodos: el vocabulario del grafo
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.causal_nodes (
+  id uuid primary key default gen_random_uuid(),
+  -- Nulo = nodo del grafo global. Con valor = nodo propio del tenant.
+  organization_id uuid references public.organizations (id) on delete cascade,
+
+  code varchar(80) not null,
+  label text not null,
+  node_type varchar(16) not null,
+  capability varchar(24),
+
+  -- Apartado 2. Guardrails 17 y 18: lo latente y lo externo exigen mas cautela.
+  observability varchar(20) not null default 'derived',
+  -- Apartado 31 y guardrails 37-39.
+  measurement_layer varchar(20) not null default 'real_world',
+  business_layer varchar(24),
+
+  -- Apartado 29: el grafo se instancia por scope (`CVR[Spain][Mobile]`).
+  scope varchar(16) not null default 'business',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartado 1: de donde sale este nodo.
+  provenance varchar(20) not null default 'system_logic',
+  notes text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint causal_nodes_tipo check (
+    node_type in ('metric','state','event','contextual','structural','outcome')
+  ),
+  constraint causal_nodes_observabilidad check (
+    observability in ('directly_observed','derived','latent','external')
+  ),
+  constraint causal_nodes_capa_medida check (
+    measurement_layer in ('real_world','measurement_system','observed_metric')
+  ),
+  constraint causal_nodes_scope check (
+    scope in ('business','capability','subcapability','channel','market','product','segment')
+  ),
+  constraint causal_nodes_procedencia check (
+    provenance in ('system_logic','internal_evidence','external_knowledge','expert_heuristic','tenant_learned')
+  ),
+  constraint causal_nodes_capacidad check (capability is null or capability in (
+    'market','product','offer','unit_economics','acquisition','creative',
+    'conversion','retention','inventory','operations','finance','data',
+    'technology','team','strategy'
+  )),
+
+  -- Guardrails 12 y 14: nada de "Bad Marketing" ni "Great Brand". Un nodo tiene
+  -- que ser algo que se pueda observar o derivar; si es latente o externo, la
+  -- nota que explica como se sabe algo de el es obligatoria.
+  constraint causal_nodes_latente_se_explica check (
+    observability not in ('latent','external') or notes is not null
+  ),
+  -- Guardrail 13: una recomendacion no es un nodo causal.
+  constraint causal_nodes_no_es_recomendacion check (
+    code !~* '^(do_|should_|increase_|reduce_|launch_|fix_|optimize_)'
+  ),
+  constraint causal_nodes_localizado check (
+    scope = 'business' or scope_detail <> '{}'::jsonb
+  ),
+  constraint causal_nodes_unico unique nulls not distinct (organization_id, code, scope, scope_detail)
+);
+
+comment on table public.causal_nodes is
+  'F3/D07 apartado 1. Vocabulario del grafo causal. `organization_id` nulo = nodo global; '
+  'con valor = nodo aprendido para un tenant (apartado 33). Sin metricas de centralidad a '
+  'proposito: el guardrail 5 dice que centralidad no es prioridad, y no guardarla es la '
+  'forma mas segura de que nadie ordene por ella.';
+
+comment on column public.causal_nodes.measurement_layer is
+  'Guardrails 37-39. Separa la variable real del sistema de medida y de la metrica '
+  'observada: un fallo de tracking cambia las compras observadas sin cambiar las compras.';
+
+create index if not exists causal_nodes_code_idx on public.causal_nodes (code);
+create index if not exists causal_nodes_org_idx on public.causal_nodes (organization_id);
+
+drop trigger if exists set_causal_nodes_updated_at on public.causal_nodes;
+create trigger set_causal_nodes_updated_at before update on public.causal_nodes
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 2. Las aristas: el prior global, nunca la conclusion del caso
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.causal_edges (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid references public.organizations (id) on delete cascade,
+
+  from_node_id uuid not null references public.causal_nodes (id) on delete cascade,
+  to_node_id uuid not null references public.causal_nodes (id) on delete cascade,
+
+  -- Apartado 22: una correlacion sin mecanismo cabe, pero no como causa.
+  edge_kind varchar(24) not null default 'causal',
+  relation_type varchar(16) not null,
+  expected_sign varchar(20) not null default 'context_dependent',
+
+  -- Guardrail 7. El corazon del bloque.
+  mechanism text,
+  diagnostic_rationale text,
+
+  -- Apartado 6: condiciones bajo las que la relacion se sostiene.
+  conditions text,
+  expected_lag_days integer,
+  strength varchar(20) not null default 'context_dependent',
+  evidence_level varchar(24) not null default 'plausible',
+  knowledge_source varchar(24) not null default 'system_logic',
+
+  -- Apartado 19: A + B -> C. Las aristas que solo actuan juntas comparten grupo
+  -- en vez de fingir que cada una basta sola.
+  interaction_group varchar(60),
+  non_linear boolean not null default false,
+  threshold_note text,
+
+  scope_constraint jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint causal_edges_clase check (edge_kind in ('causal','unvalidated_relation')),
+  constraint causal_edges_relacion check (relation_type in (
+    'mathematical','mechanistic','behavioral','economic','operational',
+    'technical','structural','temporal','contextual','limits','requires','interaction'
+  )),
+  constraint causal_edges_signo check (
+    expected_sign in ('positive','negative','non_monotonic','context_dependent')
+  ),
+  constraint causal_edges_fuerza check (
+    strength in ('strong','moderate','weak','context_dependent')
+  ),
+  constraint causal_edges_nivel_evidencia check (evidence_level in (
+    'deterministic','strongly_established','common_mechanism','plausible','speculative'
+  )),
+  constraint causal_edges_fuente check (knowledge_source in (
+    'system_logic','internal_evidence','external_knowledge','expert_heuristic','tenant_learned'
+  )),
+  constraint causal_edges_no_reflexiva check (from_node_id <> to_node_id),
+
+  -- Guardrail 7: sin mecanismo no hay arista causal. Y el 9: un eslogan de
+  -- experto no es un mecanismo, asi que tiene que decir algo.
+  constraint causal_edges_mecanismo_obligatorio check (
+    edge_kind <> 'causal'
+    or (mechanism is not null and length(btrim(mechanism)) >= 20)
+  ),
+  -- Guardrail 8: una correlacion guardada como relacion no puede disfrazarse de
+  -- conocimiento establecido.
+  constraint causal_edges_correlacion_tiene_techo check (
+    edge_kind <> 'unvalidated_relation'
+    or (evidence_level = 'speculative' and strength in ('weak','context_dependent'))
+  ),
+  -- Guardrail 10: toda arista tiene que servir para diagnosticar algo.
+  constraint causal_edges_utilidad_declarada check (
+    edge_kind <> 'causal' or diagnostic_rationale is not null
+  ),
+  -- Guardrail 45: una heuristica de experto no llega a conocimiento establecido.
+  constraint causal_edges_heuristica_no_manda check (
+    knowledge_source <> 'expert_heuristic'
+    or evidence_level in ('plausible','speculative','common_mechanism')
+  ),
+  -- Guardrail 44: lo aprendido para un tenant no se convierte en arista global.
+  constraint causal_edges_aprendido_es_del_tenant check (
+    knowledge_source <> 'tenant_learned' or organization_id is not null
+  ),
+  constraint causal_edges_unica unique nulls not distinct (organization_id, from_node_id, to_node_id, relation_type)
+);
+
+comment on table public.causal_edges is
+  'F3/D07 apartado 3. El prior GLOBAL de una relacion, nunca la conclusion de un caso '
+  '(guardrail 3): lo del caso vive en causal_path_steps. Sin mecanismo no hay arista '
+  'causal (guardrail 7); una correlacion cabe como `unvalidated_relation` con techo.';
+
+comment on column public.causal_edges.interaction_group is
+  'Apartado 19. Aristas con el mismo grupo hacia el mismo destino son conjuntamente '
+  'necesarias (A + B -> C): ninguna basta por su cuenta.';
+
+create index if not exists causal_edges_from_idx on public.causal_edges (from_node_id);
+create index if not exists causal_edges_to_idx on public.causal_edges (to_node_id);
+create index if not exists causal_edges_grupo_idx on public.causal_edges (interaction_group)
+  where interaction_group is not null;
+
+drop trigger if exists set_causal_edges_updated_at on public.causal_edges;
+create trigger set_causal_edges_updated_at before update on public.causal_edges
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 3. Las rutas: el razonamiento de un caso concreto
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.causal_paths (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid references public.diagnostic_cases (id) on delete cascade,
+  -- El sintoma de D06 del que se parte, cuando lo hay.
+  symptom_id uuid references public.symptoms (id) on delete set null,
+
+  target_node_id uuid not null references public.causal_nodes (id) on delete cascade,
+  target_scope_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartado 12. `partial` y `untested` son estados de primera clase: el
+  -- guardrail 50 obliga a exponer lo que falta, no a esconderlo.
+  status varchar(16) not null default 'untested',
+  path_confidence varchar(20) not null default 'low',
+
+  -- Guardrail 50: lo que falta por comprobar se escribe.
+  missing_evidence text[] not null default '{}',
+  -- Guardrail 11: confusores revisados, o se dice que no.
+  confounders_reviewed boolean not null default false,
+  -- Guardrail 39: medir no es que pase.
+  measurement_validated boolean not null default false,
+  -- Apartado 19 del runtime: que dato discriminaria entre rutas rivales.
+  next_evidence text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint causal_paths_estado check (
+    status in ('supported','contradicted','untested','partial')
+  ),
+  constraint causal_paths_confianza check (
+    path_confidence in ('insufficient_data','low','medium','high')
+  ),
+  -- Guardrail 11 y 39: una ruta no llega a confianza alta sin haber mirado los
+  -- confusores ni validado que la medicion no esta rota.
+  constraint causal_paths_alta_exige_deberes check (
+    path_confidence <> 'high' or (confounders_reviewed and measurement_validated)
+  ),
+  -- Guardrail 50: una ruta con huecos declarados no es una ruta soportada.
+  constraint causal_paths_soportada_sin_huecos check (
+    status <> 'supported' or cardinality(missing_evidence) = 0
+  ),
+  -- Guardrail 49: si esta contradicha, no puede a la vez afirmarse.
+  constraint causal_paths_contradicha_no_confia check (
+    status <> 'contradicted' or path_confidence in ('insufficient_data','low')
+  )
+);
+
+comment on table public.causal_paths is
+  'F3/D07 apartado 12. Una ruta plausible hacia un target, con su soporte, sus '
+  'contradicciones y lo que falta. No hay columna `root_cause` ni `priority`: el '
+  'guardrail 46 dice que D07 no decide la causa y el 48 que no prioriza.';
+
+create index if not exists causal_paths_caso_idx on public.causal_paths (case_id);
+create index if not exists causal_paths_org_idx on public.causal_paths (organization_id, status);
+
+drop trigger if exists set_causal_paths_updated_at on public.causal_paths;
+create trigger set_causal_paths_updated_at before update on public.causal_paths
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 4. Los pasos: donde se evalua el encaje, caso a caso
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.causal_path_steps (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  path_id uuid not null references public.causal_paths (id) on delete cascade,
+  edge_id uuid not null references public.causal_edges (id) on delete cascade,
+  step_order integer not null,
+
+  -- Apartado 11: la confianza del CASO, separada del prior de la arista.
+  case_support varchar(16) not null default 'untested',
+
+  -- Apartado 13 y guardrails 19-22.
+  cause_onset timestamptz,
+  effect_onset timestamptz,
+  observed_lag_days integer,
+  temporal_fit varchar(16) not null default 'untested',
+
+  -- Apartado 14 y guardrails 23-25.
+  scope_fit varchar(16) not null default 'untested',
+  -- Apartado 15 y guardrails 26-27.
+  magnitude_fit varchar(16) not null default 'untested',
+
+  -- Apartados 16 y 17.
+  cause_role varchar(16),
+  contribution_note text,
+
+  -- Apartado 20: los mediadores de la ruta.
+  is_mediator boolean not null default false,
+  -- Guardrail 33: el confusor candidato que podria explicar el parecido, de D02.
+  confounder_id uuid references public.context_confounders (id) on delete set null,
+
+  created_at timestamptz not null default now(),
+
+  constraint causal_path_steps_soporte check (
+    case_support in ('supported','contradicted','untested','partial')
+  ),
+  constraint causal_path_steps_temporal check (
+    temporal_fit in ('fits','contradicted','untested','unknown')
+  ),
+  constraint causal_path_steps_scope check (
+    scope_fit in ('compatible','incompatible','untested','partial')
+  ),
+  constraint causal_path_steps_magnitud check (
+    magnitude_fit in ('sufficient','insufficient','untested','partial')
+  ),
+  constraint causal_path_steps_rol check (
+    cause_role is null or cause_role in ('necessary','sufficient','contributory')
+  ),
+  constraint causal_path_steps_orden unique (path_id, step_order),
+
+  -- Guardrails 19 y 20: si el efecto empezo antes que la causa candidata, esa
+  -- causa no explica el arranque. No se prohibe registrarlo: se prohibe
+  -- registrarlo como si encajara.
+  constraint causal_path_steps_causa_precede check (
+    cause_onset is null
+    or effect_onset is null
+    or cause_onset <= effect_onset
+    or temporal_fit = 'contradicted'
+  ),
+  -- Guardrail 23: scope incompatible no puede sostener el paso.
+  constraint causal_path_steps_scope_manda check (
+    scope_fit <> 'incompatible' or case_support <> 'supported'
+  ),
+  -- Guardrail 27: lo que solo llega a una parte no explica el todo por su
+  -- cuenta, pero si puede ser causa contributoria (guardrail 28).
+  constraint causal_path_steps_magnitud_limita_rol check (
+    magnitude_fit <> 'insufficient'
+    or cause_role is null
+    or cause_role = 'contributory'
+  ),
+  -- Un paso soportado exige haber mirado las tres cosas.
+  constraint causal_path_steps_soportado_exige_encaje check (
+    case_support <> 'supported'
+    or (temporal_fit = 'fits' and scope_fit = 'compatible'
+        and magnitude_fit in ('sufficient','partial'))
+  )
+);
+
+comment on table public.causal_path_steps is
+  'F3/D07 apartados 13, 14 y 15. Aqui se evalua la arista CONTRA EL CASO: encaje '
+  'temporal, de scope y de magnitud. El prior global vive en causal_edges; mezclarlos '
+  'es como se acaba afirmando que una tienda tiene un problema porque el libro dice que suele pasar.';
+
+create index if not exists causal_path_steps_ruta_idx on public.causal_path_steps (path_id, step_order);
+
+-- ---------------------------------------------------------------------------
+-- 5. La evidencia del caso, con su jerarquia (apartados 23 y 24)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.causal_case_evidence (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  path_id uuid not null references public.causal_paths (id) on delete cascade,
+  step_id uuid references public.causal_path_steps (id) on delete cascade,
+
+  -- Apartado 24, de mas fuerte a mas debil.
+  evidence_level varchar(32) not null,
+  stance varchar(16) not null default 'supporting',
+  observation text not null,
+
+  -- Apartado 23: de donde sale el contrafactual.
+  counterfactual_source varchar(32),
+  -- Guardrails 41 y 42: los supuestos se explicitan y los controles se comparan.
+  assumptions text,
+  control_comparable boolean,
+
+  created_at timestamptz not null default now(),
+
+  constraint causal_case_evidence_nivel check (evidence_level in (
+    'randomized_experiment','natural_experiment','before_after_with_control',
+    'temporal_and_mechanistic','multi_source_corroboration','correlation_only'
+  )),
+  constraint causal_case_evidence_postura check (
+    stance in ('supporting','contradicting','inconclusive')
+  ),
+  constraint causal_case_evidence_contrafactual check (
+    counterfactual_source is null or counterfactual_source in (
+      'unaffected_segment','control_market','other_device','previous_period',
+      'natural_experiment','randomized_experiment'
+    )
+  ),
+  -- Guardrails 40, 41 y 42: un proxy contrafactual no es un experimento. Si se
+  -- usa uno, hay que decir bajo que supuestos y si el control es comparable.
+  constraint causal_case_evidence_proxy_declara_supuestos check (
+    counterfactual_source is null
+    or counterfactual_source in ('natural_experiment','randomized_experiment')
+    or (assumptions is not null and control_comparable is not null)
+  )
+);
+
+comment on table public.causal_case_evidence is
+  'F3/D07 apartados 23 y 24. La evidencia del caso con su nivel en la jerarquia. '
+  '`correlation_only` esta en el catalogo porque existe, no porque valga: el guardrail 16 '
+  'impide que sostenga confianza alta, y eso lo comprueba checkCausalInvariants.';
+
+create index if not exists causal_case_evidence_ruta_idx on public.causal_case_evidence (path_id, stance);
+
+-- ---------------------------------------------------------------------------
+-- 6. Puente con D00
+-- ---------------------------------------------------------------------------
+
+alter table public.diagnostic_hypotheses
+  add column if not exists source_path_id uuid references public.causal_paths (id) on delete set null;
+
+comment on column public.diagnostic_hypotheses.source_path_id is
+  'F3/D07. La ruta causal de la que nacio esta hipotesis (paso 20 del runtime).';
+
+-- ---------------------------------------------------------------------------
+-- 7. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.causal_nodes enable row level security;
+alter table public.causal_edges enable row level security;
+alter table public.causal_paths enable row level security;
+alter table public.causal_path_steps enable row level security;
+alter table public.causal_case_evidence enable row level security;
+
+-- Nodos y aristas globales son conocimiento de ecommerce, no datos de nadie:
+-- cualquier miembro del staff puede leerlos. Lo del tenant, solo su consultor.
+drop policy if exists "causal_nodes_select" on public.causal_nodes;
+create policy "causal_nodes_select" on public.causal_nodes
+  for select to authenticated
+  using (
+    organization_id is null
+    or private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "causal_edges_select" on public.causal_edges;
+create policy "causal_edges_select" on public.causal_edges
+  for select to authenticated
+  using (
+    organization_id is null
+    or private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "causal_paths_select_staff" on public.causal_paths;
+create policy "causal_paths_select_staff" on public.causal_paths
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "causal_path_steps_select_staff" on public.causal_path_steps;
+create policy "causal_path_steps_select_staff" on public.causal_path_steps
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "causal_case_evidence_select_staff" on public.causal_case_evidence;
+create policy "causal_case_evidence_select_staff" on public.causal_case_evidence
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+-- =============================================================================
+-- Migracion: 20260919090000_f3_d08_motor_de_hipotesis.sql
+-- =============================================================================
+-- FASE 3 / D08 — Generador y contraste de hipotesis.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d08-requisitos-contrato-hipotesis.md
+--          conocimiento/fase-03/04-policies-guardrails/d08-guardrails-hipotesis.md
+--          conocimiento/fase-03/05-experience-learning/d08-historial-y-calibracion-de-hipotesis.md
+--          conocimiento/fase-03/06-tenant-context/d08-contexto-motor-hipotesis.md
+--
+-- D07 deja ramas que sobreviven. D08 las convierte en hipotesis explicitas y las
+-- somete a prueba. Sigue sin decidir la causa raiz: el guardrail 45 dice que eso
+-- es D09, y el 25 que D08 no produce accion ni prioridad.
+--
+-- NO SE CREA UNA SEGUNDA TABLA DE HIPOTESIS. `diagnostic_hypotheses` ya existe
+-- desde D00 y es la misma entidad, solo que alli se guardaba en su version
+-- minima (codigo, enunciado, estado, motivo de rechazo). Crear aqui
+-- `hypotheses` al lado seria garantizar que dentro de seis meses digan cosas
+-- distintas sobre la misma H1 — el mismo argumento por el que D05 reutiliza
+-- `health_references` y D07 reutiliza `context_confounders`. Se amplia la que
+-- hay.
+--
+-- ESO INCLUYE AMPLIAR EL VOCABULARIO DE ESTADOS DE D00. Los seis valores de
+-- entonces se sustituyen por los diez del apartado 3. Se puede hacer sin migrar
+-- nada porque las tablas estan vacias en los dos entornos; hacerlo dentro de
+-- seis meses ya no seria gratis. Queda anotado en la bitacora de D00.
+--
+-- LOS OCHO PRINCIPIOS DE LA CABECERA SON EL BLOQUE:
+--   LA PRIMERA CAUSA PLAUSIBLE NO ES UN DIAGNOSTICO. PRIOR != CONCLUSION.
+--   SOPORTADA != CONFIRMADA. CANDIDATA A RAIZ != RAIZ. NO OBSERVADO != OBSERVADO
+--   AUSENTE. CONFIANZA != COBERTURA. CONTRIBUCION CONTABLE != CONTRIBUCION
+--   CAUSAL. TEST DIAGNOSTICO != ACCION DE NEGOCIO.
+--
+-- "NO OBSERVADO" NO ES "OBSERVADO AUSENTE" (guardrail 5), Y AQUI ES UNA COLUMNA.
+-- `diagnostic_evidence.observation_kind` distingue las tres cosas:
+-- `observed_present`, `observed_absent` y `not_observed`. No haber mirado no es
+-- evidencia de que no pasa, y con la columna puesta ya no se puede colar como
+-- si lo fuera: hay un check que impide que lo no observado contradiga nada.
+--
+-- SIN RUTA CAUSAL EN D07 NO HAY HIPOTESIS CAUSAL (guardrail 19). Una hipotesis
+-- de tipo causa directa, contributoria o candidata a raiz esta obligada por
+-- check a apuntar a una ruta de `causal_paths`. Inventar una causa sin camino
+-- por el que llegue es exactamente lo que el bloque existe para impedir.
+--
+-- CONFIRMED DEBE SER RARO (guardrail 32), y aqui cuesta: exige confianza alta,
+-- condicion de falsacion escrita y separacion alta respecto de las
+-- alternativas. El guardrail 35 dice que `inconclusive` es mejor que el teatro
+-- de la certeza, asi que `inconclusive` es un estado de primera clase y no una
+-- forma de fracaso.
+--
+-- LO QUE NO ESTA AQUI: no hay `root_cause` (solo `root_cause_candidate`, y el
+-- guardrail 4 explica la diferencia), ni `priority`, ni `action`, ni
+-- `recommendation`. D09 decide la raiz; actuar es F5+.
+
+-- ---------------------------------------------------------------------------
+-- 1. La hipotesis, ampliada
+-- ---------------------------------------------------------------------------
+
+alter table public.diagnostic_hypotheses
+  add column if not exists organization_id uuid references public.organizations (id) on delete cascade,
+  add column if not exists hypothesis_type varchar(32) not null default 'contextual_explanation',
+  add column if not exists family varchar(24),
+  add column if not exists target_node_id uuid references public.causal_nodes (id) on delete set null,
+  add column if not exists scope varchar(16) not null default 'business',
+  add column if not exists scope_detail jsonb not null default '{}'::jsonb,
+  add column if not exists valid_from timestamptz,
+  add column if not exists valid_to timestamptz,
+
+  add column if not exists confidence varchar(20) not null default 'insufficient',
+  -- Guardrail 2: el prior no es la conclusion, y por eso son dos columnas.
+  add column if not exists prior_plausibility varchar(20) not null default 'unknown',
+  -- Guardrail 6 y apartado 13: confianza y cobertura no son lo mismo.
+  add column if not exists explanatory_coverage varchar(20) not null default 'unknown',
+  -- Apartado 14: lo que queda sin explicar se conserva.
+  add column if not exists unexplained_residual_material boolean not null default false,
+  add column if not exists residual_note text,
+
+  -- Apartado 18 y guardrail 4. **No existe `root_cause`**: eso es D09.
+  add column if not exists root_cause_candidate boolean not null default false,
+  -- Apartado 19.
+  add column if not exists cause_timing varchar(20),
+  add column if not exists cause_depth varchar(20),
+
+  -- Apartado 10 y guardrail 12.
+  add column if not exists relative_role varchar(24),
+  -- Apartado 12: poca separacion limita la confianza.
+  add column if not exists separation varchar(12) not null default 'unknown',
+
+  -- Apartado 9: las ocho dimensiones de encaje, separadas.
+  add column if not exists mechanism_fit varchar(16) not null default 'untested',
+  add column if not exists temporal_fit varchar(16) not null default 'untested',
+  add column if not exists scope_fit varchar(16) not null default 'untested',
+  add column if not exists magnitude_fit varchar(16) not null default 'untested',
+  add column if not exists context_fit varchar(16) not null default 'untested',
+  add column if not exists maturity_fit varchar(16) not null default 'untested',
+  add column if not exists health_fit varchar(16) not null default 'untested',
+  add column if not exists signal_fit varchar(16) not null default 'untested',
+
+  -- Apartado 20.
+  add column if not exists uncertainty_kinds text[] not null default '{}',
+
+  -- Apartados 24 y guardrails 57 a 60.
+  add column if not exists falsification_condition text,
+  add column if not exists why_it_wins text,
+  add column if not exists why_alternatives_lose text,
+  add column if not exists limitations text,
+  add column if not exists assumptions text,
+
+  -- Apartado 22 y guardrails 51 a 53: quien la propone no la valida.
+  add column if not exists proposing_agent varchar(60),
+  add column if not exists validating_agent varchar(60),
+  -- Guardrail 25: la evidencia caduca.
+  add column if not exists evidence_reviewed_at timestamptz;
+
+-- El vocabulario de estados de D00 se sustituye por el del apartado 3.
+alter table public.diagnostic_hypotheses drop constraint if exists diagnostic_hypotheses_status;
+alter table public.diagnostic_hypotheses drop constraint if exists diagnostic_hypotheses_estado;
+alter table public.diagnostic_hypotheses add constraint diagnostic_hypotheses_estado check (
+  status in (
+    'untested','under_test','supported','weakly_supported','partially_supported',
+    'most_likely','contradicted','invalidated','confirmed','inconclusive'
+  )
+);
+alter table public.diagnostic_hypotheses alter column status set default 'untested';
+
+-- El motivo se exige ahora en los dos estados que cierran la puerta.
+alter table public.diagnostic_hypotheses drop constraint if exists diagnostic_hypotheses_rechazo_motivado;
+alter table public.diagnostic_hypotheses add constraint diagnostic_hypotheses_rechazo_motivado check (
+  status not in ('invalidated','contradicted') or rejection_reason is not null
+);
+
+alter table public.diagnostic_hypotheses
+  drop constraint if exists diagnostic_hypotheses_tipo,
+  drop constraint if exists diagnostic_hypotheses_confianza,
+  drop constraint if exists diagnostic_hypotheses_prior,
+  drop constraint if exists diagnostic_hypotheses_cobertura,
+  drop constraint if exists diagnostic_hypotheses_rol,
+  drop constraint if exists diagnostic_hypotheses_separacion,
+  drop constraint if exists diagnostic_hypotheses_momento,
+  drop constraint if exists diagnostic_hypotheses_profundidad,
+  drop constraint if exists diagnostic_hypotheses_scope,
+  drop constraint if exists diagnostic_hypotheses_familia,
+  drop constraint if exists diagnostic_hypotheses_causal_exige_ruta,
+  drop constraint if exists diagnostic_hypotheses_confirmar_cuesta,
+  drop constraint if exists diagnostic_hypotheses_alta_exige_separacion,
+  drop constraint if exists diagnostic_hypotheses_primaria_se_explica,
+  drop constraint if exists diagnostic_hypotheses_cobertura_vs_residual,
+  drop constraint if exists diagnostic_hypotheses_parcial_sigue_parcial,
+  drop constraint if exists diagnostic_hypotheses_candidata_no_es_raiz,
+  drop constraint if exists diagnostic_hypotheses_incertidumbre_catalogo,
+  drop constraint if exists diagnostic_hypotheses_localizada;
+
+alter table public.diagnostic_hypotheses
+  add constraint diagnostic_hypotheses_tipo check (hypothesis_type in (
+    'direct_cause','contributory_cause','root_cause_candidate','contextual_explanation',
+    'data_quality_explanation','structural_explanation','external_explanation','interaction_hypothesis'
+  )),
+  add constraint diagnostic_hypotheses_confianza check (
+    confidence in ('high','medium','low','insufficient')
+  ),
+  add constraint diagnostic_hypotheses_prior check (
+    prior_plausibility in ('high','medium','low','unknown')
+  ),
+  add constraint diagnostic_hypotheses_cobertura check (
+    explanatory_coverage in ('full','partial','minimal','unknown')
+  ),
+  add constraint diagnostic_hypotheses_rol check (
+    relative_role is null or relative_role in ('primary','secondary','alternative','challenger')
+  ),
+  add constraint diagnostic_hypotheses_separacion check (separation in ('high','low','unknown')),
+  add constraint diagnostic_hypotheses_momento check (
+    cause_timing is null or cause_timing in ('acute','structural')
+  ),
+  add constraint diagnostic_hypotheses_profundidad check (
+    cause_depth is null or cause_depth in ('immediate','underlying')
+  ),
+  add constraint diagnostic_hypotheses_scope check (scope in (
+    'business','capability','subcapability','channel','market','product','segment'
+  )),
+  add constraint diagnostic_hypotheses_familia check (family is null or family in (
+    'acquisition','creative','conversion','offer','product','retention',
+    'inventory','operations','financial','data','technology','team','strategy','cross_capability'
+  )),
+
+  -- Guardrail 19: sin ruta causal valida en D07, la candidata se descarta.
+  -- Inventar una causa sin camino por el que llegue es lo que este bloque
+  -- existe para impedir.
+  add constraint diagnostic_hypotheses_causal_exige_ruta check (
+    hypothesis_type not in ('direct_cause','contributory_cause','root_cause_candidate')
+    or source_path_id is not null
+  ),
+
+  -- Guardrail 32: confirmar tiene que costar. Y el 60: hay que decir que la
+  -- falsaria.
+  add constraint diagnostic_hypotheses_confirmar_cuesta check (
+    status <> 'confirmed'
+    or (confidence = 'high' and falsification_condition is not null and separation = 'high')
+  ),
+
+  -- Guardrails 12 y 34: confianza alta exige haber separado de las
+  -- alternativas y poder decir por que pierden.
+  add constraint diagnostic_hypotheses_alta_exige_separacion check (
+    confidence <> 'high' or (separation = 'high' and why_alternatives_lose is not null)
+  ),
+
+  -- Guardrails 57 a 60: la hipotesis primaria explica por que gana, por que
+  -- pierden las otras y que la falsaria.
+  add constraint diagnostic_hypotheses_primaria_se_explica check (
+    relative_role <> 'primary'
+    or (why_it_wins is not null and why_alternatives_lose is not null
+        and falsification_condition is not null)
+  ),
+
+  -- Guardrail 36: no se afirma explicacion completa con residual material.
+  add constraint diagnostic_hypotheses_cobertura_vs_residual check (
+    explanatory_coverage <> 'full' or not unexplained_residual_material
+  ),
+
+  -- Guardrail 37: una causa parcial se queda parcial.
+  add constraint diagnostic_hypotheses_parcial_sigue_parcial check (
+    hypothesis_type <> 'contributory_cause' or explanatory_coverage <> 'full'
+  ),
+
+  -- Guardrail 4 y 45: candidata a raiz no es raiz, y quien decide es D09. Lo
+  -- unico que se puede exigir aqui es que una candidata diga que la falsaria.
+  add constraint diagnostic_hypotheses_candidata_no_es_raiz check (
+    not root_cause_candidate or falsification_condition is not null
+  ),
+
+  add constraint diagnostic_hypotheses_incertidumbre_catalogo check (
+    uncertainty_kinds <@ array['data','model','context','causal']::text[]
+  ),
+
+  add constraint diagnostic_hypotheses_localizada check (
+    scope = 'business' or scope_detail <> '{}'::jsonb
+  );
+
+comment on column public.diagnostic_hypotheses.root_cause_candidate is
+  'Guardrail 4: CANDIDATA A RAIZ != RAIZ. No existe columna `root_cause` en ninguna tabla '
+  'de la fase: decidirla es D09.';
+
+comment on column public.diagnostic_hypotheses.separation is
+  'Apartado 12. Poca separacion respecto de las alternativas limita la confianza, aunque '
+  'la evidencia a favor sea buena: si dos explicaciones encajan igual de bien, elegir una '
+  'es preferencia, no diagnostico.';
+
+create index if not exists diagnostic_hypotheses_org_idx
+  on public.diagnostic_hypotheses (organization_id, status);
+create index if not exists diagnostic_hypotheses_ruta_idx
+  on public.diagnostic_hypotheses (source_path_id);
+
+-- ---------------------------------------------------------------------------
+-- 2. La evidencia, ampliada (apartado 5 y guardrails 5, 20 a 25)
+-- ---------------------------------------------------------------------------
+
+alter table public.diagnostic_evidence
+  -- Guardrail 5, hecho columna. No haber mirado no es haber visto que no pasa.
+  add column if not exists observation_kind varchar(20) not null default 'observed_present',
+  -- Guardrails 21 y 22: dos lecturas del mismo sitio no son dos fuentes.
+  add column if not exists source_system varchar(40),
+  add column if not exists independent boolean not null default false,
+  add column if not exists independence_rationale text,
+  add column if not exists directness varchar(16) not null default 'indirect',
+  add column if not exists specificity varchar(16) not null default 'unknown',
+  -- Guardrail 25: la evidencia rancia se degrada.
+  add column if not exists observed_at timestamptz,
+  add column if not exists freshness varchar(16) not null default 'unknown',
+  add column if not exists contradiction_strength varchar(16);
+
+alter table public.diagnostic_evidence
+  drop constraint if exists diagnostic_evidence_observacion,
+  drop constraint if exists diagnostic_evidence_directness,
+  drop constraint if exists diagnostic_evidence_especificidad,
+  drop constraint if exists diagnostic_evidence_frescura,
+  drop constraint if exists diagnostic_evidence_fuerza_contradiccion,
+  drop constraint if exists diagnostic_evidence_independencia_razonada,
+  drop constraint if exists diagnostic_evidence_no_observado_no_contradice;
+
+alter table public.diagnostic_evidence
+  add constraint diagnostic_evidence_observacion check (
+    observation_kind in ('observed_present','observed_absent','not_observed')
+  ),
+  add constraint diagnostic_evidence_directness check (
+    directness in ('direct','indirect','proxy')
+  ),
+  add constraint diagnostic_evidence_especificidad check (
+    specificity in ('specific','ambiguous','unknown')
+  ),
+  add constraint diagnostic_evidence_frescura check (
+    freshness in ('fresh','aging','stale','unknown')
+  ),
+  add constraint diagnostic_evidence_fuerza_contradiccion check (
+    contradiction_strength is null or contradiction_strength in ('strong','moderate','weak')
+  ),
+  -- Guardrail 22: decir que una fuente es independiente obliga a decir por que.
+  add constraint diagnostic_evidence_independencia_razonada check (
+    not independent or independence_rationale is not null
+  ),
+  -- Guardrail 5: lo que no se ha mirado no puede contradecir nada.
+  add constraint diagnostic_evidence_no_observado_no_contradice check (
+    observation_kind <> 'not_observed' or contradiction_strength is null
+  );
+
+comment on column public.diagnostic_evidence.observation_kind is
+  'Guardrail 5: NO OBSERVADO != OBSERVADO AUSENTE. `not_observed` significa que nadie ha '
+  'mirado; `observed_absent`, que se miro y no estaba. Confundirlos es como una hipotesis '
+  'sobrevive a una comprobacion que nunca se hizo.';
+
+-- Apartado 4: la evidencia que discrimina entre hipotesis es una categoria
+-- propia, no un "apoya" mas.
+alter table public.diagnostic_hypothesis_evidence
+  drop constraint if exists diagnostic_hypothesis_evidence_relation;
+alter table public.diagnostic_hypothesis_evidence
+  add constraint diagnostic_hypothesis_evidence_relation check (
+    relation in ('supports','contradicts','discriminates','inconclusive')
+  );
+
+-- ---------------------------------------------------------------------------
+-- 3. Tests diagnosticos (apartados 7 y 8, guardrails 46 a 50)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.hypothesis_tests (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  hypothesis_id uuid not null references public.diagnostic_hypotheses (id) on delete cascade,
+
+  diagnostic_question text not null,
+  required_data text,
+  -- Guardrail 17: si no se puede decir que se esperaria en cada caso, la
+  -- hipotesis no es falsable y el test no discrimina nada.
+  expected_if_true text not null,
+  expected_if_false text not null,
+
+  information_gain varchar(12) not null default 'unknown',
+  cost varchar(12) not null default 'unknown',
+  latency varchar(12) not null default 'unknown',
+  availability varchar(20) not null default 'unknown',
+  intrusiveness varchar(12) not null default 'unknown',
+  -- Guardrail 46: primero los datos del sistema, luego preguntarle a nadie.
+  mode varchar(12) not null default 'passive',
+
+  status varchar(16) not null default 'proposed',
+  result text,
+  interpretation text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint hypothesis_tests_ganancia check (
+    information_gain in ('high','medium','low','unknown')
+  ),
+  constraint hypothesis_tests_coste check (cost in ('high','medium','low','unknown')),
+  constraint hypothesis_tests_latencia check (latency in ('high','medium','low','unknown')),
+  constraint hypothesis_tests_disponibilidad check (
+    availability in ('available','needs_user','needs_integration','unavailable','unknown')
+  ),
+  constraint hypothesis_tests_intrusion check (
+    intrusiveness in ('none','low','medium','high','unknown')
+  ),
+  constraint hypothesis_tests_modo check (mode in ('passive','active')),
+  constraint hypothesis_tests_estado check (
+    status in ('proposed','running','done','skipped','blocked')
+  ),
+  -- Un test hecho sin resultado ni interpretacion no es un test hecho.
+  constraint hypothesis_tests_hecho_tiene_resultado check (
+    status <> 'done' or (result is not null and interpretation is not null)
+  ),
+  -- Guardrail 47: no se le pide al usuario un dato que ya esta en el sistema.
+  constraint hypothesis_tests_no_preguntar_lo_que_ya_hay check (
+    availability <> 'available' or mode = 'passive'
+  ),
+  -- Guardrails 17 y 18: los dos lados de la prediccion tienen que decir algo.
+  constraint hypothesis_tests_prediccion_util check (
+    length(btrim(expected_if_true)) >= 10 and length(btrim(expected_if_false)) >= 10
+  )
+);
+
+comment on table public.hypothesis_tests is
+  'F3/D08 apartados 7 y 8. Un test DIAGNOSTICO: sirve para distinguir entre hipotesis. '
+  'El guardrail 50 y el principio 8 lo dicen entero: un test diagnostico no autoriza una '
+  'accion de negocio, y por eso aqui no hay ninguna columna que se parezca a una accion.';
+
+create index if not exists hypothesis_tests_hipotesis_idx
+  on public.hypothesis_tests (hypothesis_id, status);
+
+drop trigger if exists set_hypothesis_tests_updated_at on public.hypothesis_tests;
+create trigger set_hypothesis_tests_updated_at before update on public.hypothesis_tests
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 4. El historial de la hipotesis (apartado 21, guardrail 54)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.hypothesis_status_history (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  hypothesis_id uuid not null references public.diagnostic_hypotheses (id) on delete cascade,
+
+  from_status varchar(24),
+  to_status varchar(24) not null,
+  reason text not null,
+  -- Guardrail 53: la calibracion por agente necesita saber quien movio que.
+  actor varchar(60),
+  evidence_added text[] not null default '{}',
+
+  changed_at timestamptz not null default now(),
+
+  constraint hypothesis_status_history_estado check (
+    to_status in (
+      'untested','under_test','supported','weakly_supported','partially_supported',
+      'most_likely','contradicted','invalidated','confirmed','inconclusive'
+    )
+  )
+);
+
+comment on table public.hypothesis_status_history is
+  'F3/D08 apartado 21 y guardrail 54: las hipotesis rechazadas no se borran, y el camino '
+  'por el que una llego a su estado es parte del diagnostico. Sin esto, calibrar a los '
+  'agentes (guardrail 53) es imposible: no se sabria quien acerto ni quien insistio.';
+
+create index if not exists hypothesis_status_history_hipotesis_idx
+  on public.hypothesis_status_history (hypothesis_id, changed_at);
+
+-- ---------------------------------------------------------------------------
+-- 5. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.hypothesis_tests enable row level security;
+alter table public.hypothesis_status_history enable row level security;
+
+drop policy if exists "hypothesis_tests_select_staff" on public.hypothesis_tests;
+create policy "hypothesis_tests_select_staff" on public.hypothesis_tests
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+drop policy if exists "hypothesis_status_history_select_staff" on public.hypothesis_status_history;
+create policy "hypothesis_status_history_select_staff" on public.hypothesis_status_history
+  for select to authenticated
+  using (
+    private.is_platform_admin()
+    or private.is_assigned_consultant(organization_id)
+  );
+
+-- =============================================================================
+-- Migracion: 20260920090000_f3_d09_root_cause_y_constraints.sql
+-- =============================================================================
+-- FASE 3 / D09 — Root cause & constraint engine.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d09-requisitos-contrato-root-cause-constraint.md
+--          conocimiento/fase-03/04-policies-guardrails/d09-guardrails-root-cause-constraint.md
+--          conocimiento/fase-03/03-runtime/d09-flujo-root-cause-constraint.md
+--          conocimiento/fase-03/06-tenant-context/d09-contexto-root-cause-constraint.md
+--          conocimiento/fase-03/05-experience-learning/d09-memoria-root-causes-y-constraints.md
+--
+-- **El unico bloque de la fase autorizado a cerrar una causa.** D08 dejo
+-- candidatas con su condicion de falsacion; aqui se deciden. Y aun asi D09
+-- sigue sin priorizar: el guardrail 25 y el 37 lo dicen -- severidad, prioridad,
+-- playbook y ranking de impacto no salen de aqui. Eso es F4.
+--
+-- CAUSA RAIZ Y CONSTRAINT SON DOS COSAS DISTINTAS, Y POR ESO SON DOS TABLAS
+-- (guardrail 4). El apartado 23 exige que las cuatro combinaciones puedan
+-- existir: causa conocida con constraint desconocido, constraint conocido con
+-- causa desconocida, causa resuelta con constraint activo y constraint resuelto
+-- con driver estructural activo. **No hay ninguna clave ajena que las ate**, y
+-- hay tests que comprueban que las cuatro caben. Atarlas seria convertir "por
+-- que paso" y "que nos limita" en la misma pregunta, que es justo el error que
+-- el bloque existe para evitar.
+--
+-- UN CONSTRAINT NO ES UNA DEBILIDAD (guardrail 5, 28 y 30). Una tienda puede
+-- tener el email mal montado y que eso no limite nada si el cuello esta en el
+-- stock. Por eso `target` es obligatorio -- el constraint siempre es respecto de
+-- algo -- y declararlo vinculante exige haber pasado el test contrafactual:
+-- `falsifier` y `counterfactual_result` son obligatorios para `binding`.
+--
+-- UNA CAPACIDAD ALTA NO ES UN CONSTRAINT (guardrail 29). `capacity` y
+-- `demand_on_capacity` son columnas separadas: lo que hace cuello no es el nivel
+-- absoluto de una, es la relacion entre las dos.
+--
+-- CONFIRMED ES EXCEPCIONAL (guardrail 12), Y `UNRESOLVED` ES UNA SALIDA VALIDA
+-- (13). No forzar el cierre (14) es lo que separa un diagnostico de un informe
+-- que habia que entregar. Confirmar exige confianza alta, cadena causal
+-- soportada y limitaciones escritas.
+--
+-- MEDIR MAL NO ES IR MAL (guardrails 41 y 42). Una regresion de tracking puede
+-- ser la causa raiz de un problema de observabilidad sin ser la causa de un
+-- deterioro del negocio. `affects_observability_only` lo marca, y el check
+-- impide que algo asi reclame cobertura explicativa del negocio.
+--
+-- NO SE CULPA A PERSONAS (guardrails 38, 39 y 40). La garantia es estructural y
+-- es la misma jugada que en D06 con `direction`: **no existe ninguna columna
+-- donde quepa una persona**. Ni `responsible`, ni `owner`, ni `blamed_by`. Se
+-- describen procesos, capacidades y configuraciones, y el error humano se
+-- expresa en terminos observables porque no hay otro sitio donde escribirlo.
+--
+-- LO QUE NO ESTA AQUI: `severity`, `priority`, `impact_rank`, `playbook`,
+-- `action`. Guardrail 35: que un constraint sea vinculante no lo hace lo mas
+-- urgente -- un outage critico puede ir antes que un cuello estructural, y esa
+-- decision es de F4.
+
+-- ---------------------------------------------------------------------------
+-- 1. La causa raiz
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.root_causes (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid references public.diagnostic_cases (id) on delete cascade,
+  -- De donde viene: la hipotesis de D08 que la sostiene, con su ledger de
+  -- evidencia ya montado. No se duplica la evidencia aqui.
+  hypothesis_id uuid references public.diagnostic_hypotheses (id) on delete set null,
+  -- Guardrail 16: una causa raiz necesita cadena causal soportada.
+  causal_path_id uuid references public.causal_paths (id) on delete set null,
+
+  code varchar(12) not null,
+  statement text not null,
+  family varchar(24) not null,
+  cause_type varchar(24) not null,
+  role varchar(24) not null default 'primary',
+
+  scope varchar(16) not null default 'business',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  status varchar(24) not null default 'unresolved',
+  confidence varchar(20) not null default 'insufficient',
+
+  -- Apartado 9: tres cosas distintas.
+  explanatory_coverage varchar(20) not null default 'unknown',
+  residual_material boolean not null default false,
+  residual_note text,
+
+  -- Apartados 19 y 20.
+  controllability varchar(24) not null default 'unknown',
+  reversibility varchar(24) not null default 'unknown',
+  recurrence varchar(20) not null default 'unknown',
+
+  -- Guardrails 41 y 42: medir mal no es ir mal.
+  affects_observability_only boolean not null default false,
+
+  downstream_capabilities text[] not null default '{}',
+  assumptions text,
+  limitations text,
+
+  first_identified_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint root_causes_familia check (family in (
+    'market','product','offer','economics','acquisition','creative','conversion',
+    'retention','inventory','operations','finance','data','technology','team',
+    'strategy','external'
+  )),
+  constraint root_causes_tipo check (cause_type in (
+    'acute','chronic','structural','event_driven','process','capacity',
+    'configuration','quality','planning','dependency','external','positive_driver'
+  )),
+  constraint root_causes_rol check (role in ('primary','secondary','contributing')),
+  constraint root_causes_scope check (scope in (
+    'business','capability','subcapability','channel','market','product','segment'
+  )),
+  constraint root_causes_estado check (status in (
+    'probable','confirmed','partial_root_cause','unresolved','active','resolved','recurrent'
+  )),
+  constraint root_causes_confianza check (
+    confidence in ('high','medium','low','insufficient')
+  ),
+  constraint root_causes_cobertura check (
+    explanatory_coverage in ('full','partial','minimal','unknown')
+  ),
+  constraint root_causes_controlabilidad check (
+    controllability in ('controllable','partially_controllable','external','unknown')
+  ),
+  constraint root_causes_reversibilidad check (
+    reversibility in ('easily_reversible','reversible','difficult','unknown')
+  ),
+  constraint root_causes_recurrencia check (
+    recurrence in ('first_time','recurrent','chronic','unknown')
+  ),
+  constraint root_causes_code_unico unique (organization_id, code),
+
+  -- Guardrail 16: sin cadena causal soportada no se afirma una causa raiz.
+  constraint root_causes_exige_cadena check (
+    status not in ('probable','confirmed') or causal_path_id is not null
+  ),
+
+  -- Guardrail 12: confirmar es excepcional y caro. Y el 48: declarar
+  -- limitaciones no es opcional cuando se afirma.
+  constraint root_causes_confirmar_cuesta check (
+    status <> 'confirmed'
+    or (confidence = 'high' and hypothesis_id is not null and limitations is not null)
+  ),
+
+  -- Guardrails 19 y 46: un claim sistemico se afirma con mas, no con lo mismo.
+  constraint root_causes_sistemico_exige_mas check (
+    cause_type <> 'structural'
+    or status <> 'confirmed'
+    or explanatory_coverage in ('full','partial')
+  ),
+
+  -- Guardrail 24: no hay explicacion completa con residual material.
+  constraint root_causes_cobertura_vs_residual check (
+    explanatory_coverage <> 'full' or not residual_material
+  ),
+
+  -- Guardrail 42: una regresion de medicion no explica el negocio.
+  constraint root_causes_medicion_no_es_negocio check (
+    not affects_observability_only
+    or explanatory_coverage in ('minimal','unknown')
+  ),
+
+  -- Guardrail 25: lo local no se generaliza.
+  constraint root_causes_localizada check (
+    scope = 'business' or scope_detail <> '{}'::jsonb
+  ),
+
+  constraint root_causes_resuelta_tiene_fecha check (
+    status <> 'resolved' or resolved_at is not null
+  )
+);
+
+comment on table public.root_causes is
+  'F3/D09 apartado 1. **No existe ninguna columna donde quepa una persona** (ni responsible, '
+  'ni owner, ni blamed_by): los guardrails 38 a 40 piden describir procesos, capacidades y '
+  'configuraciones, y el error humano en terminos observables. La garantia es que no hay '
+  'otro sitio donde escribirlo.';
+
+comment on column public.root_causes.affects_observability_only is
+  'Guardrails 41 y 42. Una regresion de tracking puede ser la causa raiz de un problema de '
+  'observabilidad sin serlo de un deterioro del negocio. Con esto marcado, el check impide '
+  'que reclame cobertura explicativa del negocio.';
+
+create index if not exists root_causes_org_idx on public.root_causes (organization_id, status);
+create index if not exists root_causes_caso_idx on public.root_causes (case_id);
+
+drop trigger if exists set_root_causes_updated_at on public.root_causes;
+create trigger set_root_causes_updated_at before update on public.root_causes
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 2. La cadena: de sintoma a driver estructural (apartado 6)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.root_cause_chain (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  root_cause_id uuid not null references public.root_causes (id) on delete cascade,
+
+  step_order integer not null,
+  chain_role varchar(24) not null,
+  statement text not null,
+  -- Cuando el eslabon es un sintoma de D06 o un nodo de D07, se referencia.
+  symptom_id uuid references public.symptoms (id) on delete set null,
+  node_id uuid references public.causal_nodes (id) on delete set null,
+  supported boolean not null default false,
+
+  created_at timestamptz not null default now(),
+
+  constraint root_cause_chain_rol check (chain_role in (
+    'structural_driver','root_cause','immediate_cause','intermediate_cause','symptom','outcome'
+  )),
+  constraint root_cause_chain_orden unique (root_cause_id, step_order)
+);
+
+comment on table public.root_cause_chain is
+  'F3/D09 apartado 6. Los cuatro primeros guardrails viven aqui: sintoma, causa inmediata, '
+  'causa raiz y driver estructural son eslabones distintos de la misma cadena, y confundirlos '
+  'es el error que mas veces se comete. La cadena obliga a decir en cual se esta.';
+
+create index if not exists root_cause_chain_causa_idx
+  on public.root_cause_chain (root_cause_id, step_order);
+
+-- ---------------------------------------------------------------------------
+-- 3. El constraint: siempre respecto de un target
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.business_constraints (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid references public.diagnostic_cases (id) on delete cascade,
+
+  code varchar(12) not null,
+  statement text not null,
+  constraint_type varchar(24) not null,
+
+  -- Apartado 14 y guardrail 30: un constraint SIEMPRE lo es respecto de algo.
+  target varchar(40) not null,
+  scope varchar(16) not null default 'business',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  binding_status varchar(24) not null default 'latent',
+  nature varchar(24) not null default 'soft',
+  timing varchar(16) not null default 'structural',
+  confidence varchar(20) not null default 'insufficient',
+
+  -- Guardrail 29: el nivel absoluto no dice nada; la relacion entre las dos si.
+  capacity text,
+  demand_on_capacity text,
+
+  -- Guardrail 31: el test contrafactual no es opcional para declararlo vinculante.
+  falsifier text,
+  counterfactual_question text,
+  counterfactual_result text,
+  -- Guardrail 28: una debilidad que no limita el target no es un constraint.
+  limits_target boolean not null default false,
+
+  blast_radius text,
+  exposure varchar(20) not null default 'unknown',
+  -- Apartado 18.
+  arrangement varchar(12) not null default 'unknown',
+
+  status varchar(16) not null default 'active',
+  resolved_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint business_constraints_tipo check (constraint_type in (
+    'demand','product','offer','acquisition','creative','conversion','retention',
+    'inventory','operations','financial','data','technology','team','strategy'
+  )),
+  constraint business_constraints_binding check (
+    binding_status in ('binding','secondary','latent','none')
+  ),
+  constraint business_constraints_naturaleza check (
+    nature in ('hard','soft','structural_bottleneck','temporary')
+  ),
+  constraint business_constraints_momento check (timing in ('acute','structural')),
+  constraint business_constraints_confianza check (
+    confidence in ('high','medium','low','insufficient')
+  ),
+  constraint business_constraints_scope check (scope in (
+    'business','capability','subcapability','channel','market','product','segment'
+  )),
+  constraint business_constraints_exposicion check (
+    exposure in ('minimal','moderate','high','existential','unknown')
+  ),
+  constraint business_constraints_disposicion check (
+    arrangement in ('serial','parallel','unknown')
+  ),
+  constraint business_constraints_estado check (status in ('active','resolved','superseded')),
+  constraint business_constraints_code_unico unique (organization_id, code),
+
+  -- Guardrails 28 y 30: si no limita el target, no es un constraint vinculante.
+  constraint business_constraints_vinculante_limita check (
+    binding_status <> 'binding' or limits_target
+  ),
+
+  -- Guardrail 31: declararlo vinculante exige haber pasado el contrafactual.
+  constraint business_constraints_vinculante_se_prueba check (
+    binding_status <> 'binding'
+    or (falsifier is not null and counterfactual_result is not null)
+  ),
+
+  -- Guardrail 29: para decir que algo hace cuello hay que declarar las dos
+  -- caras, no solo que la capacidad parece baja.
+  constraint business_constraints_capacidad_y_demanda check (
+    binding_status <> 'binding'
+    or (capacity is not null and demand_on_capacity is not null)
+  ),
+
+  -- Guardrail 26: lo local no se generaliza.
+  constraint business_constraints_localizado check (
+    scope = 'business' or scope_detail <> '{}'::jsonb
+  ),
+
+  constraint business_constraints_resuelto_tiene_fecha check (
+    status <> 'resolved' or resolved_at is not null
+  )
+);
+
+comment on table public.business_constraints is
+  'F3/D09 apartado 10. Un constraint SIEMPRE lo es respecto de un target (guardrail 30): por '
+  'eso `target` es obligatorio. No hay `priority` ni `severity`: el guardrail 35 dice que '
+  'vinculante no es lo mas urgente, y el 37 que D09 no decide F4.';
+
+comment on column public.business_constraints.limits_target is
+  'Guardrails 5 y 28: una debilidad no es un constraint si no limita el target. El email mal '
+  'montado no limita nada si el cuello esta en el stock.';
+
+create index if not exists business_constraints_org_idx
+  on public.business_constraints (organization_id, binding_status, status);
+create index if not exists business_constraints_caso_idx on public.business_constraints (case_id);
+
+drop trigger if exists set_business_constraints_updated_at on public.business_constraints;
+create trigger set_business_constraints_updated_at before update on public.business_constraints
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 4. El test del constraint (apartado 15)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.constraint_tests (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  constraint_id uuid not null references public.business_constraints (id) on delete cascade,
+
+  target varchar(40) not null,
+  counterfactual_question text not null,
+  expected_if_binding text not null,
+  expected_if_not_binding text not null,
+  result varchar(20) not null default 'pending',
+  interpretation text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint constraint_tests_resultado check (
+    result in ('pending','binding','not_binding','inconclusive')
+  ),
+  -- Un test resuelto sin interpretacion no ha resuelto nada.
+  constraint constraint_tests_resuelto_se_interpreta check (
+    result = 'pending' or interpretation is not null
+  ),
+  -- Las dos predicciones tienen que decir algo distinto.
+  constraint constraint_tests_prediccion_util check (
+    length(btrim(expected_if_binding)) >= 10
+    and length(btrim(expected_if_not_binding)) >= 10
+    and btrim(expected_if_binding) <> btrim(expected_if_not_binding)
+  )
+);
+
+comment on table public.constraint_tests is
+  'F3/D09 apartado 15 y guardrail 31. El contrafactual que separa un constraint de una '
+  'debilidad: si se levantara esto, ¿se moveria el target? Sin las dos predicciones no hay test.';
+
+create index if not exists constraint_tests_constraint_idx
+  on public.constraint_tests (constraint_id, result);
+
+drop trigger if exists set_constraint_tests_updated_at on public.constraint_tests;
+create trigger set_constraint_tests_updated_at before update on public.constraint_tests
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 5. "Este caso no tiene constraint relevante" (apartado 22, guardrail 32)
+-- ---------------------------------------------------------------------------
+
+alter table public.diagnostic_cases
+  add column if not exists no_business_constraint boolean not null default false,
+  add column if not exists no_constraint_rationale text;
+
+alter table public.diagnostic_cases
+  drop constraint if exists diagnostic_cases_sin_constraint_razonado;
+alter table public.diagnostic_cases
+  add constraint diagnostic_cases_sin_constraint_razonado check (
+    not no_business_constraint or no_constraint_rationale is not null
+  );
+
+comment on column public.diagnostic_cases.no_business_constraint is
+  'Apartado 22 y guardrail 32: que no haya constraint relevante es una conclusion, no la '
+  'ausencia de una. Se declara y se razona, para que no se confunda con no haber mirado.';
+
+-- ---------------------------------------------------------------------------
+-- 6. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.root_causes enable row level security;
+alter table public.root_cause_chain enable row level security;
+alter table public.business_constraints enable row level security;
+alter table public.constraint_tests enable row level security;
+
+drop policy if exists "root_causes_select_staff" on public.root_causes;
+create policy "root_causes_select_staff" on public.root_causes
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "root_cause_chain_select_staff" on public.root_cause_chain;
+create policy "root_cause_chain_select_staff" on public.root_cause_chain
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "business_constraints_select_staff" on public.business_constraints;
+create policy "business_constraints_select_staff" on public.business_constraints
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "constraint_tests_select_staff" on public.constraint_tests;
+create policy "constraint_tests_select_staff" on public.constraint_tests
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20260921090000_f3_d10_severidad_e_impacto.sql
+-- =============================================================================
+-- FASE 3 / D10 — Severidad e impacto.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d10-requisitos-contrato-severidad-impacto.md
+--          conocimiento/fase-03/04-policies-guardrails/d10-guardrails-severidad-impacto.md
+--          conocimiento/fase-03/03-runtime/d10-flujo-evaluacion-severidad-impacto.md
+--          conocimiento/fase-03/06-tenant-context/d10-contexto-severidad-impacto.md
+--          conocimiento/fase-03/05-experience-learning/d10-memoria-severidad-impacto.md
+--
+-- El primer bloque de la fase que puede ordenar algo -- y justo por eso el que
+-- hereda todas las fronteras que D05 a D09 han ido guardando. D10 mide cuanto
+-- dano hay. **No decide que se ataca primero** (guardrails 3, 46, 47 y 48): un
+-- HIGH puede ir antes que un CRITICAL segun esfuerzo, valor estrategico y
+-- momento, y esa decision es de F4.
+--
+-- DONDE D09 NO TENIA SITIO PARA UNA PERSONA, D10 NO TIENE SITIO PARA UNA
+-- DECISION. No existe ninguna columna llamada `priority`, `recommended_action`,
+-- `playbook`, `effort`, `intervention_order` ni `rank` en ninguna de las cinco
+-- tablas. Y tampoco existe ninguna columna de probabilidad numerica: el
+-- guardrail 29 prohibe inventar un "13,7 %" sin modelo calibrado, y la garantia
+-- es que `likelihood` solo admite low/medium/high/unknown -- no hay donde
+-- escribir el numero. Hay tests que comprueban las tres ausencias.
+--
+-- SEVERIDAD NO ES UNA CIFRA (guardrails 9 y 10). Un -20 % no es "grave": lo
+-- grave depende de sobre cuanto negocio cae, cuanto cuesta, cuanto dura, si se
+-- propaga y si hay colchon. Por eso **no hay ninguna columna donde escribir el
+-- porcentaje de cambio** en `severity_assessments`: la magnitud de la metrica
+-- vive en D05, y aqui hay que declarar exposicion, impacto y colchon.
+--
+-- CINCO SEVERIDADES, NO UNA (apartado 3). Aguda, acumulada, prospectiva,
+-- estructural y global son columnas distintas: un problema cronico moderado
+-- puede acumular mas dano que un incidente breve critico (guardrail 42). Y
+-- **no hay formula** que derive la global de las otras cuatro -- la fuente dice
+-- explicitamente que no la define (apartado 29), y el apartado 95 del corpus
+-- permite que una sola dimension domine. Inventarla aqui seria decidir por
+-- quien evalua.
+--
+-- TRES CONFIANZAS SEPARADAS (apartado 27, guardrail 4). La confianza en la
+-- causa, la confianza en el impacto y la confianza en la severidad son tres
+-- juicios distintos. Se puede estar muy seguro de que el dano es grave y nada
+-- seguro de por que pasa -- guardrail 13: la incertidumbre no obliga a bajar la
+-- severidad, y hay un test que comprueba que esa combinacion **se permite**.
+--
+-- LO OBSERVADO, LO ESTIMADO, LO INFERIDO Y LO PRONOSTICADO NO SE MEZCLAN
+-- (guardrails 19 a 22). En `impact_measurements`, `evidence_type` y `timing`
+-- estan atados por check: lo `observed` solo puede ser `realized` u `ongoing`, y
+-- lo `potential` o `projected` nunca puede presentarse como observado. Un
+-- pronostico no se disfraza de medicion.
+--
+-- PERDIDA REALIZADA != COSTE DE OPORTUNIDAD (guardrails 6, 43, 44 y 45), y
+-- REVENUE-AT-RISK != REVENUE PERDIDO (32). Son valores de `nature`, y cada uno
+-- tiene su check: el coste de oportunidad no puede ser `realized` ni `observed`.
+--
+-- REVERSIBILIDAD != RECUPERABILIDAD (guardrail 7). Dos columnas con dos
+-- vocabularios distintos, a proposito: no comparten ni un valor, asi que no se
+-- pueden confundir copiando uno en el otro. Que la causa se arregle en diez
+-- minutos no devuelve los pedidos que no se hicieron.
+--
+-- LO LOCAL NO SE GLOBALIZA (guardrail 14 y apartado 219 del corpus), CON UNA
+-- EXCEPCION: la continuidad (apartado 220). Una amenaza de liquidez es global
+-- aunque hoy toque pocas transacciones.
+--
+-- MEDIR MAL NO ES PERDER DINERO (guardrails 49, 50 y 51). Un fallo de tracking
+-- puede tener impacto CRITICAL en la dimension `data` con el impacto sobre
+-- revenue en UNKNOWN, y eso es una salida valida, no un hueco. Hay un test.
+
+-- ---------------------------------------------------------------------------
+-- 1. La evaluacion de severidad
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.severity_assessments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  -- D10 consume D09, no lo repite.
+  root_cause_id uuid references public.root_causes (id) on delete set null,
+  constraint_id uuid references public.business_constraints (id) on delete set null,
+
+  assessment_status varchar(16) not null default 'current',
+
+  -- Apartado 91 del corpus: la severidad siempre lo es respecto de un target.
+  target varchar(40) not null,
+  scope varchar(16) not null default 'business',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartado 3: el perfil, no un numero.
+  acute_severity varchar(20) not null default 'unknown',
+  cumulative_severity varchar(20) not null default 'unknown',
+  forward_risk_severity varchar(20) not null default 'unknown',
+  structural_severity varchar(20) not null default 'unknown',
+  overall_severity varchar(20) not null default 'unknown',
+
+  -- Apartado 27: tres juicios distintos.
+  cause_confidence varchar(20) not null default 'insufficient',
+  impact_confidence varchar(20) not null default 'insufficient',
+  severity_confidence varchar(20) not null default 'insufficient',
+
+  trajectory varchar(24) not null default 'unknown',
+  velocity varchar(24) not null default 'unknown',
+  recurrence varchar(20) not null default 'unknown',
+
+  -- Apartado 15: el tiempo activo es parte de la gravedad.
+  duration_hours numeric,
+  onset_at timestamptz,
+  material_damage_at timestamptz,
+  contained_at timestamptz,
+  recovered_at timestamptz,
+
+  -- Apartado 18.
+  time_to_material_damage_hours numeric,
+  time_to_threshold_hours numeric,
+  time_to_buffer_exhaustion_hours numeric,
+
+  -- Guardrail 12 y apartado 66 del corpus: un fallo en el camino critico puede
+  -- ser severo desde el primer minuto, sin duracion que lo justifique.
+  critical_path_failure boolean not null default false,
+
+  -- Guardrail 8 y apartado 170: que una capacidad sea critica no significa que
+  -- hoy este danada. Son dos columnas porque son dos preguntas.
+  capability_criticality varchar(20) not null default 'unknown',
+
+  -- Guardrail 14: para que lo local sea global hay que declarar que la
+  -- exposicion es material, y decir sobre que denominador.
+  material_exposure boolean not null default false,
+  exposure_basis text,
+
+  -- Guardrail 11: BUSINESS_THREAT es excepcional y hay que decir de que tipo.
+  threat_kind varchar(24),
+  continuity_rationale text,
+
+  -- Guardrail 7: dos preguntas distintas, dos vocabularios sin un valor en comun.
+  reversibility varchar(24) not null default 'unknown',
+  recoverability varchar(24) not null default 'unknown',
+  absorption_capacity varchar(20) not null default 'unknown',
+
+  -- Guardrails 49 a 51.
+  measurement_compromised boolean not null default false,
+
+  -- Guardrail 55: D10 produce insumos de escalado. El 56: no define a quien se
+  -- avisa ni por donde. Por eso esto es una lectura del estado, no una orden.
+  escalation_signal varchar(20) not null default 'none',
+
+  summary text,
+  assumptions text,
+  limitations text,
+
+  assessed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint severity_assessments_estado check (
+    assessment_status in ('current', 'superseded')
+  ),
+  constraint severity_assessments_scope check (scope in (
+    'business','capability','subcapability','channel','market','product','segment'
+  )),
+  constraint severity_assessments_aguda check (
+    acute_severity in ('info','low','moderate','high','critical','business_threat','unknown')
+  ),
+  constraint severity_assessments_acumulada check (
+    cumulative_severity in ('info','low','moderate','high','critical','business_threat','unknown')
+  ),
+  constraint severity_assessments_prospectiva check (
+    forward_risk_severity in ('info','low','moderate','high','critical','business_threat','unknown')
+  ),
+  constraint severity_assessments_estructural check (
+    structural_severity in ('info','low','moderate','high','critical','business_threat','unknown')
+  ),
+  constraint severity_assessments_global check (
+    overall_severity in ('info','low','moderate','high','critical','business_threat','unknown')
+  ),
+  constraint severity_assessments_confianza_causa check (
+    cause_confidence in ('high','medium','low','insufficient')
+  ),
+  constraint severity_assessments_confianza_impacto check (
+    impact_confidence in ('high','medium','low','insufficient')
+  ),
+  constraint severity_assessments_confianza_severidad check (
+    severity_confidence in ('high','medium','low','insufficient')
+  ),
+  constraint severity_assessments_trayectoria check (trajectory in (
+    'improving','stable','deteriorating','rapidly_deteriorating','recovering','volatile','unknown'
+  )),
+  constraint severity_assessments_velocidad check (velocity in (
+    'stable','worsening','rapidly_deteriorating','recovering','unknown'
+  )),
+  constraint severity_assessments_recurrencia check (
+    recurrence in ('first_time','recurrent','chronic','unknown')
+  ),
+  constraint severity_assessments_criticidad check (
+    capability_criticality in ('minimal','moderate','high','critical','unknown')
+  ),
+  constraint severity_assessments_amenaza check (threat_kind is null or threat_kind in (
+    'continuity','liquidity','ability_to_transact','customer_trust','legal_operational'
+  )),
+  -- Guardrail 7: los dos vocabularios no comparten ningun valor. Copiar uno en
+  -- el otro no pasa el check.
+  constraint severity_assessments_reversibilidad check (
+    reversibility in ('easily_reversible','reversible','difficult','unknown')
+  ),
+  constraint severity_assessments_recuperabilidad check (
+    recoverability in ('fully_recoverable','partially_recoverable','not_recoverable','unknown')
+  ),
+  constraint severity_assessments_absorcion check (
+    absorption_capacity in ('strong','moderate','thin','none','unknown')
+  ),
+  constraint severity_assessments_escalado check (
+    escalation_signal in ('none','escalating','sustained','de_escalating')
+  ),
+
+  -- Guardrail 11: BUSINESS_THREAT reservado a continuidad, liquidez, capacidad
+  -- de transaccionar, confianza o continuidad legal -- y razonado.
+  constraint severity_assessments_amenaza_excepcional check (
+    overall_severity <> 'business_threat'
+    or (threat_kind is not null and continuity_rationale is not null)
+  ),
+
+  -- Guardrail 14 y apartado 219: lo local no se globaliza. Apartado 220: salvo
+  -- continuidad, y salvo un fallo del camino critico (guardrail 12).
+  constraint severity_assessments_local_no_es_global check (
+    overall_severity not in ('critical','business_threat')
+    or scope = 'business'
+    or material_exposure
+    or threat_kind is not null
+    or critical_path_failure
+  ),
+
+  -- Guardrails 15 y 17: declarar que la exposicion es material obliga a decir
+  -- sobre que base. Un 3 % de revenue puede ser un 30 % de contribution.
+  constraint severity_assessments_materialidad_razonada check (
+    not material_exposure or exposure_basis is not null
+  ),
+
+  -- Guardrail 54: afirmar gravedad alta con poca confianza se permite
+  -- (guardrail 13) -- pero entonces hay que escribir las limitaciones.
+  constraint severity_assessments_incierto_declara_limites check (
+    overall_severity not in ('critical','business_threat')
+    or severity_confidence in ('high','medium')
+    or limitations is not null
+  ),
+
+  -- Guardrail 50: si la medicion esta comprometida no se puede estar muy
+  -- seguro del impacto economico.
+  constraint severity_assessments_medicion_comprometida check (
+    not measurement_compromised or impact_confidence <> 'high'
+  ),
+
+  -- Apartado 18 del corpus: lo local se localiza.
+  constraint severity_assessments_localizada check (
+    scope = 'business' or scope_detail <> '{}'::jsonb
+  ),
+
+  constraint severity_assessments_duracion_no_negativa check (
+    (duration_hours is null or duration_hours >= 0)
+    and (time_to_material_damage_hours is null or time_to_material_damage_hours >= 0)
+    and (time_to_threshold_hours is null or time_to_threshold_hours >= 0)
+    and (time_to_buffer_exhaustion_hours is null or time_to_buffer_exhaustion_hours >= 0)
+  ),
+
+  -- La linea temporal del apartado 184 va en un sentido.
+  constraint severity_assessments_linea_temporal check (
+    (material_damage_at is null or onset_at is null or material_damage_at >= onset_at)
+    and (recovered_at is null or material_damage_at is null or recovered_at >= material_damage_at)
+    and (contained_at is null or onset_at is null or contained_at >= onset_at)
+  )
+);
+
+comment on table public.severity_assessments is
+  'F3/D10 apartado 1. Mide cuanto dano hay. **No hay columna de prioridad, accion, playbook, '
+  'esfuerzo ni orden de intervencion** (guardrails 3, 46, 47 y 48): eso es F4. Tampoco hay '
+  'donde escribir el porcentaje de cambio de una metrica -- los guardrails 9 y 10 dicen que la '
+  'magnitud no define la gravedad, y la garantia es que no cabe.';
+
+comment on column public.severity_assessments.overall_severity is
+  'Apartados 3 y 95 del corpus. **No se deriva por formula de las otras cuatro**: la fuente no '
+  'define ninguna (apartado 29) y una sola dimension puede dominar -- revenue LOW con cash '
+  'BUSINESS_THREAT da BUSINESS_THREAT. Quien evalua decide y lo razona.';
+
+comment on column public.severity_assessments.capability_criticality is
+  'Guardrail 8 y apartado 170. Que checkout sea la capacidad mas critica del negocio no '
+  'significa que hoy este danado. Criticidad e impacto actual son dos columnas porque son dos '
+  'preguntas distintas.';
+
+comment on column public.severity_assessments.recoverability is
+  'Guardrail 7. No comparte ni un valor con `reversibility` a proposito: que el fallo se '
+  'arregle en diez minutos (reversible) no devuelve los pedidos que no se hicieron '
+  '(no recuperable).';
+
+create index if not exists severity_assessments_org_idx
+  on public.severity_assessments (organization_id, overall_severity, assessment_status);
+create index if not exists severity_assessments_caso_idx
+  on public.severity_assessments (case_id, assessed_at desc);
+
+-- Apartado 1 de experience-learning: el historico se conserva. Una sola
+-- evaluacion vigente por caso; las anteriores quedan como `superseded`.
+create unique index if not exists severity_assessments_vigente_idx
+  on public.severity_assessments (case_id)
+  where assessment_status = 'current';
+
+drop trigger if exists set_severity_assessments_updated_at on public.severity_assessments;
+create trigger set_severity_assessments_updated_at before update on public.severity_assessments
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 2. El vector de impacto (apartados 4 a 12, 19 a 22)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.impact_measurements (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  assessment_id uuid not null references public.severity_assessments (id) on delete cascade,
+
+  dimension varchar(16) not null,
+  -- Apartado 93 del corpus: la severidad por dimension, que es lo que forma el
+  -- vector. La global vive en la evaluacion, no aqui.
+  dimension_severity varchar(20) not null default 'unknown',
+
+  -- Guardrails 6, 32, 43 y 44: que clase de dano es. No es lo mismo lo perdido
+  -- que lo que se deja de ganar.
+  nature varchar(20) not null default 'realized_loss',
+  -- Apartado 5.
+  timing varchar(12) not null,
+  -- Apartado 6.
+  evidence_type varchar(12) not null,
+  -- Apartado 20.
+  quantification varchar(12) not null default 'unknown',
+
+  metric varchar(60),
+  value numeric,
+  value_low numeric,
+  value_high numeric,
+  unit varchar(16),
+
+  period_start timestamptz,
+  period_end timestamptz,
+  -- Guardrail 27: un periodo aun sin asentar no da una cifra exacta.
+  period_open boolean not null default false,
+
+  -- Apartado 21.
+  loss_rate numeric,
+  loss_rate_unit varchar(12),
+
+  method text,
+  baseline_reference text,
+  assumptions text,
+
+  -- Guardrails 29 y 30: cualitativa. **No existe columna de probabilidad.**
+  likelihood varchar(12),
+  impact_confidence varchar(20) not null default 'insufficient',
+
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint impact_measurements_dimension check (dimension in (
+    'revenue','contribution','cash','customer','operations','brand','strategic',
+    'continuity','data'
+  )),
+  constraint impact_measurements_severidad check (
+    dimension_severity in ('info','low','moderate','high','critical','business_threat','unknown')
+  ),
+  constraint impact_measurements_naturaleza check (nature in (
+    'realized_loss','ongoing_loss','at_risk','opportunity_cost','cost_increase','exposure_only'
+  )),
+  constraint impact_measurements_momento check (
+    timing in ('realized','ongoing','potential','projected')
+  ),
+  constraint impact_measurements_evidencia check (
+    evidence_type in ('observed','estimated','inferred','forecast')
+  ),
+  constraint impact_measurements_cuantificacion check (
+    quantification in ('exact','estimated','range','directional','unknown')
+  ),
+  constraint impact_measurements_verosimilitud check (
+    likelihood is null or likelihood in ('low','medium','high','unknown')
+  ),
+  constraint impact_measurements_tasa_unidad check (
+    loss_rate_unit is null or loss_rate_unit in ('per_hour','per_day','per_week')
+  ),
+  constraint impact_measurements_confianza check (
+    impact_confidence in ('high','medium','low','insufficient')
+  ),
+
+  -- Guardrail 20: un pronostico no se presenta como observacion, y lo observado
+  -- es por definicion algo que ya paso o esta pasando.
+  constraint impact_measurements_observado_ya_paso check (
+    evidence_type <> 'observed' or timing in ('realized','ongoing')
+  ),
+  constraint impact_measurements_futuro_no_se_observa check (
+    timing not in ('potential','projected') or evidence_type <> 'observed'
+  ),
+
+  -- Guardrails 5 y 30: el riesgo declara verosimilitud cualitativa; el dano ya
+  -- ocurrido no tiene verosimilitud que declarar.
+  constraint impact_measurements_riesgo_declara_verosimilitud check (
+    timing not in ('potential','projected') or likelihood is not null
+  ),
+  constraint impact_measurements_lo_ocurrido_no_es_probable check (
+    timing in ('potential','projected') or likelihood is null
+  ),
+
+  -- Guardrails 23, 27 y 53: "exacto" solo se dice sobre algo observado, con
+  -- metodo escrito y el periodo cerrado.
+  constraint impact_measurements_exacto_se_observa check (
+    quantification <> 'exact'
+    or (evidence_type = 'observed' and not period_open and method is not null)
+  ),
+  -- Guardrail 24: un rango es un rango.
+  constraint impact_measurements_rango_tiene_dos_extremos check (
+    quantification <> 'range'
+    or (value_low is not null and value_high is not null and value_high > value_low)
+  ),
+  -- Guardrail 28: si no se puede cuantificar, no se cuantifica.
+  constraint impact_measurements_direccional_no_cifra check (
+    quantification not in ('directional','unknown')
+    or (value is null and value_low is null and value_high is null)
+  ),
+  constraint impact_measurements_cifra_lleva_unidad check (
+    (value is null and value_low is null and value_high is null) or unit is not null
+  ),
+  -- Guardrail 22: los supuestos se ven. Solo lo observado se libra.
+  constraint impact_measurements_supuestos_visibles check (
+    evidence_type = 'observed' or assumptions is not null
+  ),
+  -- Guardrail 21: lo inferido y lo pronosticado no sostienen confianza alta.
+  constraint impact_measurements_confianza_no_supera_evidencia check (
+    impact_confidence <> 'high' or evidence_type in ('observed','estimated')
+  ),
+
+  -- Guardrails 43, 44 y 45: el coste de oportunidad no es una perdida
+  -- realizada, y nunca se observa -- se estima.
+  constraint impact_measurements_oportunidad_no_es_perdida check (
+    nature <> 'opportunity_cost'
+    or (timing in ('potential','projected') and evidence_type <> 'observed')
+  ),
+  -- Guardrail 32: revenue-at-risk no es revenue perdido.
+  constraint impact_measurements_en_riesgo_no_es_perdido check (
+    nature <> 'at_risk' or timing in ('potential','projected')
+  ),
+  constraint impact_measurements_realizado_es_realizado check (
+    nature <> 'realized_loss' or timing = 'realized'
+  ),
+
+  constraint impact_measurements_periodo check (
+    period_end is null or period_start is null or period_end > period_start
+  ),
+  constraint impact_measurements_tasa check (
+    loss_rate is null or loss_rate_unit is not null
+  )
+);
+
+comment on table public.impact_measurements is
+  'F3/D10 apartados 4 a 12. Una fila por dimension y por clase de dano. **Las cuatro capas de '
+  'evidencia (observed/estimated/inferred/forecast) y los cuatro momentos '
+  '(realized/ongoing/potential/projected) estan atados por check**: lo observado no puede ser '
+  'futuro y lo futuro no puede presentarse como observado (guardrails 19 a 21).';
+
+comment on column public.impact_measurements.likelihood is
+  'Guardrails 29 y 30. Cualitativa a proposito: **no existe ninguna columna donde escribir una '
+  'probabilidad numerica**, porque no hay modelo calibrado que la sostenga. Un "13,7 %" '
+  'inventado suena mas serio que un "medium" honesto, y es peor.';
+
+comment on column public.impact_measurements.nature is
+  'Guardrails 6, 32, 43 y 44. Perdida realizada, perdida en curso, revenue en riesgo, coste de '
+  'oportunidad y aumento de coste son cinco cosas distintas que se suman mal entre si.';
+
+create index if not exists impact_measurements_evaluacion_idx
+  on public.impact_measurements (assessment_id, dimension);
+create index if not exists impact_measurements_org_idx
+  on public.impact_measurements (organization_id, dimension, timing);
+
+drop trigger if exists set_impact_measurements_updated_at on public.impact_measurements;
+create trigger set_impact_measurements_updated_at before update on public.impact_measurements
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 3. La exposicion: una cuota sin denominador no dice nada (apartado 13)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.impact_exposures (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  assessment_id uuid not null references public.severity_assessments (id) on delete cascade,
+
+  denominator varchar(20) not null,
+  denominator_value numeric,
+  denominator_note text,
+  exposure_share numeric,
+  affected_segment text,
+
+  -- Guardrails 15 y 16: se pueden registrar varios denominadores, y hay que
+  -- decir cual se uso para juzgar -- y por que.
+  is_chosen_denominator boolean not null default false,
+  confidence varchar(20) not null default 'insufficient',
+  rationale text,
+
+  created_at timestamptz not null default now(),
+
+  constraint impact_exposures_denominador check (denominator in (
+    'revenue','contribution','spend','orders','customers','traffic','inventory_value','other'
+  )),
+  constraint impact_exposures_confianza check (
+    confidence in ('high','medium','low','insufficient')
+  ),
+  constraint impact_exposures_cuota check (
+    exposure_share is null or (exposure_share >= 0 and exposure_share <= 1)
+  ),
+  -- Una fila de exposicion que no dice ni cuanto ni de quien no es exposicion.
+  constraint impact_exposures_dice_algo check (
+    exposure_share is not null or affected_segment is not null
+  ),
+  -- Guardrail 16: elegir un denominador en vez de otro es un juicio, y se razona.
+  constraint impact_exposures_elegido_se_razona check (
+    not is_chosen_denominator or rationale is not null
+  ),
+  constraint impact_exposures_unico unique (assessment_id, denominator)
+);
+
+comment on table public.impact_exposures is
+  'F3/D10 apartado 13 y guardrails 15 a 18. El denominador es obligatorio porque **una cuota '
+  'sin base no significa nada**: el mismo incidente es un 3 % del revenue y un 30 % de la '
+  'contribution, y elegir mal el denominador es la forma mas comun de exagerar o de quitar '
+  'importancia. Un scope pequeno puede ser material (17): por eso no hay ningun umbral aqui.';
+
+create index if not exists impact_exposures_evaluacion_idx
+  on public.impact_exposures (assessment_id);
+
+-- Guardrail 15: uno solo se usa para juzgar.
+create unique index if not exists impact_exposures_elegido_unico_idx
+  on public.impact_exposures (assessment_id)
+  where is_chosen_denominator;
+
+-- ---------------------------------------------------------------------------
+-- 4. La propagacion (apartados 14 y 26, guardrails 33 a 36)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.impact_propagation (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  assessment_id uuid not null references public.severity_assessments (id) on delete cascade,
+
+  from_capability varchar(24),
+  to_capability varchar(24) not null,
+  propagation_kind varchar(16) not null,
+  -- Guardrail 36: lo sistemico se afirma con una ruta de D07, no con una
+  -- sensacion de que "esto lo toca todo".
+  causal_path_id uuid references public.causal_paths (id) on delete set null,
+  evidence text,
+
+  -- Guardrails 33 y 34: el eslabon de una cascada no es una perdida aparte.
+  contributes_independent_loss boolean not null default false,
+  propagation_risk varchar(12) not null default 'unknown',
+  note text,
+
+  created_at timestamptz not null default now(),
+
+  constraint impact_propagation_origen check (from_capability is null or from_capability in (
+    'market','product','offer','unit_economics','acquisition','creative','conversion',
+    'retention','inventory','operations','finance','data','technology','team','strategy'
+  )),
+  constraint impact_propagation_destino check (to_capability in (
+    'market','product','offer','unit_economics','acquisition','creative','conversion',
+    'retention','inventory','operations','finance','data','technology','team','strategy'
+  )),
+  constraint impact_propagation_tipo check (
+    propagation_kind in ('direct','second_order','cascade','systemic')
+  ),
+  constraint impact_propagation_riesgo check (
+    propagation_risk in ('low','medium','high','unknown')
+  ),
+  constraint impact_propagation_sistemico_exige_ruta check (
+    propagation_kind <> 'systemic' or causal_path_id is not null
+  ),
+  -- Guardrails 33 y 34: solo el impacto directo suma por su cuenta. Contar la
+  -- cascada aparte es contar el mismo euro dos veces.
+  constraint impact_propagation_cascada_no_suma_aparte check (
+    not contributes_independent_loss or propagation_kind = 'direct'
+  ),
+  constraint impact_propagation_no_a_si_misma check (
+    from_capability is null or from_capability <> to_capability
+  ),
+  constraint impact_propagation_unico unique (assessment_id, from_capability, to_capability)
+);
+
+comment on table public.impact_propagation is
+  'F3/D10 apartado 14 y guardrails 33 a 36. El grafo de impacto no es el grafo causal (D07): '
+  'este dice por donde viaja el dano economico. **Solo lo directo puede sumarse como perdida '
+  'independiente**; contar tambien la cascada seria contar el mismo euro dos veces.';
+
+create index if not exists impact_propagation_evaluacion_idx
+  on public.impact_propagation (assessment_id, propagation_kind);
+
+-- ---------------------------------------------------------------------------
+-- 5. Los colchones (apartados 24 y 25, guardrails 37 a 39)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.absorption_buffers (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+
+  buffer_type varchar(24) not null,
+  capability varchar(24),
+  description text not null,
+  state varchar(16) not null default 'unknown',
+  headroom text,
+  exhaustion_horizon_days numeric,
+  activated boolean not null default false,
+  activated_at timestamptz,
+
+  last_assessed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint absorption_buffers_tipo check (buffer_type in (
+    'cash','safety_stock','inventory_cover','warehouse_capacity','spare_capacity',
+    'backup_provider','alternate_supplier','alternate_channel','technical_redundancy',
+    'creative_inventory'
+  )),
+  constraint absorption_buffers_capacidad check (capability is null or capability in (
+    'market','product','offer','unit_economics','acquisition','creative','conversion',
+    'retention','inventory','operations','finance','data','technology','team','strategy'
+  )),
+  constraint absorption_buffers_estado check (
+    state in ('intact','consuming','thin','exhausted','unknown')
+  ),
+  constraint absorption_buffers_horizonte check (
+    exhaustion_horizon_days is null or exhaustion_horizon_days >= 0
+  ),
+  -- Un colchon agotado no tiene horizonte por delante.
+  constraint absorption_buffers_agotado_no_tiene_horizonte check (
+    state <> 'exhausted' or coalesce(exhaustion_horizon_days, 0) = 0
+  ),
+  constraint absorption_buffers_activado_tiene_fecha check (
+    not activated or activated_at is not null
+  )
+);
+
+comment on table public.absorption_buffers is
+  'F3/D10 apartados 24 y 25, guardrails 37 a 39. El colchon es un hecho del tenant, no de un '
+  'caso: por eso cuelga de la organizacion y no de la evaluacion. Es lo que hace que **la '
+  'misma causa no tenga la misma gravedad en dos tiendas** (guardrail 38) -- el mismo retraso '
+  'de proveedor es un susto con seis semanas de stock y un paro con tres dias.';
+
+create index if not exists absorption_buffers_org_idx
+  on public.absorption_buffers (organization_id, state);
+
+create unique index if not exists absorption_buffers_unico_idx
+  on public.absorption_buffers (organization_id, buffer_type, coalesce(capability, ''));
+
+drop trigger if exists set_absorption_buffers_updated_at on public.absorption_buffers;
+create trigger set_absorption_buffers_updated_at before update on public.absorption_buffers
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 6. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.severity_assessments enable row level security;
+alter table public.impact_measurements enable row level security;
+alter table public.impact_exposures enable row level security;
+alter table public.impact_propagation enable row level security;
+alter table public.absorption_buffers enable row level security;
+
+drop policy if exists "severity_assessments_select_staff" on public.severity_assessments;
+create policy "severity_assessments_select_staff" on public.severity_assessments
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "impact_measurements_select_staff" on public.impact_measurements;
+create policy "impact_measurements_select_staff" on public.impact_measurements
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "impact_exposures_select_staff" on public.impact_exposures;
+create policy "impact_exposures_select_staff" on public.impact_exposures
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "impact_propagation_select_staff" on public.impact_propagation;
+create policy "impact_propagation_select_staff" on public.impact_propagation
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "absorption_buffers_select_staff" on public.absorption_buffers;
+create policy "absorption_buffers_select_staff" on public.absorption_buffers
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20260922090000_f3_d11_confianza_e_incertidumbre.sql
+-- =============================================================================
+-- FASE 3 / D11 — Confianza e incertidumbre.
+--
+-- Fuentes: conocimiento/fase-03/02-contratos-IA/d11-requisitos-contrato-confianza-incertidumbre.md
+--          conocimiento/fase-03/04-policies-guardrails/d11-guardrails-confianza-incertidumbre.md
+--          conocimiento/fase-03/03-runtime/d11-flujo-evaluacion-confianza-incertidumbre.md
+--          conocimiento/fase-03/06-tenant-context/d11-contexto-confianza-incertidumbre.md
+--          conocimiento/fase-03/05-experience-learning/d11-calibracion-historica-confianza.md
+--
+-- El bloque que audita a todos los anteriores. D01 a D10 llevan diez migraciones
+-- declarando `confidence` campo a campo; D11 es el que dice si esa confianza
+-- esta bien puesta, de donde sale y que la limita.
+--
+-- NO HAY NINGUN NUMERO. En todo el bloque existe **una sola columna numerica**,
+-- `retrieval_similarity`, y esta en la unica tabla que no decide nada sobre el
+-- negocio. El guardrail 36 prohibe convertir la incertidumbre en un porcentaje
+-- opaco y el apartado 149 del corpus prohibe literalmente "Confianza: 75%".
+-- La garantia es que no hay donde escribirlo: no existe `confidence_score`, ni
+-- `probability`, ni `certainty_pct`. Hay un test.
+--
+-- NO HAY CONFIANZA SIN CLAIM (apartado 17, guardrail 3, apartado 94 del
+-- corpus). `claim` y `target_question` son obligatorios: una confianza que no
+-- dice de que afirmacion habla no se puede auditar, y es exactamente la etiqueta
+-- global que el bloque existe para impedir. La misma evidencia sostiene una
+-- pregunta con confianza alta y otra con confianza baja (apartado 91).
+--
+-- UN CAP QUE NO BAJA EL NIVEL NO ES UN CAP (apartado 5, guardrails 16 a 20).
+-- `confidence_caps` guarda de donde viene el techo y por que, y un trigger
+-- mantiene `capped_at` en el claim como el mas restrictivo de sus caps. El
+-- check no deja que el nivel supere ese techo. Sin eso, un cap seria un
+-- comentario.
+--
+-- CONFIANZA != COMPLETITUD (guardrail 4). Dos columnas con dos vocabularios
+-- distintos, y ninguna se deriva de la otra: se puede estar muy seguro de una
+-- explicacion parcial, y se puede tener una explicacion completa de algo medido
+-- con datos malos (apartados 85, 255 y 256).
+--
+-- NO HABER VISTO UN PROBLEMA NO ES HABER VISTO QUE NO LO HAY (guardrail 8,
+-- apartado 233). `negative_claim_state` tiene tres valores y no dos:
+-- `no_evidence`, `evidence_of_no_problem` y `evidence_of_stability`. Afirmar
+-- estabilidad exige declarar cobertura y que la medicion sea fiable (29, 31).
+--
+-- SIMILARITY NO ES VERDAD DE NEGOCIO (guardrails 5, 6, 39 a 42). La confianza
+-- de recuperacion vive en **otra tabla** que la confianza del diagnostico, para
+-- que no se puedan leer como el mismo numero. Y la applicability alta exige
+-- haberlo validado contra el caso: el parecido de un vector no valida nada.
+--
+-- LOS UNKNOWN UNKNOWNS NO SE MODELAN, Y ESO ES DELIBERADO (apartado 8,
+-- guardrail 38). Solo existe `is_known_unknown`. Fingir un catalogo de lo que
+-- no se sabe que no se sabe seria justo la sobreconfianza que el bloque
+-- combate; lo que queda en su lugar son los caps y la obligacion de declarar
+-- limitaciones.
+--
+-- LO QUE NO ESTA AQUI: ninguna formula de agregacion de confianza, ningun
+-- modelo bayesiano, ningun umbral numerico y ninguna funcion de decay (apartado
+-- 29 y guardrail 49: el decay es especifico del dominio, no universal). Y
+-- tampoco prioridad ni accion (guardrails 57 y 58).
+
+-- ---------------------------------------------------------------------------
+-- 1. La matriz de confianza: una fila por claim (apartados 1, 16, 17)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.claim_confidence (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+
+  -- Apartado 16 y 150 del corpus: la confianza es distinta en cada capa. La
+  -- existencia del problema puede ser alta y la causa raiz media a la vez.
+  claim_layer varchar(20) not null,
+  -- A que fila de D05-D10 se refiere, cuando se refiere a una.
+  subject_kind varchar(24),
+  subject_id uuid,
+
+  -- Apartado 17 y 94: **no hay confianza sin claim**. Las dos son obligatorias.
+  claim text not null,
+  target_question text not null,
+
+  -- Apartado 3 y guardrail 21: los estados no son equivalentes y no se aplanan.
+  epistemic_state varchar(16) not null default 'unknown',
+  confidence_level varchar(20) not null default 'insufficient_data',
+
+  -- Guardrails 25, 27 y 28: la separacion frente a las alternativas que
+  -- sobreviven es lo que deja subir a alta, no cuantas hay (apartado 78).
+  alternative_separation varchar(20) not null default 'unknown',
+  -- Guardrails 12 y 27: las contradicciones se preservan, no se resuelven
+  -- bajando la voz.
+  contradiction_level varchar(20) not null default 'none',
+
+  -- Guardrail 4 y apartado 85: confianza y completitud son dos cosas.
+  completeness varchar(16) not null default 'partial',
+  explanatory_coverage varchar(20) not null default 'unknown',
+
+  -- Apartado 21 y guardrail 8.
+  negative_claim_state varchar(24),
+  coverage_declared text,
+
+  -- Apartado 5: el techo efectivo, que mantiene el trigger de mas abajo.
+  capped_at varchar(20),
+  cap_reason text,
+
+  -- Apartado 19 y guardrails 48 a 51. **Sin formula de decay**: el dominio dice
+  -- cuanto dura la evidencia, no una constante global.
+  assessed_at timestamptz not null default now(),
+  recency_domain varchar(24),
+  is_stale boolean not null default false,
+  decay_reason text,
+
+  -- Apartado 23: que evidencia haria subir esto.
+  desired_level varchar(20),
+  missing_evidence text,
+  next_evidence_required text,
+
+  -- Guardrails 52 y 53: cuanto mas cuesta equivocarse, mas conservador el
+  -- reporte -- pero una confianza baja no puede tapar un riesgo serio.
+  error_cost varchar(16) not null default 'unknown',
+
+  -- Apartados 25 y 26, guardrails 34 y 35: especificas, no plantilla.
+  assumptions text,
+  limitations text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint claim_confidence_capa check (claim_layer in (
+    'what','where','measurement','signal','symptom','why','root_cause',
+    'constraint','current_impact','future_impact','severity','forecast','overall'
+  )),
+  constraint claim_confidence_sujeto check (subject_kind is null or subject_kind in (
+    'signal','symptom','causal_path','hypothesis','root_cause','business_constraint',
+    'severity_assessment','impact_measurement','capability_health','data_quality'
+  )),
+  -- Apartado 3.
+  constraint claim_confidence_estado check (epistemic_state in (
+    'observed','derived','inferred','hypothesized','confirmed','unknown'
+  )),
+  -- Apartado 2.
+  constraint claim_confidence_nivel check (
+    confidence_level in ('high','medium','low','insufficient_data')
+  ),
+  constraint claim_confidence_separacion check (
+    alternative_separation in ('strong','moderate','weak','none','not_applicable','unknown')
+  ),
+  constraint claim_confidence_contradiccion check (
+    contradiction_level in ('none','immaterial','material','decisive')
+  ),
+  -- Apartado 15.
+  constraint claim_confidence_completitud check (
+    completeness in ('complete_enough','partial','incomplete')
+  ),
+  constraint claim_confidence_cobertura check (
+    explanatory_coverage in ('full','partial','minimal','unknown')
+  ),
+  constraint claim_confidence_negativo check (negative_claim_state is null or negative_claim_state in (
+    'no_evidence','evidence_of_no_problem','evidence_of_stability'
+  )),
+  constraint claim_confidence_techo check (
+    capped_at is null or capped_at in ('high','medium','low','insufficient_data')
+  ),
+  constraint claim_confidence_deseado check (
+    desired_level is null or desired_level in ('high','medium','low','insufficient_data')
+  ),
+  constraint claim_confidence_coste_error check (
+    error_cost in ('low','moderate','high','severe','unknown')
+  ),
+  constraint claim_confidence_recencia check (recency_domain is null or recency_domain in (
+    'payments','ads','traffic','conversion','inventory','fulfillment','finance',
+    'retention','brand','technology'
+  )),
+
+  -- Apartado 5: **un cap que no baja el nivel no es un cap.**
+  constraint claim_confidence_el_techo_manda check (
+    capped_at is null
+    or (case confidence_level
+          when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end)
+       <= (case capped_at
+          when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end)
+  ),
+  constraint claim_confidence_techo_se_motiva check (
+    capped_at is null or cap_reason is not null
+  ),
+
+  -- Guardrail 25: con separacion debil no se llega a alta. El apartado 78 dice
+  -- que lo que importa no es cuantas alternativas hay, sino la fuerza de las
+  -- que sobreviven -- por eso `not_applicable` tambien vale.
+  constraint claim_confidence_separacion_debil_no_sube check (
+    confidence_level <> 'high'
+    or alternative_separation in ('strong','not_applicable')
+  ),
+
+  -- Guardrail 12 y apartado 73: una contradiccion material o decisiva no
+  -- convive con confianza alta.
+  constraint claim_confidence_contradiccion_no_sube check (
+    confidence_level <> 'high' or contradiction_level in ('none','immaterial')
+  ),
+
+  -- Guardrail 23 y apartado 51: CONFIRMED exige validacion suficiente. Y el 2:
+  -- alta no es certeza absoluta, asi que confirmado no exime de limitaciones.
+  constraint claim_confidence_confirmado_se_valida check (
+    epistemic_state <> 'confirmed'
+    or (confidence_level = 'high' and limitations is not null)
+  ),
+
+  -- Guardrail 24: una suposicion no se presenta como un hecho.
+  constraint claim_confidence_hipotesis_no_es_observacion check (
+    epistemic_state <> 'hypothesized' or confidence_level <> 'high'
+  ),
+
+  -- Guardrail 22 y 60: `unknown` es una salida valida, pero es una salida --
+  -- no puede ir con una confianza que afirme algo.
+  constraint claim_confidence_no_saber_es_no_saber check (
+    epistemic_state <> 'unknown' or confidence_level = 'insufficient_data'
+  ),
+
+  -- Guardrails 29 y 31, apartado 231: afirmar que no hay problema exige haber
+  -- mirado, y afirmar estabilidad exige ademas medicion completa.
+  constraint claim_confidence_ausencia_exige_cobertura check (
+    negative_claim_state is null
+    or negative_claim_state = 'no_evidence'
+    or coverage_declared is not null
+  ),
+  constraint claim_confidence_estabilidad_exige_medicion check (
+    negative_claim_state is distinct from 'evidence_of_stability'
+    or (completeness = 'complete_enough' and epistemic_state in ('observed','derived'))
+  ),
+
+  -- Guardrail 30: si faltan datos, la afirmacion negativa es `no_evidence`.
+  constraint claim_confidence_sin_datos_es_sin_evidencia check (
+    confidence_level <> 'insufficient_data'
+    or negative_claim_state is null
+    or negative_claim_state = 'no_evidence'
+  ),
+
+  -- Apartado 23: pedir mas confianza sin decir que falta no es un plan.
+  constraint claim_confidence_mejora_dice_que_falta check (
+    desired_level is null or missing_evidence is not null
+  ),
+
+  -- Guardrails 34 y 35: una limitacion de plantilla no es una limitacion.
+  constraint claim_confidence_limitacion_concreta check (
+    limitations is null or length(btrim(limitations)) >= 25
+  ),
+
+  -- Guardrail 48: si se marca caducada, hay que decir por que.
+  constraint claim_confidence_caducidad_se_explica check (
+    not is_stale or decay_reason is not null
+  ),
+
+  -- Apartado 17: un claim vacio no es un claim.
+  constraint claim_confidence_claim_dice_algo check (
+    length(btrim(claim)) >= 10 and length(btrim(target_question)) >= 10
+  ),
+
+  constraint claim_confidence_unico unique (case_id, claim_layer, subject_id, claim)
+);
+
+comment on table public.claim_confidence is
+  'F3/D11 apartados 1, 16 y 17. **No hay confianza sin claim**: `claim` y `target_question` son '
+  'obligatorios porque una confianza global desligada de una afirmacion no se puede auditar '
+  '(apartado 94). Y **no hay ninguna columna numerica**: ni score, ni probabilidad, ni '
+  'porcentaje. El guardrail 36 y el apartado 149 prohiben "Confianza: 75%", y la garantia es '
+  'que no cabe.';
+
+comment on column public.claim_confidence.capped_at is
+  'Apartado 5 y guardrails 16 a 20. El techo efectivo, que mantiene el trigger a partir de '
+  '`confidence_caps`. El check impide que el nivel lo supere: **un cap que no baja el nivel no '
+  'es un cap**, es un comentario.';
+
+comment on column public.claim_confidence.completeness is
+  'Guardrail 4 y apartado 85. Vocabulario distinto del de `confidence_level` a proposito: se '
+  'puede estar muy seguro de una explicacion parcial, y se puede explicar del todo algo medido '
+  'con datos malos. Ninguna se deriva de la otra.';
+
+comment on column public.claim_confidence.negative_claim_state is
+  'Apartado 21 y guardrail 8. Tres valores y no dos: no haber visto un problema (`no_evidence`) '
+  'no es haber visto que no lo hay (`evidence_of_no_problem`) ni haber medido que esta estable '
+  '(`evidence_of_stability`).';
+
+create index if not exists claim_confidence_caso_idx
+  on public.claim_confidence (case_id, claim_layer);
+create index if not exists claim_confidence_org_idx
+  on public.claim_confidence (organization_id, confidence_level);
+create index if not exists claim_confidence_sujeto_idx
+  on public.claim_confidence (subject_kind, subject_id);
+
+drop trigger if exists set_claim_confidence_updated_at on public.claim_confidence;
+create trigger set_claim_confidence_updated_at before update on public.claim_confidence
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 2. De donde sale la confianza (apartado 4, apartado 30 del corpus)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.confidence_dimensions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  claim_id uuid not null references public.claim_confidence (id) on delete cascade,
+
+  dimension varchar(24) not null,
+  rating varchar(16) not null,
+  -- Apartado 30: los insumos de la confianza tienen que verse. Una dimension
+  -- puntuada sin decir por que no explica nada.
+  reason text not null,
+
+  created_at timestamptz not null default now(),
+
+  -- Apartado 4, menos las dos que son puerta y viven en el claim
+  -- (`alternative_separation` y `contradiction_level`): cada cosa en un sitio.
+  constraint confidence_dimensions_dimension check (dimension in (
+    'data_reliability','data_coverage','context_quality','sample_sufficiency',
+    'temporal_fit','scope_fit','mechanism_strength','evidence_consistency',
+    'evidence_independence','missing_evidence'
+  )),
+  constraint confidence_dimensions_valor check (
+    rating in ('strong','adequate','weak','absent','unknown')
+  ),
+  constraint confidence_dimensions_motivo check (length(btrim(reason)) >= 15),
+  constraint confidence_dimensions_unico unique (claim_id, dimension)
+);
+
+comment on table public.confidence_dimensions is
+  'F3/D11 apartado 4 y apartado 30 del corpus: los insumos de la confianza tienen que verse. '
+  '`reason` es obligatorio -- una dimension puntuada sin decir por que no explica nada. Las dos '
+  'dimensiones que son puerta para llegar a alta (separacion frente a alternativas y nivel de '
+  'contradiccion) viven en la fila del claim, no aqui, para que cada cosa tenga un solo sitio.';
+
+create index if not exists confidence_dimensions_claim_idx
+  on public.confidence_dimensions (claim_id);
+
+-- ---------------------------------------------------------------------------
+-- 3. Los techos (apartado 5, guardrails 16 a 20)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.confidence_caps (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  claim_id uuid not null references public.claim_confidence (id) on delete cascade,
+
+  cap_source varchar(28) not null,
+  capped_level varchar(20) not null,
+  reason text not null,
+
+  created_at timestamptz not null default now(),
+
+  constraint confidence_caps_origen check (cap_source in (
+    'data_quality','insufficient_coverage','weak_temporal_fit','scope_mismatch',
+    'external_cause_unobserved','inadequate_horizon','broad_structural_claim',
+    'measurement_change','sample_too_small','dependent_evidence','stale_knowledge'
+  )),
+  constraint confidence_caps_nivel check (
+    capped_level in ('high','medium','low','insufficient_data')
+  ),
+  constraint confidence_caps_motivo check (length(btrim(reason)) >= 20),
+  constraint confidence_caps_unico unique (claim_id, cap_source)
+);
+
+comment on table public.confidence_caps is
+  'F3/D11 apartado 5, guardrails 16 a 20. Un techo con su origen y su motivo. El trigger de '
+  'abajo lo propaga a `claim_confidence.capped_at` como el mas restrictivo, y alli un check '
+  'impide que el nivel lo supere.';
+
+create index if not exists confidence_caps_claim_idx on public.confidence_caps (claim_id);
+
+-- El cap tiene que morder. Sin esto seria un comentario al margen.
+create or replace function private.claim_confidence_aplica_cap()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare
+  v_claim uuid := coalesce(new.claim_id, old.claim_id);
+  v_techo varchar(20);
+  v_motivo text;
+begin
+  select c.capped_level, c.reason into v_techo, v_motivo
+  from public.confidence_caps c
+  where c.claim_id = v_claim
+  order by case c.capped_level
+             when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end asc,
+           c.created_at asc
+  limit 1;
+
+  update public.claim_confidence cc
+     set capped_at = v_techo,
+         cap_reason = case when v_techo is null then null
+                           else coalesce(cc.cap_reason, v_motivo) end,
+         -- El techo baja el nivel si hace falta. Un cap que no baja nada no es
+         -- un cap (apartado 5).
+         confidence_level = case
+           when v_techo is null then cc.confidence_level
+           when (case cc.confidence_level
+                   when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end)
+              > (case v_techo
+                   when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end)
+           then v_techo
+           else cc.confidence_level
+         end
+   where cc.id = v_claim;
+
+  return null;
+end;
+$$;
+
+comment on function private.claim_confidence_aplica_cap() is
+  'F3/D11 apartado 5. Propaga el cap mas restrictivo al claim y baja el nivel si lo supera. '
+  'Es lo que convierte un techo declarado en un techo real.';
+
+drop trigger if exists claim_confidence_aplica_cap on public.confidence_caps;
+create trigger claim_confidence_aplica_cap
+after insert or update or delete on public.confidence_caps
+for each row execute function private.claim_confidence_aplica_cap();
+
+-- ---------------------------------------------------------------------------
+-- 4. Lo que no se sabe (apartados 6 a 10)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_uncertainties (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  claim_id uuid references public.claim_confidence (id) on delete cascade,
+
+  uncertainty_type varchar(24) not null,
+  -- Guardrails 34 y 35: especifica, no plantilla.
+  description text not null,
+  materiality varchar(20) not null default 'material',
+  -- Apartado 8: solo existe el known unknown. Lo otro no se puede enumerar sin
+  -- fingir que se conoce, que es justo la sobreconfianza que D11 combate.
+  is_known_unknown boolean not null default true,
+  resolvability varchar(20) not null default 'with_new_data',
+  required_evidence text,
+  confidence_impact text,
+
+  resolved_at timestamptz,
+  resolution_note text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint diagnostic_uncertainties_tipo check (uncertainty_type in (
+    'data','context','measurement','model','causal','scope','temporal',
+    'impact','forecast','knowledge'
+  )),
+  constraint diagnostic_uncertainties_materialidad check (
+    materiality in ('low','material','high','critical_unknown')
+  ),
+  constraint diagnostic_uncertainties_resolubilidad check (
+    resolvability in ('resolvable_now','with_new_data','over_time','not_resolvable')
+  ),
+  -- Guardrail 34: el boilerplate no informa. Una descripcion de tres palabras
+  -- es boilerplate por construccion.
+  constraint diagnostic_uncertainties_descripcion_concreta check (
+    length(btrim(description)) >= 25
+  ),
+  -- Guardrail 33: un critical unknown no se deja caer sin decir que lo
+  -- resolveria ni a que claim afecta.
+  constraint diagnostic_uncertainties_critico_se_afronta check (
+    materiality <> 'critical_unknown'
+    or (required_evidence is not null and claim_id is not null)
+  ),
+  -- Lo que no tiene solucion no puede pedir evidencia para resolverse.
+  constraint diagnostic_uncertainties_irresoluble_no_pide_datos check (
+    resolvability <> 'not_resolvable' or required_evidence is null
+  ),
+  constraint diagnostic_uncertainties_resuelta_se_explica check (
+    resolved_at is null or resolution_note is not null
+  )
+);
+
+comment on table public.diagnostic_uncertainties is
+  'F3/D11 apartados 6 a 10. **Solo existe `is_known_unknown`**: el apartado 8 dice que los '
+  'unknown unknowns no se pueden modelar de forma exhaustiva, y fingir su catalogo seria la '
+  'sobreconfianza que el bloque combate. Lo que queda en su lugar son los caps y la obligacion '
+  'de declarar limitaciones (guardrail 38).';
+
+create index if not exists diagnostic_uncertainties_caso_idx
+  on public.diagnostic_uncertainties (case_id, materiality);
+create index if not exists diagnostic_uncertainties_claim_idx
+  on public.diagnostic_uncertainties (claim_id);
+
+drop trigger if exists set_diagnostic_uncertainties_updated_at on public.diagnostic_uncertainties;
+create trigger set_diagnostic_uncertainties_updated_at
+before update on public.diagnostic_uncertainties
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 5. Por que cambio la confianza (apartado 18, memoria apartado 1)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.confidence_history (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  claim_id uuid not null references public.claim_confidence (id) on delete cascade,
+
+  previous_level varchar(20),
+  new_level varchar(20) not null,
+  previous_state varchar(16),
+  new_state varchar(16),
+  -- Apartado 120 del corpus: "por que cambio" es la mitad del valor del
+  -- historico. Un cambio sin motivo no es auditable.
+  reason text not null,
+  evidence_ref text,
+
+  changed_at timestamptz not null default now(),
+
+  constraint confidence_history_nivel_previo check (
+    previous_level is null or previous_level in ('high','medium','low','insufficient_data')
+  ),
+  constraint confidence_history_nivel_nuevo check (
+    new_level in ('high','medium','low','insufficient_data')
+  ),
+  constraint confidence_history_estado_previo check (previous_state is null or previous_state in (
+    'observed','derived','inferred','hypothesized','confirmed','unknown'
+  )),
+  constraint confidence_history_estado_nuevo check (new_state is null or new_state in (
+    'observed','derived','inferred','hypothesized','confirmed','unknown'
+  )),
+  constraint confidence_history_motivo check (length(btrim(reason)) >= 20),
+  -- Un "cambio" que no cambia nada no es una entrada de historico.
+  constraint confidence_history_algo_cambio check (
+    previous_level is distinct from new_level
+    or previous_state is distinct from new_state
+  )
+);
+
+comment on table public.confidence_history is
+  'F3/D11 apartado 18 y apartado 120 del corpus. `reason` es obligatorio: saber que la '
+  'confianza bajo sin saber por que no sirve para calibrar nada, que es justo para lo que F9 '
+  'va a leer esta tabla.';
+
+create index if not exists confidence_history_claim_idx
+  on public.confidence_history (claim_id, changed_at desc);
+
+-- ---------------------------------------------------------------------------
+-- 6. El conocimiento recuperado (apartado 20, guardrails 5, 6 y 39 a 42)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.knowledge_applicability (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  claim_id uuid not null references public.claim_confidence (id) on delete cascade,
+
+  source_ref text not null,
+  source_authority varchar(20) not null default 'unknown',
+  source_version varchar(40),
+  source_updated_at timestamptz,
+
+  -- **La unica columna numerica del bloque**, y esta aqui a proposito: en la
+  -- tabla que no decide nada sobre el negocio (guardrail 6).
+  retrieval_similarity numeric,
+
+  applicability varchar(20) not null default 'unknown',
+  -- Guardrail 39: el parecido no prueba que aplique. Validarlo contra el caso
+  -- si, y es lo unico que deja subir a `high`.
+  validated_against_case boolean not null default false,
+  validation_note text,
+  is_stale boolean not null default false,
+
+  created_at timestamptz not null default now(),
+
+  constraint knowledge_applicability_autoridad check (
+    source_authority in ('canonical','expert','community','unverified','unknown')
+  ),
+  constraint knowledge_applicability_aplicabilidad check (
+    applicability in ('high','medium','low','not_applicable','unknown')
+  ),
+  constraint knowledge_applicability_similitud check (
+    retrieval_similarity is null
+    or (retrieval_similarity >= 0 and retrieval_similarity <= 1)
+  ),
+  -- Guardrails 6, 39 y 40: ni el parecido ni la autoridad de la fuente hacen
+  -- aplicable algo. Solo haberlo comprobado contra este caso.
+  constraint knowledge_applicability_alta_se_valida check (
+    applicability <> 'high' or validated_against_case
+  ),
+  constraint knowledge_applicability_validacion_se_escribe check (
+    not validated_against_case or validation_note is not null
+  ),
+  -- Guardrail 41: lo caducado no puede ser muy aplicable.
+  constraint knowledge_applicability_caduco_no_aplica_fuerte check (
+    not is_stale or applicability in ('low','not_applicable','unknown')
+  ),
+  constraint knowledge_applicability_unico unique (claim_id, source_ref)
+);
+
+comment on table public.knowledge_applicability is
+  'F3/D11 apartado 20 y guardrails 5, 6 y 39 a 42. **Tabla separada a proposito**: la confianza '
+  'de recuperacion no es la confianza del diagnostico, y tenerlas en la misma fila terminaria '
+  'con alguien leyendolas como el mismo numero. Aqui esta la unica columna numerica del bloque, '
+  '`retrieval_similarity`, y el check impide que por si sola haga nada: para que algo sea muy '
+  'aplicable hay que haberlo validado contra el caso.';
+
+comment on column public.knowledge_applicability.retrieval_similarity is
+  'Guardrail 6: vector similarity no es verdad de negocio. Se guarda porque es un dato de '
+  'trazabilidad del retrieval, no porque signifique que el documento aplique.';
+
+create index if not exists knowledge_applicability_claim_idx
+  on public.knowledge_applicability (claim_id);
+
+-- ---------------------------------------------------------------------------
+-- 7. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.claim_confidence enable row level security;
+alter table public.confidence_dimensions enable row level security;
+alter table public.confidence_caps enable row level security;
+alter table public.diagnostic_uncertainties enable row level security;
+alter table public.confidence_history enable row level security;
+alter table public.knowledge_applicability enable row level security;
+
+drop policy if exists "claim_confidence_select_staff" on public.claim_confidence;
+create policy "claim_confidence_select_staff" on public.claim_confidence
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "confidence_dimensions_select_staff" on public.confidence_dimensions;
+create policy "confidence_dimensions_select_staff" on public.confidence_dimensions
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "confidence_caps_select_staff" on public.confidence_caps;
+create policy "confidence_caps_select_staff" on public.confidence_caps
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "diagnostic_uncertainties_select_staff" on public.diagnostic_uncertainties;
+create policy "diagnostic_uncertainties_select_staff" on public.diagnostic_uncertainties
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "confidence_history_select_staff" on public.confidence_history;
+create policy "confidence_history_select_staff" on public.confidence_history
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "knowledge_applicability_select_staff" on public.knowledge_applicability;
+create policy "knowledge_applicability_select_staff" on public.knowledge_applicability
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20260923090000_f3_d12_confusores_y_falsos_diagnosticos.sql
+-- =============================================================================
+-- FASE 3 / D12 — Confusores y falsos diagnosticos.
+--
+-- Fuente: conocimiento/fase-03/02-contratos-IA/D12-contrato-de-confusores-y-falsos-diagnosticos.md
+--         (22 apartados, 25 tipos de confusor, 18 tests nombrados con sus fixtures)
+--
+-- AVISO SOBRE LA FUENTE: a diferencia de D00 a D11, **D12 tiene una sola capa**.
+-- No hay corpus maestro, ni guardrails, ni runtime, ni tenant-context, ni
+-- experience-learning: solo el contrato. Lo que va aqui sale de sus 22
+-- apartados y de la lista de invariantes del 21. Donde D11 tenia 60 guardrails
+-- que citar, aqui se cita el apartado.
+--
+-- LA CAPA ADVERSARIAL. D12 no busca la mejor explicacion -- eso es D08 -- sino
+-- **la mejor razon por la que la interpretacion completa podria ser enganosa**.
+-- El principio de cierre del apartado 22 lo dice sin rodeos: D12 debe intentar
+-- refutar la primera explicacion, no protegerla.
+--
+-- POR ESO LA GARANTIA CENTRAL DEL BLOQUE ES ESTA: **no se puede declarar que un
+-- diagnostico sobrevive sin haber escrito antes por que podria estar mal.**
+-- `survival_status = 'survives'` exige `red_team_counter_explanation` por check.
+-- Un diagnostico que nadie ha intentado tumbar no ha sobrevivido a nada.
+--
+-- UN CONFUSOR SIN EVIDENCIA NO SIRVE PARA NADA, EN LAS DOS DIRECCIONES
+-- (apartado 14). No puede sostenerse -- pasar de `plausible` a `supported` o
+-- `material` exige evidencia escrita -- y tampoco puede destruir: un confusor
+-- especulativo no puede declararse `strong` ni `decisive`, porque el apartado 14
+-- prohibe que una hipotesis sin soporte tumbe un diagnostico fuerte.
+--
+-- NO SE PUEDE SALTAR UN CHECK OBLIGATORIO EN SILENCIO (apartados 7 y 19). Cada
+-- familia diagnostica tiene sus comprobaciones minimas, y `saltado` o `no se
+-- pudo` exigen motivo. El apartado 19 pide poder reconstruir que checks eran
+-- obligatorios, cuales se ejecutaron y cuales no pudieron ejecutarse y por que;
+-- sin el motivo obligatorio eso no se puede reconstruir.
+--
+-- COMPARABLE SIGNIFICA LAS CINCO COSAS (apartado 4). Misma definicion, mismo
+-- alcance, misma logica temporal, misma moneda y mismo filtro de estado. El
+-- check no deja declarar `comparable` si alguna de las cinco no es `yes`: es la
+-- puerta determinista que el apartado 17 pide que no dependa del LLM.
+--
+-- UN RIESGO CRITICAL BLOQUEA EL CIERRE (apartado 2). Si la evidencia esta
+-- sistematicamente distorsionada, el diagnostico no puede quedar en
+-- `survives`: tiene que ir a revision o invalidarse.
+--
+-- RELACION CON `context_confounders` DE D02. Son cosas distintas y por eso son
+-- dos tablas. La de D02 cuelga de una evaluacion de contexto, lista variables
+-- que coexisten con una senal, y su guardrail 24 dice que son candidatas y que
+-- **no existe columna que las promueva**. D12 es justamente el mecanismo de
+-- promocion, y vive aparte porque promover exige evidencia, estado y prueba.
+-- `source_confounder_id` conserva el linaje para que una candidata de D02 que
+-- llega hasta aqui no se vuelva a teclear desde cero.
+--
+-- LO QUE NO ESTA AQUI: ninguna columna para forzar que un diagnostico
+-- sobreviva. Ni `override`, ni `force_survive`, ni `accepted_anyway`. El
+-- apartado 21 prohibe "forzar que el diagnostico sobreviva la revision
+-- adversarial", y la garantia es que no hay donde escribirlo.
+
+-- ---------------------------------------------------------------------------
+-- 1. El resultado de la revision adversarial (apartados 2, 9, 10, 13, 15 y 16)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_robustness (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  root_cause_id uuid references public.root_causes (id) on delete set null,
+
+  review_status varchar(16) not null default 'current',
+
+  -- Apartado 2.
+  false_diagnosis_risk varchar(12) not null default 'medium',
+  -- Apartado 10.
+  survival_status varchar(28) not null default 'weakened',
+  -- Apartado 13.
+  robustness varchar(12) not null default 'medium',
+  diagnosis_stability varchar(20) not null default 'sensitive',
+
+  -- Apartado 19: el panel tiene que poder ver el antes y el despues.
+  confidence_before varchar(20),
+  confidence_after varchar(20),
+  confidence_adjustment text,
+
+  -- Apartado 12. El red team no es opcional para decir que algo sobrevive.
+  red_team_counter_explanation text,
+  red_team_supporting_evidence text,
+  red_team_required_evidence text,
+  red_team_effect text,
+
+  -- Apartado 11: la revision reabre D06 a D09, y tiene presupuesto.
+  revision_triggered boolean not null default false,
+  reopened_blocks text[] not null default '{}',
+  revision_budget_used integer not null default 0,
+
+  remaining_limitations text,
+  reviewed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint diagnostic_robustness_estado check (review_status in ('current', 'superseded')),
+  constraint diagnostic_robustness_riesgo check (
+    false_diagnosis_risk in ('low', 'medium', 'high', 'critical')
+  ),
+  constraint diagnostic_robustness_supervivencia check (survival_status in (
+    'survives', 'survives_with_limitations', 'weakened', 'requires_revision', 'invalidated'
+  )),
+  constraint diagnostic_robustness_robustez check (robustness in ('high', 'medium', 'low')),
+  constraint diagnostic_robustness_estabilidad check (
+    diagnosis_stability in ('stable_to_assumptions', 'sensitive', 'highly_sensitive')
+  ),
+  constraint diagnostic_robustness_confianza_antes check (
+    confidence_before is null
+    or confidence_before in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint diagnostic_robustness_confianza_despues check (
+    confidence_after is null
+    or confidence_after in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint diagnostic_robustness_presupuesto check (revision_budget_used >= 0),
+
+  -- Apartados 12 y 22: **la garantia central del bloque**. Decir que algo
+  -- sobrevive exige haber escrito la mejor razon por la que podria estar mal.
+  constraint diagnostic_robustness_sobrevivir_exige_red_team check (
+    survival_status not in ('survives', 'survives_with_limitations')
+    or red_team_counter_explanation is not null
+  ),
+
+  -- Apartado 2: si la evidencia esta sistematicamente distorsionada, el
+  -- diagnostico no se cierra.
+  constraint diagnostic_robustness_critico_bloquea check (
+    false_diagnosis_risk <> 'critical'
+    or survival_status in ('requires_revision', 'invalidated')
+  ),
+
+  -- Apartado 10: sobrevivir con limitaciones exige decir cuales.
+  constraint diagnostic_robustness_limitaciones_se_escriben check (
+    survival_status <> 'survives_with_limitations' or remaining_limitations is not null
+  ),
+
+  -- Apartado 13: un diagnostico muy sensible a los supuestos no sale intacto, y
+  -- ademas tiene que explicitar de que depende.
+  constraint diagnostic_robustness_sensible_no_sale_intacto check (
+    diagnosis_stability <> 'highly_sensitive'
+    or (survival_status <> 'survives' and remaining_limitations is not null)
+  ),
+
+  -- Apartado 21: la confianza no queda intacta despues de una revision que
+  -- debilita. Si el diagnostico pierde fuerza, la confianza baja.
+  constraint diagnostic_robustness_debilitar_baja_la_confianza check (
+    survival_status not in ('weakened', 'requires_revision')
+    or confidence_before is null
+    or confidence_after is null
+    or (case confidence_after
+          when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end)
+       < (case confidence_before
+          when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end)
+  ),
+
+  -- Apartado 11: revisar o invalidar significa reabrir algo, no solo anotarlo.
+  constraint diagnostic_robustness_revision_reabre check (
+    survival_status not in ('requires_revision', 'invalidated')
+    or (revision_triggered and reopened_blocks <> '{}')
+  ),
+
+  -- Apartado 13: si es robusto del todo, no puede ser muy sensible.
+  constraint diagnostic_robustness_robusto_no_es_fragil check (
+    robustness <> 'high' or diagnosis_stability = 'stable_to_assumptions'
+  )
+);
+
+comment on table public.diagnostic_robustness is
+  'F3/D12 apartados 15 y 16. **No se puede declarar que un diagnostico sobrevive sin haber '
+  'escrito por que podria estar mal** (apartados 12 y 22): el check exige la contraexplicacion '
+  'del red team. Y no hay ninguna columna para forzar la supervivencia -- ni `override`, ni '
+  '`force_survive`: el apartado 21 lo prohibe y la garantia es que no cabe.';
+
+comment on column public.diagnostic_robustness.false_diagnosis_risk is
+  'Apartado 2. Un riesgo CRITICAL bloquea el cierre: con la evidencia sistematicamente '
+  'distorsionada el diagnostico solo puede ir a revision o invalidarse.';
+
+comment on column public.diagnostic_robustness.red_team_counter_explanation is
+  'Apartado 12. La mejor razon por la que la interpretacion completa podria ser enganosa. No es '
+  'el challenger de D08 (que busca la mejor hipotesis causal rival): aqui se ataca la lectura '
+  'entera, no la causa.';
+
+create index if not exists diagnostic_robustness_caso_idx
+  on public.diagnostic_robustness (case_id, reviewed_at desc);
+create index if not exists diagnostic_robustness_org_idx
+  on public.diagnostic_robustness (organization_id, survival_status, false_diagnosis_risk);
+
+create unique index if not exists diagnostic_robustness_vigente_idx
+  on public.diagnostic_robustness (case_id)
+  where review_status = 'current';
+
+drop trigger if exists set_diagnostic_robustness_updated_at on public.diagnostic_robustness;
+create trigger set_diagnostic_robustness_updated_at before update on public.diagnostic_robustness
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 2. El confusor (apartados 3, 5 y 14)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_confounders (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  robustness_id uuid references public.diagnostic_robustness (id) on delete cascade,
+  -- Linaje: la candidata de D02 que llego hasta aqui. No se vuelve a teclear.
+  source_confounder_id uuid references public.context_confounders (id) on delete set null,
+
+  confounder_type varchar(28) not null,
+  category varchar(16) not null,
+  description text not null,
+
+  affected_claims text[] not null default '{}',
+  affected_metrics text[] not null default '{}',
+  scope varchar(40) not null default 'global',
+  window_start timestamptz,
+  window_end timestamptz,
+
+  evidence text,
+  plausibility varchar(16) not null default 'speculative',
+  strength varchar(12) not null default 'weak',
+  materiality varchar(12) not null default 'low',
+  status varchar(12) not null default 'candidate',
+  resolution varchar(16) not null default 'unresolved',
+  adjustment_note text,
+  confidence_effect text,
+
+  -- Apartado 8: los efectos de enmascaramiento son el lado del falso negativo.
+  -- Un revenue plano con trafico +40% y CVR -28% no es un negocio sano.
+  masking_effect boolean not null default false,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  -- Apartado 3: los 25 tipos que la fuente lista.
+  constraint diagnostic_confounders_tipo check (confounder_type in (
+    'seasonality', 'promotion', 'launch', 'traffic_mix', 'customer_mix', 'product_mix',
+    'market_mix', 'device_mix', 'channel_mix', 'price_change', 'inventory_change',
+    'attribution_change', 'tracking_change', 'metric_definition_change', 'partial_period',
+    'day_of_week', 'holiday', 'sample_size', 'outlier', 'external_event',
+    'operational_change', 'technology_change', 'currency_change', 'shipping_change',
+    'payment_change'
+  )),
+  -- Apartado 3: las ocho categorias conceptuales.
+  constraint diagnostic_confounders_categoria check (category in (
+    'measurement', 'context', 'composition', 'temporal', 'selection',
+    'external', 'behavioral', 'operational'
+  )),
+  constraint diagnostic_confounders_plausibilidad check (
+    plausibility in ('speculative', 'plausible', 'supported')
+  ),
+  -- Apartado 14.
+  constraint diagnostic_confounders_fuerza check (
+    strength in ('weak', 'moderate', 'strong', 'decisive')
+  ),
+  constraint diagnostic_confounders_materialidad check (
+    materiality in ('low', 'material', 'high')
+  ),
+  -- Apartado 5.
+  constraint diagnostic_confounders_estado check (status in (
+    'candidate', 'plausible', 'supported', 'material', 'rejected', 'resolved'
+  )),
+  constraint diagnostic_confounders_resolucion check (
+    resolution in ('adjusted_for', 'segmented_out', 'rejected', 'unresolved')
+  ),
+  constraint diagnostic_confounders_ventana check (
+    window_end is null or window_start is null or window_end >= window_start
+  ),
+  constraint diagnostic_confounders_descripcion check (length(btrim(description)) >= 20),
+
+  -- Apartado 5: SUPPORTED es "existe evidencia de que el factor cambio", y
+  -- MATERIAL va por encima. Sin evidencia escrita no se sube de PLAUSIBLE.
+  constraint diagnostic_confounders_subir_exige_evidencia check (
+    status not in ('supported', 'material', 'resolved') or evidence is not null
+  ),
+  -- Apartado 5: REJECTED es "la evidencia muestra que no puede explicarlo".
+  -- Descartar tambien cuesta evidencia; si no, es descartar por comodidad.
+  constraint diagnostic_confounders_descartar_exige_evidencia check (
+    status <> 'rejected' or evidence is not null
+  ),
+
+  -- Apartado 14: **un confusor especulativo no puede destruir un diagnostico
+  -- fuerte.** Sin soporte no se le deja llegar a `strong` ni a `decisive`.
+  constraint diagnostic_confounders_especulativo_no_destruye check (
+    plausibility <> 'speculative' or strength in ('weak', 'moderate')
+  ),
+  -- Y al reves: lo decisivo exige estar soportado, no solo ser plausible.
+  constraint diagnostic_confounders_decisivo_esta_soportado check (
+    strength <> 'decisive' or plausibility = 'supported'
+  ),
+
+  -- Apartado 5: RESOLVED es que su efecto ya se conto, aislo o controlo.
+  constraint diagnostic_confounders_resuelto_tiene_resolucion check (
+    status <> 'resolved' or resolution in ('adjusted_for', 'segmented_out', 'rejected')
+  ),
+  -- Apartado 14: si se ajusta, la salida tiene que decir que el diagnostico se
+  -- expresa despues de controlar ese factor. Sin la nota no se sabria.
+  constraint diagnostic_confounders_ajuste_se_declara check (
+    resolution <> 'adjusted_for' or adjustment_note is not null
+  ),
+  -- Apartado 21: un confusor material no se deja sin efecto declarado.
+  constraint diagnostic_confounders_material_declara_efecto check (
+    status <> 'material' or confidence_effect is not null
+  )
+);
+
+comment on table public.diagnostic_confounders is
+  'F3/D12 apartados 3, 5 y 14. **Un confusor sin evidencia no sirve en ninguna direccion**: no '
+  'puede subir a SUPPORTED ni a MATERIAL, y tampoco puede declararse decisivo para tumbar un '
+  'diagnostico (apartado 14). No es la tabla de D02: alli son candidatas de contexto que nadie '
+  'puede promover, y aqui esta el mecanismo de promocion, que cuesta evidencia y prueba. '
+  '`source_confounder_id` conserva el linaje entre las dos.';
+
+comment on column public.diagnostic_confounders.masking_effect is
+  'Apartado 8. El lado del falso negativo: un revenue plano con trafico +40% y CVR -28% no es '
+  'un negocio sano, es un deterioro tapado por volumen. D12 protege contra los dos errores.';
+
+create index if not exists diagnostic_confounders_caso_idx
+  on public.diagnostic_confounders (case_id, status);
+create index if not exists diagnostic_confounders_robustez_idx
+  on public.diagnostic_confounders (robustness_id);
+create index if not exists diagnostic_confounders_origen_idx
+  on public.diagnostic_confounders (source_confounder_id);
+
+drop trigger if exists set_diagnostic_confounders_updated_at on public.diagnostic_confounders;
+create trigger set_diagnostic_confounders_updated_at
+before update on public.diagnostic_confounders
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 3. La prueba del confusor (apartado 6)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.confounder_tests (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  confounder_id uuid not null references public.diagnostic_confounders (id) on delete cascade,
+
+  required_data text not null,
+  expected_pattern text not null,
+  -- Apartado 6: el contrato prefiere controles naturales, tratados/no tratados,
+  -- comparaciones within-segment y cohortes maduras. Decir cual se uso importa.
+  control_kind varchar(24) not null default 'other',
+  result varchar(16) not null default 'pending',
+  effect_on_diagnosis text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint confounder_tests_control check (control_kind in (
+    'natural_control', 'treated_untreated', 'within_segment', 'mature_cohort',
+    'constant_currency', 'normalized_rate', 'other'
+  )),
+  constraint confounder_tests_resultado check (
+    result in ('pending', 'confirmed', 'refuted', 'inconclusive')
+  ),
+  constraint confounder_tests_patron check (length(btrim(expected_pattern)) >= 15),
+  -- Un test resuelto que no dice que le hace al diagnostico no ha resuelto nada.
+  constraint confounder_tests_resuelto_dice_su_efecto check (
+    result = 'pending' or effect_on_diagnosis is not null
+  )
+);
+
+comment on table public.confounder_tests is
+  'F3/D12 apartado 6. Cada confusor material deberia poder atarse a una prueba verificable. '
+  '`control_kind` existe porque el apartado prefiere controles naturales y comparaciones '
+  'within-segment a la opinion, y saber cual se uso es parte de poder auditar el resultado.';
+
+create index if not exists confounder_tests_confusor_idx
+  on public.confounder_tests (confounder_id, result);
+
+drop trigger if exists set_confounder_tests_updated_at on public.confounder_tests;
+create trigger set_confounder_tests_updated_at before update on public.confounder_tests
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 4. La puerta de comparabilidad (apartado 4)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.metric_comparability_gates (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+
+  metric varchar(80) not null,
+
+  -- Las cinco preguntas del apartado 4. `unknown` es una respuesta real: no
+  -- saber si la definicion es la misma no es lo mismo que saber que lo es.
+  same_definition varchar(8) not null default 'unknown',
+  same_scope varchar(8) not null default 'unknown',
+  same_time_logic varchar(8) not null default 'unknown',
+  same_currency varchar(8) not null default 'unknown',
+  same_status_filter varchar(8) not null default 'unknown',
+
+  comparability varchar(24) not null default 'unknown',
+  note text,
+
+  created_at timestamptz not null default now(),
+
+  constraint metric_comparability_gates_definicion check (same_definition in ('yes','no','unknown')),
+  constraint metric_comparability_gates_alcance check (same_scope in ('yes','no','unknown')),
+  constraint metric_comparability_gates_tiempo check (same_time_logic in ('yes','no','unknown')),
+  constraint metric_comparability_gates_moneda check (same_currency in ('yes','no','unknown')),
+  constraint metric_comparability_gates_filtro check (same_status_filter in ('yes','no','unknown')),
+  constraint metric_comparability_gates_estado check (
+    comparability in ('comparable', 'partially_comparable', 'not_comparable', 'unknown')
+  ),
+
+  -- Apartado 4: **comparable significa las cinco cosas**, no una impresion.
+  constraint metric_comparability_gates_comparable_son_cinco check (
+    comparability <> 'comparable'
+    or (same_definition = 'yes' and same_scope = 'yes' and same_time_logic = 'yes'
+        and same_currency = 'yes' and same_status_filter = 'yes')
+  ),
+  -- Y si alguna de las cinco es que no, no es parcialmente comparable: es que no.
+  constraint metric_comparability_gates_un_no_es_no check (
+    comparability <> 'partially_comparable'
+    or (same_definition <> 'no' and same_scope <> 'no' and same_time_logic <> 'no'
+        and same_currency <> 'no' and same_status_filter <> 'no')
+  ),
+  constraint metric_comparability_gates_no_comparable_se_explica check (
+    comparability <> 'not_comparable' or note is not null
+  ),
+  constraint metric_comparability_gates_unico unique (case_id, metric)
+);
+
+comment on table public.metric_comparability_gates is
+  'F3/D12 apartado 4. La puerta determinista que el apartado 17 pide que no dependa del LLM: '
+  'misma definicion, mismo alcance, misma logica temporal, misma moneda y mismo filtro de '
+  'estado. **Declarar `comparable` exige que las cinco sean `yes`**, y basta un `no` para que '
+  'deje de ser siquiera parcialmente comparable.';
+
+create index if not exists metric_comparability_gates_caso_idx
+  on public.metric_comparability_gates (case_id, comparability);
+
+-- ---------------------------------------------------------------------------
+-- 5. Los checks obligatorios por familia (apartados 7 y 19)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.mandatory_confounder_checks (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+
+  diagnostic_family varchar(16) not null,
+  check_key varchar(40) not null,
+  status varchar(16) not null default 'pending',
+  outcome text,
+  -- Apartado 19: saltarse un check obligatorio exige decir por que.
+  reason text,
+
+  executed_at timestamptz,
+  created_at timestamptz not null default now(),
+
+  constraint mandatory_confounder_checks_familia check (diagnostic_family in (
+    'revenue', 'cac', 'conversion', 'retention', 'finance', 'inventory', 'data', 'technology'
+  )),
+  constraint mandatory_confounder_checks_estado check (
+    status in ('pending', 'executed', 'skipped', 'not_possible')
+  ),
+  -- **No se puede saltar un check obligatorio en silencio** (apartado 19).
+  constraint mandatory_confounder_checks_saltar_exige_motivo check (
+    status not in ('skipped', 'not_possible') or reason is not null
+  ),
+  constraint mandatory_confounder_checks_ejecutado_tiene_resultado check (
+    status <> 'executed' or (outcome is not null and executed_at is not null)
+  ),
+  constraint mandatory_confounder_checks_unico unique (case_id, diagnostic_family, check_key)
+);
+
+comment on table public.mandatory_confounder_checks is
+  'F3/D12 apartados 7 y 19. El apartado 19 pide poder reconstruir que checks eran obligatorios, '
+  'cuales se ejecutaron y **cuales no pudieron ejecutarse y por que**. Por eso `skipped` y '
+  '`not_possible` exigen motivo: sin el, esa reconstruccion no existe y saltarse un check sale '
+  'gratis.';
+
+create index if not exists mandatory_confounder_checks_caso_idx
+  on public.mandatory_confounder_checks (case_id, status);
+
+-- ---------------------------------------------------------------------------
+-- 6. El analisis de sensibilidad (apartado 13)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.sensitivity_analyses (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  robustness_id uuid not null references public.diagnostic_robustness (id) on delete cascade,
+
+  assumption text not null,
+  low_case text,
+  base_case text,
+  high_case text,
+  diagnosis_changes boolean not null default false,
+  note text,
+
+  created_at timestamptz not null default now(),
+
+  constraint sensitivity_analyses_supuesto check (length(btrim(assumption)) >= 15),
+  -- Un escenario que cambia el diagnostico y no dice como no informa de nada.
+  constraint sensitivity_analyses_cambio_se_explica check (
+    not diagnosis_changes or note is not null
+  ),
+  -- Probar la sensibilidad sin mover nada no es probarla.
+  constraint sensitivity_analyses_hay_escenarios check (
+    low_case is not null or high_case is not null
+  )
+);
+
+comment on table public.sensitivity_analyses is
+  'F3/D12 apartado 13. Si el diagnostico cambia al mover un supuesto razonable, eso es parte '
+  'del resultado y no una nota al pie: `note` es obligatoria cuando cambia.';
+
+create index if not exists sensitivity_analyses_robustez_idx
+  on public.sensitivity_analyses (robustness_id);
+
+-- ---------------------------------------------------------------------------
+-- 7. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.diagnostic_robustness enable row level security;
+alter table public.diagnostic_confounders enable row level security;
+alter table public.confounder_tests enable row level security;
+alter table public.metric_comparability_gates enable row level security;
+alter table public.mandatory_confounder_checks enable row level security;
+alter table public.sensitivity_analyses enable row level security;
+
+drop policy if exists "diagnostic_robustness_select_staff" on public.diagnostic_robustness;
+create policy "diagnostic_robustness_select_staff" on public.diagnostic_robustness
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "diagnostic_confounders_select_staff" on public.diagnostic_confounders;
+create policy "diagnostic_confounders_select_staff" on public.diagnostic_confounders
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "confounder_tests_select_staff" on public.confounder_tests;
+create policy "confounder_tests_select_staff" on public.confounder_tests
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "metric_comparability_gates_select_staff" on public.metric_comparability_gates;
+create policy "metric_comparability_gates_select_staff" on public.metric_comparability_gates
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "mandatory_confounder_checks_select_staff" on public.mandatory_confounder_checks;
+create policy "mandatory_confounder_checks_select_staff" on public.mandatory_confounder_checks
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "sensitivity_analyses_select_staff" on public.sensitivity_analyses;
+create policy "sensitivity_analyses_select_staff" on public.sensitivity_analyses
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20260924090000_f3_d13_diagnostico_temporal_y_regresion.sql
+-- =============================================================================
+-- FASE 3 / D13 — Diagnostico temporal y regresion.
+--
+-- Fuente: conocimiento/fase-03/02-contratos-IA/D13-contrato-de-diagnostico-temporal-y-regresion.md
+--         (35 apartados, 22 tests nombrados con sus fixtures)
+--
+-- Igual que D12, **una sola capa de fuente**: solo el contrato. Lo que va aqui
+-- sale de sus 35 apartados y de la lista de invariantes del 34.
+--
+-- LA PELICULA, NO LA FOTO. D05 a D12 describen un momento; D13 describe la
+-- evolucion: cuando empezo, como se movio, si vuelve, si se recupera y si la
+-- secuencia encaja con la cadena causal. Sin priorizar ni recomendar (apartado
+-- 34, ultima linea).
+--
+-- EL INVARIANTE CENTRAL ES `STATE != TRAJECTORY` (apartado 1), y la garantia es
+-- **la ausencia de un check**. `current_state` y `trajectory` son dos columnas
+-- que nada obliga a coincidir, porque BAD + IMPROVING y HEALTHY + DETERIORATING
+-- son las dos combinaciones que mas importa poder escribir. Hay tests que
+-- comprueban que las dos caben, para que nadie "arregle" la aparente
+-- incoherencia mas adelante.
+--
+-- Lo mismo con tres cosas mas que el contrato separa a proposito y que aqui **no
+-- tienen ninguna restriccion que las ate**:
+--   * los tres horizontes (corto, medio y largo): el apartado 19 dice que los
+--     conflictos son validos y deben preservarse;
+--   * las tres recuperaciones (causa, sistema e impacto de negocio): el
+--     apartado 28 dice RESOLUTION != RECOVERY, y la causa puede estar resuelta
+--     con el impacto acumulado todavia vivo;
+--   * la trayectoria cruda y la ajustada por contexto (apartado 23), que se
+--     guardan las dos para que la correccion de D12 sea auditable.
+--
+-- NO SE INVENTA UNA HORA EXACTA CON DATOS DIARIOS (apartado 4). `onset_precision`
+-- no puede ser mas fina que `source_granularity`, por check. Es el tipo de
+-- mentira que nadie detecta leyendo un informe.
+--
+-- UNA REGRESION EXIGE UN ESTADO MEJOR ANTERIOR **Y ESTABLE** (apartado 8). Si
+-- nunca hubo algo mejor, lo que hay es una debilidad cronica, no una regresion,
+-- y el vocabulario tiene las dos palabras. Declarar `regressed` obliga a
+-- escribir el estado previo y el periodo estable en el que existio.
+--
+-- UNA CAIDA DE KPI NO ES UNA REGRESION DE MADUREZ (apartados 8 y 18). Exige
+-- perdida estructural persistente de capacidad, declarada y razonada.
+--
+-- EL BASELINE NO SE ADAPTA A UN SISTEMA ROTO (apartado 7 e invariante 34). Un
+-- problema persistente no se aprende como nueva normalidad: promover un regimen
+-- exige las cinco condiciones del apartado 7 a la vez, y jubilar un baseline
+-- exige que no haya incidente abierto y que la validacion este escrita.
+--
+-- LA CAUSA PRECEDE AL EFECTO, Y EL TIEMPO ES EL DEL EVENTO (apartado 10). Si el
+-- tiempo de ingesta y el del evento difieren, hay que trabajar con el del
+-- evento: el check no deja declarar lo contrario.
+--
+-- LOS EVENTOS TEMPORALES NO SE REPITEN (apartado 25). "Sigue deteriorandose" en
+-- cada evaluacion no es informacion. La deduplicacion es un indice unico sobre
+-- la transicion, no una convencion.
+--
+-- NO HAY VENTANA UNIVERSAL (apartado 5 e invariante 34). `capability_time_profiles`
+-- existe para que cada capacidad traiga la suya: un fallo de pagos se juzga en
+-- minutos y la retencion en meses.
+
+-- ---------------------------------------------------------------------------
+-- 1. El perfil temporal de cada capacidad (apartado 5)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.capability_time_profiles (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  capability varchar(24) not null,
+
+  evaluation_window_hours numeric not null,
+  minimum_observation_window_hours numeric not null,
+  expected_lag_hours numeric,
+  settlement_delay_hours numeric,
+  baseline_horizon_days numeric,
+  recurrence_horizon_days numeric,
+  rationale text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint capability_time_profiles_capacidad check (capability in (
+    'market', 'product', 'offer', 'unit_economics', 'acquisition', 'creative',
+    'conversion', 'retention', 'inventory', 'operations', 'finance', 'data',
+    'technology', 'team', 'strategy'
+  )),
+  constraint capability_time_profiles_ventanas_positivas check (
+    evaluation_window_hours > 0
+    and minimum_observation_window_hours > 0
+    and (expected_lag_hours is null or expected_lag_hours >= 0)
+    and (settlement_delay_hours is null or settlement_delay_hours >= 0)
+    and (baseline_horizon_days is null or baseline_horizon_days > 0)
+    and (recurrence_horizon_days is null or recurrence_horizon_days > 0)
+  ),
+  -- No se puede juzgar una tendencia en menos tiempo del que hace falta para
+  -- observarla.
+  constraint capability_time_profiles_ventana_cubre_el_minimo check (
+    evaluation_window_hours >= minimum_observation_window_hours
+  ),
+  constraint capability_time_profiles_unico unique (organization_id, capability)
+);
+
+comment on table public.capability_time_profiles is
+  'F3/D13 apartado 5. **No existe una escala temporal universal**: un fallo de pagos se juzga en '
+  'minutos y la retencion en meses. El invariante 34 prohibe usar la misma ventana para todas '
+  'las capacidades, y esta tabla es lo que hace que no haya una por defecto escondida en el '
+  'codigo.';
+
+create index if not exists capability_time_profiles_org_idx
+  on public.capability_time_profiles (organization_id);
+
+drop trigger if exists set_capability_time_profiles_updated_at on public.capability_time_profiles;
+create trigger set_capability_time_profiles_updated_at
+before update on public.capability_time_profiles
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 2. El diagnostico temporal (apartados 3, 4, 6 a 9, 12, 18, 19, 21, 29 y 30)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.temporal_diagnoses (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+
+  assessment_status varchar(16) not null default 'current',
+  target varchar(80) not null,
+  temporal_scope varchar(16) not null default 'global',
+  scope_detail jsonb not null default '{}'::jsonb,
+
+  -- Apartado 1: el invariante central. Dos columnas que nada obliga a coincidir.
+  current_state varchar(24) not null default 'unknown',
+  trajectory varchar(24) not null default 'unknown',
+
+  -- Apartado 19: los tres horizontes, y sus conflictos se conservan.
+  short_term_trajectory varchar(24) not null default 'unknown',
+  medium_term_trajectory varchar(24) not null default 'unknown',
+  long_term_trajectory varchar(24) not null default 'unknown',
+
+  -- Apartado 23: la cruda se guarda para poder auditar el ajuste de D12.
+  raw_trajectory varchar(24),
+  context_adjusted_trajectory varchar(24),
+
+  -- Apartado 4.
+  onset_estimated_at timestamptz,
+  onset_range_start timestamptz,
+  onset_range_end timestamptz,
+  onset_precision varchar(12) not null default 'unknown',
+  source_granularity varchar(12) not null default 'unknown',
+  onset_detection_method text,
+  first_observed_at timestamptz,
+  pre_existing_status varchar(20) not null default 'unknown',
+
+  -- Apartado 5.
+  change_type varchar(16),
+  change_point_at timestamptz,
+  velocity varchar(12) not null default 'unknown',
+  acceleration varchar(16) not null default 'unknown',
+
+  -- Apartado 6.
+  temporal_sufficiency varchar(12) not null default 'insufficient',
+  persistence varchar(12) not null default 'transient',
+  duration_hours numeric,
+
+  -- Apartado 16.
+  noise_classification varchar(20) not null default 'noise',
+  trend_confidence varchar(16) not null default 'insufficient',
+
+  -- Apartado 24.
+  peak_at timestamptz,
+  peak_worst_state varchar(24),
+  peak_note text,
+
+  -- Apartado 12.
+  recurrence_status varchar(20) not null default 'first_occurrence',
+  recurrence_kind varchar(24),
+  shared_root_cause boolean,
+
+  -- Apartado 8.
+  regression_status varchar(20) not null default 'none',
+  regression_type varchar(28),
+  previous_state varchar(24),
+  previous_stable_period_start timestamptz,
+  previous_stable_period_end timestamptz,
+  regression_trigger_event text,
+
+  -- Apartado 9: tres capas independientes.
+  cause_recovery varchar(20) not null default 'not_recovering',
+  system_recovery varchar(20) not null default 'not_recovering',
+  business_impact_recovery varchar(20) not null default 'not_recovering',
+  recovery_persistence_met boolean not null default false,
+  recovery_confirmed_at timestamptz,
+
+  -- Apartado 17.
+  root_cause_lifecycle varchar(16),
+  constraint_lifecycle varchar(16),
+  constraint_shifted_to text,
+
+  -- Apartado 18.
+  maturity_trajectory varchar(16) not null default 'unknown',
+  maturity_structural_loss boolean not null default false,
+  maturity_note text,
+
+  -- Apartado 7.
+  baseline_status varchar(16) not null default 'active',
+  regime_status varchar(24) not null default 'stable',
+  has_unresolved_incident boolean not null default false,
+  regime_sufficient_duration boolean not null default false,
+  regime_stable_behavior boolean not null default false,
+  regime_change_understood boolean not null default false,
+  regime_data_quality_high boolean not null default false,
+  regime_validation_note text,
+
+  -- Apartado 19.
+  comparison_type varchar(24),
+  trend_robustness varchar(12) not null default 'low',
+
+  -- Apartado 29.
+  temporal_completeness varchar(16) not null default 'unknown',
+  history_coverage varchar(12) not null default 'short',
+  history_quality varchar(12) not null default 'low',
+  temporal_gaps text,
+
+  -- Apartado 21: cinco confianzas, no una.
+  onset_confidence varchar(12) not null default 'unknown',
+  trajectory_confidence varchar(12) not null default 'unknown',
+  regression_confidence varchar(12) not null default 'unknown',
+  recovery_confidence varchar(12) not null default 'unknown',
+  lag_confidence varchar(12) not null default 'unknown',
+
+  -- Apartado 14: el onset y la deteccion no son lo mismo.
+  detected_at timestamptz,
+  diagnosed_at timestamptz,
+  resolved_at timestamptz,
+  recovered_at timestamptz,
+
+  limitations text,
+  assessed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint temporal_diagnoses_estado_evaluacion check (
+    assessment_status in ('current', 'superseded')
+  ),
+  constraint temporal_diagnoses_scope check (temporal_scope in (
+    'global', 'channel', 'market', 'product', 'device', 'cohort', 'segment'
+  )),
+  constraint temporal_diagnoses_estado_actual check (current_state in (
+    'elite', 'healthy', 'fragile', 'bad', 'critical', 'disaster', 'unknown'
+  )),
+  -- Apartado 2: los once estados temporales.
+  constraint temporal_diagnoses_trayectoria check (trajectory in (
+    'improving', 'stable', 'deteriorating', 'rapidly_deteriorating', 'recovering',
+    'volatile', 'regressed', 'recurrent', 'new_regime', 'mixed', 'unknown'
+  )),
+  constraint temporal_diagnoses_corto check (short_term_trajectory in (
+    'improving', 'stable', 'deteriorating', 'rapidly_deteriorating', 'recovering',
+    'volatile', 'regressed', 'recurrent', 'new_regime', 'mixed', 'unknown'
+  )),
+  constraint temporal_diagnoses_medio check (medium_term_trajectory in (
+    'improving', 'stable', 'deteriorating', 'rapidly_deteriorating', 'recovering',
+    'volatile', 'regressed', 'recurrent', 'new_regime', 'mixed', 'unknown'
+  )),
+  constraint temporal_diagnoses_largo check (long_term_trajectory in (
+    'improving', 'stable', 'deteriorating', 'rapidly_deteriorating', 'recovering',
+    'volatile', 'regressed', 'recurrent', 'new_regime', 'mixed', 'unknown'
+  )),
+  constraint temporal_diagnoses_cruda check (raw_trajectory is null or raw_trajectory in (
+    'improving', 'stable', 'deteriorating', 'rapidly_deteriorating', 'recovering',
+    'volatile', 'regressed', 'recurrent', 'new_regime', 'mixed', 'unknown'
+  )),
+  constraint temporal_diagnoses_ajustada check (
+    context_adjusted_trajectory is null or context_adjusted_trajectory in (
+      'improving', 'stable', 'deteriorating', 'rapidly_deteriorating', 'recovering',
+      'volatile', 'regressed', 'recurrent', 'new_regime', 'mixed', 'unknown'
+    )
+  ),
+  constraint temporal_diagnoses_precision check (
+    onset_precision in ('minute', 'hour', 'day', 'week', 'month', 'unknown')
+  ),
+  constraint temporal_diagnoses_granularidad check (
+    source_granularity in ('minute', 'hour', 'day', 'week', 'month', 'unknown')
+  ),
+  constraint temporal_diagnoses_preexistente check (
+    pre_existing_status in ('pre_existing', 'likely_pre_existing', 'new', 'unknown')
+  ),
+  constraint temporal_diagnoses_tipo_cambio check (change_type is null or change_type in (
+    'abrupt', 'gradual', 'accelerating', 'decelerating', 'cyclical', 'intermittent', 'step_change'
+  )),
+  constraint temporal_diagnoses_velocidad check (
+    velocity in ('very_slow', 'slow', 'moderate', 'fast', 'extreme', 'unknown')
+  ),
+  constraint temporal_diagnoses_aceleracion check (
+    acceleration in ('accelerating', 'steady', 'decelerating', 'unknown')
+  ),
+  constraint temporal_diagnoses_suficiencia check (
+    temporal_sufficiency in ('sufficient', 'partial', 'insufficient')
+  ),
+  constraint temporal_diagnoses_persistencia check (
+    persistence in ('transient', 'emerging', 'persistent', 'chronic')
+  ),
+  constraint temporal_diagnoses_ruido check (
+    noise_classification in ('noise', 'short_lived_spike', 'material_episode', 'structural_trend')
+  ),
+  constraint temporal_diagnoses_confianza_tendencia check (
+    trend_confidence in ('high', 'medium', 'low', 'insufficient')
+  ),
+  constraint temporal_diagnoses_recurrencia check (
+    recurrence_status in ('first_occurrence', 'second_occurrence', 'recurring', 'systematic')
+  ),
+  constraint temporal_diagnoses_tipo_recurrencia check (
+    recurrence_kind is null
+    or recurrence_kind in ('expected_recurrence', 'pathological_recurrence')
+  ),
+  -- Apartado 8 y el fixture "Not Regression": las dos palabras existen.
+  constraint temporal_diagnoses_regresion check (
+    regression_status in ('none', 'regressed', 'chronic_weakness', 'unknown')
+  ),
+  constraint temporal_diagnoses_tipo_regresion check (regression_type is null or regression_type in (
+    'performance_regression', 'technical_regression', 'process_regression',
+    'operational_regression', 'data_regression', 'maturity_regression',
+    'behavioral_regression'
+  )),
+  constraint temporal_diagnoses_recuperacion_causa check (cause_recovery in (
+    'not_recovering', 'early_recovery', 'partial_recovery', 'near_baseline',
+    'recovered', 'relapsed'
+  )),
+  constraint temporal_diagnoses_recuperacion_sistema check (system_recovery in (
+    'not_recovering', 'early_recovery', 'partial_recovery', 'near_baseline',
+    'recovered', 'relapsed'
+  )),
+  constraint temporal_diagnoses_recuperacion_negocio check (business_impact_recovery in (
+    'not_recovering', 'early_recovery', 'partial_recovery', 'near_baseline',
+    'recovered', 'relapsed'
+  )),
+  constraint temporal_diagnoses_ciclo_causa check (
+    root_cause_lifecycle is null
+    or root_cause_lifecycle in ('emerged', 'active', 'peaked', 'mitigated', 'resolved', 'recurrent')
+  ),
+  constraint temporal_diagnoses_ciclo_constraint check (
+    constraint_lifecycle is null
+    or constraint_lifecycle in ('latent', 'emerging', 'binding', 'easing', 'removed', 'shifted')
+  ),
+  constraint temporal_diagnoses_madurez check (
+    maturity_trajectory in ('advancing', 'stable', 'stagnating', 'regressing', 'unknown')
+  ),
+  constraint temporal_diagnoses_baseline check (
+    baseline_status in ('active', 'under_review', 'frozen', 'superseded')
+  ),
+  constraint temporal_diagnoses_regimen check (
+    regime_status in ('stable', 'new_regime_candidate', 'new_regime_supported', 'unknown')
+  ),
+  constraint temporal_diagnoses_comparacion check (comparison_type is null or comparison_type in (
+    'previous_period', 'rolling', 'yoy', 'pre_event', 'post_event',
+    'historical_normal', 'regime_baseline'
+  )),
+  constraint temporal_diagnoses_robustez check (trend_robustness in ('high', 'medium', 'low')),
+  constraint temporal_diagnoses_completitud check (
+    temporal_completeness in ('full_history', 'partial_history', 'recent_only', 'unknown')
+  ),
+  constraint temporal_diagnoses_cobertura check (history_coverage in ('short', 'moderate', 'deep')),
+  constraint temporal_diagnoses_calidad_historia check (history_quality in ('high', 'medium', 'low')),
+  constraint temporal_diagnoses_confianza_onset check (
+    onset_confidence in ('high', 'medium', 'low', 'unknown')
+  ),
+  constraint temporal_diagnoses_confianza_trayectoria check (
+    trajectory_confidence in ('high', 'medium', 'low', 'unknown')
+  ),
+  constraint temporal_diagnoses_confianza_regresion check (
+    regression_confidence in ('high', 'medium', 'low', 'unknown')
+  ),
+  constraint temporal_diagnoses_confianza_recuperacion check (
+    recovery_confidence in ('high', 'medium', 'low', 'unknown')
+  ),
+  constraint temporal_diagnoses_confianza_lag check (
+    lag_confidence in ('high', 'medium', 'low', 'unknown')
+  ),
+
+  -- Apartado 4: **no se inventa una hora exacta con datos diarios.** La
+  -- precision del onset no puede ser mas fina que la de la fuente.
+  constraint temporal_diagnoses_precision_no_supera_la_fuente check (
+    (case onset_precision
+       when 'minute' then 1 when 'hour' then 2 when 'day' then 3
+       when 'week' then 4 when 'month' then 5 else 9 end)
+    >= (case source_granularity
+       when 'minute' then 1 when 'hour' then 2 when 'day' then 3
+       when 'week' then 4 when 'month' then 5 else 9 end)
+  ),
+  -- Un onset estimado sin rango ni precision es un numero sin sentido.
+  constraint temporal_diagnoses_onset_tiene_rango check (
+    onset_estimated_at is null
+    or onset_precision <> 'unknown'
+    or (onset_range_start is not null and onset_range_end is not null)
+  ),
+  constraint temporal_diagnoses_rango_ordenado check (
+    onset_range_end is null or onset_range_start is null or onset_range_end >= onset_range_start
+  ),
+
+  -- Invariante 34: no asumir que el primer dia observado es el onset real. Con
+  -- poca historia, declarar algo "nuevo" solo cabe con confianza baja.
+  constraint temporal_diagnoses_primer_visto_no_es_el_inicio check (
+    pre_existing_status <> 'new'
+    or history_coverage <> 'short'
+    or onset_confidence in ('low', 'unknown')
+  ),
+
+  -- Apartado 6: sin historia suficiente no se inventa una trayectoria.
+  constraint temporal_diagnoses_sin_historia_no_hay_tendencia check (
+    temporal_sufficiency <> 'insufficient'
+    or trajectory = 'unknown'
+    or trajectory_confidence in ('low', 'unknown')
+  ),
+
+  -- Apartado 16: una variacion aislada no es una tendencia estructural.
+  constraint temporal_diagnoses_ruido_no_es_tendencia check (
+    noise_classification <> 'structural_trend'
+    or (trend_confidence in ('high', 'medium') and temporal_sufficiency = 'sufficient')
+  ),
+
+  -- Apartado 8: **una regresion exige un estado mejor anterior y estable.**
+  constraint temporal_diagnoses_regresion_exige_pasado_mejor check (
+    regression_status <> 'regressed'
+    or (previous_state is not null
+        and previous_stable_period_start is not null
+        and previous_stable_period_end is not null
+        and regression_type is not null)
+  ),
+  constraint temporal_diagnoses_periodo_estable_ordenado check (
+    previous_stable_period_end is null
+    or previous_stable_period_start is null
+    or previous_stable_period_end >= previous_stable_period_start
+  ),
+
+  -- Apartados 8 y 18: una caida de KPI no es una regresion de madurez.
+  constraint temporal_diagnoses_madurez_exige_perdida_estructural check (
+    maturity_trajectory <> 'regressing'
+    or (maturity_structural_loss and maturity_note is not null)
+  ),
+
+  -- Apartado 9: no se marca RECOVERED por un rebote breve.
+  constraint temporal_diagnoses_recuperado_persiste check (
+    business_impact_recovery <> 'recovered'
+    or (recovery_persistence_met and recovery_confirmed_at is not null)
+  ),
+
+  -- Apartado 7: promover un regimen exige las cinco condiciones a la vez.
+  constraint temporal_diagnoses_regimen_no_es_automatico check (
+    regime_status not in ('new_regime_candidate', 'new_regime_supported')
+    or (regime_sufficient_duration and regime_stable_behavior
+        and regime_change_understood and regime_data_quality_high
+        and not has_unresolved_incident)
+  ),
+  -- Invariante 34: el baseline no se adapta a un sistema roto.
+  constraint temporal_diagnoses_baseline_no_normaliza_lo_roto check (
+    baseline_status <> 'superseded'
+    or (not has_unresolved_incident
+        and regime_status = 'new_regime_supported'
+        and regime_validation_note is not null)
+  ),
+  -- Mientras haya un incidente abierto, el baseline no sigue tan campante.
+  constraint temporal_diagnoses_incidente_congela_baseline check (
+    not has_unresolved_incident or baseline_status in ('frozen', 'under_review')
+  ),
+
+  -- Apartado 17: un constraint que se desplaza dice a donde.
+  constraint temporal_diagnoses_desplazamiento_dice_a_donde check (
+    constraint_lifecycle is distinct from 'shifted' or constraint_shifted_to is not null
+  ),
+
+  -- Apartado 19: una trayectoria localizada no se generaliza en silencio.
+  constraint temporal_diagnoses_localizada check (
+    temporal_scope = 'global' or scope_detail <> '{}'::jsonb
+  ),
+
+  -- Apartado 14: el onset no es la deteccion, y el orden va en un sentido.
+  constraint temporal_diagnoses_linea_operativa check (
+    (detected_at is null or onset_estimated_at is null or detected_at >= onset_estimated_at)
+    and (diagnosed_at is null or detected_at is null or diagnosed_at >= detected_at)
+    and (resolved_at is null or diagnosed_at is null or resolved_at >= diagnosed_at)
+  ),
+
+  constraint temporal_diagnoses_duracion check (duration_hours is null or duration_hours >= 0)
+);
+
+comment on table public.temporal_diagnoses is
+  'F3/D13 apartado 30. El invariante central del bloque es `STATE != TRAJECTORY` (apartado 1), y '
+  'la garantia es **la ausencia de un check**: nada obliga a `current_state` y `trajectory` a '
+  'coincidir, porque BAD + IMPROVING y HEALTHY + DETERIORATING son las dos combinaciones que mas '
+  'importa poder escribir. Lo mismo con los tres horizontes y con las tres recuperaciones.';
+
+comment on column public.temporal_diagnoses.onset_precision is
+  'Apartado 4. **No se inventa una hora exacta cuando la fuente es diaria**: el check impide que '
+  'la precision declarada sea mas fina que `source_granularity`. Es el tipo de mentira que nadie '
+  'detecta leyendo un informe.';
+
+comment on column public.temporal_diagnoses.regression_status is
+  'Apartado 8. `chronic_weakness` existe porque una debilidad que siempre estuvo ahi no es una '
+  'regresion: para que algo regrese tuvo que haber sido mejor antes, y establemente.';
+
+comment on column public.temporal_diagnoses.business_impact_recovery is
+  'Apartado 9 y 28: RESOLUTION != RECOVERY. Las tres recuperaciones (causa, sistema e impacto) '
+  'son independientes y nada las ata: la causa puede estar resuelta con el dano acumulado '
+  'todavia vivo.';
+
+comment on column public.temporal_diagnoses.raw_trajectory is
+  'Apartado 23. La trayectoria ajustada por los confusores de D12 dirige el diagnostico, pero la '
+  'cruda se conserva para que el ajuste sea auditable.';
+
+create index if not exists temporal_diagnoses_caso_idx
+  on public.temporal_diagnoses (case_id, assessed_at desc);
+create index if not exists temporal_diagnoses_org_idx
+  on public.temporal_diagnoses (organization_id, trajectory, regression_status);
+
+create unique index if not exists temporal_diagnoses_vigente_idx
+  on public.temporal_diagnoses (case_id)
+  where assessment_status = 'current';
+
+drop trigger if exists set_temporal_diagnoses_updated_at on public.temporal_diagnoses;
+create trigger set_temporal_diagnoses_updated_at before update on public.temporal_diagnoses
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 3. El encaje temporal de la cadena causal (apartados 10 y 11)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.temporal_lag_checks (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  diagnosis_id uuid not null references public.temporal_diagnoses (id) on delete cascade,
+  edge_id uuid references public.causal_edges (id) on delete set null,
+
+  cause_label varchar(120) not null,
+  effect_label varchar(120) not null,
+  cause_time timestamptz,
+  effect_time timestamptz,
+  observed_lag_hours numeric,
+  expected_lag_min_hours numeric,
+  expected_lag_max_hours numeric,
+  lag_fit varchar(16) not null default 'unknown',
+
+  -- Apartado 10: el tiempo del evento manda sobre el de ingesta.
+  time_basis varchar(16) not null default 'event_time',
+  ingestion_differs boolean not null default false,
+  note text,
+
+  created_at timestamptz not null default now(),
+
+  constraint temporal_lag_checks_encaje check (
+    lag_fit in ('strong', 'acceptable', 'weak', 'incompatible', 'unknown')
+  ),
+  constraint temporal_lag_checks_base_temporal check (
+    time_basis in ('event_time', 'ingestion_time')
+  ),
+  constraint temporal_lag_checks_rango_esperado check (
+    expected_lag_max_hours is null
+    or expected_lag_min_hours is null
+    or expected_lag_max_hours >= expected_lag_min_hours
+  ),
+  -- Apartado 10: la causa precede al efecto. Si no, el encaje es incompatible y
+  -- se dice, en vez de dejarlo pasar.
+  constraint temporal_lag_checks_causa_precede check (
+    cause_time is null or effect_time is null
+    or cause_time <= effect_time
+    or lag_fit = 'incompatible'
+  ),
+  -- Invariante 34: no usar el tiempo de ingesta como tiempo del evento cuando
+  -- no son equivalentes.
+  constraint temporal_lag_checks_ingesta_no_manda check (
+    not ingestion_differs or time_basis = 'event_time'
+  ),
+  -- Un encaje incompatible sin explicacion no sirve para invalidar nada.
+  constraint temporal_lag_checks_incompatible_se_explica check (
+    lag_fit <> 'incompatible' or note is not null
+  )
+);
+
+comment on table public.temporal_lag_checks is
+  'F3/D13 apartado 10. La causa precede al efecto o el encaje es `incompatible`: el check no deja '
+  'una tercera opcion. Y cuando el tiempo de ingesta difiere del tiempo del evento, manda el del '
+  'evento (invariante 34) -- porque los datos que llegan tarde no pueden reordenar la causalidad '
+  'en silencio.';
+
+create index if not exists temporal_lag_checks_diagnostico_idx
+  on public.temporal_lag_checks (diagnosis_id, lag_fit);
+
+-- ---------------------------------------------------------------------------
+-- 4. Los episodios historicos (apartados 12 y 13)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_episodes (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid references public.diagnostic_cases (id) on delete set null,
+
+  episode_code varchar(24) not null,
+  diagnosis_type varchar(40) not null,
+  scope varchar(16) not null default 'global',
+
+  started_at timestamptz not null,
+  peaked_at timestamptz,
+  ended_at timestamptz,
+
+  root_cause_id uuid references public.root_causes (id) on delete set null,
+  -- Apartado 12: el mismo sintoma recurrente no implica la misma causa. Por eso
+  -- esto es una comprobacion declarada, no una deduccion.
+  same_root_cause_as_previous boolean,
+  same_root_cause_evidence text,
+
+  severity varchar(20),
+  recovery_time_hours numeric,
+  outcome varchar(24) not null default 'unknown',
+  common_trigger text,
+
+  created_at timestamptz not null default now(),
+
+  constraint diagnostic_episodes_scope check (scope in (
+    'global', 'channel', 'market', 'product', 'device', 'cohort', 'segment'
+  )),
+  constraint diagnostic_episodes_severidad check (severity is null or severity in (
+    'info', 'low', 'moderate', 'high', 'critical', 'business_threat'
+  )),
+  constraint diagnostic_episodes_desenlace check (
+    outcome in ('resolved', 'recovered', 'abandoned', 'ongoing', 'relapsed', 'unknown')
+  ),
+  constraint diagnostic_episodes_orden check (
+    (peaked_at is null or peaked_at >= started_at)
+    and (ended_at is null or ended_at >= started_at)
+  ),
+  constraint diagnostic_episodes_recuperacion check (
+    recovery_time_hours is null or recovery_time_hours >= 0
+  ),
+  constraint diagnostic_episodes_en_curso_no_ha_terminado check (
+    outcome <> 'ongoing' or ended_at is null
+  ),
+  -- Apartado 12: afirmar que es la misma causa que la vez anterior cuesta
+  -- evidencia. Sin ella, lo que se repite es el sintoma.
+  constraint diagnostic_episodes_misma_causa_se_prueba check (
+    same_root_cause_as_previous is distinct from true
+    or same_root_cause_evidence is not null
+  ),
+  constraint diagnostic_episodes_unico unique (organization_id, episode_code)
+);
+
+comment on table public.diagnostic_episodes is
+  'F3/D13 apartados 12 y 13. **El mismo sintoma recurrente no implica la misma causa raiz**: '
+  '`same_root_cause_as_previous` es una afirmacion que exige evidencia escrita, no algo que se '
+  'deduzca de que el episodio se parezca. El historial permite comparar recurrencias sin que la '
+  'similitud se convierta por si sola en prueba causal.';
+
+create index if not exists diagnostic_episodes_org_idx
+  on public.diagnostic_episodes (organization_id, diagnosis_type, started_at desc);
+
+-- ---------------------------------------------------------------------------
+-- 5. Los eventos temporales, sin repetirse (apartado 25)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.temporal_events (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  diagnosis_id uuid not null references public.temporal_diagnoses (id) on delete cascade,
+
+  event_type varchar(24) not null,
+  from_state varchar(24),
+  to_state varchar(24),
+  occurred_at timestamptz not null default now(),
+  note text,
+
+  created_at timestamptz not null default now(),
+
+  constraint temporal_events_tipo check (event_type in (
+    'new_deterioration', 'acceleration', 'regression', 'recurrence',
+    'recovery_started', 'recovered', 'relapse', 'regime_shift', 'constraint_shift'
+  )),
+  -- Una transicion es un cambio: de algo a otra cosa.
+  constraint temporal_events_hay_transicion check (
+    from_state is null or to_state is null or from_state <> to_state
+  ),
+  -- Apartado 25: **la deduplicacion es un indice, no una convencion.** Emitir
+  -- "sigue deteriorandose" en cada evaluacion no es informacion.
+  constraint temporal_events_sin_repetir unique (diagnosis_id, event_type, from_state, to_state)
+);
+
+comment on table public.temporal_events is
+  'F3/D13 apartado 25. D13 emite la transicion temporal; avisar a alguien es de otra capa. La '
+  'restriccion unica es lo que impide el ruido que el apartado prohibe: la misma transicion no '
+  'se puede emitir dos veces sobre el mismo diagnostico.';
+
+create index if not exists temporal_events_diagnostico_idx
+  on public.temporal_events (diagnosis_id, occurred_at desc);
+
+-- ---------------------------------------------------------------------------
+-- 6. Las revisiones: la historia no se reescribe (apartado 22)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.temporal_revisions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  diagnosis_id uuid not null references public.temporal_diagnoses (id) on delete cascade,
+
+  as_of timestamptz not null,
+  previous_trajectory varchar(24),
+  new_trajectory varchar(24) not null,
+  previous_onset_at timestamptz,
+  new_onset_at timestamptz,
+  revision_reason varchar(28) not null,
+  -- Apartado 22: el audit trail conserva por que cambio.
+  explanation text not null,
+  baseline_version varchar(40),
+  data_snapshot varchar(80),
+
+  created_at timestamptz not null default now(),
+
+  constraint temporal_revisions_motivo check (revision_reason in (
+    'late_data', 'baseline_correction', 'event_discovery',
+    'metric_definition_correction', 'context_adjustment', 'other'
+  )),
+  constraint temporal_revisions_trayectoria_nueva check (new_trajectory in (
+    'improving', 'stable', 'deteriorating', 'rapidly_deteriorating', 'recovering',
+    'volatile', 'regressed', 'recurrent', 'new_regime', 'mixed', 'unknown'
+  )),
+  constraint temporal_revisions_explicacion check (length(btrim(explanation)) >= 20),
+  -- Una revision que no revisa nada no es una revision.
+  constraint temporal_revisions_algo_cambio check (
+    previous_trajectory is distinct from new_trajectory
+    or previous_onset_at is distinct from new_onset_at
+  ),
+  -- Si el motivo es "other", hay que decir cual.
+  constraint temporal_revisions_otro_se_nombra check (
+    revision_reason <> 'other' or length(btrim(explanation)) >= 40
+  )
+);
+
+comment on table public.temporal_revisions is
+  'F3/D13 apartado 22. Una reevaluacion se registra, **no reescribe la historia en silencio**. '
+  'Cuando llegan datos tardios o se corrige un baseline, tiene que poder reconstruirse por que en '
+  'su momento el sistema clasifico la trayectoria como lo hizo.';
+
+create index if not exists temporal_revisions_diagnostico_idx
+  on public.temporal_revisions (diagnosis_id, as_of desc);
+
+-- ---------------------------------------------------------------------------
+-- 7. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.capability_time_profiles enable row level security;
+alter table public.temporal_diagnoses enable row level security;
+alter table public.temporal_lag_checks enable row level security;
+alter table public.diagnostic_episodes enable row level security;
+alter table public.temporal_events enable row level security;
+alter table public.temporal_revisions enable row level security;
+
+drop policy if exists "capability_time_profiles_select_staff" on public.capability_time_profiles;
+create policy "capability_time_profiles_select_staff" on public.capability_time_profiles
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "temporal_diagnoses_select_staff" on public.temporal_diagnoses;
+create policy "temporal_diagnoses_select_staff" on public.temporal_diagnoses
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "temporal_lag_checks_select_staff" on public.temporal_lag_checks;
+create policy "temporal_lag_checks_select_staff" on public.temporal_lag_checks
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "diagnostic_episodes_select_staff" on public.diagnostic_episodes;
+create policy "diagnostic_episodes_select_staff" on public.diagnostic_episodes
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "temporal_events_select_staff" on public.temporal_events;
+create policy "temporal_events_select_staff" on public.temporal_events
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "temporal_revisions_select_staff" on public.temporal_revisions;
+create policy "temporal_revisions_select_staff" on public.temporal_revisions
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20260925090000_f3_d14_salida_diagnostica_y_validacion.sql
+-- =============================================================================
+-- FASE 3 / D14 — Salida diagnostica, trazabilidad y validacion.
+--
+-- Fuente: conocimiento/fase-03/02-contratos-IA/D14-contrato-de-salida-diagnostica-trazabilidad-y-validacion.md
+--         (41 apartados)
+--
+-- Igual que D12 y D13, **una sola capa de fuente**: solo el contrato.
+--
+-- EL ULTIMO BLOQUE DE LA FASE. D14 no diagnostica: valida, empaqueta, versiona
+-- y entrega lo que hicieron D00 a D13. Y sigue sin decidir nada -- el apartado
+-- 13 lo repite: severidad es diagnostico, prioridad es F4.
+--
+-- AQUI SE PAGA LA DEUDA DEL LENGUAJE. Durante D09, D10 y D11 el lenguaje
+-- calibrado se vigilaba con expresiones regulares en castellano, y quedo
+-- documentado que eso era un lint y no una garantia. **La garantia es esta**: la
+-- frase que ve el cliente no es texto libre, se compone desde el nivel de
+-- confianza. Los guardrails 43 a 46 de D11 dan la formula exacta de cada nivel,
+-- y el check `diagnostic_outputs_lenguaje_calibrado` comprueba que el resumen
+-- empieza por la que le toca:
+--
+--   insufficient_data -> "No puede determinarse ..."
+--   low               -> "Es compatible con ..."
+--   medium            -> "La explicación más probable es ..."
+--   high              -> "La evidencia sostiene que ..."
+--
+-- Escribir "está claro que" con confianza baja deja de ser algo que se detecta:
+-- **no se puede guardar**. Y `confidence_language` no es una eleccion editorial
+-- aparte: un check la ata al nivel de confianza del diagnostico, porque el
+-- apartado 25 dice que la interfaz puede simplificar pero no alterar el
+-- significado.
+--
+-- EL GATE DE FINALIZACION SON DOCE CONDICIONES, Y SE COMPRUEBAN LAS DOCE
+-- (apartado 38). `finalized_valid` exige las doce a la vez. No hay forma de
+-- marcar algo como final saltandose la validacion, que es el invariante que
+-- abre la lista del apartado 41.
+--
+-- LA HISTORIA NO SE MUTA (apartados 4, 6 y 20). Cada revision material crea una
+-- version nueva con su motivo; las anteriores se marcan `superseded_by` y se
+-- quedan. Un unico indice parcial garantiza que solo haya una version vigente
+-- por caso, y el numero de version es unico dentro del caso.
+--
+-- CONOCIMIENTO NO ES EVIDENCIA (apartado 26). No se crea una tabla paralela:
+-- **se amplia la de D11** (`knowledge_applicability`), que ya separa la
+-- confianza de recuperacion de la del diagnostico. Dos registros distintos de
+-- lo mismo acabarian discrepando.
+--
+-- RESOLVER NO ES CERRAR (apartado 18). Cerrar un caso exige verificacion del
+-- resultado empresarial, o declarar por escrito que es un cierre administrativo.
+--
+-- UN FALLO TECNICO NO ES UN DIAGNOSTICO (apartados 33 y 35). La taxonomia de
+-- error existe para que un timeout no se presente como una conclusion parcial,
+-- y el check impide que algo con fallo se marque como finalizado y valido.
+--
+-- LO QUE NO ESTA AQUI: `priority`, `recommended_action`, `strategy`,
+-- `allocation`. El apartado 13 y el 41 lo prohiben tres veces entre los dos.
+
+-- ---------------------------------------------------------------------------
+-- 1. El objeto diagnostico canonico y versionado (apartados 2 a 6, 15 y 39)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_outputs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  store_id uuid references public.shopify_stores (id) on delete set null,
+
+  -- Apartado 4: la version identifica la evaluacion; el caso agrupa versiones.
+  version integer not null default 1,
+  is_current boolean not null default true,
+  supersedes uuid references public.diagnostic_outputs (id) on delete set null,
+  superseded_by uuid references public.diagnostic_outputs (id) on delete set null,
+  supersession_reason text,
+
+  -- Apartado 5.
+  status varchar(24) not null default 'open',
+  -- Apartado 15.
+  completeness_status varchar(28) not null default 'incomplete',
+  missing_components text[] not null default '{}',
+  blocking_components text[] not null default '{}',
+
+  -- Apartado 38: el gate, las doce condiciones.
+  data_gate_valid boolean not null default false,
+  context_valid boolean not null default false,
+  stage_valid boolean not null default false,
+  hypothesis_review_completed boolean not null default false,
+  root_cause_condition_satisfied boolean not null default false,
+  confounder_review_completed boolean not null default false,
+  severity_computed boolean not null default false,
+  confidence_calibrated boolean not null default false,
+  temporal_review_completed boolean not null default false,
+  traceability_complete boolean not null default false,
+  validation_passed boolean not null default false,
+  phase_boundary_respected boolean not null default false,
+  finalization_status varchar(20) not null default 'invalid_output',
+
+  -- Referencias a lo que produjeron los bloques anteriores. No se copian sus
+  -- conclusiones: se apuntan, para que no haya dos verdades sobre lo mismo.
+  root_cause_id uuid references public.root_causes (id) on delete set null,
+  constraint_id uuid references public.business_constraints (id) on delete set null,
+  severity_assessment_id uuid references public.severity_assessments (id) on delete set null,
+  robustness_id uuid references public.diagnostic_robustness (id) on delete set null,
+  temporal_diagnosis_id uuid references public.temporal_diagnoses (id) on delete set null,
+  snapshot_id uuid,
+
+  -- Apartado 12: los resumenes obligatorios.
+  diagnostic_summary text,
+  limitation_summary text,
+  confidence_summary text,
+  data_gap_summary text,
+
+  -- Apartado 25: la salida de usuario.
+  confidence varchar(20) not null default 'insufficient_data',
+  confidence_language varchar(20) not null default 'insufficient_data',
+  user_summary text,
+  what_we_know text,
+  what_we_dont_know text,
+  visibility varchar(16) not null default 'internal',
+
+  -- Apartados 33 y 35.
+  failure_kind varchar(24),
+  failure_detail text,
+  degraded boolean not null default false,
+
+  -- Apartado 10.
+  contract_version varchar(24),
+  rules_version varchar(24),
+  model_version varchar(40),
+  prompt_version varchar(40),
+  trace_id varchar(64),
+
+  -- Apartado 27.
+  manual_review_required boolean not null default false,
+  manual_review_reason text,
+
+  -- Apartado 14.
+  handoff_ready boolean not null default false,
+
+  evaluated_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint diagnostic_outputs_version_positiva check (version >= 1),
+  constraint diagnostic_outputs_estado check (status in (
+    'open', 'investigating', 'partially_confirmed', 'confirmed', 'recovering',
+    'closed', 'closed_pending_outcome', 'inconclusive', 'insufficient_data',
+    'invalidated', 'reopened'
+  )),
+  constraint diagnostic_outputs_completitud check (completeness_status in (
+    'complete', 'complete_with_limitations', 'incomplete', 'blocked'
+  )),
+  constraint diagnostic_outputs_finalizacion check (
+    finalization_status in ('finalized_valid', 'invalid_output')
+  ),
+  constraint diagnostic_outputs_confianza check (
+    confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint diagnostic_outputs_lenguaje check (
+    confidence_language in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  constraint diagnostic_outputs_visibilidad check (
+    visibility in ('internal', 'admin', 'user_visible')
+  ),
+  constraint diagnostic_outputs_tipo_fallo check (failure_kind is null or failure_kind in (
+    'data_error', 'system_error', 'reasoning_failure', 'validation_failure', 'timeout'
+  )),
+
+  -- Apartado 38: **las doce condiciones del gate, o no es final.**
+  constraint diagnostic_outputs_gate_completo check (
+    finalization_status <> 'finalized_valid'
+    or (data_gate_valid and context_valid and stage_valid
+        and hypothesis_review_completed and root_cause_condition_satisfied
+        and confounder_review_completed and severity_computed
+        and confidence_calibrated and temporal_review_completed
+        and traceability_complete and validation_passed
+        and phase_boundary_respected)
+  ),
+
+  -- Apartado 25 y guardrails 43 a 46 de D11: **el lenguaje de usuario se
+  -- compone desde la confianza, no se escribe a mano.** El check lee el
+  -- principio del resumen y no deja otra entradilla.
+  constraint diagnostic_outputs_lenguaje_calibrado check (
+    user_summary is null
+    or (confidence_language = 'insufficient_data'
+        and user_summary like 'No puede determinarse%')
+    or (confidence_language = 'low'
+        and user_summary like 'Es compatible con%')
+    or (confidence_language = 'medium'
+        and user_summary like 'La explicación más probable es%')
+    or (confidence_language = 'high'
+        and user_summary like 'La evidencia sostiene que%')
+  ),
+  -- Apartado 25: la interfaz simplifica, no cambia el significado. La banda de
+  -- lenguaje **es** el nivel de confianza, no una eleccion editorial aparte.
+  constraint diagnostic_outputs_lenguaje_es_la_confianza check (
+    confidence_language = confidence
+  ),
+
+  -- Apartado 17: CONFIRMED exige causa soportada y confianza compatible.
+  constraint diagnostic_outputs_confirmado_se_sostiene check (
+    status <> 'confirmed'
+    or (root_cause_id is not null
+        and confidence in ('high', 'medium')
+        and traceability_complete)
+  ),
+  -- Apartado 17: INSUFFICIENT_DATA dice que falta.
+  constraint diagnostic_outputs_sin_datos_dice_que_falta check (
+    status <> 'insufficient_data'
+    or (missing_components <> '{}' or data_gap_summary is not null)
+  ),
+  -- Apartado 17 y 41: invalidar conserva el motivo.
+  constraint diagnostic_outputs_invalidar_se_motiva check (
+    status <> 'invalidated' or supersession_reason is not null
+  ),
+  -- Apartado 15: completo con limitaciones exige escribirlas.
+  constraint diagnostic_outputs_limitaciones_se_escriben check (
+    completeness_status <> 'complete_with_limitations' or limitation_summary is not null
+  ),
+  constraint diagnostic_outputs_bloqueado_dice_que_bloquea check (
+    completeness_status <> 'blocked' or blocking_components <> '{}'
+  ),
+
+  -- Apartado 6: sustituir no es borrar, y exige motivo.
+  constraint diagnostic_outputs_sustitucion_se_motiva check (
+    superseded_by is null or supersession_reason is not null
+  ),
+  -- Una version sustituida ya no es la vigente.
+  constraint diagnostic_outputs_sustituida_no_es_vigente check (
+    superseded_by is null or not is_current
+  ),
+
+  -- Apartados 33 y 35: un fallo tecnico no se presenta como conclusion.
+  constraint diagnostic_outputs_fallo_no_es_final check (
+    failure_kind is null or finalization_status = 'invalid_output'
+  ),
+  constraint diagnostic_outputs_fallo_se_explica check (
+    failure_kind is null or failure_detail is not null
+  ),
+  -- Apartado 35: degradar se anuncia.
+  constraint diagnostic_outputs_degradado_avisa check (
+    not degraded or limitation_summary is not null
+  ),
+
+  -- Apartado 27.
+  constraint diagnostic_outputs_revision_manual_se_motiva check (
+    not manual_review_required or manual_review_reason is not null
+  ),
+
+  -- Apartado 14: al handoff solo se llega por la puerta.
+  constraint diagnostic_outputs_handoff_exige_gate check (
+    not handoff_ready or finalization_status = 'finalized_valid'
+  ),
+
+  -- Apartado 25: lo que ve el cliente lleva su resumen y su lenguaje.
+  constraint diagnostic_outputs_visible_tiene_resumen check (
+    visibility <> 'user_visible' or user_summary is not null
+  ),
+
+  -- Apartado 22: sin snapshot no hay reproducibilidad, y sin ella no es final.
+  constraint diagnostic_outputs_final_tiene_snapshot check (
+    finalization_status <> 'finalized_valid' or snapshot_id is not null
+  ),
+
+  constraint diagnostic_outputs_version_unica unique (case_id, version)
+);
+
+comment on table public.diagnostic_outputs is
+  'F3/D14 apartados 2 a 6. El objeto diagnostico canonico, versionado y append-only. **No hay '
+  'columna de prioridad, accion ni estrategia** (apartados 13 y 41). Y el lenguaje que ve el '
+  'cliente no se escribe a mano: el check `diagnostic_outputs_lenguaje_calibrado` exige que el '
+  'resumen empiece por la formula que corresponde a su nivel de confianza, segun los guardrails '
+  '43 a 46 de D11.';
+
+comment on column public.diagnostic_outputs.user_summary is
+  'Apartado 25. **La deuda de lenguaje de D09, D10 y D11 se paga aqui.** Antes se vigilaba con '
+  'expresiones regulares lo que alguien escribia; ahora la entradilla se compone desde la '
+  'confianza y el check no admite otra. "Está claro que" con confianza baja no se detecta: no '
+  'se puede guardar.';
+
+comment on column public.diagnostic_outputs.finalization_status is
+  'Apartado 38. `finalized_valid` exige las doce condiciones del gate a la vez. El primer '
+  'invariante del apartado 41 es no emitir como final un diagnostico no validado, y esta es la '
+  'garantia.';
+
+create index if not exists diagnostic_outputs_caso_idx
+  on public.diagnostic_outputs (case_id, version desc);
+create index if not exists diagnostic_outputs_org_idx
+  on public.diagnostic_outputs (organization_id, status, finalization_status);
+
+create unique index if not exists diagnostic_outputs_vigente_idx
+  on public.diagnostic_outputs (case_id)
+  where is_current;
+
+drop trigger if exists set_diagnostic_outputs_updated_at on public.diagnostic_outputs;
+create trigger set_diagnostic_outputs_updated_at before update on public.diagnostic_outputs
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 2. El snapshot reproducible (apartados 21 y 22)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+
+  as_of timestamptz not null,
+  source_versions jsonb not null default '{}'::jsonb,
+  data_ranges jsonb not null default '{}'::jsonb,
+  normalization_version varchar(24),
+  metric_definition_versions jsonb not null default '{}'::jsonb,
+  knowledge_refs text[] not null default '{}',
+  rules_version varchar(24),
+  model_version varchar(40),
+  prompt_version varchar(40),
+  known_issues text,
+
+  -- Apartado 22.
+  reproducible boolean not null default false,
+  snapshot_available boolean not null default false,
+  sources_resolvable boolean not null default false,
+  rules_version_available boolean not null default false,
+  knowledge_refs_resolvable boolean not null default false,
+  model_metadata_available boolean not null default false,
+  reproducibility_limitations text,
+
+  created_at timestamptz not null default now(),
+
+  -- Apartado 22: reproducible no es una declaracion de intenciones. Son las
+  -- cinco cosas que hacen falta para volver a llegar a la misma conclusion.
+  constraint diagnostic_snapshots_reproducible_de_verdad check (
+    not reproducible
+    or (snapshot_available and sources_resolvable and rules_version_available
+        and knowledge_refs_resolvable and model_metadata_available)
+  ),
+  constraint diagnostic_snapshots_no_reproducible_se_explica check (
+    reproducible or reproducibility_limitations is not null
+  )
+);
+
+comment on table public.diagnostic_snapshots is
+  'F3/D14 apartados 21 y 22. Sin esto, una conclusion no se puede volver a obtener y el apartado '
+  '22 dice que entonces no es enterprise-grade. `reproducible` exige las cinco condiciones a la '
+  'vez: no es una etiqueta optimista.';
+
+create index if not exists diagnostic_snapshots_caso_idx
+  on public.diagnostic_snapshots (case_id, as_of desc);
+
+alter table public.diagnostic_outputs
+  drop constraint if exists diagnostic_outputs_snapshot_fk;
+alter table public.diagnostic_outputs
+  add constraint diagnostic_outputs_snapshot_fk
+  foreign key (snapshot_id) references public.diagnostic_snapshots (id) on delete set null;
+
+-- ---------------------------------------------------------------------------
+-- 3. El ledger de evidencia (apartados 7 y 8)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_output_evidence (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  output_id uuid not null references public.diagnostic_outputs (id) on delete cascade,
+
+  -- Apartado 7: claim -> evidence -> source -> transformation -> snapshot.
+  claim text not null,
+  claim_layer varchar(20) not null,
+  source varchar(40) not null,
+  source_ref text not null,
+  metric varchar(80),
+  period_start timestamptz,
+  period_end timestamptz,
+  scope varchar(40),
+  value_note text,
+  reliability varchar(20) not null default 'unknown',
+  transformations text,
+  snapshot_ref uuid references public.diagnostic_snapshots (id) on delete set null,
+
+  -- Apartado 7: la contradictoria no se oculta, asi que tiene su sitio.
+  stance varchar(16) not null default 'supporting',
+
+  created_at timestamptz not null default now(),
+
+  constraint diagnostic_output_evidence_capa check (claim_layer in (
+    'what', 'where', 'measurement', 'signal', 'symptom', 'why', 'root_cause',
+    'constraint', 'current_impact', 'future_impact', 'severity', 'forecast', 'overall'
+  )),
+  constraint diagnostic_output_evidence_postura check (
+    stance in ('supporting', 'contradicting', 'inconclusive')
+  ),
+  constraint diagnostic_output_evidence_fiabilidad check (
+    reliability in ('high', 'medium', 'low', 'unreliable', 'unknown')
+  ),
+  constraint diagnostic_output_evidence_periodo check (
+    period_end is null or period_start is null or period_end >= period_start
+  ),
+  -- Una evidencia sin origen no es evidencia: es una afirmacion.
+  constraint diagnostic_output_evidence_tiene_origen check (
+    length(btrim(source_ref)) >= 3
+  ),
+  -- Apartado 7: si se transformo el dato, se dice como.
+  constraint diagnostic_output_evidence_transformacion_visible check (
+    transformations is null or length(btrim(transformations)) >= 10
+  )
+);
+
+comment on table public.diagnostic_output_evidence is
+  'F3/D14 apartado 7. El ledger que hace que toda afirmacion material se pueda reconstruir hasta '
+  'un dato concreto. `stance` incluye `contradicting` porque el apartado 41 prohibe ocultar la '
+  'evidencia contradictoria material: si no tuviera sitio, desapareceria sola.';
+
+create index if not exists diagnostic_output_evidence_salida_idx
+  on public.diagnostic_output_evidence (output_id, stance);
+create index if not exists diagnostic_output_evidence_capa_idx
+  on public.diagnostic_output_evidence (output_id, claim_layer);
+
+-- ---------------------------------------------------------------------------
+-- 4. Los validadores (apartados 16 y 17)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_validations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  output_id uuid not null references public.diagnostic_outputs (id) on delete cascade,
+
+  validator varchar(24) not null,
+  result varchar(20) not null default 'invalid',
+  message text,
+  blocking boolean not null default false,
+
+  created_at timestamptz not null default now(),
+
+  -- Apartado 16: los once validadores.
+  constraint diagnostic_validations_validador check (validator in (
+    'structural', 'semantic', 'causal', 'evidence', 'confidence', 'severity',
+    'temporal', 'confounder', 'scope', 'contradiction', 'output_integrity'
+  )),
+  constraint diagnostic_validations_resultado check (
+    result in ('valid', 'pass_with_warnings', 'invalid')
+  ),
+  -- Apartado 16: una advertencia solo deja pasar si esta explicitada.
+  constraint diagnostic_validations_aviso_se_explicita check (
+    result <> 'pass_with_warnings' or message is not null
+  ),
+  constraint diagnostic_validations_invalido_se_explica check (
+    result <> 'invalid' or message is not null
+  ),
+  -- Un error que compromete la integridad bloquea; si no bloquea, no era error.
+  constraint diagnostic_validations_bloqueo_es_invalido check (
+    not blocking or result = 'invalid'
+  ),
+  constraint diagnostic_validations_unico unique (output_id, validator)
+);
+
+comment on table public.diagnostic_validations is
+  'F3/D14 apartados 16 y 17. Los once validadores con su resultado. Una advertencia sin mensaje '
+  'no es una advertencia: es una salida sin revisar con apariencia de revisada.';
+
+create index if not exists diagnostic_validations_salida_idx
+  on public.diagnostic_validations (output_id, result);
+
+-- ---------------------------------------------------------------------------
+-- 5. Las transiciones de estado y las reaperturas (apartados 5, 9 y 19)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_transitions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  output_id uuid references public.diagnostic_outputs (id) on delete set null,
+
+  from_status varchar(24),
+  to_status varchar(24) not null,
+  -- Apartado 5: actor, momento, razon y evidencia.
+  actor varchar(24) not null,
+  actor_ref text,
+  reason text not null,
+  evidence_ref text,
+  new_evidence text,
+
+  occurred_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+
+  constraint diagnostic_transitions_desde check (from_status is null or from_status in (
+    'open', 'investigating', 'partially_confirmed', 'confirmed', 'recovering',
+    'closed', 'closed_pending_outcome', 'inconclusive', 'insufficient_data',
+    'invalidated', 'reopened'
+  )),
+  constraint diagnostic_transitions_hasta check (to_status in (
+    'open', 'investigating', 'partially_confirmed', 'confirmed', 'recovering',
+    'closed', 'closed_pending_outcome', 'inconclusive', 'insufficient_data',
+    'invalidated', 'reopened'
+  )),
+  -- Apartado 9: quien o que componente produjo el cambio. Un rol, no una
+  -- persona: D09 ya decidio que aqui no se senala a nadie.
+  constraint diagnostic_transitions_actor check (
+    actor in ('engine', 'validator', 'consultant', 'scheduler', 'external_event')
+  ),
+  constraint diagnostic_transitions_motivo check (length(btrim(reason)) >= 15),
+  constraint diagnostic_transitions_hay_cambio check (
+    from_status is null or from_status <> to_status
+  ),
+  -- Apartado 19: reabrir exige evidencia nueva, no un cambio de opinion.
+  constraint diagnostic_transitions_reabrir_exige_evidencia check (
+    to_status <> 'reopened' or new_evidence is not null
+  ),
+  -- Apartado 5: invalidar una conclusion confirmada exige evidencia material.
+  constraint diagnostic_transitions_invalidar_exige_evidencia check (
+    to_status <> 'invalidated' or evidence_ref is not null or new_evidence is not null
+  )
+);
+
+comment on table public.diagnostic_transitions is
+  'F3/D14 apartados 5, 9 y 19. Cada cambio de estado con su actor, su momento, su razon y su '
+  'evidencia. Reabrir exige evidencia nueva (apartado 19): un caso no se reabre por un cambio de '
+  'opinion. `actor` es un rol y no una persona, en la misma linea que D09.';
+
+create index if not exists diagnostic_transitions_caso_idx
+  on public.diagnostic_transitions (case_id, occurred_at desc);
+
+-- ---------------------------------------------------------------------------
+-- 6. El cierre y la verificacion del resultado (apartado 18)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.diagnostic_closures (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  case_id uuid not null references public.diagnostic_cases (id) on delete cascade,
+  output_id uuid references public.diagnostic_outputs (id) on delete set null,
+
+  resolved_at timestamptz,
+  closure_kind varchar(24) not null default 'pending_outcome',
+  outcome_verified boolean not null default false,
+  outcome_evidence text,
+  recovery_status varchar(20) not null default 'not_recovering',
+  residual_issues text,
+  followup_required boolean not null default false,
+  followup_note text,
+  confidence varchar(20) not null default 'insufficient_data',
+  administrative_closure_reason text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint diagnostic_closures_tipo check (
+    closure_kind in ('verified', 'administrative', 'pending_outcome')
+  ),
+  constraint diagnostic_closures_recuperacion check (recovery_status in (
+    'not_recovering', 'early_recovery', 'partial_recovery',
+    'near_baseline', 'recovered', 'relapsed'
+  )),
+  constraint diagnostic_closures_confianza check (
+    confidence in ('high', 'medium', 'low', 'insufficient_data')
+  ),
+  -- Apartado 18: **resolver la causa no basta para cerrar.** Un cierre
+  -- verificado exige haber comprobado el resultado empresarial.
+  constraint diagnostic_closures_verificado_se_comprueba check (
+    closure_kind <> 'verified' or (outcome_verified and outcome_evidence is not null)
+  ),
+  -- Y si se cierra sin comprobarlo, hay que decir que es administrativo y por que.
+  constraint diagnostic_closures_administrativo_se_motiva check (
+    closure_kind <> 'administrative' or administrative_closure_reason is not null
+  ),
+  constraint diagnostic_closures_seguimiento_se_concreta check (
+    not followup_required or followup_note is not null
+  ),
+  constraint diagnostic_closures_unico unique (case_id)
+);
+
+comment on table public.diagnostic_closures is
+  'F3/D14 apartado 18. **RESOLUTION != CLOSURE.** Cerrar exige verificar el resultado '
+  'empresarial, o declarar por escrito que es un cierre administrativo. Sin esas dos salidas, '
+  'todo el mundo cierra en cuanto toca la causa.';
+
+create index if not exists diagnostic_closures_caso_idx
+  on public.diagnostic_closures (case_id);
+
+drop trigger if exists set_diagnostic_closures_updated_at on public.diagnostic_closures;
+create trigger set_diagnostic_closures_updated_at before update on public.diagnostic_closures
+for each row execute function private.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 7. Conocimiento != evidencia: se amplia D11, no se duplica (apartado 26)
+-- ---------------------------------------------------------------------------
+--
+-- `knowledge_applicability` de D11 ya separa la confianza de recuperacion de la
+-- del diagnostico, que es exactamente la frontera del apartado 26. Crear aqui
+-- un DIAGNOSTIC_REFERENCE_RECORD paralelo daria dos registros del mismo
+-- documento que acabarian discrepando.
+
+alter table public.knowledge_applicability
+  add column if not exists knowledge_type varchar(24),
+  add column if not exists retrieval_context text,
+  add column if not exists used_for text,
+  add column if not exists output_id uuid references public.diagnostic_outputs (id) on delete set null;
+
+alter table public.knowledge_applicability
+  drop constraint if exists knowledge_applicability_tipo;
+alter table public.knowledge_applicability
+  add constraint knowledge_applicability_tipo check (
+    knowledge_type is null or knowledge_type in (
+      'doctrine', 'pattern', 'benchmark', 'playbook_reference',
+      'regulation', 'vendor_doc', 'internal_note'
+    )
+  );
+
+comment on column public.knowledge_applicability.knowledge_type is
+  'F3/D14 apartado 26. REFERENCE_KNOWLEDGE no se convierte por si mismo en CASE_EVIDENCE: un '
+  'patron recuperado por similitud no demuestra que ese patron ocurra en este negocio. Esta '
+  'tabla es la de D11 ampliada, no una paralela.';
+
+-- ---------------------------------------------------------------------------
+-- 8. RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.diagnostic_outputs enable row level security;
+alter table public.diagnostic_snapshots enable row level security;
+alter table public.diagnostic_output_evidence enable row level security;
+alter table public.diagnostic_validations enable row level security;
+alter table public.diagnostic_transitions enable row level security;
+alter table public.diagnostic_closures enable row level security;
+
+-- Apartado 23: el cliente solo ve lo marcado `user_visible`, y solo de su
+-- organizacion. El staff ve todo lo de las organizaciones que tiene asignadas.
+drop policy if exists "diagnostic_outputs_select_staff" on public.diagnostic_outputs;
+create policy "diagnostic_outputs_select_staff" on public.diagnostic_outputs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "diagnostic_outputs_select_cliente" on public.diagnostic_outputs;
+create policy "diagnostic_outputs_select_cliente" on public.diagnostic_outputs
+  for select to authenticated
+  using (visibility = 'user_visible' and private.can_access_org(organization_id));
+
+drop policy if exists "diagnostic_snapshots_select_staff" on public.diagnostic_snapshots;
+create policy "diagnostic_snapshots_select_staff" on public.diagnostic_snapshots
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "diagnostic_output_evidence_select_staff" on public.diagnostic_output_evidence;
+create policy "diagnostic_output_evidence_select_staff" on public.diagnostic_output_evidence
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "diagnostic_validations_select_staff" on public.diagnostic_validations;
+create policy "diagnostic_validations_select_staff" on public.diagnostic_validations
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "diagnostic_transitions_select_staff" on public.diagnostic_transitions;
+create policy "diagnostic_transitions_select_staff" on public.diagnostic_transitions
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "diagnostic_closures_select_staff" on public.diagnostic_closures;
+create policy "diagnostic_closures_select_staff" on public.diagnostic_closures
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20260926090000_f3_d01_motor_idempotencia.sql
+-- =============================================================================
+-- ---------------------------------------------------------------------------
+-- FASE 3 / D01 — lo que el motor necesita para poder reejecutarse.
+--
+-- `20260914160000` creo las tablas de D01 pensando en quien escribe a mano: una
+-- evaluacion, un issue, cada uno con su fila. Con un motor que pasa cada dia
+-- sobre todas las organizaciones eso no vale: la segunda pasada duplicaria todo
+-- y la tercera triplicaria, hasta que "que fuentes fallan" deje de poder
+-- responderse mirando la tabla.
+--
+-- El patron es el del ADR-0006 punto 1: estado actual con upsert in-place,
+-- nunca append-only leido con DISTINCT ON. Lo que falta para poder hacerlo es
+-- la huella por la que dos pasadas reconocen la misma cosa.
+--
+-- Idempotente (regla de CLAUDE.md): `add column if not exists` y
+-- `create unique index if not exists`.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- EVALUACION — una por fuente, scope y ventana
+-- ---------------------------------------------------------------------------
+--
+-- Una evaluacion responde "¿aguanta esta fuente, para este fenomeno, en este
+-- periodo?". Reevaluar el mismo periodo no crea una segunda respuesta: corrige
+-- la primera. `assessed_at` dice cuando se miro por ultima vez.
+--
+-- La huella es columna generada y no la escribe el motor: si la calculara el
+-- codigo, un dia calcularia distinto y la unicidad dejaria de significar lo que
+-- dice. `at time zone 'UTC'` esta para que la expresion sea inmutable, que es
+-- un instante en una columna generada: `::text` depende de DateStyle y `to_char`
+-- del locale, y Postgres rechaza las dos.
+
+alter table public.data_quality_assessments
+  add column if not exists fingerprint text
+  generated always as (
+    source || '|' || dataset || '|' || phenomenon || '|' || scope
+    || '|' || coalesce(store_id::text, '-')
+    || '|' || extract(epoch from (period_start at time zone 'UTC'))::text
+    || '|' || extract(epoch from (period_end at time zone 'UTC'))::text
+  ) stored;
+
+comment on column public.data_quality_assessments.fingerprint is
+  'F3/D01. La identidad de una evaluacion: misma fuente, mismo scope y misma ventana son la misma evaluacion, no dos. Generada en base para que el motor no pueda calcularla distinto.';
+
+create unique index if not exists data_quality_assessments_huella_idx
+  on public.data_quality_assessments (organization_id, fingerprint);
+
+-- ---------------------------------------------------------------------------
+-- ISSUE — uno abierto por tipo, fuente y scope
+-- ---------------------------------------------------------------------------
+--
+-- Aqui la unicidad es **parcial a proposito**, y es la decision de fondo de
+-- esta migracion: solo puede haber un issue ABIERTO del mismo tipo sobre la
+-- misma fuente. Los cerrados se acumulan, porque son el historial: saber que
+-- este permiso ya se cayo tres veces en dos meses es informacion, y colapsarlos
+-- en una sola fila la borraria.
+--
+-- El efecto secundario que interesa: un issue que alguien marco como explicado
+-- no puede ser reabierto en silencio por la siguiente pasada del motor. Si la
+-- averia vuelve, entra una fila nueva, con su fecha -- que es justo lo que hay
+-- que ver.
+
+alter table public.data_quality_issues
+  add column if not exists fingerprint text
+  generated always as (
+    source || '|' || coalesce(dataset, '-') || '|' || coalesce(phenomenon, '-')
+    || '|' || scope
+    || '|' || coalesce(store_id::text, '-')
+    || '|' || issue_type
+  ) stored;
+
+comment on column public.data_quality_issues.fingerprint is
+  'F3/D01. La identidad de un fallo: mismo tipo, misma fuente, mismo scope. Unica solo entre los abiertos, para que el historial de cierres se conserve.';
+
+create unique index if not exists data_quality_issues_huella_abierta_idx
+  on public.data_quality_issues (organization_id, fingerprint)
+  where status in ('open', 'investigating');
+
+-- =============================================================================
+-- Migracion: 20260927090000_f3_d02_motor_idempotencia.sql
+-- =============================================================================
+-- ---------------------------------------------------------------------------
+-- FASE 3 / D02 — lo que el motor de contextualizacion necesita para repetirse.
+--
+-- Mismo problema que resolvio `20260926090000` para D01 y misma forma de
+-- resolverlo: sin una huella, la segunda pasada del motor duplica todo lo que
+-- escribio la primera.
+--
+-- Aqui hay ademas una decision que conviene dejar por escrito, porque se nota
+-- en el esquema: **`context_assessments.case_id` es obligatorio y hoy no hay
+-- nadie que abra casos diagnosticos**. `D00` define que es un caso pero no
+-- quien lo crea; `D06` (sintomas) seria su sitio natural y todavia no existe.
+-- Mientras tanto lo abre el motor de `D02` a partir de una senal de `D05`, con
+-- su huella para no abrir dos veces el mismo. Cuando exista `D06`, la apertura
+-- se mueve alli y esta huella se queda igual -- anotado en
+-- `conocimiento/TAREAS_PENDIENTES.md`.
+--
+-- Idempotente (regla de CLAUDE.md).
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- CASO — uno por metrica, scope y ventana de analisis
+-- ---------------------------------------------------------------------------
+--
+-- Dos investigaciones sobre la misma metrica, el mismo alcance y el mismo
+-- periodo son la misma investigacion. Si de verdad son dos preguntas
+-- distintas, se diferencian por `scope` o por ventana, que es justo lo que la
+-- huella recoge.
+--
+-- El periodo entra como epoch UTC porque es la unica forma inmutable de meter
+-- un instante en una columna generada: `::text` depende de DateStyle y
+-- `to_char` del locale, y Postgres rechaza las dos.
+
+alter table public.diagnostic_cases
+  add column if not exists fingerprint text
+  generated always as (
+    target_metric || '|' || scope
+    || '|' || coalesce(store_id::text, '-')
+    || '|' || extract(epoch from (analysis_period_start at time zone 'UTC'))::text
+    || '|' || extract(epoch from (analysis_period_end at time zone 'UTC'))::text
+  ) stored;
+
+comment on column public.diagnostic_cases.fingerprint is
+  'F3/D02. La identidad de una investigacion: misma metrica, mismo alcance y misma ventana son el mismo caso. Existe para que un motor pueda reejecutarse sin abrir casos duplicados.';
+
+create unique index if not exists diagnostic_cases_huella_idx
+  on public.diagnostic_cases (organization_id, fingerprint);
+
+-- ---------------------------------------------------------------------------
+-- LECTURA CONTEXTUAL — una vigente por caso y alcance
+-- ---------------------------------------------------------------------------
+--
+-- Aqui no hace falta huella: `case_id` + `scope` ya son la identidad natural.
+-- Recontextualizar el mismo caso con el mismo alcance no produce una segunda
+-- lectura, corrige la primera -- y `assessed_at` dice cuando se miro.
+--
+-- Al contrario que los issues de D01, aqui NO se conserva historial: el
+-- contexto vigente de entonces ya queda congelado en `context_snapshot`, que
+-- tiene su propio trigger anti-reescritura (guardrail 38). Guardar ademas cada
+-- pasada seria la misma verdad dos veces.
+
+create unique index if not exists context_assessments_caso_scope_idx
+  on public.context_assessments (case_id, scope);
+
+-- =============================================================================
+-- Migracion: 20260927093000_f3_d02_mix_de_pedidos.sql
+-- =============================================================================
+-- ---------------------------------------------------------------------------
+-- FASE 3 / D02 — la descomposicion del mix, en SQL.
+--
+-- El paso 6 del runtime pide separar cambio dentro de segmentos de cambio en
+-- composicion. Para eso hacen falta dos fotos agregadas por segmento, y el
+-- punto 6 del ADR-0006 es explicito: las metricas son funciones SQL `stable`
+-- llamadas por `.rpc()`, nunca agregaciones en Node.
+--
+-- Dos dimensiones, que son las unicas que `shopify_order_facts` sostiene hoy
+-- sin inventarse nada:
+--
+--   `channel`        de donde vino el cliente (`first_visit_source_type`)
+--   `customer_type`  nuevo o recurrente (`is_first_customer_order`)
+--
+-- Falta `device`, `market` y `product`, que son las otras tres de la lista del
+-- artefacto. No se simulan: el motor declara que no puede mirarlas y eso acaba
+-- en `missing_context`, que es el comportamiento que pide el paso 15.
+--
+-- `orders` es el peso y `net_sales` da el rendimiento (AOV = net_sales/orders).
+-- Los dos salen juntos a proposito: un peso sin rendimiento no distingue nada,
+-- y es justo lo que la check constraint `..._rendimiento_par` impide guardar.
+--
+-- Sin `security definer`: la funcion se ejecuta con los permisos de quien
+-- llama, igual que el resto de metricas del repo.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.context_order_mix(
+  target_organization_id uuid,
+  period_start timestamptz,
+  period_end timestamptz,
+  target_store_id uuid default null
+)
+returns table (
+  dimension text,
+  segment text,
+  orders bigint,
+  net_sales numeric
+)
+language sql
+stable
+as $$
+  with pedidos as (
+    select
+      coalesce(o.first_visit_source_type, 'desconocido') as canal,
+      o.is_first_customer_order,
+      o.net_sales
+    from public.shopify_order_facts o
+    where o.organization_id = target_organization_id
+      and (target_store_id is null or o.store_id = target_store_id)
+      -- Mismos filtros que `shopify_sales_daily`: si el mix contara pedidos de
+      -- prueba o cancelados, diria que el negocio cambio cuando cambio el QA.
+      and o.is_test_order = false
+      and o.cancelled_at is null
+      and coalesce(o.processed_at, o.external_created_at) >= period_start
+      and coalesce(o.processed_at, o.external_created_at) < period_end
+  )
+  select 'channel'::text, canal::text, count(*)::bigint, coalesce(sum(net_sales), 0)
+    from pedidos
+   group by canal
+  union all
+  select
+    'customer_type'::text,
+    case when is_first_customer_order then 'nuevo' else 'recurrente' end,
+    count(*)::bigint,
+    coalesce(sum(net_sales), 0)
+    from pedidos
+   group by is_first_customer_order;
+$$;
+
+comment on function public.context_order_mix(uuid, timestamptz, timestamptz, uuid) is
+  'F3/D02 paso 6. Peso (pedidos) y rendimiento (net_sales) por segmento en una ventana, para separar cambio de rendimiento de cambio de composicion.';
+
+-- El indice que calza con el predicado de fecha, junto a la funcion que lo
+-- necesita (ADR-0006 punto 6).
+create index if not exists shopify_order_facts_mix_idx
+  on public.shopify_order_facts (
+    organization_id,
+    store_id,
+    (coalesce(processed_at, external_created_at))
+  )
+  where is_test_order = false and cancelled_at is null;
+
+-- =============================================================================
+-- Migracion: 20260928090000_f3_d06_motor_idempotencia.sql
+-- =============================================================================
+-- FASE 3 / D06 — Idempotencia del motor de sintomas.
+--
+-- El contrato de D06 (`20260917090000`) define que es un sintoma. Esto es lo
+-- que hace falta para que un motor pueda **escribirlos todos los dias sin
+-- duplicarlos**, que es otra cosa.
+--
+-- LA DECISION: UN SINTOMA ES UN EPISODIO, NO UNA FOTO DIARIA. Si la caida de
+-- ventas sigue ahi manana, no es un segundo sintoma: es el mismo, un dia mas
+-- viejo. Por eso la huella no lleva fecha --`canonical_type`, `scope` y tienda,
+-- nada mas-- y el indice unico es **parcial, solo sobre los activos**. Los
+-- resueltos se acumulan como historia, que es justo lo que hace falta para el
+-- paso 19 del runtime: sin episodios cerrados no hay forma de distinguir un
+-- patron recurrente de uno cronico. Mismo criterio que las incidencias de D01,
+-- y por el mismo motivo: reabrir en silencio algo que alguien cerro a mano
+-- destruye el unico rastro de que se cerro.
+--
+-- La evidencia se desduplica por `md5(observation)` y no por el texto entero
+-- porque el texto es libre y el indice btree tiene limite de tamano; el hash es
+-- inmutable, que es lo que exige un indice sobre expresion.
+--
+-- Idempotente (ADR-0014 / CLAUDE.md).
+
+-- ---------------------------------------------------------------------------
+-- 1. La huella del episodio
+-- ---------------------------------------------------------------------------
+
+alter table public.symptoms
+  add column if not exists fingerprint text
+  generated always as (
+    canonical_type || '|' || scope || '|' || coalesce(store_id::text, '-')
+  ) stored;
+
+comment on column public.symptoms.fingerprint is
+  'F3/D06. Identidad del episodio: tipo, alcance y tienda. Sin fecha a proposito -- '
+  'un sintoma que dura tres semanas es uno, no veintiuno.';
+
+create unique index if not exists symptoms_huella_activa_idx
+  on public.symptoms (organization_id, fingerprint)
+  where status = 'active';
+
+-- ---------------------------------------------------------------------------
+-- 2. Evidencia y puente con D00, sin duplicar
+-- ---------------------------------------------------------------------------
+
+-- El hash va en columna generada y no en el indice sobre expresion porque
+-- PostgREST solo sabe resolver `on_conflict` con nombres de columna: un indice
+-- sobre `md5(observation)` seria correcto en SQL e inservible desde el motor.
+alter table public.symptom_evidence
+  add column if not exists observation_hash text
+  generated always as (md5(observation)) stored;
+
+create unique index if not exists symptom_evidence_unica_idx
+  on public.symptom_evidence (symptom_id, source_kind, observation_hash);
+
+create unique index if not exists diagnostic_symptoms_origen_idx
+  on public.diagnostic_symptoms (case_id, source_symptom_id)
+  where source_symptom_id is not null;
+
+-- ---------------------------------------------------------------------------
+-- 3. Lectura del mapa de sintomas (apartado 20)
+-- ---------------------------------------------------------------------------
+--
+-- La pantalla pide los activos de una organizacion ordenados por familia. El
+-- indice existente (`symptoms_org_idx`) cubre organizacion y estado; este anade
+-- la capacidad, que es como el apartado 20 quiere ver el mapa.
+
+create index if not exists symptoms_mapa_idx
+  on public.symptoms (organization_id, status, capability);
+
+-- ---------------------------------------------------------------------------
+-- 4. La aritmetica del ecommerce, declarada
+-- ---------------------------------------------------------------------------
+--
+-- `metric_dependencies` existe desde D05 y esta vacia, asi que hasta ahora no
+-- servia para nada. Es la tabla de la que D06 lee **si dos metricas tienen algo
+-- que ver**: el guardrail 9 prohibe crear un sintoma porque dos senales
+-- coincidan, y el 10 exige una relacion declarada. Declararla es esto.
+--
+-- Sin organizacion porque no es una particularidad de nadie: las ventas netas
+-- son pedidos por ticket medio en cualquier tienda. Las relaciones propias de
+-- un tenant van con su `organization_id`, y el indice unico las separa.
+
+insert into public.metric_dependencies (organization_id, metric, depends_on, relation, rationale)
+select null, 'net_sales', 'orders_count', 'component',
+       'Las ventas netas son el numero de pedidos por el ticket medio: si una se mueve sin la otra, lo que cambio es el ticket.'
+where not exists (
+  select 1 from public.metric_dependencies
+  where organization_id is null
+    and metric = 'net_sales'
+    and depends_on = 'orders_count'
+    and relation = 'component'
+);
+
+-- =============================================================================
+-- Migracion: 20260929093000_panel_motor_financiero_real.sql
+-- =============================================================================
+-- F1 del panel del manager: el motor financiero de verdad.
+-- Ver docs/PLAN_PANEL_MANAGER.md.
+--
+-- Cinco arreglos en una sola migracion porque los cinco caen sobre la misma
+-- funcion (`shopify_financial_summary`) y partirlos significaria reescribirla
+-- cinco veces:
+--
+--   1. Ingresos SIN IVA. `net_sales` es `current_total_price - refunds`: lleva
+--      dentro el IVA y el envio que paga el cliente. Lo llamabamos "facturacion
+--      neta" y no lo es. El impuesto real por pedido ya viene de Shopify en
+--      `current_total_tax`, asi que no hace falta `vat_pct`.
+--
+--   2. Envios reales. `shipping_cost_rules` existe desde DB-03 y NUNCA se ha
+--      leido: el coste de envio era `default_shipping_cost x pedidos`. Y lo que
+--      el cliente PAGA por el envio (`current_shipping_price`) no se agregaba,
+--      asi que no habia forma de saber si el envio gana o pierde dinero.
+--
+--   3. Ads dentro del beneficio. `net_profit` no restaba la inversion
+--      publicitaria. Con los numeros del panel de referencia daba 4.205 EUR en
+--      vez de 1.810 EUR: **sobrestimaba el beneficio un 132%**, y arrastraba el
+--      margen neto y el break-even. Es el fallo mas grave del motor.
+--
+--   4. Clientes nuevos y CAC blended. El CAC que se mostraba era el de Meta
+--      (gasto de Meta / compras que Meta se atribuye). El CAC real es todo lo
+--      que gastas en ads dividido entre los clientes nuevos que entraron.
+--
+--   5. Unit economics por pedido, MBEE y ROAS de break-even.
+--
+-- ADR-0021: sumar el GASTO de varias plataformas es legitimo -- es un coste
+-- real facturado, no una atribucion. Lo que no se suma nunca son los ingresos
+-- que cada plataforma se atribuye. Por eso `ads_spend_summary` agrega gasto y
+-- el CAC blended se calcula contra clientes nuevos de Shopify (first-party),
+-- no contra las compras que Meta dice haber generado.
+--
+-- ADR-0006 pto 6: funciones SQL `stable`, sin `security definer`, llamadas via
+-- .rpc(), con el indice que calza con el predicado creado aqui mismo.
+
+-- ---------------------------------------------------------------------------
+-- Indice para el conteo de clientes nuevos
+-- ---------------------------------------------------------------------------
+-- El primer pedido de cada cliente se deriva agrupando por
+-- customer_reference_hash sobre TODO el historico de la tienda (no solo el
+-- periodo), asi que el agrupado necesita su indice.
+create index if not exists shopify_order_facts_customer_hash_idx
+  on public.shopify_order_facts (organization_id, store_id, customer_reference_hash);
+
+-- ---------------------------------------------------------------------------
+-- ads_spend_summary: la inversion publicitaria real del periodo
+-- ---------------------------------------------------------------------------
+-- Hoy solo Meta. Cuando entre Google Ads (F8 del plan) se suma aqui dentro y
+-- el beneficio, el CAC blended y el panel se corrigen solos sin tocar nada mas.
+--
+-- Los filtros (level='ad', breakdown_hash='none') son los MISMOS que usa
+-- `meta_spend_summary`, a proposito: si divergen, la tarjeta de Meta y el
+-- beneficio neto mostrarian dos gastos distintos para el mismo periodo. Si
+-- algun dia el sync guarda varias ventanas de atribucion por fila, las dos
+-- funciones tienen que filtrar `attribution_hash` a la vez o ambas duplicaran.
+drop function if exists public.ads_spend_summary(uuid, timestamptz, timestamptz, uuid);
+create function public.ads_spend_summary(
+  target_organization_id uuid,
+  period_start timestamptz,
+  period_end timestamptz,
+  target_store_id uuid
+)
+returns table (
+  spend numeric,
+  by_platform jsonb,
+  days_with_data bigint
+)
+language sql
+stable
+as $$
+  with meta as (
+    select
+      coalesce(sum(r.spend), 0) as spend,
+      count(distinct r.metric_date)::bigint as days_with_data
+    from public.meta_insight_rows_daily r
+    join public.meta_ad_accounts a on a.id = r.ad_account_id
+    where r.organization_id = target_organization_id
+      and r.level = 'ad'
+      and r.breakdown_hash = 'none'
+      -- store_id null en la cuenta = cuenta sin tienda asignada: cuenta para la
+      -- organizacion, no para una tienda concreta.
+      and (target_store_id is null or a.store_id = target_store_id)
+      and (period_start is null or r.metric_date >= period_start::date)
+      and r.metric_date <= period_end::date
+  )
+  select
+    round(m.spend, 2) as spend,
+    jsonb_build_object('meta', round(m.spend, 2)) as by_platform,
+    m.days_with_data
+  from meta m;
+$$;
+
+grant execute on function public.ads_spend_summary(uuid, timestamptz, timestamptz, uuid) to authenticated;
+
+comment on function public.ads_spend_summary(uuid, timestamptz, timestamptz, uuid) is
+  'Inversion publicitaria real del periodo, sumada entre plataformas conectadas '
+  '(hoy solo Meta). Es GASTO, no atribucion: ADR-0021 prohibe sumar ingresos '
+  'atribuidos entre plataformas, no costes facturados. by_platform lleva el '
+  'desglose para que el panel pueda mostrar "Meta X + Google Y". Mismos filtros '
+  'que meta_spend_summary para que las dos cifras no se contradigan.';
+
+-- ---------------------------------------------------------------------------
+-- shopify_financial_summary v2
+-- ---------------------------------------------------------------------------
+-- `create or replace` no sirve: cambia la lista de columnas devueltas. Se
+-- borra la firma vieja primero (CLAUDE.md).
+--
+-- Las columnas que ya existian conservan nombre Y significado, para no romper
+-- en silencio a los agentes ni al SQL gateway. En particular `net_sales` sigue
+-- siendo el total con IVA y envio; el ingreso sin IVA es la columna NUEVA
+-- `net_revenue_ex_tax`, y es esa la que manda en beneficio, margen y unit
+-- economics.
+drop function if exists public.shopify_financial_summary(uuid, timestamptz, timestamptz, uuid);
+create function public.shopify_financial_summary(
+  target_organization_id uuid,
+  period_start timestamptz,
+  period_end timestamptz,
+  target_store_id uuid
+)
+returns table (
+  -- Existentes (mismo significado que antes salvo donde se indica)
+  net_sales numeric,
+  orders_count bigint,
+  cogs numeric,
+  gross_margin numeric,
+  payment_fees numeric,
+  shipping_costs numeric,
+  fixed_costs numeric,
+  net_profit numeric,
+  net_margin_pct numeric,
+  monthly_fixed_costs numeric,
+  break_even_monthly_revenue numeric,
+  has_settings boolean,
+  fixed_expenses_count bigint,
+  items_without_cost bigint,
+  -- Ingresos sin IVA
+  net_revenue_ex_tax numeric,
+  tax_collected numeric,
+  -- Envios
+  shipping_charged numeric,
+  shipping_net numeric,
+  uses_shipping_rules boolean,
+  -- Ads
+  ads_spend numeric,
+  ads_by_platform jsonb,
+  ads_days_with_data bigint,
+  -- Clientes
+  new_customers bigint,
+  cac_blended numeric,
+  -- Unit economics por pedido
+  aov_ex_tax numeric,
+  cogs_per_order numeric,
+  shipping_per_order numeric,
+  payment_fee_per_order numeric,
+  fixed_per_order numeric,
+  fixed_pct_revenue numeric,
+  cac_per_order numeric,
+  contribution_per_order numeric,
+  breakeven_cac_per_order numeric,
+  mbee numeric,
+  breakeven_roas numeric
+)
+language sql
+stable
+as $$
+  with period as (
+    select
+      coalesce(
+        period_start,
+        (
+          select min(coalesce(o.processed_at, o.external_created_at))
+          from public.shopify_order_facts o
+          where o.organization_id = target_organization_id
+            and (target_store_id is null or o.store_id = target_store_id)
+        ),
+        period_end
+      ) as effective_start,
+      period_end as effective_end
+  ),
+  settings as (
+    select s.payment_fee_pct, s.payment_fee_fixed, s.default_shipping_cost
+    from public.organization_financial_settings s
+    where s.organization_id = target_organization_id
+  ),
+  -- Pedidos del periodo, una sola pasada. De aqui salen ingresos, IVA, envio
+  -- cobrado y el coste de envio por tramo.
+  orders as (
+    select
+      o.id,
+      o.customer_reference_hash,
+      coalesce(o.processed_at, o.external_created_at) as happened_at,
+      o.net_sales,
+      o.current_total_price,
+      o.current_total_tax,
+      o.current_shipping_price,
+      o.refunds
+    from public.shopify_order_facts o
+    where o.organization_id = target_organization_id
+      and (target_store_id is null or o.store_id = target_store_id)
+      and o.is_test_order = false
+      and o.cancelled_at is null
+      and (period_start is null or coalesce(o.processed_at, o.external_created_at) >= period_start)
+      and coalesce(o.processed_at, o.external_created_at) <= period_end
+  ),
+  -- Coste de envio pedido a pedido, buscando la regla de `shipping_cost_rules`
+  -- que cubre el importe del pedido y estaba vigente ese dia. Sin regla, el
+  -- envio medio de los ajustes, que es lo que se hacia antes para todo.
+  --
+  -- LIMITACION CONOCIDA: solo se aplican las reglas SIN pais. Las reglas con
+  -- `country_code` quedan fuera porque los pedidos no guardan pais: la
+  -- ubicacion del cliente se dejo de pedir y de guardar a proposito en
+  -- 20260910130000_shopify_customers_drop_location.sql (dato protegido de
+  -- Shopify que no leia nadie). Para activar reglas por pais habria que volver
+  -- a solicitar ese acceso, que es una decision de producto, no de codigo.
+  orders_shipping as (
+    select
+      o.id,
+      coalesce(rule.cost_per_order, st.default_shipping_cost, 0) as shipping_cost,
+      rule.cost_per_order is not null as matched_rule
+    from orders o
+    left join settings st on true
+    left join lateral (
+      select r.cost_per_order
+      from public.shipping_cost_rules r
+      where r.organization_id = target_organization_id
+        and r.is_active
+        and r.country_code is null
+        and r.valid_from <= o.happened_at::date
+        and (r.valid_until is null or r.valid_until >= o.happened_at::date)
+        and o.current_total_price >= r.min_order_total
+        and (r.max_order_total is null or o.current_total_price < r.max_order_total)
+      order by r.min_order_total desc
+      limit 1
+    ) rule on true
+  ),
+  sales as (
+    select
+      coalesce(sum(o.net_sales), 0) as net_sales,
+      -- El ingreso sin IVA. `refunds` se resta entero (lleva su propio IVA
+      -- dentro), asi que un pedido reembolsado queda ligeramente
+      -- infravalorado; corregirlo exige traer las lineas de reembolso.
+      coalesce(sum(o.current_total_price - o.refunds - o.current_total_tax), 0) as net_revenue_ex_tax,
+      coalesce(sum(o.current_total_tax), 0) as tax_collected,
+      coalesce(sum(o.current_shipping_price), 0) as shipping_charged,
+      count(*) as orders_count
+    from orders o
+  ),
+  shipping as (
+    select
+      coalesce(sum(s.shipping_cost), 0) as shipping_paid,
+      coalesce(bool_or(s.matched_rule), false) as uses_shipping_rules
+    from orders_shipping s
+  ),
+  -- Cliente nuevo = su primer pedido de siempre cae dentro del periodo.
+  -- NO se usa `is_first_customer_order`: el webhook de pedidos no escribe esa
+  -- columna (solo lo hace el sync bulk), asi que todo pedido entrado por
+  -- webhook la tiene a null. Mismo tipo de agujero que dejo 248 pedidos a cero
+  -- euros en `net_sales`. Derivarlo aqui no depende de que nadie despliegue.
+  customers as (
+    select count(*)::bigint as new_customers
+    from (
+      select
+        o.customer_reference_hash,
+        min(coalesce(o.processed_at, o.external_created_at)) as first_order_at
+      from public.shopify_order_facts o
+      where o.organization_id = target_organization_id
+        and (target_store_id is null or o.store_id = target_store_id)
+        and o.is_test_order = false
+        and o.cancelled_at is null
+        and o.customer_reference_hash is not null
+      group by o.customer_reference_hash
+    ) first_orders
+    where (period_start is null or first_orders.first_order_at >= period_start)
+      and first_orders.first_order_at <= period_end
+  ),
+  margin as (
+    select m.cogs, m.items_without_cost
+    from public.shopify_margin_summary(target_organization_id, period_start, period_end, target_store_id) m
+  ),
+  ads as (
+    select a.spend, a.by_platform, a.days_with_data
+    from public.ads_spend_summary(target_organization_id, period_start, period_end, target_store_id) a
+  ),
+  fixed as (
+    select
+      coalesce(
+        sum(
+          (case when fe.billing_period = 'yearly' then fe.amount / 12 else fe.amount end)
+          * greatest(
+              extract(
+                epoch from (
+                  least(coalesce(fe.valid_until::timestamptz, p.effective_end), p.effective_end)
+                  - greatest(fe.valid_from::timestamptz, p.effective_start)
+                )
+              ) / 86400.0,
+              0
+            )
+          / 30.44
+        ),
+        0
+      ) as fixed_costs_period,
+      coalesce(
+        sum(case when fe.billing_period = 'yearly' then fe.amount / 12 else fe.amount end)
+          filter (
+            where fe.valid_from <= current_date
+              and (fe.valid_until is null or fe.valid_until >= current_date)
+          ),
+        0
+      ) as monthly_fixed_costs,
+      count(*) as fixed_expenses_count
+    from public.fixed_expenses fe
+    cross join period p
+    where fe.organization_id = target_organization_id
+      and fe.is_active
+  ),
+  -- Todos los terminos ya resueltos, para no repetir la formula seis veces.
+  calc as (
+    select
+      s.net_sales,
+      s.net_revenue_ex_tax,
+      s.tax_collected,
+      s.shipping_charged,
+      s.orders_count,
+      m.cogs,
+      m.items_without_cost,
+      sh.shipping_paid,
+      sh.uses_shipping_rules,
+      ad.spend as ads_spend,
+      ad.by_platform as ads_by_platform,
+      ad.days_with_data as ads_days_with_data,
+      c.new_customers,
+      f.fixed_costs_period,
+      f.monthly_fixed_costs,
+      f.fixed_expenses_count,
+      exists (select 1 from settings) as has_settings,
+      -- La pasarela cobra sobre el importe que el cliente paga de verdad (IVA
+      -- y envio incluidos), no sobre el ingreso sin IVA. Por eso este termino
+      -- sigue apoyado en net_sales y no en net_revenue_ex_tax.
+      round(
+        s.net_sales * coalesce(st.payment_fee_pct, 0) / 100
+          + s.orders_count * coalesce(st.payment_fee_fixed, 0),
+        2
+      ) as payment_fees
+    from sales s
+    cross join margin m
+    cross join shipping sh
+    cross join ads ad
+    cross join customers c
+    cross join fixed f
+    left join settings st on true
+  ),
+  derived as (
+    select
+      c.*,
+      -- Margen de contribucion del periodo: lo que queda tras coste variable,
+      -- antes de fijos y antes de ads. Es el denominador del break-even.
+      c.net_revenue_ex_tax - c.cogs - c.payment_fees - c.shipping_paid as contribution_total,
+      c.net_revenue_ex_tax - c.cogs - c.payment_fees - c.shipping_paid
+        - c.fixed_costs_period - c.ads_spend as net_profit
+    from calc c
+  )
+  select
+    round(d.net_sales, 2),
+    d.orders_count,
+    round(d.cogs, 2),
+    -- gross_margin sobre el ingreso SIN IVA: el IVA no es tuyo, no puede
+    -- inflar tu margen bruto.
+    round(d.net_revenue_ex_tax - d.cogs, 2) as gross_margin,
+    d.payment_fees,
+    round(d.shipping_paid, 2) as shipping_costs,
+    round(d.fixed_costs_period, 2) as fixed_costs,
+    round(d.net_profit, 2) as net_profit,
+    case
+      when d.net_revenue_ex_tax > 0
+        then round(d.net_profit / d.net_revenue_ex_tax * 100, 2)
+      else 0
+    end as net_margin_pct,
+    round(d.monthly_fixed_costs, 2),
+    -- Break-even: facturacion sin IVA necesaria para cubrir los fijos. Los ads
+    -- quedan FUERA a proposito -- no son un suelo, son una decision; su
+    -- break-even es `breakeven_roas`, mas abajo.
+    case
+      when d.net_revenue_ex_tax > 0 and d.contribution_total > 0
+        then round(d.monthly_fixed_costs / (d.contribution_total / d.net_revenue_ex_tax), 2)
+      else null
+    end as break_even_monthly_revenue,
+    d.has_settings,
+    d.fixed_expenses_count,
+    d.items_without_cost,
+    round(d.net_revenue_ex_tax, 2),
+    round(d.tax_collected, 2),
+    round(d.shipping_charged, 2),
+    -- Positivo = el envio te cuesta mas de lo que cobras (la cifra "envios
+    -- netos -1.453 EUR" del panel de referencia se muestra en negativo).
+    round(d.shipping_charged - d.shipping_paid, 2) as shipping_net,
+    d.uses_shipping_rules,
+    round(d.ads_spend, 2),
+    d.ads_by_platform,
+    d.ads_days_with_data,
+    d.new_customers,
+    case when d.new_customers > 0 then round(d.ads_spend / d.new_customers, 2) else null end as cac_blended,
+    case when d.orders_count > 0 then round(d.net_revenue_ex_tax / d.orders_count, 2) else 0 end as aov_ex_tax,
+    case when d.orders_count > 0 then round(d.cogs / d.orders_count, 2) else 0 end as cogs_per_order,
+    case when d.orders_count > 0 then round(d.shipping_paid / d.orders_count, 2) else 0 end as shipping_per_order,
+    case when d.orders_count > 0 then round(d.payment_fees / d.orders_count, 2) else 0 end as payment_fee_per_order,
+    case when d.orders_count > 0 then round(d.fixed_costs_period / d.orders_count, 2) else 0 end as fixed_per_order,
+    case
+      when d.net_revenue_ex_tax > 0
+        then round(d.fixed_costs_period / d.net_revenue_ex_tax * 100, 2)
+      else 0
+    end as fixed_pct_revenue,
+    case when d.orders_count > 0 then round(d.ads_spend / d.orders_count, 2) else 0 end as cac_per_order,
+    -- "AOV - COGS - envio - CAC": lo que deja un pedido una vez pagado el
+    -- producto, el envio y lo que costo traerlo. Antes de fijos.
+    case
+      when d.orders_count > 0
+        then round((d.net_revenue_ex_tax - d.cogs - d.shipping_paid - d.ads_spend) / d.orders_count, 2)
+      else 0
+    end as contribution_per_order,
+    -- CAC de break-even: el maximo que puedes pagar por captar un pedido sin
+    -- perder dinero (todo lo demas ya descontado, fijos incluidos).
+    case
+      when d.orders_count > 0
+        then round(
+          (d.net_revenue_ex_tax - d.cogs - d.payment_fees - d.shipping_paid - d.fixed_costs_period)
+          / d.orders_count,
+          2
+        )
+      else 0
+    end as breakeven_cac_per_order,
+    -- MBEE = margen tras CAC = cuanto te sobra (o te falta) por pedido frente
+    -- a ese techo. Positivo = cada pedido captado deja dinero.
+    case
+      when d.orders_count > 0
+        then round(
+          (d.net_revenue_ex_tax - d.cogs - d.payment_fees - d.shipping_paid
+            - d.fixed_costs_period - d.ads_spend) / d.orders_count,
+          2
+        )
+      else 0
+    end as mbee,
+    -- ROAS que hay que batir para que la publicidad no cueste dinero.
+    case
+      when (d.net_revenue_ex_tax - d.cogs - d.payment_fees - d.shipping_paid - d.fixed_costs_period) > 0
+        then round(
+          d.net_revenue_ex_tax
+          / (d.net_revenue_ex_tax - d.cogs - d.payment_fees - d.shipping_paid - d.fixed_costs_period),
+          2
+        )
+      else null
+    end as breakeven_roas
+  from derived d;
+$$;
+
+grant execute on function public.shopify_financial_summary(uuid, timestamptz, timestamptz, uuid) to authenticated;
+
+comment on function public.shopify_financial_summary(uuid, timestamptz, timestamptz, uuid) is
+  'Motor financiero del panel. El ingreso que manda es net_revenue_ex_tax '
+  '(current_total_price - refunds - current_total_tax): net_sales se conserva '
+  'con su significado antiguo (con IVA y envio cobrado) para no romper a los '
+  'agentes. net_profit resta COGS, comisiones, envio real por tramo, fijos '
+  'prorrateados Y la inversion en ads -- antes los ads faltaban y el beneficio '
+  'salia inflado. El CAC blended se calcula contra clientes nuevos derivados de '
+  'customer_reference_hash, no contra la atribucion de Meta (ADR-0021) ni '
+  'contra is_first_customer_order (el webhook no la escribe). breakeven_roas y '
+  'mbee comparten techo: breakeven_cac_per_order.';

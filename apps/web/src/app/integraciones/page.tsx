@@ -8,50 +8,177 @@ import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
 import { ModuleSummary } from "@/components/module-summary";
-import { daysSince, oldest } from "@/lib/elapsed";
 import {
   AsyncState,
   Badge,
   Banner,
   Button,
+  ButtonLink,
   Card,
   EmptyState,
   ErrorBlock,
   IconChevronRight,
-  IntegrationStatusBadge,
   Link,
+  List,
   LoadingBlock,
+  ProviderIcon,
+  toast,
 } from "@/components/ui";
+import { classifyAuthorizationAttempt } from "@ecomscaling/contracts";
+import { ClientDataQualityNotice, DataQualityPanel } from "./data-quality-panel";
+import { PROVIDER_SLUG, readOAuthNotice, useIntegrations, useStoreScope } from "./shared";
 import {
-  ConnectionHealthList,
-  PROVIDER_SLUG,
-  healthLabel,
+  buildStoreViews,
   healthTone,
-  readOAuthNotice,
-  useIntegrations,
-} from "./shared";
-import { StoreScopeCard } from "./store-scope-card";
+  unassignedConnections,
+  type StoreProviderView,
+  type StoreView,
+} from "./store-view-model";
 
-// Hub de /integraciones: una tarjeta de estado por conector con enlace a su
-// propia pagina. La configuracion detallada de cada uno vive en
+// Hub de /integraciones: LA LISTA DE TIENDAS.
+//
+// Antes era una rejilla de cinco tarjetas por proveedor, cada una con el estado
+// de su peor tienda y una lista de ids crudos debajo. Para saber si la tienda de
+// un cliente estaba bien habia que leer las cinco y cruzarlas de cabeza, y todo
+// lo que no estaba conectado -- que es una decision, no una averia -- salia en
+// rojo junto a lo que si estaba roto.
+//
+// Aqui la unidad es la tienda, que es como el cliente piensa su negocio: entras
+// en una y ves sus tres conexiones. El detalle de cada tienda vive en
+// /integraciones/tienda/<connectionId>, y la configuracion de cada conector en
 // /integraciones/<slug>.
+
+/** El titular de la fila: lo peor que le pasa a la tienda, en dos palabras. */
+function storeHeadline(store: StoreView): string {
+  if (store.severity === 0) return "Al día";
+  const worst = store.providers.find((item) => item.status === store.status);
+  return worst ? `${worst.name}: ${worst.explanation.label}` : "Revisar";
+}
+
+/**
+ * Una fila por aplicacion, no tres etiquetas apretadas en el margen.
+ *
+ * Los tres conectores de una tienda son tres cosas distintas que se miran de
+ * una en una ("¿Klaviyo esta conectado?"), y en linea no se podia: habia que
+ * leer la tira entera para encontrar el que buscabas. En filas, el ojo baja por
+ * la columna de iconos y para en el suyo.
+ */
+function ProviderRow({ provider }: { provider: StoreProviderView }) {
+  const connected = provider.connections.length > 0;
+  return (
+    <div className="flex items-center gap-3 py-1.5">
+      <ProviderIcon provider={provider.provider} />
+      <span
+        className={
+          connected ? "text-sm font-medium text-foreground" : "text-sm text-muted"
+        }
+      >
+        {provider.name}
+      </span>
+      {/* Solido y no suave: el color del estado es el dato de la fila. */}
+      <Badge
+        tone={connected ? healthTone(provider.status) : "neutral"}
+        variant={connected ? "solid" : "soft"}
+      >
+        {provider.explanation.label}
+      </Badge>
+    </div>
+  );
+}
+
+function StoreRow({
+  store,
+  isActive,
+}: {
+  store: StoreView;
+  isActive: boolean;
+}) {
+  const worst = store.providers.find((item) => item.status === store.status);
+
+  return (
+    <Link
+      href={`/integraciones/tienda/${store.connectionId}`}
+      aria-label={`Abrir ${store.name}`}
+      className="flex flex-col gap-3 px-1 py-4 no-underline sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium text-foreground">{store.name}</span>
+          {isActive ? <Badge tone="brand">Tienda activa</Badge> : null}
+          <Badge tone={healthTone(store.status)} variant="solid">
+            {storeHeadline(store)}
+          </Badge>
+        </div>
+        {store.domain ? (
+          <p className="truncate font-mono text-xs text-muted">{store.domain}</p>
+        ) : null}
+        {store.severity > 0 && worst?.explanation.detail ? (
+          <p className="max-w-prose text-sm leading-6 text-muted">
+            {worst.explanation.detail}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="flex items-center gap-4 sm:shrink-0">
+        <div className="min-w-56">
+          {store.providers.map((provider) => (
+            <ProviderRow key={provider.provider} provider={provider} />
+          ))}
+        </div>
+        <IconChevronRight aria-hidden />
+      </div>
+    </Link>
+  );
+}
+
 function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
-  const { organization, payload, isLoading, error, reload } =
-    useIntegrations(bootstrap);
-  // La tienda del selector del encabezado. /integraciones era el unico modulo
-  // que la ignoraba por completo.
+  const {
+    organization,
+    payload,
+    isLoading,
+    error,
+    reload,
+    actions,
+    pending,
+    actionError,
+  } = useIntegrations(bootstrap);
+  // Mismo criterio que el backend (canDiscardAuthorizationAttempt): descartar
+  // un OAuth a medias lo puede hacer quien pudo empezarlo -- owner o manager de
+  // esa organizacion --, no solo el consultor. Borrar una tienda con datos
+  // sigue siendo del consultor, y de eso se encarga el backend.
+  const canDiscard =
+    bootstrap.profile.platform_role === "platform_admin" ||
+    bootstrap.memberships.some(
+      (membership) =>
+        membership.organization_id === organization?.id &&
+        ["owner", "manager"].includes(membership.role),
+    );
+  const { scope } = useStoreScope(organization?.id ?? null);
+  // La tienda del selector del encabezado, para marcar cual estas viendo.
   const { connectionId: activeConnectionId } = useActiveConnection();
-  const [oauthNotice, setOauthNotice] =
-    useState<ReturnType<typeof readOAuthNotice>>(null);
   // Onboarding: se llega aquí justo después de crear una tienda propia en
   // /tiendas (?welcome=<nombre>) para conectar sus integraciones.
   const [welcomeStore, setWelcomeStore] = useState<string | null>(null);
 
   useEffect(() => {
-    setOauthNotice(readOAuthNotice());
+    // El resultado del OAuth es una noticia, no un estado de la página: sale
+    // flotando arriba, se lee y se va. Como Banner empujaba la lista hacia
+    // abajo y se quedaba ahí para siempre, incluso cuando ya habías arreglado
+    // lo que decía.
+    const notice = readOAuthNotice();
+    if (notice) {
+      if (notice.tone === "success") toast.success(notice.text);
+      else if (notice.tone === "warn") toast.warning(notice.text);
+      else toast.danger(notice.text, { timeout: 0 });
+    }
     const welcome = new URLSearchParams(window.location.search).get("welcome");
     if (welcome) setWelcomeStore(welcome);
   }, []);
+
+  // Un fallo al descartar o reintentar tambien es una noticia.
+  useEffect(() => {
+    if (actionError) toast.danger(actionError);
+  }, [actionError]);
 
   if (isLoading) {
     return (
@@ -78,10 +205,13 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
     );
   }
 
-  // Una conexion = una tienda del proveedor. El recuento del modulo se hace
-  // sobre estas y no sobre `providers`, que solo lleva el resumen de la peor.
-  const allConnections = payload.providers.flatMap(
-    (provider) => provider.connections,
+  const stores = buildStoreViews(payload, scope);
+  const unassigned = unassignedConnections(payload, scope);
+  const needAttention = stores.filter((store) => store.severity > 0);
+  // Conectores que no cuelgan de una tienda todavia (Instagram, Fathom). No son
+  // una averia: se dicen una vez, en gris, al final.
+  const otros = payload.providers.filter(
+    (provider) => !["shopify", "meta_ads", "klaviyo"].includes(provider.id),
   );
 
   return (
@@ -92,9 +222,8 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
           aquí para empezar a ver sus datos.
         </Banner>
       ) : null}
-      {oauthNotice ? (
-        <Banner tone={oauthNotice.tone}>{oauthNotice.text}</Banner>
-      ) : null}
+      {/* F3/D01. Solo lo suyo y solo lo verificado; si no hay nada, no pinta nada. */}
+      <ClientDataQualityNotice organizationId={organization?.id ?? null} />
       {!payload.schema_ready ? (
         <Banner tone="danger">
           No se pudo cargar el estado de las integraciones ahora mismo. Reintenta
@@ -102,146 +231,150 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
         </Banner>
       ) : null}
 
-      {/* El selector de cliente vive en el encabezado del portal, como en el
-          resto del programa. Aqui habia un segundo con el mismo nombre
-          accesible ("Cliente activo") que ademas no ofrecia volver a la vista
-          general: dos controles para lo mismo, uno de ellos sin salida. */}
-
-      {organization?.id ? (
-        <StoreScopeCard organizationId={organization.id} />
-      ) : null}
-
       {/* Cobertura de datos: sin esto, cualquier consejo sobre un canal es una
-          opinión. Es la misma pregunta que el Consultor IA responde con
-          data_coverage antes de recomendar nada. */}
+          opinión. Es lo mismo que el Consultor IA lee como "vista actual". */}
       <ModuleSummary
         metrics={[
           {
-            label: "Conectadas",
-            value: `${payload.providers.filter((provider) => provider.connection).length}/${payload.providers.length}`,
-            tone: payload.providers.every((provider) => provider.connection)
-              ? "success"
-              : "warn",
+            label: "Tiendas",
+            value: stores.length.toLocaleString("es-ES"),
+            hint: "Cada tienda es una conexión de Shopify",
           },
           {
-            // Cuenta conexiones, no proveedores: con dos tiendas y una rota,
-            // "1 proveedor con incidencia" no decia que faltaba media cartera
-            // de datos. Cada conexion es una tienda.
-            label: "Tiendas con incidencia",
-            value: allConnections
-              .filter((connection) => connection.health.status !== "healthy")
-              .length.toLocaleString("es-ES"),
-            tone: allConnections.some(
-              (connection) => connection.health.status !== "healthy",
-            )
-              ? "danger"
-              : "success",
-            hint: `${allConnections.length} ${allConnections.length === 1 ? "conexión" : "conexiones"} en total`,
-          },
-          {
-            label: "Sincronización más antigua",
-            value: (() => {
-              const days = daysSince(
-                oldest(
-                  allConnections.map(
-                    (connection) => connection.health.lastSyncAt,
-                  ),
-                ),
-              );
-              if (days === null) return "Nunca";
-              return days === 0 ? "Hoy" : `Hace ${days} d`;
-            })(),
-            hint: "Antigüedad del dato más viejo",
-          },
-          {
-            label: "Pendientes de activar",
-            value: payload.providers
-              .filter(
-                (provider) => provider.connection && !provider.activation.ready,
-              )
-              .length.toLocaleString("es-ES"),
-            hint: "Conectadas pero sin permisos o activos elegidos",
+            label: "Necesitan atención",
+            value: needAttention.length.toLocaleString("es-ES"),
+            tone: needAttention.length > 0 ? "danger" : "success",
+            hint:
+              needAttention.length > 0
+                ? needAttention.map((store) => store.name).join(", ")
+                : "Todas las conexiones al día",
           },
         ]}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {payload.providers.map((provider) => {
-          const slug = PROVIDER_SLUG[provider.id];
-          return (
-            <Card
-              key={provider.id}
-              title={provider.name}
-              description={provider.description}
-              actions={
-                <IntegrationStatusBadge
-                  available={provider.available}
-                  configurationStatus={provider.configuration.status}
-                  connectionStatus={provider.connection?.status}
-                  healthStatus={provider.health.status}
+      <Card
+        title="Tus tiendas"
+        description="Cada tienda es una conexión de Shopify; Meta y Klaviyo cuelgan de ella. Entra en una para ver y arreglar sus conexiones."
+        actions={
+          <ButtonLink variant="secondary" href="/integraciones/shopify">
+            Conectar otra tienda
+          </ButtonLink>
+        }
+      >
+        {stores.length === 0 ? (
+          <EmptyState
+            title="Todavía no hay ninguna tienda"
+            hint="Una tienda nace al conectar Shopify. A partir de ahí se le añaden Meta Ads y Klaviyo."
+            action={
+              <ButtonLink href="/integraciones/shopify">
+                Conectar la primera tienda
+              </ButtonLink>
+            }
+          />
+        ) : (
+          <List as="ul" className="mt-1">
+            {stores.map((store) => (
+              <List.Item as="li" key={store.connectionId}>
+                <StoreRow
+                  store={store}
+                  isActive={store.connectionId === activeConnectionId}
                 />
-              }
-              className="flex h-full flex-col"
-            >
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                <Badge tone={healthTone(provider.health.status)}>
-                  {healthLabel(provider.health.status)}
-                </Badge>
-                {provider.connections.length > 1 ? (
-                  // Con varias tiendas el badge es el de la peor: decirlo aqui
-                  // evita leerlo como "el proveedor entero esta asi".
-                  <span className="text-muted">
-                    {provider.connections.length} tiendas ·{" "}
-                    {
-                      provider.connections.filter(
-                        (connection) => connection.health.status !== "healthy",
-                      ).length
-                    }{" "}
-                    con incidencia
-                  </span>
-                ) : provider.connection?.provider_account_name ? (
-                  <span className="text-muted">
-                    {provider.connection.provider_account_name}
-                  </span>
-                ) : (
-                  <span className="text-muted">Sin conectar</span>
-                )}
-                {provider.connections.length <= 1 &&
-                provider.connection?.provider_account_id ? (
-                  <span className="font-mono text-muted">
-                    {provider.connection.provider_account_id}
-                  </span>
-                ) : null}
-              </div>
+              </List.Item>
+            ))}
+          </List>
+        )}
+      </Card>
 
-              <ConnectionHealthList
-                connections={provider.connections}
-                activeConnectionId={activeConnectionId}
-              />
-
-              <div className="mt-4 pt-2">
-                {slug ? (
-                  <Link
-                    className="inline-flex items-center gap-1 text-sm font-medium"
-                    href={`/integraciones/${slug}`}
-                    // Doce tarjetas con el mismo "Ver y configurar" dejaban la
-                    // lista de enlaces del lector de pantalla sin distinguir
-                    // ninguna.
-                    aria-label={`${provider.connection ? "Ver y configurar" : "Conectar"} ${provider.name}`}
-                  >
-                    {provider.connection ? "Ver y configurar" : "Conectar"}
-                    <IconChevronRight aria-hidden />
-                  </Link>
-                ) : (
-                  <span className="text-xs text-muted">
-                    Configuración no disponible todavía.
+      {unassigned.length > 0 ? (
+        <Card
+          title="Cuentas sin tienda"
+          description="Estas cuentas están conectadas pero no cuelgan de ninguna tienda, así que sus cifras no se filtran al cambiar de tienda ni entran en el análisis de ninguna."
+          actions={
+            <ButtonLink variant="secondary" href="/integraciones/cuentas">
+              Asignar a una tienda
+            </ButtonLink>
+          }
+        >
+          <List as="ul">
+            {unassigned.map(({ provider, name, connection }) => {
+              // Un OAuth de Meta que nunca se completo no tiene tienda a la que
+              // colgarse, asi que cae aqui y no en la ficha de ninguna: sin este
+              // boton no habia forma de quitarlo desde la interfaz.
+              const attempt = classifyAuthorizationAttempt(connection);
+              return (
+                <List.Item
+                  as="li"
+                  key={connection.id}
+                  className="flex flex-wrap items-center gap-2 py-3 text-sm"
+                >
+                  <ProviderIcon provider={provider} />
+                  <span>{name}</span>
+                  <span className="font-mono text-xs text-muted">
+                    {connection.provider_account_name ??
+                      connection.provider_account_id ??
+                      connection.id}
                   </span>
-                )}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+                  {attempt ? (
+                    <Badge tone={attempt === "abandoned" ? "warn" : "neutral"}>
+                      {attempt === "abandoned"
+                        ? "Intento sin terminar"
+                        : "Autorización en curso"}
+                    </Badge>
+                  ) : (
+                    <Badge tone={healthTone(connection.health.status)}>
+                      {displayValue(connection.status)}
+                    </Badge>
+                  )}
+                  {canDiscard && attempt === "abandoned" ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        void actions.discardAuthorizationAttempt(connection.id)
+                      }
+                      disabled={pending === `discard-${connection.id}`}
+                    >
+                      {pending === `discard-${connection.id}`
+                        ? "Descartando..."
+                        : "Descartar"}
+                    </Button>
+                  ) : null}
+                </List.Item>
+              );
+            })}
+          </List>
+        </Card>
+      ) : null}
+
+      {otros.length > 0 ? (
+        <Card title="Otras integraciones">
+          <List as="ul">
+            {otros.map((provider) => {
+              const slug = PROVIDER_SLUG[provider.id];
+              return (
+                <List.Item
+                  as="li"
+                  key={provider.id}
+                  className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <ProviderIcon provider={provider.id} />
+                    {provider.name}
+                    <span className="text-muted">{provider.description}</span>
+                  </span>
+                  {provider.available && slug ? (
+                    <Link href={`/integraciones/${slug}`}>Configurar</Link>
+                  ) : (
+                    <span className="text-xs text-muted">
+                      Disponible más adelante
+                    </span>
+                  )}
+                </List.Item>
+              );
+            })}
+          </List>
+        </Card>
+      ) : null}
     </div>
   );
 }
@@ -382,7 +515,7 @@ function ConsultantIntegrationsView() {
                 {rows.map((row) => (
                   <tr
                     key={row.organization_id}
-                    className="border-b border-separator hover:bg-surface"
+                    className="border-b border-separator"
                   >
                     {/* La fila entera era un onClick sobre el <tr>: con teclado
                         no habia forma de abrir un cliente, y el lector de
@@ -426,6 +559,8 @@ function ConsultantIntegrationsView() {
           </div>
         )}
       </Card>
+
+      <DataQualityPanel />
     </div>
   );
 }

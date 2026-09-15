@@ -37,6 +37,9 @@ import {
   inviteConsultant,
   listAdminClients,
   listConsultantCalls,
+  listConsultantContextReadings,
+  listConsultantSymptomMap,
+  listConsultantDataQuality,
   listConsultantIntegrations,
   listConsultantKnowledge,
   listConsultantMarketing,
@@ -83,6 +86,7 @@ import {
   type AuthContextError,
 } from "./auth-context.js";
 import { runWithRequestCorrelation } from "./request-context.js";
+import { listOrganizationDataQuality } from "./data-quality.js";
 import { listIntegrations } from "./integrations.js";
 import {
   createShopifyConnectionAuthUrl,
@@ -1571,6 +1575,80 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  // F3/D01. La calidad del dato de cada fuente, antes de que nadie interprete
+  // una variacion como cambio del negocio. La escribe el motor de
+  // `data-quality-engine.ts`; aqui solo se lee, y con el token del usuario para
+  // que quien decida que organizaciones entran sea la RLS y no este codigo.
+  // F3/D02. Las lecturas contextuales: contra que se compara cada senal, si la
+  // comparacion aguanta y si lo que se movio fue el rendimiento o el peso de
+  // los segmentos. Solo consultor: es razonamiento a medio hacer.
+  app.get("/v1/consultant/context-readings", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantContextReadings(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  // F3/D06. El mapa de sintomas activos: que patron empresarial forman las
+  // senales coherentes entre si, con que se sostiene y que lo contradice. Solo
+  // consultor: un sintoma es un patron sin causa, y ensenarselo al cliente le da
+  // el susto sin la salida.
+  app.get("/v1/consultant/symptoms", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantSymptomMap(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  app.get("/v1/consultant/data-quality", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantDataQuality(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
   app.get("/v1/consultant/calls", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -2380,6 +2458,38 @@ export async function buildApp(): Promise<FastifyInstance> {
 
     return result.data;
   });
+
+  // F3/D01, vista de cliente. Solo lo que ocurre en sus sistemas y ya esta
+  // verificado: la regla vive en `data-quality.ts` y en la RLS, no aqui.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/data-quality",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await listOrganizationDataQuality(
+        env,
+        authorization,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
 
   app.get<{ Params: { organizationId: string } }>(
     "/v1/organizations/:organizationId/integrations",

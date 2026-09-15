@@ -50,7 +50,10 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <AriaRouterProvider>
           {children}
-          <Toast.Provider />
+          {/* Arriba y flotando sobre el contenido, justo bajo el nav: un aviso
+              de "conectada" o de error tiene que verse sin depender de donde
+              este el scroll, y desaparecer solo. */}
+          <Toast.Provider placement="top" />
         </AriaRouterProvider>
       </body>
     </html>

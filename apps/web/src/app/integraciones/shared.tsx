@@ -61,6 +61,11 @@ export type IntegrationConnection = {
   scopes: string[];
   api_version: string | null;
   connected_at: string | null;
+  // Cuando se sembro la fila y la ultima vez que se toco. Distinguen una
+  // autorizacion en marcha de un intento que nadie termino nunca
+  // (classifyAuthorizationAttempt, en @ecomscaling/contracts).
+  created_at?: string | null;
+  updated_at?: string | null;
   last_sync_at: string | null;
   last_error_message: string | null;
   latest_sync: IntegrationSyncRun | null;
@@ -247,23 +252,39 @@ export function readOAuthNotice(): {
   const result = params.get(provider);
   if (result === "connected")
     return { tone: "success", text: `${label} se conectó correctamente.` };
+  // Una tienda de Shopify solo puede estar en una cuenta: myshopify_domain es
+  // unique global. Es el caso de "perdi el acceso y abri otra cuenta", y sin
+  // decirlo por su nombre reintentar no lleva a ningun sitio.
+  if (result === "ya_conectada") {
+    const tienda = params.get("tienda");
+    return {
+      tone: "danger",
+      text: `${tienda ?? "Esa tienda"} ya está conectada en otra cuenta de EcomScaling, y una tienda solo puede estar en una. Hemos registrado el intento: escribe a soporte para liberarla.`,
+    };
+  }
   if (result === "denied")
     return {
       tone: "warn",
       text: `Cancelaste la autorización de ${label}. La conexión no se activó; puedes intentarlo de nuevo.`,
     };
-  // La instalación devolvió menos permisos de los pedidos. El detalle (qué
-  // permiso y qué deja de funcionar) lo pinta la página del proveedor leyendo
-  // los scopes de la conexión; aquí solo se avisa de que hay algo que mirar.
+  // Qué permisos faltan, por nombre. El callback los manda en `faltan` justo
+  // porque "no concedió permisos imprescindibles" sin decir cuáles no deja
+  // hacer nada: ni saber si es culpa tuya, ni si reinstalar lo arregla.
+  const faltan = (params.get("faltan") ?? "")
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  const listaFaltan = faltan.length > 0 ? ` Falta: ${faltan.join(", ")}.` : "";
+
   if (result === "connected_partial")
     return {
       tone: "warn",
-      text: `${label} se conectó, pero con menos permisos de los pedidos: parte de los datos no se podrá traer. Revisa el aviso de la integración.`,
+      text: `${label} se conectó, pero con menos permisos de los pedidos: parte de los datos no se podrá traer.${listaFaltan}`,
     };
   if (result === "missing_scopes")
     return {
       tone: "danger",
-      text: `${label} no concedió permisos imprescindibles, así que la conexión queda en error. Vuelve a instalar la app aceptando todos los permisos.`,
+      text: `${label} no concedió permisos imprescindibles, así que la conexión queda en error.${listaFaltan} Si ese permiso no está declarado en la app de Shopify, reinstalar no lo arregla: hay que añadirlo al TOML de la app y volver a desplegarla.`,
     };
   return {
     tone: "danger",
@@ -378,6 +399,23 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ apiKey: apiKey.trim() }),
           },
+        );
+        if (!response.ok) {
+          setActionError(await readErr(response));
+          return;
+        }
+        await reload();
+      }),
+    // Descartar un intento de OAuth que nadie termino. Reusa el endpoint de
+    // borrado de tienda: el backend distingue el intento (borrado inmediato,
+    // no hay nada que recuperar) de una tienda con datos (borrado programado a
+    // 30 dias). Solo lo ofrece la interfaz a consultor/platform_admin, que es
+    // quien ese endpoint autoriza.
+    discardAuthorizationAttempt: (connectionId: string) =>
+      withPending(`discard-${connectionId}`, async () => {
+        const response = await apiFetch(
+          `/v1/consultant/organizations/${organizationId}/stores/${connectionId}`,
+          { method: "DELETE" },
         );
         if (!response.ok) {
           setActionError(await readErr(response));

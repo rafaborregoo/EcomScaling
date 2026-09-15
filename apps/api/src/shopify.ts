@@ -661,6 +661,58 @@ export async function handleShopifyOAuthCallback(
   );
   const missingRequired = missingScopes.filter((item) => item.required);
 
+  // Una tienda de Shopify solo puede colgar de una organizacion:
+  // shopify_stores.myshopify_domain es unique GLOBAL, no por organizacion. Sin
+  // esta comprobacion el conflicto no aparece aqui sino mucho despues, dentro
+  // de la sincronizacion, como una violacion de constraint en crudo: el cliente
+  // ve una tienda "conectada" que nunca trae datos y nadie sabe por que.
+  //
+  // Pasa de verdad cuando alguien pierde el acceso a su cuenta y abre otra: la
+  // tienda sigue atada a la cuenta muerta y no hay forma de reconectarla desde
+  // la interfaz. Por eso ademas de cortar se deja registro, que es lo que
+  // soporte necesita para liberarla.
+  const { data: tiendaExistente } = await supabase
+    .from("shopify_stores")
+    .select("organization_id")
+    .eq("myshopify_domain", shop)
+    .maybeSingle();
+
+  if (
+    tiendaExistente &&
+    tiendaExistente.organization_id !== pendingConnection.organization_id
+  ) {
+    await recordAuditLog(supabase, {
+      organizationId: pendingConnection.organization_id,
+      actorUserId: null,
+      action: "shopify.oauth_store_already_claimed",
+      entityType: "integration_connection",
+      entityId: pendingConnection.id,
+      newData: {
+        shop_domain: shop,
+        claimed_by_organization_id: tiendaExistente.organization_id,
+      },
+    });
+
+    await supabase
+      .from("integration_connections")
+      .update({
+        status: "error",
+        last_error_at: now,
+        last_error_message: `shopify_store_already_claimed:${shop}`,
+      })
+      .eq("id", pendingConnection.id);
+
+    // Vuelve al portal en vez de escupir JSON: aqui el usuario esta en mitad
+    // de un OAuth, en su navegador, y lo que tiene que ver es una frase que
+    // entienda, no un cuerpo de error.
+    return {
+      ok: true,
+      data: {
+        redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=ya_conectada&tienda=${encodeURIComponent(shop)}`,
+      },
+    };
+  }
+
   const { error: connectionUpdateError } = await supabase
     .from("integration_connections")
     .update({
@@ -801,16 +853,26 @@ export async function handleShopifyOAuthCallback(
       });
     });
 
+  // Los permisos que faltan viajan en la URL. Sin esto, el aviso de vuelta
+  // decia "Shopify no concedio permisos imprescindibles" sin nombrar ninguno, y
+  // la unica salida que ofrecia -- reinstalar aceptandolo todo -- no arregla
+  // nada cuando el permiso ni siquiera esta en el TOML de la app: Shopify no
+  // puede conceder lo que no tiene declarado, por mucho que aceptes.
+  const resultado =
+    missingRequired.length > 0
+      ? "missing_scopes"
+      : missingScopes.length > 0
+        ? "connected_partial"
+        : "connected";
+  const faltan =
+    missingScopes.length > 0
+      ? `&faltan=${encodeURIComponent(missingScopes.map((item) => item.scope).join(","))}`
+      : "";
+
   return {
     ok: true,
     data: {
-      redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=${
-        missingRequired.length > 0
-          ? "missing_scopes"
-          : missingScopes.length > 0
-            ? "connected_partial"
-            : "connected"
-      }`,
+      redirectUrl: `${env.WEB_ORIGIN}/integraciones?shopify=${resultado}${faltan}`,
     },
   };
 }

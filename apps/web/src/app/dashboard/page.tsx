@@ -2,7 +2,6 @@
 
 import { useEffect, useState, type ComponentType } from "react";
 import { useSearchParams } from "next/navigation";
-import Image from "next/image";
 import {
   getLocalTimeZone,
   today,
@@ -48,6 +47,7 @@ import {
   Metric,
   MetricInsights,
   Modal,
+  ProviderIcon,
   RangeCalendar,
   MultiSparkline,
   Table,
@@ -79,40 +79,6 @@ import {
 
 const DASHBOARD_TABS = ["todo", "shopify", "meta", "klaviyo"] as const;
 type DashboardTab = (typeof DASHBOARD_TABS)[number];
-
-// Un recurso de marca ausente no debe dejar un icono roto ni eliminar la señal visual de la pestaña.
-function PlatformIcon({
-  src,
-  alt,
-  fallback,
-}: {
-  src: string;
-  alt: string;
-  fallback: string;
-}) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <span
-        aria-label={alt || undefined}
-        aria-hidden={alt ? undefined : true}
-        className="inline-flex h-4 w-4 items-center justify-center border border-ink/30 font-mono text-[0.6rem] font-semibold text-ink"
-      >
-        {fallback}
-      </span>
-    );
-  }
-  return (
-    <Image
-      src={src}
-      alt={alt}
-      width={16}
-      height={16}
-      className="h-4 w-4"
-      onError={() => setFailed(true)}
-    />
-  );
-}
 
 type ShopifyConnection = {
   id: string;
@@ -2782,28 +2748,20 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             value: "shopify",
             label: "Shopify",
             icon: (
-              <PlatformIcon
-                src="/shopify-svgrepo-com.svg"
-                alt=""
-                fallback="S"
-              />
+              <ProviderIcon provider="shopify" />
             ),
           },
           {
             value: "meta",
             label: "Meta Ads",
             icon: (
-              <PlatformIcon
-                src="/meta-logo-facebook-svgrepo-com.svg"
-                alt=""
-                fallback="M"
-              />
+              <ProviderIcon provider="meta_ads" />
             ),
           },
           {
             value: "klaviyo",
             label: "Klaviyo",
-            icon: <PlatformIcon src="/logos/klaviyo.svg" alt="" fallback="K" />,
+            icon: <ProviderIcon provider="klaviyo" />,
           },
         ]}
       />

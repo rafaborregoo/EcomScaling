@@ -2,10 +2,13 @@ name: Purge Expired Deletions
 
 on:
   workflow_dispatch:
-  # Desactivado 2026-08-03 por peticion de Rafa: sin disparadores
-  # automaticos. Para reactivar, descomentar el bloque de abajo.
-  # schedule:
-  #   - cron: "7 3 * * *"
+  # Estuvo desactivado desde 2026-08-03 ("sin disparadores automaticos").
+  # Reactivado 2026-09-14: este cron es lo unico que borra los intentos de
+  # autorizacion OAuth que nadie termino, y esas filas ocupan cupo de tiendas
+  # del plan. Sin disparador, el limite se agota solo a base de pestanas
+  # cerradas a medias y hay que limpiarlo a mano contra la base.
+  schedule:
+    - cron: "7 3 * * *"
 
 permissions:
   contents: read

@@ -47,7 +47,15 @@ export function missingShopifyScopes(
         shopifyScopeInfo(scope) ?? {
           scope,
           label: scope,
-          required: true,
+          // Un permiso que ni siquiera esta en SHOPIFY_SCOPES_USED no puede ser
+          // imprescindible: si lo fuera, alguna consulta del sync lo pediria y
+          // estaria en esa tabla. Marcarlo como obligatorio (como se hacia
+          // antes) convertia cualquier scope de mas en SHOPIFY_SCOPES -- una
+          // linea de .env que no case con el TOML de la app -- en una conexion
+          // en error permanente, con un mensaje que pedia reinstalar aceptando
+          // todos los permisos. Y eso no lo arregla: Shopify no concede lo que
+          // la app no declara, asi que el bucle no tenia salida.
+          required: false,
         },
     );
 }

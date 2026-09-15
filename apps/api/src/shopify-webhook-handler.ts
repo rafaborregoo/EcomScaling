@@ -44,6 +44,32 @@ function normalizeMoney(value: string | number | null | undefined) {
   return 0;
 }
 
+/**
+ * Lo devuelto de un pedido, sumado desde los `refund_line_items` que trae el
+ * propio payload REST. Mismo criterio que el sync bulk (subtotal + impuesto),
+ * para que las dos vias de ingesta no discrepen.
+ */
+function sumRefunds(value: unknown) {
+  if (!Array.isArray(value)) {
+    return 0;
+  }
+  return (value as Array<Record<string, unknown>>).reduce((total, refund) => {
+    const lines = Array.isArray(refund.refund_line_items)
+      ? (refund.refund_line_items as Array<Record<string, unknown>>)
+      : [];
+    return (
+      total +
+      lines.reduce(
+        (sum, item) =>
+          sum +
+          normalizeMoney(item.subtotal as string | undefined) +
+          normalizeMoney(item.total_tax as string | undefined),
+        0,
+      )
+    );
+  }, 0);
+}
+
 async function recordBlockRun(
   supabase: SupabaseClient,
   connectionId: string,
@@ -311,6 +337,10 @@ async function processOrderCreateOrUpdate(
         current_total_price: normalizeMoney(
           payload.total_price as string | undefined,
         ),
+        refunds: sumRefunds(payload.refunds),
+        net_sales:
+          normalizeMoney(payload.total_price as string | undefined) -
+          sumRefunds(payload.refunds),
         total_items: Array.isArray(payload.line_items)
           ? (payload.line_items as Array<Record<string, unknown>>).reduce(
               (total, item) =>
@@ -432,7 +462,7 @@ async function processRefundCreate(
 
   const { data: order } = await supabase
     .from("shopify_order_facts")
-    .select("id, currency_code")
+    .select("id, currency_code, current_total_price")
     .eq("store_id", ctx.storeId)
     .eq("external_order_id", externalOrderId)
     .maybeSingle();
@@ -490,6 +520,30 @@ async function processRefundCreate(
     organizationId: ctx.organizationId,
     payload,
   });
+
+  // Una devolucion baja el ingreso del pedido. Sin esto la fila de
+  // `shopify_order_facts` se queda con el importe bruto y el check
+  // `order_facts_net_sales_coherente` rechazaria cualquier escritura
+  // posterior, que es justamente como se nota que falta.
+  const { data: refundsDelPedido } = await supabase
+    .from("shopify_refunds")
+    .select("total_refunded")
+    .eq("order_id", order.id);
+  const totalDevuelto = (refundsDelPedido ?? []).reduce(
+    (total, row) => total + normalizeMoney(row.total_refunded),
+    0,
+  );
+  const { error: netError } = await supabase
+    .from("shopify_order_facts")
+    .update({
+      refunds: totalDevuelto,
+      net_sales:
+        normalizeMoney(order.current_total_price) - totalDevuelto,
+    })
+    .eq("id", order.id);
+  if (netError) {
+    throw new Error(netError.message);
+  }
 
   if (!refundLineItems.length) {
     return;

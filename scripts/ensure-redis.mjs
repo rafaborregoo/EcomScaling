@@ -1,6 +1,10 @@
 // Arranca Redis en local si no hay nada escuchando en el puerto, antes de `npm run dev`.
 // Solo aplica en desarrollo local (Windows); en CI/produccion no hace nada porque
 // o bien REDIS_URL apunta a un Redis remoto o el ejecutable no existe.
+//
+// Todo lo que hay aqui es "best effort": este script no puede tumbar `npm run dev`.
+// Si Redis no arranca, el worker fallara al conectar y se vera; pero quien solo
+// queria levantar la web no tiene por que quedarse sin dev por eso.
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import { existsSync } from "node:fs";
@@ -39,13 +43,30 @@ if (!existsSync(REDIS_EXE)) {
   process.exit(0);
 }
 
-const child = spawn(REDIS_EXE, [], {
-  cwd: dirname(REDIS_EXE),
-  detached: true,
-  stdio: "ignore",
-  windowsHide: true,
+// En Windows este spawn puede fallar con UNKNOWN (-4094) de forma intermitente
+// cuando algo externo (antivirus, EDR) interfiere en la creacion del proceso.
+// Antes eso lanzaba y se llevaba por delante el `predev` entero.
+let child;
+try {
+  child = spawn(REDIS_EXE, [], {
+    cwd: dirname(REDIS_EXE),
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  child.unref();
+} catch (error) {
+  console.warn(
+    `[redis] no se pudo arrancar redis-server (${error.code ?? error.message}). ` +
+      "Arrancalo a mano si vas a usar el worker; el resto de dev sigue."
+  );
+  process.exit(0);
+}
+
+// Si el proceso muere despues del spawn, tampoco es motivo para cortar.
+child.on("error", (error) => {
+  console.warn(`[redis] redis-server fallo al arrancar: ${error.code ?? error.message}`);
 });
-child.unref();
 
 for (let i = 0; i < 20; i++) {
   await new Promise((r) => setTimeout(r, 500));
@@ -55,5 +76,5 @@ for (let i = 0; i < 20; i++) {
   }
 }
 
-console.error("[redis] redis-server no llego a abrir el puerto tras 10s");
-process.exit(1);
+console.warn("[redis] redis-server no llego a abrir el puerto tras 10s; sigue el resto de dev");
+process.exit(0);

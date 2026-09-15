@@ -1,0 +1,63 @@
+name: Signal Engine
+
+# F3/D05. Pasa el motor de senales sobre todas las organizaciones activas.
+#
+# Sin `schedule`, igual que Alert Rules: decision de Rafa del 2026-08-03, sin
+# disparadores automaticos. Se lanza a mano hasta que haya motivo para
+# automatizarlo. Para activarlo, descomentar el bloque de abajo.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "17 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signal-engine
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Detect signals for all organizations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+      SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+      SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required runtime secrets
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY SUPABASE_JWT_SECRET; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required secret $key is not configured for the signal engine." >&2
+              exit 1
+            fi
+          done
+
+      - name: Build API and worker
+        run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
+
+      - name: Detect signals
+        run: npm run start:signal-engine -w @ecomscaling/worker
