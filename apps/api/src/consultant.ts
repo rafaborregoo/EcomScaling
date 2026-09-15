@@ -4588,6 +4588,7 @@ export async function inviteConsultant(
       "Te han invitado como consultor. Crea tu contraseña y completa tu nombre y el de tu agencia.",
     actionLabel: "Aceptar invitación",
     actionUrl: inviteUrl,
+    senderName: context.profile.full_name,
   });
   const delivery: "email" | "manual_link" = sent.sent ? "email" : "manual_link";
   if (!sent.sent) {
@@ -4764,6 +4765,7 @@ export async function resendConsultantInvite(
       "Aquí tienes un nuevo enlace para activar o recuperar tu acceso como consultor.",
     actionLabel: "Continuar onboarding",
     actionUrl: inviteUrl,
+    senderName: context.profile.full_name,
   });
   const delivery: "email" | "manual_link" = sent.sent ? "email" : "manual_link";
 
@@ -5158,6 +5160,8 @@ export async function createClientForConsultant(
     intro: `Tu consultor ha creado la organización ${displayName}. Verifica el código y confirma que quieres unirte.`,
     actionLabel: "Revisar invitación",
     actionUrl: clientAccessUrl,
+    senderName: context.profile.full_name,
+    expiresAt,
   });
   if (!sent.sent) {
     logger.info("client_invite_smtp_fallback", { reason: sent.reason });
@@ -6434,6 +6438,8 @@ export async function inviteClientMember(
     intro: `Te han invitado a unirte a la organización ${inviteOrganization.display_name}. Revisa y confirma la invitación antes de obtener acceso.`,
     actionLabel: "Revisar invitación",
     actionUrl: memberAccessUrl,
+    senderName: context.profile.full_name,
+    expiresAt,
   });
   if (!sent.sent) {
     logger.info("client_member_invite_smtp_fallback", { reason: sent.reason });
