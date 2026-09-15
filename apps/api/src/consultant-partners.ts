@@ -14,6 +14,7 @@ import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import type { AuthContext } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
+import { provisionConsultantAccount } from "./consultant.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -254,16 +255,32 @@ export async function addConsultantPartner(
   }
 
   const supabase = createServiceClient(env);
-  const partnerId = await findUserIdByEmail(supabase, email);
+  let partnerId = await findUserIdByEmail(supabase, email);
 
+  // Sin cuenta: se la creamos aqui mismo. Antes esto era un 404 que mandaba al
+  // consultor a pedirle el alta a la dirección, y hasta que alguien respondia
+  // no podia trabajar con su compañero. Traer a alguien de tu propia agencia no
+  // es una decision de plataforma.
+  //
+  // Lo que NO se hace es promover una cuenta que ya existe (ver
+  // `not_a_consultant` mas abajo): esa cuenta es de otra persona, puede ser la
+  // de un cliente, y cambiarle el rol por escribir su correo si seria una
+  // elevacion de privilegios.
+  let invited: { delivery: "email" | "manual_link"; url: string } | null = null;
   if (!partnerId) {
-    return {
-      ok: false as const,
-      statusCode: 404,
-      error: "consultant_not_found",
-      message:
-        "No hay ninguna cuenta con ese correo. Comprueba que está bien escrito; si lo está, pide a la dirección de EcomScaling que le den de alta como consultor y vuelve a intentarlo.",
-    };
+    const created = await provisionConsultantAccount(
+      env,
+      { userId: context.user.id, name: context.profile.full_name },
+      {
+        email,
+        fullName: null,
+        intro:
+          "Te han invitado a EcomScaling para llevar tiendas junto a tu compañero. Crea tu contraseña y completa tu perfil.",
+      },
+    );
+    if (created.ok === false) return created;
+    partnerId = created.data.user_id;
+    invited = { delivery: created.data.delivery, url: created.data.invite_url };
   }
 
   if (partnerId === context.user.id) {
@@ -350,7 +367,15 @@ export async function addConsultantPartner(
     action: "consultant.add_partner",
     entityType: "consultant_partner",
     entityId: partnerId,
-    newData: { email, shared_assignments: shared },
+    newData: {
+      email,
+      shared_assignments: shared,
+      // Queda en auditoria si este consultor creo la cuenta o solo se emparejo
+      // con una que ya existia: es la diferencia entre "trajo a alguien nuevo"
+      // y "se junto con un compañero".
+      created_account: invited !== null,
+      ...(invited ? { delivery: invited.delivery } : {}),
+    },
   });
 
   return {
@@ -361,6 +386,13 @@ export async function addConsultantPartner(
         full_name: partnerProfile.full_name as string | null,
       },
       shared_assignments: shared,
+      // La UI necesita distinguirlo: a una cuenta nueva hay que decirle al
+      // consultor que su compañero tiene que abrir el correo, y darle el enlace
+      // a mano si el SMTP no estaba disponible.
+      invited_new_account: invited !== null,
+      ...(invited && invited.delivery === "manual_link"
+        ? { invite_url: invited.url }
+        : {}),
     },
   };
 }

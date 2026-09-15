@@ -4523,22 +4523,21 @@ export function isAuthEmailRateLimit(
   );
 }
 
-/** Invita a un consultor, asigna su rol y envía el enlace seguro por el SMTP
- * propio. No depende del límite de correo del proveedor Auth. */
-export async function inviteConsultant(
+/**
+ * Crea la cuenta de auth de un consultor, le pone el rol y le manda el enlace
+ * por nuestro SMTP. Sin chequeo de permisos: lo pone quien llama.
+ *
+ * Existe suelta porque hay dos puertas legitimas a la misma alta: la dirección
+ * dando de alta a un consultor (`inviteConsultant`) y un consultor trayendo a
+ * un compañero de su agencia (`addConsultantPartner`). Duplicar el alta en las
+ * dos es como se acaba teniendo una que manda el correo y otra que no.
+ */
+export async function provisionConsultantAccount(
   env: ApiEnv,
-  context: AuthContext,
-  body: { email?: string; full_name?: string },
+  actor: { userId: string; name: string | null },
+  input: { email: string; fullName: string | null; intro: string },
 ) {
-  const access = requirePlatformAdmin(context);
-  if (access.ok === false) return access;
-
-  const email = body.email?.trim().toLowerCase() ?? "";
-  const fullName = body.full_name?.trim() || null;
-  if (!isEmail(email)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_email" };
-  }
-
+  const { email, fullName } = input;
   const supabase = createServiceClient(env);
   const inviteOptions = {
     redirectTo: onboardingRedirectTo(env),
@@ -4584,30 +4583,16 @@ export async function inviteConsultant(
     to: email,
     recipientName: fullName,
     title: "Tu invitación a EcomScaling",
-    intro:
-      "Te han invitado como consultor. Crea tu contraseña y completa tu nombre y el de tu agencia.",
+    intro: input.intro,
     actionLabel: "Aceptar invitación",
     actionUrl: inviteUrl,
-    senderName: context.profile.full_name,
+    senderName: actor.name,
   });
   const delivery: "email" | "manual_link" = sent.sent ? "email" : "manual_link";
   if (!sent.sent) {
     logger.info("consultant_invite_smtp_fallback", { reason: sent.reason });
   }
 
-  await recordAuditLog(supabase, {
-    organizationId: null,
-    actorUserId: context.user.id,
-    action: "admin.invite_consultant",
-    entityType: "profile",
-    entityId: invitedUser.id,
-    newData: {
-      email,
-      full_name: fullName,
-      platform_role: CONSULTANT_ROLE,
-      delivery,
-    },
-  });
   return {
     ok: true as const,
     data: {
@@ -4618,6 +4603,50 @@ export async function inviteConsultant(
       invite_url: inviteUrl,
     },
   };
+}
+
+/** Invita a un consultor, asigna su rol y envía el enlace seguro por el SMTP
+ * propio. No depende del límite de correo del proveedor Auth. */
+export async function inviteConsultant(
+  env: ApiEnv,
+  context: AuthContext,
+  body: { email?: string; full_name?: string },
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const email = body.email?.trim().toLowerCase() ?? "";
+  const fullName = body.full_name?.trim() || null;
+  if (!isEmail(email)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_email" };
+  }
+
+  const result = await provisionConsultantAccount(
+    env,
+    { userId: context.user.id, name: context.profile.full_name },
+    {
+      email,
+      fullName,
+      intro:
+        "Te han invitado como consultor. Crea tu contraseña y completa tu nombre y el de tu agencia.",
+    },
+  );
+  if (result.ok === false) return result;
+
+  await recordAuditLog(createServiceClient(env), {
+    organizationId: null,
+    actorUserId: context.user.id,
+    action: "admin.invite_consultant",
+    entityType: "profile",
+    entityId: result.data.user_id,
+    newData: {
+      email,
+      full_name: fullName,
+      platform_role: CONSULTANT_ROLE,
+      delivery: result.data.delivery,
+    },
+  });
+  return result;
 }
 
 /** Renombra o activa/desactiva un consultor ya existente. Solo perfiles que ya

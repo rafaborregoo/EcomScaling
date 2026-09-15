@@ -78,17 +78,30 @@ export function ConsultantPartnersSection() {
       const payload = (await response.json()) as {
         partner: { full_name: string | null };
         shared_assignments: number;
+        invited_new_account?: boolean;
+        invite_url?: string;
       };
+      const invitado = email.trim();
       setEmail("");
-      toast.success(
-        `Ahora compartes cartera con ${payload.partner.full_name ?? "tu socio"}`,
-        {
-          description:
-            payload.shared_assignments > 0
-              ? `${payload.shared_assignments} asignaciones repartidas entre los dos.`
-              : "Las tiendas nuevas se asignarán a los dos.",
-        },
-      );
+      const reparto =
+        payload.shared_assignments > 0
+          ? `${payload.shared_assignments} asignaciones repartidas entre los dos.`
+          : "Las tiendas nuevas se asignarán a los dos.";
+      if (payload.invited_new_account) {
+        // Cuenta recién creada: el nombre todavía no existe (lo pone la persona
+        // al entrar), así que el aviso va por el correo, que es lo que el
+        // consultor acaba de escribir y reconoce.
+        toast.success(`Invitación enviada a ${invitado}`, {
+          description: payload.invite_url
+            ? `No se pudo enviar el correo. Pásale este enlace: ${payload.invite_url}`
+            : `Tiene que abrir el correo y crear su contraseña. ${reparto}`,
+        });
+      } else {
+        toast.success(
+          `Ahora compartes cartera con ${payload.partner.full_name ?? "tu socio"}`,
+          { description: reparto },
+        );
+      }
       await load();
     } catch {
       toast.danger("No se pudo emparejar por un error de red.");
@@ -144,8 +157,9 @@ export function ConsultantPartnersSection() {
       </form>
 
       <p className="mt-2 text-xs text-muted">
-        Tiene que tener ya cuenta de consultor. Al emparejaros, cada uno pasa a
-        llevar las tiendas del otro, y las nuevas se asignan a los dos.
+        Si no tiene cuenta, se la creamos y le llega una invitación por correo.
+        Al emparejaros, cada uno pasa a llevar las tiendas del otro, y las
+        nuevas se asignan a los dos.
       </p>
 
       <div className="mt-6">
