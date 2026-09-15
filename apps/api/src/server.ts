@@ -38,6 +38,7 @@ import {
   listAdminClients,
   listConsultantCalls,
   listConsultantContextReadings,
+  listConsultantMaturity,
   listConsultantSymptomMap,
   listConsultantDataQuality,
   listConsultantIntegrations,
@@ -62,6 +63,7 @@ import {
   hardDeleteOrganization,
   listOwnStoresOverview,
   pauseConsultantClient,
+  previewClientInvite,
   redeemClientInvite,
   regenerateClientInvite,
   resendConsultantInvite,
@@ -1018,6 +1020,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Canje público del código de invitación: sin auth (el cliente aún no tiene
   // sesión). Devuelve un enlace de sesión que lleva al onboarding.
   app.post<{ Body: { code?: string; email?: string } }>(
+    "/v1/invites/preview",
+    inviteRedeemRateLimit,
+    async (request, reply) => {
+      const result = await previewClientInvite(env, request.body ?? {});
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Body: { code?: string; email?: string } }>(
     "/v1/invites/redeem",
     inviteRedeemRateLimit,
     async (request, reply) => {
@@ -1594,7 +1606,35 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(401).send({ error: "missing_bearer_token" });
     }
 
-    const result = await listConsultantContextReadings(env, authorization, auth.context);
+    const result = await listConsultantContextReadings(
+      env,
+      authorization,
+      auth.context,
+    );
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  // F3/D03. De que es capaz el negocio: que capacidades demuestra el dato, cuales
+  // no se pueden ver y con que numero. Solo consultor -- decirle a un cliente
+  // "tu retencion es ad_hoc" sin acompanamiento es un juicio, no una ayuda.
+  app.get("/v1/consultant/maturity", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantMaturity(env, authorization, auth.context);
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
@@ -1619,7 +1659,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(401).send({ error: "missing_bearer_token" });
     }
 
-    const result = await listConsultantSymptomMap(env, authorization, auth.context);
+    const result = await listConsultantSymptomMap(
+      env,
+      authorization,
+      auth.context,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
@@ -1640,7 +1684,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(401).send({ error: "missing_bearer_token" });
     }
 
-    const result = await listConsultantDataQuality(env, authorization, auth.context);
+    const result = await listConsultantDataQuality(
+      env,
+      authorization,
+      auth.context,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);

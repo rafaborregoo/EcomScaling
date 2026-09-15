@@ -48,7 +48,11 @@ function LoginPageContent() {
       signInError = result.error;
     } catch (signInFailure) {
       setIsSubmitting(false);
-      setError(signInFailure instanceof Error ? signInFailure.message : "No se pudo iniciar sesión.");
+      setError(
+        signInFailure instanceof Error
+          ? signInFailure.message
+          : "No se pudo iniciar sesión.",
+      );
       return;
     }
 
@@ -74,7 +78,9 @@ function LoginPageContent() {
             El centro operativo para escalar tiendas ecommerce.
           </Heading>
         </div>
-        <p className="text-xs text-muted">Acceso para consultores y clientes.</p>
+        <p className="text-xs text-muted">
+          Acceso para consultores y clientes.
+        </p>
       </aside>
 
       {/* Formulario */}
@@ -85,6 +91,25 @@ function LoginPageContent() {
           description="Accede al centro operativo de tu organización."
         >
           <p className={cn(EYEBROW, "text-accent lg:hidden")}>EcomScaling IA</p>
+
+          <div
+            className="mt-4 grid grid-cols-2 gap-2"
+            aria-label="Tipos de acceso"
+          >
+            <div className="rounded-md border border-separator bg-surface p-3">
+              <p className="text-sm font-medium">Consultor</p>
+              <p className="mt-1 text-xs text-muted">
+                Agencia, tiendas y clientes.
+              </p>
+            </div>
+            <div className="rounded-md border border-separator bg-surface p-3">
+              <p className="text-sm font-medium">Cliente</p>
+              <p className="mt-1 text-xs text-muted">Tu propia organización.</p>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            El mismo acceso detecta automáticamente el tipo de cuenta y su plan.
+          </p>
 
           {sessionReason && REASON_MESSAGES[sessionReason] ? (
             <Banner tone="warn" className="mt-4 text-sm">

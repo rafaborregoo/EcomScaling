@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { ContextReadingsPanel } from "./context-readings";
+import { MaturityPanel } from "./maturity-panel";
 import { SymptomMapPanel } from "./symptom-map";
 import { type BootstrapResponse } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
@@ -466,8 +467,10 @@ function ShopifyDiagnosticoView({
 
       {tab === "resumen" ? (
         <div className="space-y-6">
-          {/* F3/D06 y D02, en el orden en que se leen: primero que patron forman
-              las senales juntas, despues contra que se compara cada una. */}
+          {/* F3/D03, D06 y D02, en el orden en que se leen: de que es capaz el
+              negocio, que patron forman sus senales y contra que se compara
+              cada una. */}
+          <MaturityPanel />
           <SymptomMapPanel />
           <ContextReadingsPanel />
           {overview.connection?.last_error_message ? (

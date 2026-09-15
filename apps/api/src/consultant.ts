@@ -17,8 +17,11 @@ import {
   authorizationPurgeCutoff,
   classifyAuthorizationAttempt,
   isPurgeableAuthorizationAttempt,
+  observeMaturity,
 } from "@ecomscaling/contracts";
+import { leerHechos } from "./maturity-engine.js";
 import { createLogger } from "@ecomscaling/observability";
+import { sendInviteMail } from "./invite-mailer.js";
 
 const logger = createLogger("consultant");
 
@@ -30,6 +33,12 @@ type ApiEnv = {
   // invitación de Supabase apunta aquí -> /onboarding. Ambas URLs deben estar
   // en Authentication > URL Configuration > Redirect URLs del proyecto.
   WEB_ORIGIN?: string;
+  SMTP_HOST?: string;
+  SMTP_PORT?: number;
+  SMTP_USER?: string;
+  SMTP_BREVO?: string;
+  SMTP_FROM_EMAIL?: string;
+  SMTP_FROM_NAME?: string;
 };
 
 function onboardingRedirectTo(env: ApiEnv): string {
@@ -41,7 +50,9 @@ function onboardingRedirectTo(env: ApiEnv): string {
 const RETENTION_PERIOD_DAYS = 30;
 
 function scheduledPurgeAt(): string {
-  return new Date(Date.now() + RETENTION_PERIOD_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  return new Date(
+    Date.now() + RETENTION_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
 }
 
 function createServiceClient(env: ApiEnv) {
@@ -78,7 +89,10 @@ const MEMBER_ROLES = ["owner", "manager", "member", "readonly"] as const;
 
 type MemberRole = (typeof MEMBER_ROLES)[number];
 
-async function loadOrganizations(supabase: SupabaseClient, organizationIds?: string[]) {
+async function loadOrganizations(
+  supabase: SupabaseClient,
+  organizationIds?: string[],
+) {
   let query = supabase
     .from("organizations")
     .select("id, display_name, slug, status, timezone, currency_code")
@@ -138,10 +152,15 @@ export async function listConsultantOrganizations(
       };
     }
 
-    organizationIds = [...new Set((data ?? []).map((row) => row.organization_id as string))];
+    organizationIds = [
+      ...new Set((data ?? []).map((row) => row.organization_id as string)),
+    ];
   }
 
-  const organizationsResult = await loadOrganizations(supabase, organizationIds);
+  const organizationsResult = await loadOrganizations(
+    supabase,
+    organizationIds,
+  );
 
   if (isErr(organizationsResult)) {
     return {
@@ -158,7 +177,10 @@ export async function listConsultantOrganizations(
   const { data: subscriptions, error: subscriptionsError } = await supabase
     .from("service_subscriptions")
     .select("organization_id, plan_code, status")
-    .in("organization_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+    .in(
+      "organization_id",
+      ids.length ? ids : ["00000000-0000-0000-0000-000000000000"],
+    );
 
   if (subscriptionsError) {
     return {
@@ -172,7 +194,10 @@ export async function listConsultantOrganizations(
   const { data: assignments, error: assignmentsError } = await supabase
     .from("consultant_assignments")
     .select("organization_id, consultant_user_id, is_primary")
-    .in("organization_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"])
+    .in(
+      "organization_id",
+      ids.length ? ids : ["00000000-0000-0000-0000-000000000000"],
+    )
     .eq("is_active", true);
 
   if (assignmentsError) {
@@ -190,7 +215,10 @@ export async function listConsultantOrganizations(
     .from("integration_connections")
     .select("organization_id")
     .eq("provider", "shopify")
-    .in("organization_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+    .in(
+      "organization_id",
+      ids.length ? ids : ["00000000-0000-0000-0000-000000000000"],
+    );
 
   if (connectionsError) {
     return {
@@ -206,7 +234,10 @@ export async function listConsultantOrganizations(
   const storeCountByOrganization = new Map<string, number>();
   for (const row of connectionRows ?? []) {
     const orgId = row.organization_id as string;
-    storeCountByOrganization.set(orgId, (storeCountByOrganization.get(orgId) ?? 0) + 1);
+    storeCountByOrganization.set(
+      orgId,
+      (storeCountByOrganization.get(orgId) ?? 0) + 1,
+    );
   }
 
   // FE-08: "que cliente necesita atencion hoy". Senal determinista con los
@@ -227,7 +258,13 @@ export async function listConsultantOrganizations(
       .in("status", ["pending", "in_progress"]),
   ]);
 
-  const severityWeight: Record<string, number> = { critical: 10, high: 5, medium: 2, low: 1, info: 0 };
+  const severityWeight: Record<string, number> = {
+    critical: 10,
+    high: 5,
+    medium: 2,
+    low: 1,
+    info: 0,
+  };
   const now = Date.now();
 
   const attentionByOrganization = new Map<
@@ -244,11 +281,17 @@ export async function listConsultantOrganizations(
   >();
 
   for (const id of ids) {
-    const orgAlerts = (alertRows ?? []).filter((row) => row.organization_id === id);
-    const orgTasks = (taskRows ?? []).filter((row) => row.organization_id === id);
+    const orgAlerts = (alertRows ?? []).filter(
+      (row) => row.organization_id === id,
+    );
+    const orgTasks = (taskRows ?? []).filter(
+      (row) => row.organization_id === id,
+    );
 
     const oldestAlertDays = orgAlerts.reduce((max, row) => {
-      const detectedAt = row.first_detected_at ? Date.parse(row.first_detected_at as string) : now;
+      const detectedAt = row.first_detected_at
+        ? Date.parse(row.first_detected_at as string)
+        : now;
       return Math.max(max, Math.floor((now - detectedAt) / 86_400_000));
     }, 0);
 
@@ -263,7 +306,8 @@ export async function listConsultantOrganizations(
 
     attentionByOrganization.set(id, {
       open_alerts: orgAlerts.length,
-      critical_alerts: orgAlerts.filter((row) => row.severity === "critical").length,
+      critical_alerts: orgAlerts.filter((row) => row.severity === "critical")
+        .length,
       high_alerts: orgAlerts.filter((row) => row.severity === "high").length,
       oldest_alert_days: oldestAlertDays,
       overdue_tasks: overdueTasks,
@@ -379,12 +423,14 @@ export function rankOrdersByStore(
       units_sold: num(row.units_sold),
       // AOV por tienda: el dato que hace comparable a dos tiendas con volumen
       // muy distinto, y que el consultor mira justo despues del ranking.
-      aov: num(row.orders_count) > 0 ? num(row.net_sales) / num(row.orders_count) : 0,
+      aov:
+        num(row.orders_count) > 0
+          ? num(row.net_sales) / num(row.orders_count)
+          : 0,
     }))
     .filter((entry) => entry.orders_count > 0)
     .sort(
-      (a, b) =>
-        b.orders_count - a.orders_count || b.net_sales - a.net_sales,
+      (a, b) => b.orders_count - a.orders_count || b.net_sales - a.net_sales,
     );
 }
 
@@ -523,7 +569,11 @@ function areaForWrite(
 ): ProposedArea {
   const categories = Array.isArray(write.categories) ? write.categories : [];
   for (const category of categories) {
-    if (category === "shopify" || category === "meta" || category === "klaviyo") {
+    if (
+      category === "shopify" ||
+      category === "meta" ||
+      category === "klaviyo"
+    ) {
       return category;
     }
   }
@@ -586,7 +636,10 @@ export async function listConsultantProposedTasks(
       "organization_id, started_at, finished_at, agent_versions!inner(agent_definitions!inner(code)), agent_outputs(id, status, output)",
     )
     .in("organization_id", safeIds)
-    .in("agent_versions.agent_definitions.code", Object.keys(OPERATIVA_AGENT_AREA))
+    .in(
+      "agent_versions.agent_definitions.code",
+      Object.keys(OPERATIVA_AGENT_AREA),
+    )
     .eq("status", "succeeded")
     .is("store_id", null)
     .order("started_at", { ascending: false })
@@ -1013,7 +1066,10 @@ export async function listConsultantKlaviyoPortfolio(
   }
 
   const byOrg = new Map(
-    ((data ?? []) as KlaviyoByOrgRow[]).map((row) => [row.organization_id, row]),
+    ((data ?? []) as KlaviyoByOrgRow[]).map((row) => [
+      row.organization_id,
+      row,
+    ]),
   );
   const num = (value: unknown) => Number(value ?? 0);
 
@@ -1030,13 +1086,13 @@ export async function listConsultantKlaviyoPortfolio(
         revenue: num(row?.revenue),
         recipients,
         open_rate: recipients > 0 ? num(row?.opens_unique) / recipients : null,
-        click_rate: recipients > 0 ? num(row?.clicks_unique) / recipients : null,
+        click_rate:
+          recipients > 0 ? num(row?.clicks_unique) / recipients : null,
       };
     })
     .filter((client) => client.campaigns_sent > 0)
     .sort(
-      (a, b) =>
-        b.campaigns_sent - a.campaigns_sent || b.revenue - a.revenue,
+      (a, b) => b.campaigns_sent - a.campaigns_sent || b.revenue - a.revenue,
     );
 
   return {
@@ -1154,7 +1210,10 @@ export async function getConsultantOverview(
     (financialRows ?? []).map((row) => row.organization_id as string),
   );
   const nameByOrg = new Map(
-    organizations.map((organization) => [organization.id, organization.display_name]),
+    organizations.map((organization) => [
+      organization.id,
+      organization.display_name,
+    ]),
   );
 
   // Un unico array con TODOS los clientes: alimenta las pestañas "Hoy" (cola
@@ -1274,10 +1333,18 @@ export async function listConsultantAgenda(
   const fromMs = params.from ? Date.parse(params.from) : NaN;
   const toMs = params.to ? Date.parse(params.to) : NaN;
   if (Number.isNaN(fromMs) || Number.isNaN(toMs) || toMs <= fromMs) {
-    return { ok: false as const, statusCode: 400, error: "agenda_range_invalid" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "agenda_range_invalid",
+    };
   }
   if (toMs - fromMs > 62 * 86_400_000) {
-    return { ok: false as const, statusCode: 400, error: "agenda_range_too_large" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "agenda_range_too_large",
+    };
   }
   const fromIso = new Date(fromMs).toISOString();
   const toIso = new Date(toMs).toISOString();
@@ -1460,9 +1527,7 @@ export async function listConsultantOperations(
     ]),
   );
   const ids = organizations.map((organization) => organization.id);
-  const safeIds = ids.length
-    ? ids
-    : ["00000000-0000-0000-0000-000000000000"];
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -1574,9 +1639,7 @@ export async function listConsultantMarketing(
     ]),
   );
   const ids = organizations.map((organization) => organization.id);
-  const safeIds = ids.length
-    ? ids
-    : ["00000000-0000-0000-0000-000000000000"];
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -1800,7 +1863,11 @@ export async function addMarketingDraftNote(
     entityType: "marketing_content_draft",
     entityId: draftId,
     oldData: null,
-    newData: { note_id: note.id, author_kind: authorKind, actor_kind: actorKind },
+    newData: {
+      note_id: note.id,
+      author_kind: authorKind,
+      actor_kind: actorKind,
+    },
   });
 
   return { ok: true as const, data: { note } };
@@ -1941,9 +2008,7 @@ export async function listConsultantKnowledge(
 
   const organizations = orgsResult.data.organizations;
   const ids = organizations.map((organization) => organization.id);
-  const safeIds = ids.length
-    ? ids
-    : ["00000000-0000-0000-0000-000000000000"];
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -2030,9 +2095,7 @@ export async function listConsultantStores(
     ]),
   );
   const ids = organizations.map((organization) => organization.id);
-  const safeIds = ids.length
-    ? ids
-    : ["00000000-0000-0000-0000-000000000000"];
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -2176,7 +2239,9 @@ export async function listConsultantMetaAccounts(
 
   const supabase = createServiceClient(env);
   const { data, error } = await supabase.rpc("consultant_meta_signals", {
-    target_organization_ids: organizations.map((organization) => organization.id),
+    target_organization_ids: organizations.map(
+      (organization) => organization.id,
+    ),
   });
 
   if (error) {
@@ -2345,7 +2410,8 @@ export async function listOwnStoresOverview(
         ok: true as const,
         store: {
           organization_id: membership.organization_id,
-          display_name: membership.organization?.display_name ?? membership.organization_id,
+          display_name:
+            membership.organization?.display_name ?? membership.organization_id,
           status: membership.organization?.status ?? "active",
           currency_code: membership.organization?.currency_code ?? "EUR",
           net_sales: num(row.net_sales),
@@ -2372,7 +2438,9 @@ export async function listOwnStoresOverview(
     data: {
       window_days: windowDays,
       stores: stores
-        .filter((result): result is Extract<typeof result, { ok: true }> => result.ok)
+        .filter(
+          (result): result is Extract<typeof result, { ok: true }> => result.ok,
+        )
         .map((result) => result.store),
     },
   };
@@ -2398,9 +2466,7 @@ export async function listConsultantIntegrations(
 
   const organizations = orgsResult.data.organizations;
   const ids = organizations.map((organization) => organization.id);
-  const safeIds = ids.length
-    ? ids
-    : ["00000000-0000-0000-0000-000000000000"];
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -2492,9 +2558,7 @@ export async function listConsultantCalls(
     ]),
   );
   const ids = organizations.map((organization) => organization.id);
-  const safeIds = ids.length
-    ? ids
-    : ["00000000-0000-0000-0000-000000000000"];
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -2574,9 +2638,7 @@ export async function listConsultantPlans(
 
   const organizations = orgsResult.data.organizations;
   const ids = organizations.map((organization) => organization.id);
-  const safeIds = ids.length
-    ? ids
-    : ["00000000-0000-0000-0000-000000000000"];
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
@@ -2674,9 +2736,7 @@ export async function listConsultantPlans(
             status: plan.status as string,
             version: Number(plan.version),
             phase_count: phases.length,
-            active_phase: activePhase
-              ? (activePhase.name as string)
-              : null,
+            active_phase: activePhase ? (activePhase.name as string) : null,
             milestones_total: milestonesTotal,
             milestones_done: milestonesDone,
             progress_pct:
@@ -2696,7 +2756,11 @@ export async function listConsultantPlans(
  * crear usuarios de auth/invitaciones pertenece a otro flujo y nunca debe
  * simularse insertando perfiles manualmente.
  */
-export async function getOrganizationAccess(env: ApiEnv, context: AuthContext, organizationId: string) {
+export async function getOrganizationAccess(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
   const access = requirePlatformAdmin(context);
   if (access.ok === false) {
     return access;
@@ -2710,25 +2774,38 @@ export async function getOrganizationAccess(env: ApiEnv, context: AuthContext, o
     .maybeSingle();
 
   if (organizationError) {
-    return { ok: false as const, statusCode: 500, error: "organization_access_load_failed", detail: organizationError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_access_load_failed",
+      detail: organizationError.message,
+    };
   }
   if (!organization) {
-    return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "organization_not_found",
+    };
   }
 
-  const [{ data: members, error: membersError }, { data: assignments, error: assignmentsError }] =
-    await Promise.all([
-      supabase
-        .from("organization_members")
-        .select("id, user_id, role, is_active, invited_at, joined_at, created_at")
-        .eq("organization_id", organizationId)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("consultant_assignments")
-        .select("id, consultant_user_id, is_primary, is_active, assigned_at, ended_at")
-        .eq("organization_id", organizationId)
-        .order("assigned_at", { ascending: true }),
-    ]);
+  const [
+    { data: members, error: membersError },
+    { data: assignments, error: assignmentsError },
+  ] = await Promise.all([
+    supabase
+      .from("organization_members")
+      .select("id, user_id, role, is_active, invited_at, joined_at, created_at")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("consultant_assignments")
+      .select(
+        "id, consultant_user_id, is_primary, is_active, assigned_at, ended_at",
+      )
+      .eq("organization_id", organizationId)
+      .order("assigned_at", { ascending: true }),
+  ]);
 
   if (membersError || assignmentsError) {
     return {
@@ -2745,20 +2822,33 @@ export async function getOrganizationAccess(env: ApiEnv, context: AuthContext, o
     .order("full_name", { ascending: true });
 
   if (profilesError) {
-    return { ok: false as const, statusCode: 500, error: "profiles_load_failed", detail: profilesError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "profiles_load_failed",
+      detail: profilesError.message,
+    };
   }
 
-  const profileById = new Map((profiles ?? []).map((profile) => [profile.id as string, profile]));
+  const profileById = new Map(
+    (profiles ?? []).map((profile) => [profile.id as string, profile]),
+  );
   return {
     ok: true as const,
     data: {
       organization,
-      members: (members ?? []).map((member) => ({ ...member, profile: profileById.get(member.user_id as string) ?? null })),
+      members: (members ?? []).map((member) => ({
+        ...member,
+        profile: profileById.get(member.user_id as string) ?? null,
+      })),
       assignments: (assignments ?? []).map((assignment) => ({
         ...assignment,
-        profile: profileById.get(assignment.consultant_user_id as string) ?? null,
+        profile:
+          profileById.get(assignment.consultant_user_id as string) ?? null,
       })),
-      available_profiles: (profiles ?? []).filter((profile) => profile.is_active),
+      available_profiles: (profiles ?? []).filter(
+        (profile) => profile.is_active,
+      ),
     },
   };
 }
@@ -2781,18 +2871,38 @@ export async function upsertOrganizationMember(
   const access = requirePlatformAdmin(context);
   if (access.ok === false) return access;
   const userId = body.user_id?.trim();
-  if (!userId || !body.role || !MEMBER_ROLES.includes(body.role as MemberRole)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_member_payload" };
+  if (
+    !userId ||
+    !body.role ||
+    !MEMBER_ROLES.includes(body.role as MemberRole)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_member_payload",
+    };
   }
 
   const supabase = createServiceClient(env);
-  const { data: profile, error: profileError } = await loadExistingProfile(supabase, userId);
-  if (profileError) return { ok: false as const, statusCode: 500, error: "profile_load_failed", detail: profileError.message };
-  if (!profile) return { ok: false as const, statusCode: 404, error: "profile_not_found" };
+  const { data: profile, error: profileError } = await loadExistingProfile(
+    supabase,
+    userId,
+  );
+  if (profileError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "profile_load_failed",
+      detail: profileError.message,
+    };
+  if (!profile)
+    return { ok: false as const, statusCode: 404, error: "profile_not_found" };
 
   const { data: previous } = await supabase
     .from("organization_members")
-    .select("id, organization_id, user_id, role, is_active, invited_at, joined_at")
+    .select(
+      "id, organization_id, user_id, role, is_active, invited_at, joined_at",
+    )
     .eq("organization_id", organizationId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -2810,14 +2920,24 @@ export async function upsertOrganizationMember(
       },
       { onConflict: "organization_id,user_id" },
     )
-    .select("id, organization_id, user_id, role, is_active, invited_at, joined_at")
+    .select(
+      "id, organization_id, user_id, role, is_active, invited_at, joined_at",
+    )
     .single();
 
-  if (error) return { ok: false as const, statusCode: 500, error: "organization_member_save_failed", detail: error.message };
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_member_save_failed",
+      detail: error.message,
+    };
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
-    action: previous ? "consultant.update_organization_member" : "consultant.add_organization_member",
+    action: previous
+      ? "consultant.update_organization_member"
+      : "consultant.add_organization_member",
     entityType: "organization_member",
     entityId: member.id,
     oldData: previous,
@@ -2830,24 +2950,51 @@ export async function upsertConsultantAssignment(
   env: ApiEnv,
   context: AuthContext,
   organizationId: string,
-  body: { consultant_user_id?: string; is_primary?: boolean; is_active?: boolean },
+  body: {
+    consultant_user_id?: string;
+    is_primary?: boolean;
+    is_active?: boolean;
+  },
 ) {
   const access = requirePlatformAdmin(context);
   if (access.ok === false) return access;
   const consultantUserId = body.consultant_user_id?.trim();
-  if (!consultantUserId) return { ok: false as const, statusCode: 400, error: "consultant_user_id_required" };
+  if (!consultantUserId)
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "consultant_user_id_required",
+    };
 
   const supabase = createServiceClient(env);
-  const { data: profile, error: profileError } = await loadExistingProfile(supabase, consultantUserId);
-  if (profileError) return { ok: false as const, statusCode: 500, error: "profile_load_failed", detail: profileError.message };
-  if (!profile) return { ok: false as const, statusCode: 404, error: "profile_not_found" };
-  if (!["consultant", "platform_admin"].includes(profile.platform_role as string)) {
-    return { ok: false as const, statusCode: 400, error: "profile_not_consultant" };
+  const { data: profile, error: profileError } = await loadExistingProfile(
+    supabase,
+    consultantUserId,
+  );
+  if (profileError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "profile_load_failed",
+      detail: profileError.message,
+    };
+  if (!profile)
+    return { ok: false as const, statusCode: 404, error: "profile_not_found" };
+  if (
+    !["consultant", "platform_admin"].includes(profile.platform_role as string)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "profile_not_consultant",
+    };
   }
 
   const { data: previous } = await supabase
     .from("consultant_assignments")
-    .select("id, organization_id, consultant_user_id, is_primary, is_active, assigned_at, ended_at")
+    .select(
+      "id, organization_id, consultant_user_id, is_primary, is_active, assigned_at, ended_at",
+    )
     .eq("organization_id", organizationId)
     .eq("consultant_user_id", consultantUserId)
     .maybeSingle();
@@ -2863,7 +3010,12 @@ export async function upsertConsultantAssignment(
       .eq("is_primary", true)
       .neq("consultant_user_id", consultantUserId);
     if (clearPrimaryError) {
-      return { ok: false as const, statusCode: 500, error: "primary_assignment_update_failed", detail: clearPrimaryError.message };
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "primary_assignment_update_failed",
+        detail: clearPrimaryError.message,
+      };
     }
   }
 
@@ -2880,20 +3032,33 @@ export async function upsertConsultantAssignment(
       },
       { onConflict: "organization_id,consultant_user_id" },
     )
-    .select("id, organization_id, consultant_user_id, is_primary, is_active, assigned_at, ended_at")
+    .select(
+      "id, organization_id, consultant_user_id, is_primary, is_active, assigned_at, ended_at",
+    )
     .single();
 
-  if (error) return { ok: false as const, statusCode: 500, error: "consultant_assignment_save_failed", detail: error.message };
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_assignment_save_failed",
+      detail: error.message,
+    };
   await recordAuditLog(supabase, {
     organizationId,
     actorUserId: context.user.id,
-    action: previous ? "consultant.update_assignment" : "consultant.create_assignment",
+    action: previous
+      ? "consultant.update_assignment"
+      : "consultant.create_assignment",
     entityType: "consultant_assignment",
     entityId: assignment.id,
     oldData: previous,
     newData: assignment,
   });
-  return { ok: true as const, data: { assignment: { ...assignment, profile } } };
+  return {
+    ok: true as const,
+    data: { assignment: { ...assignment, profile } },
+  };
 }
 
 // Ventana por defecto para las estadisticas de uso de IA del panel.
@@ -3014,7 +3179,11 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
   );
   const byConsultant = new Map<
     string,
-    Array<{ organization_id: string; display_name: string; is_primary: boolean }>
+    Array<{
+      organization_id: string;
+      display_name: string;
+      is_primary: boolean;
+    }>
   >();
   for (const assignment of assignments ?? []) {
     const consultantId = assignment.consultant_user_id as string;
@@ -3135,8 +3304,15 @@ function requireStoreManager(context: AuthContext, organizationId: string) {
 }
 
 /** Tiendas (paginas web) de un cliente, para el CRUD de consultoria. */
-export async function listOrganizationStores(env: ApiEnv, authorization: string, context: AuthContext, organizationId: string) {
-  if (!["platform_admin", "consultant"].includes(context.profile.platform_role)) {
+export async function listOrganizationStores(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+) {
+  if (
+    !["platform_admin", "consultant"].includes(context.profile.platform_role)
+  ) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -3152,7 +3328,11 @@ export async function listOrganizationStores(env: ApiEnv, authorization: string,
   // organizaciones virtuales de platform_admin/consultant (auth-context.ts),
   // asi que reusarlo aqui es la misma verificacion que el resto de servicios
   // (requireMembership), sin una query nueva.
-  if (!context.memberships.some((membership) => membership.organization_id === organizationId)) {
+  if (
+    !context.memberships.some(
+      (membership) => membership.organization_id === organizationId,
+    )
+  ) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -3165,16 +3345,26 @@ export async function listOrganizationStores(env: ApiEnv, authorization: string,
 
   const { data, error } = await supabase
     .from("integration_connections")
-    .select("id, provider_account_name, provider_account_id, status, connected_at, last_sync_at")
+    .select(
+      "id, provider_account_name, provider_account_id, status, connected_at, last_sync_at",
+    )
     .eq("organization_id", organizationId)
     .eq("provider", "shopify")
     .order("connected_at", { ascending: false });
 
   if (error) {
-    return { ok: false as const, statusCode: 500, error: "organization_stores_load_failed", detail: error.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_stores_load_failed",
+      detail: error.message,
+    };
   }
 
-  return { ok: true as const, data: { organization_id: organizationId, stores: data ?? [] } };
+  return {
+    ok: true as const,
+    data: { organization_id: organizationId, stores: data ?? [] },
+  };
 }
 
 /**
@@ -3213,7 +3403,10 @@ export async function deleteOrganizationStore(
   connectionId: string,
 ) {
   const access = requireStoreManager(context, organizationId);
-  const puedeDescartar = canDiscardAuthorizationAttempt(context, organizationId);
+  const puedeDescartar = canDiscardAuthorizationAttempt(
+    context,
+    organizationId,
+  );
   // Sin ninguna de las dos autoridades no se mira siquiera la conexion: asi no
   // se puede sondear que ids existen a base de comparar respuestas.
   if (access.ok === false && !puedeDescartar) {
@@ -3224,20 +3417,39 @@ export async function deleteOrganizationStore(
 
   const { data: connection, error: loadError } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, provider, status, connected_at, created_at, updated_at")
+    .select(
+      "id, organization_id, provider, status, connected_at, created_at, updated_at",
+    )
     .eq("id", connectionId)
     .maybeSingle();
 
   if (loadError) {
-    return { ok: false as const, statusCode: 500, error: "connection_load_failed", detail: loadError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "connection_load_failed",
+      detail: loadError.message,
+    };
   }
 
-  if (!connection || connection.organization_id !== organizationId || connection.provider !== "shopify") {
-    return { ok: false as const, statusCode: 404, error: "connection_not_found" };
+  if (
+    !connection ||
+    connection.organization_id !== organizationId ||
+    connection.provider !== "shopify"
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "connection_not_found",
+    };
   }
 
   if (connection.status === "pending_deletion") {
-    return { ok: false as const, statusCode: 409, error: "connection_already_pending_deletion" };
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "connection_already_pending_deletion",
+    };
   }
 
   // Descartar un intento de autorizacion a medias no es borrar una tienda: no
@@ -3310,7 +3522,12 @@ export async function deleteOrganizationStore(
     .eq("id", connectionId);
 
   if (updateError) {
-    return { ok: false as const, statusCode: 500, error: "connection_delete_failed", detail: updateError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "connection_delete_failed",
+      detail: updateError.message,
+    };
   }
 
   await recordAuditLog(supabase, {
@@ -3323,7 +3540,14 @@ export async function deleteOrganizationStore(
     newData: { status: "pending_deletion", scheduled_purge_at: scheduledPurge },
   });
 
-  return { ok: true as const, data: { connection_id: connectionId, status: "pending_deletion", scheduled_purge_at: scheduledPurge } };
+  return {
+    ok: true as const,
+    data: {
+      connection_id: connectionId,
+      status: "pending_deletion",
+      scheduled_purge_at: scheduledPurge,
+    },
+  };
 }
 
 /**
@@ -3351,15 +3575,28 @@ export async function restoreOrganizationStore(
     .maybeSingle();
 
   if (loadError) {
-    return { ok: false as const, statusCode: 500, error: "connection_load_failed", detail: loadError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "connection_load_failed",
+      detail: loadError.message,
+    };
   }
 
   if (!connection || connection.organization_id !== organizationId) {
-    return { ok: false as const, statusCode: 404, error: "connection_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "connection_not_found",
+    };
   }
 
   if (connection.status !== "pending_deletion") {
-    return { ok: false as const, statusCode: 409, error: "connection_not_pending_deletion" };
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "connection_not_pending_deletion",
+    };
   }
 
   const { error: updateError } = await supabase
@@ -3373,7 +3610,12 @@ export async function restoreOrganizationStore(
     .eq("id", connectionId);
 
   if (updateError) {
-    return { ok: false as const, statusCode: 500, error: "connection_restore_failed", detail: updateError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "connection_restore_failed",
+      detail: updateError.message,
+    };
   }
 
   await recordAuditLog(supabase, {
@@ -3386,10 +3628,18 @@ export async function restoreOrganizationStore(
     newData: { status: "connected" },
   });
 
-  return { ok: true as const, data: { connection_id: connectionId, status: "connected" } };
+  return {
+    ok: true as const,
+    data: { connection_id: connectionId, status: "connected" },
+  };
 }
 
-const ORGANIZATION_STATUSES = ["onboarding", "active", "suspended", "cancelled"] as const;
+const ORGANIZATION_STATUSES = [
+  "onboarding",
+  "active",
+  "suspended",
+  "cancelled",
+] as const;
 
 /**
  * Quien puede editar la identidad de una organizacion: su owner real, o quien
@@ -3436,7 +3686,12 @@ export async function updateOrganization(
   env: ApiEnv,
   context: AuthContext,
   organizationId: string,
-  body: { display_name?: string; status?: string; timezone?: string; currency_code?: string },
+  body: {
+    display_name?: string;
+    status?: string;
+    timezone?: string;
+    currency_code?: string;
+  },
 ) {
   // El `status` es ciclo de vida de plataforma (suspender, cancelar): sigue
   // reservado a platform admin o al owner real. La identidad -- nombre, zona
@@ -3456,13 +3711,21 @@ export async function updateOrganization(
   if (body.display_name !== undefined) {
     const trimmed = body.display_name.trim();
     if (trimmed.length === 0) {
-      return { ok: false as const, statusCode: 400, error: "invalid_display_name" };
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_display_name",
+      };
     }
     patch.display_name = trimmed;
   }
 
   if (body.status !== undefined) {
-    if (!ORGANIZATION_STATUSES.includes(body.status as (typeof ORGANIZATION_STATUSES)[number])) {
+    if (
+      !ORGANIZATION_STATUSES.includes(
+        body.status as (typeof ORGANIZATION_STATUSES)[number],
+      )
+    ) {
       return { ok: false as const, statusCode: 400, error: "invalid_status" };
     }
     patch.status = body.status;
@@ -3478,7 +3741,11 @@ export async function updateOrganization(
 
   if (body.currency_code !== undefined) {
     if (!/^[A-Z]{3}$/.test(body.currency_code)) {
-      return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_currency_code",
+      };
     }
     patch.currency_code = body.currency_code;
   }
@@ -3503,11 +3770,20 @@ export async function updateOrganization(
     .maybeSingle();
 
   if (updateError) {
-    return { ok: false as const, statusCode: 500, error: "organization_update_failed", detail: updateError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_update_failed",
+      detail: updateError.message,
+    };
   }
 
   if (!organization) {
-    return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "organization_not_found",
+    };
   }
 
   await recordAuditLog(supabase, {
@@ -3532,7 +3808,11 @@ export async function updateOrganization(
  * `purgeExpiredOrganizations` (job periodico) cuando pasa `scheduled_purge_at`,
  * o se puede revertir antes con `restoreOrganization`. Solo platform admin.
  */
-export async function deleteOrganization(env: ApiEnv, context: AuthContext, organizationId: string) {
+export async function deleteOrganization(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
   const access = requirePlatformAdminOrStoreOwner(context, organizationId);
   if (access.ok === false) {
     return access;
@@ -3547,15 +3827,28 @@ export async function deleteOrganization(env: ApiEnv, context: AuthContext, orga
     .maybeSingle();
 
   if (loadError) {
-    return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: loadError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_load_failed",
+      detail: loadError.message,
+    };
   }
 
   if (!organization) {
-    return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "organization_not_found",
+    };
   }
 
   if (organization.status === "pending_deletion") {
-    return { ok: false as const, statusCode: 409, error: "organization_already_pending_deletion" };
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "organization_already_pending_deletion",
+    };
   }
 
   const scheduledPurge = scheduledPurgeAt();
@@ -3571,7 +3864,12 @@ export async function deleteOrganization(env: ApiEnv, context: AuthContext, orga
     .eq("id", organizationId);
 
   if (updateError) {
-    return { ok: false as const, statusCode: 500, error: "organization_delete_failed", detail: updateError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_delete_failed",
+      detail: updateError.message,
+    };
   }
 
   await recordAuditLog(supabase, {
@@ -3586,7 +3884,12 @@ export async function deleteOrganization(env: ApiEnv, context: AuthContext, orga
 
   return {
     ok: true as const,
-    data: { organization_id: organizationId, display_name: organization.display_name, status: "pending_deletion", scheduled_purge_at: scheduledPurge },
+    data: {
+      organization_id: organizationId,
+      display_name: organization.display_name,
+      status: "pending_deletion",
+      scheduled_purge_at: scheduledPurge,
+    },
   };
 }
 
@@ -3596,7 +3899,11 @@ export async function deleteOrganization(env: ApiEnv, context: AuthContext, orga
  * suspended), asi que restaura a 'active' -- es el caso comun y evita
  * reintroducir un estado de onboarding a medio completar.
  */
-export async function restoreOrganization(env: ApiEnv, context: AuthContext, organizationId: string) {
+export async function restoreOrganization(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
   const access = requirePlatformAdmin(context);
   if (access.ok === false) {
     return access;
@@ -3611,24 +3918,47 @@ export async function restoreOrganization(env: ApiEnv, context: AuthContext, org
     .maybeSingle();
 
   if (loadError) {
-    return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: loadError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_load_failed",
+      detail: loadError.message,
+    };
   }
 
   if (!organization) {
-    return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "organization_not_found",
+    };
   }
 
   if (organization.status !== "pending_deletion") {
-    return { ok: false as const, statusCode: 409, error: "organization_not_pending_deletion" };
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "organization_not_pending_deletion",
+    };
   }
 
   const { error: updateError } = await supabase
     .from("organizations")
-    .update({ status: "active", deletion_requested_at: null, deletion_requested_by: null, scheduled_purge_at: null })
+    .update({
+      status: "active",
+      deletion_requested_at: null,
+      deletion_requested_by: null,
+      scheduled_purge_at: null,
+    })
     .eq("id", organizationId);
 
   if (updateError) {
-    return { ok: false as const, statusCode: 500, error: "organization_restore_failed", detail: updateError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_restore_failed",
+      detail: updateError.message,
+    };
   }
 
   await recordAuditLog(supabase, {
@@ -3641,7 +3971,14 @@ export async function restoreOrganization(env: ApiEnv, context: AuthContext, org
     newData: { status: "active" },
   });
 
-  return { ok: true as const, data: { organization_id: organizationId, display_name: organization.display_name, status: "active" } };
+  return {
+    ok: true as const,
+    data: {
+      organization_id: organizationId,
+      display_name: organization.display_name,
+      status: "active",
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -3669,16 +4006,43 @@ export async function pauseConsultantClient(
     .select("id, status")
     .eq("id", organizationId)
     .maybeSingle();
-  if (error) return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: error.message };
-  if (!org) return { ok: false as const, statusCode: 404, error: "organization_not_found" };
-  if (org.status === "pending_deletion") return { ok: false as const, statusCode: 409, error: "organization_pending_deletion" };
-  if (org.status === "suspended") return { ok: false as const, statusCode: 409, error: "organization_already_suspended" };
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_load_failed",
+      detail: error.message,
+    };
+  if (!org)
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "organization_not_found",
+    };
+  if (org.status === "pending_deletion")
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "organization_pending_deletion",
+    };
+  if (org.status === "suspended")
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "organization_already_suspended",
+    };
 
   const { error: upErr } = await supabase
     .from("organizations")
     .update({ status: "suspended" })
     .eq("id", organizationId);
-  if (upErr) return { ok: false as const, statusCode: 500, error: "organization_pause_failed", detail: upErr.message };
+  if (upErr)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_pause_failed",
+      detail: upErr.message,
+    };
 
   await recordAuditLog(supabase, {
     organizationId,
@@ -3689,7 +4053,10 @@ export async function pauseConsultantClient(
     oldData: { status: org.status },
     newData: { status: "suspended" },
   });
-  return { ok: true as const, data: { organization_id: organizationId, status: "suspended" } };
+  return {
+    ok: true as const,
+    data: { organization_id: organizationId, status: "suspended" },
+  };
 }
 
 /** Reanuda un cliente pausado: suspended -> active. */
@@ -3707,15 +4074,37 @@ export async function resumeConsultantClient(
     .select("id, status")
     .eq("id", organizationId)
     .maybeSingle();
-  if (error) return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: error.message };
-  if (!org) return { ok: false as const, statusCode: 404, error: "organization_not_found" };
-  if (org.status !== "suspended") return { ok: false as const, statusCode: 409, error: "organization_not_suspended" };
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_load_failed",
+      detail: error.message,
+    };
+  if (!org)
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "organization_not_found",
+    };
+  if (org.status !== "suspended")
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "organization_not_suspended",
+    };
 
   const { error: upErr } = await supabase
     .from("organizations")
     .update({ status: "active" })
     .eq("id", organizationId);
-  if (upErr) return { ok: false as const, statusCode: 500, error: "organization_resume_failed", detail: upErr.message };
+  if (upErr)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_resume_failed",
+      detail: upErr.message,
+    };
 
   await recordAuditLog(supabase, {
     organizationId,
@@ -3726,7 +4115,10 @@ export async function resumeConsultantClient(
     oldData: { status: "suspended" },
     newData: { status: "active" },
   });
-  return { ok: true as const, data: { organization_id: organizationId, status: "active" } };
+  return {
+    ok: true as const,
+    data: { organization_id: organizationId, status: "active" },
+  };
 }
 
 /** Desvincula al consultor del cliente: termina SU consultant_assignment y
@@ -3746,8 +4138,19 @@ export async function unlinkConsultantClient(
     .select("id, status")
     .eq("id", organizationId)
     .maybeSingle();
-  if (error) return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: error.message };
-  if (!org) return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_load_failed",
+      detail: error.message,
+    };
+  if (!org)
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "organization_not_found",
+    };
 
   const { error: assignErr } = await supabase
     .from("consultant_assignments")
@@ -3755,7 +4158,13 @@ export async function unlinkConsultantClient(
     .eq("organization_id", organizationId)
     .eq("consultant_user_id", context.user.id)
     .eq("is_active", true);
-  if (assignErr) return { ok: false as const, statusCode: 500, error: "assignment_end_failed", detail: assignErr.message };
+  if (assignErr)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "assignment_end_failed",
+      detail: assignErr.message,
+    };
 
   // Una org ya en borrado pendiente no se toca; en cualquier otro caso, quitar
   // el cliente de la cartera la suspende (dejamos de traer sus datos).
@@ -3768,7 +4177,13 @@ export async function unlinkConsultantClient(
       .from("organizations")
       .update({ status: nextStatus })
       .eq("id", organizationId);
-    if (upErr) return { ok: false as const, statusCode: 500, error: "organization_pause_failed", detail: upErr.message };
+    if (upErr)
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "organization_pause_failed",
+        detail: upErr.message,
+      };
   }
 
   await recordAuditLog(supabase, {
@@ -3780,7 +4195,14 @@ export async function unlinkConsultantClient(
     oldData: { org_status: org.status },
     newData: { org_status: nextStatus, assignment_ended: true },
   });
-  return { ok: true as const, data: { organization_id: organizationId, unlinked: true, status: nextStatus } };
+  return {
+    ok: true as const,
+    data: {
+      organization_id: organizationId,
+      unlinked: true,
+      status: nextStatus,
+    },
+  };
 }
 
 /** Borrado inmediato y definitivo de un cliente. Un solo `DELETE FROM
@@ -3802,8 +4224,19 @@ export async function hardDeleteOrganization(
     .select("id, display_name, status")
     .eq("id", organizationId)
     .maybeSingle();
-  if (loadError) return { ok: false as const, statusCode: 500, error: "organization_load_failed", detail: loadError.message };
-  if (!org) return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+  if (loadError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_load_failed",
+      detail: loadError.message,
+    };
+  if (!org)
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "organization_not_found",
+    };
 
   // El audit log va antes del delete: `audit_logs.organization_id` es SET NULL,
   // así que la fila sobrevive al borrado con el id ya nulo.
@@ -3820,9 +4253,18 @@ export async function hardDeleteOrganization(
     .from("organizations")
     .delete()
     .eq("id", organizationId);
-  if (delError) return { ok: false as const, statusCode: 500, error: "organization_hard_delete_failed", detail: delError.message };
+  if (delError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_hard_delete_failed",
+      detail: delError.message,
+    };
 
-  return { ok: true as const, data: { organization_id: organizationId, deleted: true } };
+  return {
+    ok: true as const,
+    data: { organization_id: organizationId, deleted: true },
+  };
 }
 
 /**
@@ -3842,19 +4284,30 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
     .lte("scheduled_purge_at", nowIso);
 
   if (orgLoadError) {
-    return { ok: false as const, statusCode: 500, error: "organizations_purge_lookup_failed", detail: orgLoadError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organizations_purge_lookup_failed",
+      detail: orgLoadError.message,
+    };
   }
 
   let purgedOrganizations = 0;
   const failedOrganizationIds: string[] = [];
   for (const organization of organizations ?? []) {
-    const { error: deleteError } = await supabase.from("organizations").delete().eq("id", organization.id);
+    const { error: deleteError } = await supabase
+      .from("organizations")
+      .delete()
+      .eq("id", organization.id);
     if (deleteError) {
       // R-008 (bug real encontrado 2026-07-22): antes este error se tragaba
       // en silencio -- una organizacion con datos que rompieran el borrado
       // en cascada (ver fix de log_financial_change) nunca se purgaba y
       // nadie se enteraba. Ahora queda en logs y en el resultado del cron.
-      logger.error("Failed to purge organization", { organization_id: organization.id, error: deleteError.message });
+      logger.error("Failed to purge organization", {
+        organization_id: organization.id,
+        error: deleteError.message,
+      });
       failedOrganizationIds.push(organization.id);
       continue;
     }
@@ -3888,7 +4341,10 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
   let purgedConnections = 0;
   const failedConnectionIds: string[] = [];
   for (const connection of connections ?? []) {
-    const { error: deleteError } = await supabase.from("integration_connections").delete().eq("id", connection.id);
+    const { error: deleteError } = await supabase
+      .from("integration_connections")
+      .delete()
+      .eq("id", connection.id);
     if (deleteError) {
       logger.error("Failed to purge integration connection", {
         connection_id: connection.id,
@@ -3916,7 +4372,9 @@ export async function purgeExpiredDeletions(env: ApiEnv) {
   // medias dejaba una tienda fantasma ocupando cupo del plan para siempre.
   const { data: attempts, error: attemptsLoadError } = await supabase
     .from("integration_connections")
-    .select("id, organization_id, provider, provider_account_id, status, connected_at, created_at, updated_at")
+    .select(
+      "id, organization_id, provider, provider_account_id, status, connected_at, created_at, updated_at",
+    )
     .eq("status", "pending")
     .is("connected_at", null)
     .lt("updated_at", authorizationPurgeCutoff(new Date(nowIso)));
@@ -4025,8 +4483,8 @@ export function isAuthEmailRateLimit(
   );
 }
 
-/** Invita a un consultor y le sube el platform_role a 'consultant'. Si el
- * SMTP de Supabase agota su limite, crea un enlace para compartir manualmente. */
+/** Invita a un consultor, asigna su rol y envía el enlace seguro por el SMTP
+ * propio. No depende del límite de correo del proveedor Auth. */
 export async function inviteConsultant(
   env: ApiEnv,
   context: AuthContext,
@@ -4046,42 +4504,54 @@ export async function inviteConsultant(
     redirectTo: onboardingRedirectTo(env),
     ...(fullName ? { data: { full_name: fullName } } : {}),
   };
-  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);
-
-  let invitedUser = data?.user ?? null;
-  let delivery: "email" | "manual_link" = "email";
-  let inviteUrl: string | null = null;
-  let finalError = error;
-
-  if (error && isAuthEmailRateLimit(error)) {
-    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+  const { data: linkData, error: linkError } =
+    await supabase.auth.admin.generateLink({
       type: "invite",
       email,
       options: inviteOptions,
     });
-    invitedUser = linkData?.user ?? null;
-    inviteUrl = linkData?.properties?.action_link ?? null;
-    finalError = linkError;
-    if (!linkError && invitedUser && inviteUrl) delivery = "manual_link";
-  }
+  const invitedUser = linkData?.user ?? null;
+  const inviteUrl = linkData?.properties?.action_link ?? null;
 
-  if (finalError || !invitedUser || (delivery === "manual_link" && !inviteUrl)) {
-    const already = /already|exist/i.test(finalError?.message ?? "");
-    const rateLimited = isAuthEmailRateLimit(finalError);
+  if (linkError || !invitedUser || !inviteUrl) {
+    const already = /already|exist/i.test(linkError?.message ?? "");
     return {
       ok: false as const,
-      statusCode: already ? 409 : rateLimited ? 429 : 502,
-      error: already ? "email_already_registered" : rateLimited ? "auth_email_rate_limited" : "invite_failed",
-      detail: finalError?.message,
+      statusCode: already ? 409 : 502,
+      error: already ? "email_already_registered" : "invite_failed",
+      detail: linkError?.message,
     };
   }
 
   const { error: roleError } = await supabase
     .from("profiles")
-    .update({ platform_role: CONSULTANT_ROLE, full_name: fullName, is_active: true })
+    .update({
+      platform_role: CONSULTANT_ROLE,
+      full_name: fullName,
+      is_active: true,
+    })
     .eq("id", invitedUser.id);
   if (roleError) {
-    return { ok: false as const, statusCode: 500, error: "profile_role_update_failed", detail: roleError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "profile_role_update_failed",
+      detail: roleError.message,
+    };
+  }
+
+  const sent = await sendInviteMail(env, {
+    to: email,
+    recipientName: fullName,
+    title: "Tu invitación a EcomScaling",
+    intro:
+      "Te han invitado como consultor. Crea tu contraseña y completa tu nombre y el de tu agencia.",
+    actionLabel: "Aceptar invitación",
+    actionUrl: inviteUrl,
+  });
+  const delivery: "email" | "manual_link" = sent.sent ? "email" : "manual_link";
+  if (!sent.sent) {
+    logger.info("consultant_invite_smtp_fallback", { reason: sent.reason });
   }
 
   await recordAuditLog(supabase, {
@@ -4090,11 +4560,22 @@ export async function inviteConsultant(
     action: "admin.invite_consultant",
     entityType: "profile",
     entityId: invitedUser.id,
-    newData: { email, full_name: fullName, platform_role: CONSULTANT_ROLE, delivery },
+    newData: {
+      email,
+      full_name: fullName,
+      platform_role: CONSULTANT_ROLE,
+      delivery,
+    },
   });
   return {
     ok: true as const,
-    data: { user_id: invitedUser.id, email, full_name: fullName, delivery, invite_url: inviteUrl },
+    data: {
+      user_id: invitedUser.id,
+      email,
+      full_name: fullName,
+      delivery,
+      invite_url: inviteUrl,
+    },
   };
 }
 
@@ -4110,17 +4591,36 @@ export async function updateConsultant(
   if (access.ok === false) return access;
 
   const supabase = createServiceClient(env);
-  const { data: profile, error: loadError } = await loadExistingProfile(supabase, userId);
-  if (loadError) return { ok: false as const, statusCode: 500, error: "profile_load_failed", detail: loadError.message };
-  if (!profile) return { ok: false as const, statusCode: 404, error: "profile_not_found" };
+  const { data: profile, error: loadError } = await loadExistingProfile(
+    supabase,
+    userId,
+  );
+  if (loadError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "profile_load_failed",
+      detail: loadError.message,
+    };
+  if (!profile)
+    return { ok: false as const, statusCode: 404, error: "profile_not_found" };
   if (profile.platform_role !== CONSULTANT_ROLE) {
-    return { ok: false as const, statusCode: 400, error: "profile_not_consultant" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "profile_not_consultant",
+    };
   }
 
   const patch: Record<string, unknown> = {};
   if (body.full_name !== undefined) {
     const trimmed = body.full_name.trim();
-    if (trimmed.length === 0) return { ok: false as const, statusCode: 400, error: "invalid_full_name" };
+    if (trimmed.length === 0)
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "invalid_full_name",
+      };
     patch.full_name = trimmed;
   }
   if (body.is_active !== undefined) patch.is_active = Boolean(body.is_active);
@@ -4134,7 +4634,13 @@ export async function updateConsultant(
     .eq("id", userId)
     .select("id, full_name, platform_role, is_active")
     .single();
-  if (error) return { ok: false as const, statusCode: 500, error: "consultant_update_failed", detail: error.message };
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_update_failed",
+      detail: error.message,
+    };
 
   await recordAuditLog(supabase, {
     organizationId: null,
@@ -4161,25 +4667,65 @@ export async function resendConsultantInvite(
   if (access.ok === false) return access;
 
   const supabase = createServiceClient(env);
-  const { data: profile, error: loadError } = await loadExistingProfile(supabase, userId);
-  if (loadError) return { ok: false as const, statusCode: 500, error: "profile_load_failed", detail: loadError.message };
-  if (!profile) return { ok: false as const, statusCode: 404, error: "profile_not_found" };
+  const { data: profile, error: loadError } = await loadExistingProfile(
+    supabase,
+    userId,
+  );
+  if (loadError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "profile_load_failed",
+      detail: loadError.message,
+    };
+  if (!profile)
+    return { ok: false as const, statusCode: 404, error: "profile_not_found" };
   if (profile.platform_role !== CONSULTANT_ROLE) {
-    return { ok: false as const, statusCode: 400, error: "profile_not_consultant" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "profile_not_consultant",
+    };
   }
 
-  const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
+  const { data: userData, error: userError } =
+    await supabase.auth.admin.getUserById(userId);
   const email = userData?.user?.email;
   if (userError || !email) {
-    return { ok: false as const, statusCode: 502, error: "user_lookup_failed", detail: userError?.message };
+    return {
+      ok: false as const,
+      statusCode: 502,
+      error: "user_lookup_failed",
+      detail: userError?.message,
+    };
   }
 
-  const { error: sendError } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: onboardingRedirectTo(env),
-  });
-  if (sendError) {
-    return { ok: false as const, statusCode: 502, error: "resend_failed", detail: sendError.message };
+  const { data: recovery, error: linkError } =
+    await supabase.auth.admin.generateLink({
+      type: "recovery",
+      email,
+      options: { redirectTo: onboardingRedirectTo(env) },
+    });
+  const inviteUrl = recovery?.properties?.action_link;
+  if (linkError || !inviteUrl) {
+    return {
+      ok: false as const,
+      statusCode: 502,
+      error: "resend_failed",
+      detail: linkError?.message,
+    };
   }
+
+  const sent = await sendInviteMail(env, {
+    to: email,
+    recipientName: profile.full_name,
+    title: "Tu acceso a EcomScaling",
+    intro:
+      "Aquí tienes un nuevo enlace para activar o recuperar tu acceso como consultor.",
+    actionLabel: "Continuar onboarding",
+    actionUrl: inviteUrl,
+  });
+  const delivery: "email" | "manual_link" = sent.sent ? "email" : "manual_link";
 
   await recordAuditLog(supabase, {
     organizationId: null,
@@ -4187,9 +4733,16 @@ export async function resendConsultantInvite(
     action: "admin.resend_consultant_invite",
     entityType: "profile",
     entityId: userId,
-    newData: { email },
+    newData: { email, delivery },
   });
-  return { ok: true as const, data: { email } };
+  return {
+    ok: true as const,
+    data: {
+      email,
+      delivery,
+      invite_url: delivery === "manual_link" ? inviteUrl : null,
+    },
+  };
 }
 
 /**
@@ -4217,14 +4770,33 @@ export async function createClientOrganization(
   const timezone = body.timezone?.trim() || "Europe/Madrid";
   const currencyCode = (body.currency_code?.trim() || "EUR").toUpperCase();
 
-  if (displayName.length === 0) return { ok: false as const, statusCode: 400, error: "invalid_display_name" };
-  if (!isEmail(ownerEmail)) return { ok: false as const, statusCode: 400, error: "invalid_owner_email" };
-  if (!/^[A-Z]{3}$/.test(currencyCode)) return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+  if (displayName.length === 0)
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_display_name",
+    };
+  if (!isEmail(ownerEmail))
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_owner_email",
+    };
+  if (!/^[A-Z]{3}$/.test(currencyCode))
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_currency_code",
+    };
 
   const supabase = createServiceClient(env);
 
   let slug = slugify(displayName);
-  const { data: clash } = await supabase.from("organizations").select("id").eq("slug", slug).maybeSingle();
+  const { data: clash } = await supabase
+    .from("organizations")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
   if (clash) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
 
   const { data: organization, error: orgError } = await supabase
@@ -4240,13 +4812,19 @@ export async function createClientOrganization(
     .select("id, display_name, slug, status, timezone, currency_code")
     .single();
   if (orgError || !organization) {
-    return { ok: false as const, statusCode: 500, error: "organization_create_failed", detail: orgError?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_create_failed",
+      detail: orgError?.message,
+    };
   }
 
-  const { data: invite, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(ownerEmail, {
-    redirectTo: onboardingRedirectTo(env),
-    ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
-  });
+  const { data: invite, error: inviteError } =
+    await supabase.auth.admin.inviteUserByEmail(ownerEmail, {
+      redirectTo: onboardingRedirectTo(env),
+      ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
+    });
   if (inviteError || !invite?.user) {
     await supabase.from("organizations").delete().eq("id", organization.id);
     const already = /already/i.test(inviteError?.message ?? "");
@@ -4258,30 +4836,44 @@ export async function createClientOrganization(
     };
   }
 
-  const { error: memberError } = await supabase.from("organization_members").insert({
-    organization_id: organization.id,
-    user_id: invite.user.id,
-    role: "owner",
-    is_active: true,
-    invited_by: context.user.id,
-    invited_at: new Date().toISOString(),
-  });
+  const { error: memberError } = await supabase
+    .from("organization_members")
+    .insert({
+      organization_id: organization.id,
+      user_id: invite.user.id,
+      role: "owner",
+      is_active: true,
+      invited_by: context.user.id,
+      invited_at: new Date().toISOString(),
+    });
   if (memberError) {
-    return { ok: false as const, statusCode: 500, error: "owner_member_create_failed", detail: memberError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "owner_member_create_failed",
+      detail: memberError.message,
+    };
   }
 
   // Sin una suscripción válida, `private.can_access_org` (RLS) deja fuera al
   // owner y `resolveAuthContext` responde 409 membership_missing -> no podría
   // ni entrar a completar el onboarding y pagar. Se crea en 'trial' abierto;
   // el cobro real la pasará a 'active' cuando exista la facturación.
-  const { error: subError } = await supabase.from("service_subscriptions").insert({
-    organization_id: organization.id,
-    plan_code: "trial",
-    status: "trial",
-    starts_at: new Date().toISOString(),
-  });
+  const { error: subError } = await supabase
+    .from("service_subscriptions")
+    .insert({
+      organization_id: organization.id,
+      plan_code: "trial",
+      status: "trial",
+      starts_at: new Date().toISOString(),
+    });
   if (subError) {
-    return { ok: false as const, statusCode: 500, error: "owner_subscription_create_failed", detail: subError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "owner_subscription_create_failed",
+      detail: subError.message,
+    };
   }
 
   await recordAuditLog(supabase, {
@@ -4292,7 +4884,13 @@ export async function createClientOrganization(
     entityId: organization.id,
     newData: { organization, owner_email: ownerEmail },
   });
-  return { ok: true as const, data: { organization, owner: { user_id: invite.user.id, email: ownerEmail } } };
+  return {
+    ok: true as const,
+    data: {
+      organization,
+      owner: { user_id: invite.user.id, email: ownerEmail },
+    },
+  };
 }
 
 // --- Alta de cliente por un consultor (sin platform_admin) -----------------
@@ -4326,7 +4924,9 @@ export async function createClientForConsultant(
     currency_code?: string;
   },
 ) {
-  if (!["consultant", "platform_admin"].includes(context.profile.platform_role)) {
+  if (
+    !["consultant", "platform_admin"].includes(context.profile.platform_role)
+  ) {
     return {
       ok: false as const,
       statusCode: 403,
@@ -4341,14 +4941,33 @@ export async function createClientForConsultant(
   const timezone = body.timezone?.trim() || "Europe/Madrid";
   const currencyCode = (body.currency_code?.trim() || "EUR").toUpperCase();
 
-  if (displayName.length === 0) return { ok: false as const, statusCode: 400, error: "invalid_display_name" };
-  if (!isEmail(ownerEmail)) return { ok: false as const, statusCode: 400, error: "invalid_owner_email" };
-  if (!/^[A-Z]{3}$/.test(currencyCode)) return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+  if (displayName.length === 0)
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_display_name",
+    };
+  if (!isEmail(ownerEmail))
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_owner_email",
+    };
+  if (!/^[A-Z]{3}$/.test(currencyCode))
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_currency_code",
+    };
 
   const supabase = createServiceClient(env);
 
   let slug = slugify(displayName);
-  const { data: clash } = await supabase.from("organizations").select("id").eq("slug", slug).maybeSingle();
+  const { data: clash } = await supabase
+    .from("organizations")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
   if (clash) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
 
   const { data: organization, error: orgError } = await supabase
@@ -4364,19 +4983,25 @@ export async function createClientForConsultant(
     .select("id, display_name, slug, status, timezone, currency_code")
     .single();
   if (orgError || !organization) {
-    return { ok: false as const, statusCode: 500, error: "organization_create_failed", detail: orgError?.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_create_failed",
+      detail: orgError?.message,
+    };
   }
 
   // `generateLink` type 'invite' crea el usuario de Auth SIN enviar email: el
   // reparto lo hace el consultor con el código. Si ya existe, se aborta.
-  const { data: link, error: linkError } = await supabase.auth.admin.generateLink({
-    type: "invite",
-    email: ownerEmail,
-    options: {
-      redirectTo: onboardingRedirectTo(env),
-      ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
-    },
-  });
+  const { data: link, error: linkError } =
+    await supabase.auth.admin.generateLink({
+      type: "invite",
+      email: ownerEmail,
+      options: {
+        redirectTo: onboardingRedirectTo(env),
+        ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
+      },
+    });
   if (linkError || !link?.user) {
     await supabase.from("organizations").delete().eq("id", organization.id);
     const already = /already|exist/i.test(linkError?.message ?? "");
@@ -4389,47 +5014,76 @@ export async function createClientForConsultant(
   }
   const ownerUserId = link.user.id;
 
-  const { error: memberError } = await supabase.from("organization_members").insert({
-    organization_id: organization.id,
-    user_id: ownerUserId,
-    role: "owner",
-    is_active: true,
-    invited_by: context.user.id,
-    invited_at: new Date().toISOString(),
-  });
+  const { error: memberError } = await supabase
+    .from("organization_members")
+    .insert({
+      organization_id: organization.id,
+      user_id: ownerUserId,
+      role: "owner",
+      // La organizacion ya existe y esta asignada al consultor, pero el cliente
+      // no recibe acceso hasta confirmar expresamente la invitacion en /acceso.
+      is_active: false,
+      invited_by: context.user.id,
+      invited_at: new Date().toISOString(),
+    });
   if (memberError) {
-    return { ok: false as const, statusCode: 500, error: "owner_member_create_failed", detail: memberError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "owner_member_create_failed",
+      detail: memberError.message,
+    };
   }
 
-  const { error: subError } = await supabase.from("service_subscriptions").insert({
-    organization_id: organization.id,
-    plan_code: "trial",
-    status: "trial",
-    starts_at: new Date().toISOString(),
-  });
+  const { error: subError } = await supabase
+    .from("service_subscriptions")
+    .insert({
+      organization_id: organization.id,
+      plan_code: "trial",
+      status: "trial",
+      starts_at: new Date().toISOString(),
+    });
   if (subError) {
-    return { ok: false as const, statusCode: 500, error: "owner_subscription_create_failed", detail: subError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "owner_subscription_create_failed",
+      detail: subError.message,
+    };
   }
 
   // La organización queda en la cartera del consultor que la crea.
-  const { error: assignError } = await supabase.from("consultant_assignments").insert({
-    organization_id: organization.id,
-    consultant_user_id: context.user.id,
-    is_primary: true,
-    is_active: true,
-    assigned_by: context.user.id,
-  });
+  const { error: assignError } = await supabase
+    .from("consultant_assignments")
+    .insert({
+      organization_id: organization.id,
+      consultant_user_id: context.user.id,
+      is_primary: true,
+      is_active: true,
+      assigned_by: context.user.id,
+    });
   if (assignError) {
-    return { ok: false as const, statusCode: 500, error: "assignment_create_failed", detail: assignError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "assignment_create_failed",
+      detail: assignError.message,
+    };
   }
 
   // Si este consultor comparte cartera con alguien, la tienda nace ya
   // asignada a los dos. Sin esto habria que acordarse de añadir al socio en
   // cada alta, y el dia que se olvide deja de ver una tienda sin aviso.
-  await assignPartnersToOrganization(supabase, context.user.id, organization.id);
+  await assignPartnersToOrganization(
+    supabase,
+    context.user.id,
+    organization.id,
+  );
 
   const code = generateInviteCode();
-  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86400_000).toISOString();
+  const expiresAt = new Date(
+    Date.now() + INVITE_TTL_DAYS * 86400_000,
+  ).toISOString();
   const { error: inviteError } = await supabase.from("client_invites").insert({
     organization_id: organization.id,
     invited_user_id: ownerUserId,
@@ -4439,7 +5093,12 @@ export async function createClientForConsultant(
     expires_at: expiresAt,
   });
   if (inviteError) {
-    return { ok: false as const, statusCode: 500, error: "invite_create_failed", detail: inviteError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invite_create_failed",
+      detail: inviteError.message,
+    };
   }
 
   await recordAuditLog(supabase, {
@@ -4451,12 +5110,30 @@ export async function createClientForConsultant(
     newData: { organization, owner_email: ownerEmail },
   });
 
+  const clientAccessUrl = accessPath(env, code);
+  const sent = await sendInviteMail(env, {
+    to: ownerEmail,
+    recipientName: ownerFullName,
+    title: `Invitación a ${displayName} en EcomScaling`,
+    intro: `Tu consultor ha creado la organización ${displayName}. Verifica el código y confirma que quieres unirte.`,
+    actionLabel: "Revisar invitación",
+    actionUrl: clientAccessUrl,
+  });
+  if (!sent.sent) {
+    logger.info("client_invite_smtp_fallback", { reason: sent.reason });
+  }
+
   return {
     ok: true as const,
     data: {
       organization,
       owner: { user_id: ownerUserId, email: ownerEmail },
-      invite: { code, expires_at: expiresAt, access_url: accessPath(env, code) },
+      invite: {
+        code,
+        expires_at: expiresAt,
+        access_url: clientAccessUrl,
+        delivery: sent.sent ? "email" : "manual_link",
+      },
     },
   };
 }
@@ -4479,17 +5156,37 @@ export async function regenerateClientInvite(
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (loadError) return { ok: false as const, statusCode: 500, error: "invite_load_failed", detail: loadError.message };
-  if (!pending) return { ok: false as const, statusCode: 404, error: "invite_not_found" };
-  if (pending.status === "redeemed") return { ok: false as const, statusCode: 409, error: "invite_already_redeemed" };
+  if (loadError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invite_load_failed",
+      detail: loadError.message,
+    };
+  if (!pending)
+    return { ok: false as const, statusCode: 404, error: "invite_not_found" };
+  if (pending.status === "redeemed")
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "invite_already_redeemed",
+    };
 
   const code = generateInviteCode();
-  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86400_000).toISOString();
+  const expiresAt = new Date(
+    Date.now() + INVITE_TTL_DAYS * 86400_000,
+  ).toISOString();
   const { error: updateError } = await supabase
     .from("client_invites")
     .update({ code, expires_at: expiresAt, status: "pending" })
     .eq("id", pending.id);
-  if (updateError) return { ok: false as const, statusCode: 500, error: "invite_update_failed", detail: updateError.message };
+  if (updateError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invite_update_failed",
+      detail: updateError.message,
+    };
 
   return {
     ok: true as const,
@@ -4515,9 +5212,21 @@ export async function redeemClientInvite(
     .select("id, email, status, expires_at, organization_id, invited_user_id")
     .eq("code", code)
     .maybeSingle();
-  if (error) return { ok: false as const, statusCode: 500, error: "invite_load_failed", detail: error.message };
-  if (!invite) return { ok: false as const, statusCode: 404, error: "invite_not_found" };
-  if (invite.status !== "pending") return { ok: false as const, statusCode: 409, error: "invite_already_used" };
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invite_load_failed",
+      detail: error.message,
+    };
+  if (!invite)
+    return { ok: false as const, statusCode: 404, error: "invite_not_found" };
+  if (invite.status !== "pending")
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "invite_already_used",
+    };
   if (new Date(invite.expires_at).getTime() < Date.now()) {
     return { ok: false as const, statusCode: 410, error: "invite_expired" };
   }
@@ -4525,45 +5234,108 @@ export async function redeemClientInvite(
     return { ok: false as const, statusCode: 403, error: "email_mismatch" };
   }
 
-  const { data: link, error: linkError } = await supabase.auth.admin.generateLink({
-    type: "magiclink",
-    email,
-    options: { redirectTo: onboardingRedirectTo(env) },
-  });
+  const { data: link, error: linkError } =
+    await supabase.auth.admin.generateLink({
+      type: "magiclink",
+      email,
+      options: { redirectTo: onboardingRedirectTo(env) },
+    });
   const actionLink = link?.properties?.action_link;
   if (linkError || !actionLink) {
-    return { ok: false as const, statusCode: 502, error: "link_generation_failed", detail: linkError?.message };
+    return {
+      ok: false as const,
+      statusCode: 502,
+      error: "link_generation_failed",
+      detail: linkError?.message,
+    };
   }
 
-  const { data: claimedInvite, error: claimError } = await supabase
-    .from("client_invites")
-    .update({ status: "redeemed", redeemed_at: new Date().toISOString() })
-    .eq("id", invite.id)
-    .eq("status", "pending")
-    .select("id")
-    .maybeSingle();
+  const { data: claimedInvite, error: claimError } = await supabase.rpc(
+    "accept_client_invite",
+    {
+      p_invite_id: invite.id,
+      p_organization_id: invite.organization_id,
+      p_user_id: invite.invited_user_id,
+    },
+  );
 
   if (claimError) {
-    return { ok: false as const, statusCode: 500, error: "invite_claim_failed", detail: claimError.message };
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invite_claim_failed",
+      detail: claimError.message,
+    };
   }
-  if (!claimedInvite) {
-    return { ok: false as const, statusCode: 409, error: "invite_already_used" };
-  }
-
-  // Canjear el codigo es el momento en que la persona entra de verdad, y hasta
-  // ahora nadie marcaba `joined_at`: solo lo escribian el alta de tienda propia
-  // y la ruta de platform admin. Un miembro invitado se quedaba para siempre
-  // como "invitado pero no ha entrado", aunque llevara meses usando el portal.
-  if (invite.organization_id && invite.invited_user_id) {
-    await supabase
-      .from("organization_members")
-      .update({ joined_at: new Date().toISOString() })
-      .eq("organization_id", invite.organization_id)
-      .eq("user_id", invite.invited_user_id)
-      .is("joined_at", null);
+  if (claimedInvite !== true) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "invite_already_used",
+    };
   }
 
   return { ok: true as const, data: { url: actionLink } };
+}
+
+/** Vista previa publica. Exige codigo + email para no revelar organizaciones
+ * por enumeracion, pero no consume la invitacion ni concede acceso. */
+export async function previewClientInvite(
+  env: ApiEnv,
+  body: { code?: string; email?: string },
+) {
+  const code = body.code?.trim().toUpperCase() ?? "";
+  const email = body.email?.trim().toLowerCase() ?? "";
+  if (code.length < 6 || !isEmail(email)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_input" };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: invite, error } = await supabase
+    .from("client_invites")
+    .select("id, email, status, expires_at, organization_id")
+    .eq("code", code)
+    .maybeSingle();
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invite_load_failed",
+      detail: error.message,
+    };
+  if (!invite)
+    return { ok: false as const, statusCode: 404, error: "invite_not_found" };
+  if (invite.status !== "pending")
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "invite_already_used",
+    };
+  if (new Date(invite.expires_at).getTime() < Date.now()) {
+    return { ok: false as const, statusCode: 410, error: "invite_expired" };
+  }
+  if ((invite.email as string).toLowerCase() !== email) {
+    return { ok: false as const, statusCode: 403, error: "email_mismatch" };
+  }
+
+  const { data: organization, error: organizationError } = await supabase
+    .from("organizations")
+    .select("id, display_name")
+    .eq("id", invite.organization_id)
+    .single();
+  if (organizationError || !organization) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_load_failed",
+      detail: organizationError?.message,
+    };
+  }
+
+  return {
+    ok: true as const,
+    data: { organization, expires_at: invite.expires_at },
+  };
 }
 
 /**
@@ -4594,10 +5366,18 @@ export async function createOwnStore(
   const currencyCode = (body.currency_code?.trim() || "EUR").toUpperCase();
 
   if (displayName.length === 0) {
-    return { ok: false as const, statusCode: 400, error: "invalid_display_name" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_display_name",
+    };
   }
   if (!/^[A-Z]{3}$/.test(currencyCode)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_currency_code",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -4678,7 +5458,9 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
   ] = await Promise.all([
     supabase
       .from("organizations")
-      .select("id, display_name, slug, status, timezone, currency_code, created_at")
+      .select(
+        "id, display_name, slug, status, timezone, currency_code, created_at",
+      )
       .order("created_at", { ascending: false }),
     supabase
       .from("consultant_assignments")
@@ -4695,7 +5477,10 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
       ok: false as const,
       statusCode: 500,
       error: "clients_load_failed",
-      detail: orgsError?.message ?? assignmentsError?.message ?? membersError?.message,
+      detail:
+        orgsError?.message ??
+        assignmentsError?.message ??
+        membersError?.message,
     };
   }
 
@@ -4709,9 +5494,17 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
       .select("id, full_name")
       .in("id", consultantIds);
     if (error) {
-      return { ok: false as const, statusCode: 500, error: "clients_load_failed", detail: error.message };
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "clients_load_failed",
+        detail: error.message,
+      };
     }
-    consultantProfiles = (data ?? []) as Array<{ id: string; full_name: string | null }>;
+    consultantProfiles = (data ?? []) as Array<{
+      id: string;
+      full_name: string | null;
+    }>;
   }
   const nameById = new Map(consultantProfiles.map((p) => [p.id, p.full_name]));
 
@@ -4878,7 +5671,10 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
   for (const assignment of assignments ?? []) {
     const orgId = assignment.organization_id as string;
     if (assignment.is_primary || !primaryConsultantByOrg.has(orgId)) {
-      primaryConsultantByOrg.set(orgId, assignment.consultant_user_id as string);
+      primaryConsultantByOrg.set(
+        orgId,
+        assignment.consultant_user_id as string,
+      );
     }
   }
 
@@ -4886,9 +5682,9 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
   const actorIds = rows
     .map((row) => row.actor_user_id)
     .filter((value): value is string => typeof value === "string");
-  const consultantStatIds = ((consultantStats ?? []) as Array<
-    Record<string, unknown>
-  >)
+  const consultantStatIds = (
+    (consultantStats ?? []) as Array<Record<string, unknown>>
+  )
     .map((row) => row.consultant_user_id)
     .filter((value): value is string => typeof value === "string");
   const profileIds = [
@@ -4946,7 +5742,9 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
       store_name: storeId ? (storeNameById.get(storeId) ?? null) : null,
       actor_name: actorId ? (nameById.get(actorId) ?? null) : null,
       consultant_id: consultantId,
-      consultant_name: consultantId ? (nameById.get(consultantId) ?? null) : null,
+      consultant_name: consultantId
+        ? (nameById.get(consultantId) ?? null)
+        : null,
     };
   });
 
@@ -4978,7 +5776,9 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
     })
     .sort((a, b) => b.run_count - a.run_count);
 
-  const byConsultant = ((consultantStats ?? []) as Array<Record<string, unknown>>)
+  const byConsultant = (
+    (consultantStats ?? []) as Array<Record<string, unknown>>
+  )
     .map((row) => {
       const consultantId = String(row.consultant_user_id ?? "");
       return {
@@ -5157,7 +5957,9 @@ export function buildConsultantWork(input: {
       };
     });
 
-  const orgsWithUpcoming = new Set(upcoming.map((call) => call.organization_id));
+  const orgsWithUpcoming = new Set(
+    upcoming.map((call) => call.organization_id),
+  );
 
   // Clientes a los que no tienes nada agendado. Es la mitad del control que no
   // da ninguna otra pantalla: lo que no esta en el calendario no existe.
@@ -5239,7 +6041,9 @@ export async function listConsultantWork(
       .limit(300),
     supabase
       .from("tasks")
-      .select("id, title, status, priority, due_at, created_at, organization_id")
+      .select(
+        "id, title, status, priority, due_at, created_at, organization_id",
+      )
       .in("organization_id", safeIds)
       .eq("is_visible_to_client", false)
       .in("status", ["pending", "in_progress"])
@@ -5293,7 +6097,8 @@ export async function listConsultantWork(
       held_at: (call.held_at as string | null) ?? null,
       organization_id: call.organization_id as string,
       internal_notes:
-        (call.call_internal_notes as WorkCallRow["internal_notes"] | null) ?? [],
+        (call.call_internal_notes as WorkCallRow["internal_notes"] | null) ??
+        [],
       gaps,
     };
   });
@@ -5465,6 +6270,20 @@ export async function inviteClientMember(
   }
 
   const supabase = createServiceClient(env);
+  const { data: inviteOrganization, error: inviteOrganizationError } =
+    await supabase
+      .from("organizations")
+      .select("display_name")
+      .eq("id", organizationId)
+      .single();
+  if (inviteOrganizationError || !inviteOrganization) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "organization_load_failed",
+      detail: inviteOrganizationError?.message,
+    };
+  }
 
   const { data: link, error: linkError } =
     await supabase.auth.admin.generateLink({
@@ -5498,7 +6317,7 @@ export async function inviteClientMember(
       organization_id: organizationId,
       user_id: link.user.id,
       role,
-      is_active: true,
+      is_active: false,
       invited_by: context.user.id,
       invited_at: new Date().toISOString(),
     });
@@ -5544,6 +6363,19 @@ export async function inviteClientMember(
     newData: { email, role },
   });
 
+  const memberAccessUrl = accessPath(env, code);
+  const sent = await sendInviteMail(env, {
+    to: email,
+    recipientName: fullName,
+    title: `Invitación a ${inviteOrganization.display_name} en EcomScaling`,
+    intro: `Te han invitado a unirte a la organización ${inviteOrganization.display_name}. Revisa y confirma la invitación antes de obtener acceso.`,
+    actionLabel: "Revisar invitación",
+    actionUrl: memberAccessUrl,
+  });
+  if (!sent.sent) {
+    logger.info("client_member_invite_smtp_fallback", { reason: sent.reason });
+  }
+
   return {
     ok: true as const,
     data: {
@@ -5552,7 +6384,8 @@ export async function inviteClientMember(
       invite: {
         code,
         expires_at: expiresAt,
-        access_url: accessPath(env, code),
+        access_url: memberAccessUrl,
+        delivery: sent.sent ? "email" : "manual_link",
       },
     },
   };
@@ -5667,13 +6500,19 @@ export async function listConsultantDataQuality(
   authorization: string,
   context: AuthContext,
 ) {
-  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
   if (orgsResult.ok === false) {
     return orgsResult;
   }
 
   const organizations = orgsResult.data.organizations;
-  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
   const ids = organizations.map((organization) => organization.id);
   const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
@@ -5731,10 +6570,16 @@ export async function listConsultantDataQuality(
   }));
 
   // Lo peor primero: una fuente inutilizable es lo unico que impide diagnosticar.
-  const peso: Record<string, number> = { unusable: 0, low: 1, medium: 2, high: 3 };
+  const peso: Record<string, number> = {
+    unusable: 0,
+    low: 1,
+    medium: 2,
+    high: 3,
+  };
   sources.sort(
     (a, b) =>
-      (peso[a.reliability as string] ?? 9) - (peso[b.reliability as string] ?? 9) ||
+      (peso[a.reliability as string] ?? 9) -
+        (peso[b.reliability as string] ?? 9) ||
       String(a.organization_name).localeCompare(String(b.organization_name)),
   );
 
@@ -5752,7 +6597,8 @@ export async function listConsultantDataQuality(
             !s.issues.some((i) => i.downstream_effect === "blocked") &&
             s.issues.some((i) => i.downstream_effect === "degraded"),
         ).length,
-        client_actionable: (issues ?? []).filter((i) => i.client_actionable).length,
+        client_actionable: (issues ?? []).filter((i) => i.client_actionable)
+          .length,
       },
     },
   };
@@ -5775,13 +6621,19 @@ export async function listConsultantContextReadings(
   authorization: string,
   context: AuthContext,
 ) {
-  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
   if (orgsResult.ok === false) {
     return orgsResult;
   }
 
   const organizations = orgsResult.data.organizations;
-  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
   const ids = organizations.map((organization) => organization.id);
   const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
@@ -5840,7 +6692,8 @@ export async function listConsultantContextReadings(
       case_scope: caso?.scope ?? null,
       analysis_period_start: caso?.analysis_period_start ?? null,
       analysis_period_end: caso?.analysis_period_end ?? null,
-      organization_name: nombrePorOrg.get(caso?.organization_id as string) ?? null,
+      organization_name:
+        nombrePorOrg.get(caso?.organization_id as string) ?? null,
       mix: (segmentos ?? []).filter((s) => s.assessment_id === lectura.id),
     };
   });
@@ -5866,13 +6719,19 @@ export async function listConsultantSymptomMap(
   authorization: string,
   context: AuthContext,
 ) {
-  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
   if (orgsResult.ok === false) {
     return orgsResult;
   }
 
   const organizations = orgsResult.data.organizations;
-  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
   const ids = organizations.map((organization) => organization.id);
   const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
@@ -5908,11 +6767,15 @@ export async function listConsultantSymptomMap(
     .select("symptom_id, signal_id, role")
     .in("symptom_id", symptomIds);
 
-  const signalIds = [...new Set((enlaces ?? []).map((l) => l.signal_id as string))];
+  const signalIds = [
+    ...new Set((enlaces ?? []).map((l) => l.signal_id as string)),
+  ];
   const { data: senales } = signalIds.length
     ? await supabase
         .from("signals")
-        .select("id, metric, direction, magnitude_relative, window_start, window_end")
+        .select(
+          "id, metric, direction, magnitude_relative, window_start, window_end",
+        )
         .in("id", signalIds)
     : { data: [] };
 
@@ -5920,7 +6783,9 @@ export async function listConsultantSymptomMap(
   // pantalla. Ver solo lo que encaja es como se cierra un diagnostico falso.
   const { data: evidencias } = await supabase
     .from("symptom_evidence")
-    .select("symptom_id, source_kind, stance, observation, representativeness, sample_size")
+    .select(
+      "symptom_id, source_kind, stance, observation, representativeness, sample_size",
+    )
     .in("symptom_id", symptomIds);
 
   const { data: relaciones } = await supabase
@@ -5932,7 +6797,8 @@ export async function listConsultantSymptomMap(
 
   const symptoms = (sintomas ?? []).map((sintoma) => ({
     ...sintoma,
-    organization_name: nombrePorOrg.get(sintoma.organization_id as string) ?? null,
+    organization_name:
+      nombrePorOrg.get(sintoma.organization_id as string) ?? null,
     signals: (enlaces ?? [])
       .filter((l) => l.symptom_id === sintoma.id)
       .map((l) => ({
@@ -5940,8 +6806,126 @@ export async function listConsultantSymptomMap(
         ...(senalPorId.get(l.signal_id as string) ?? { id: l.signal_id }),
       })),
     evidence: (evidencias ?? []).filter((e) => e.symptom_id === sintoma.id),
-    relations: (relaciones ?? []).filter((r) => r.from_symptom_id === sintoma.id),
+    relations: (relaciones ?? []).filter(
+      (r) => r.from_symptom_id === sintoma.id,
+    ),
   }));
 
   return { ok: true as const, data: { symptoms } };
+}
+
+/**
+ * FASE 3 / D03 — lo que el consultor ve de la madurez.
+ *
+ * Solo consultor. Decirle a un cliente "tu capacidad de retencion es ad_hoc"
+ * sin contexto ni acompanamiento es un juicio, no una ayuda; asi lo dejo escrito
+ * la RLS del contrato el 2026-09-15 y no cambia hasta que haya redaccion para
+ * ensenarselo bien.
+ *
+ * Lo que aporta en una linea: convierte "no conozco a este cliente" en **"el
+ * dato demuestra esto, no puede ver aquello, y este es el numero"** -- que es
+ * lo que decide donde preguntar en la primera llamada.
+ *
+ * LA COMPLEJIDAD Y LOS HUECOS SE MIDEN EN VIVO, no se guardan. Son medidas, no
+ * conclusiones: cuantos pedidos maneja el negocio hoy y que porcentaje de ellos
+ * trae origen. Guardar una medida es quedarse con la de ayer. Lo que si se
+ * guarda es el perfil, porque su valor esta en la historia: sin perfiles
+ * anteriores no se puede distinguir "ha mejorado" de "ahora lo vemos mejor".
+ */
+export async function listConsultantMaturity(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const ids = organizations.map((organization) => organization.id);
+  if (ids.length === 0) {
+    return { ok: true as const, data: { profiles: [] } };
+  }
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: perfiles, error } = await supabase
+    .from("maturity_profiles")
+    .select(
+      "id, organization_id, store_id, business_stage, change_type, change_summary, confidence, assessed_at",
+    )
+    .in("organization_id", ids)
+    .is("superseded_at", null)
+    .order("assessed_at", { ascending: false });
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_maturity_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const profileIds = (perfiles ?? []).map((p) => p.id as string);
+  const { data: capacidades } = profileIds.length
+    ? await supabase
+        .from("capability_maturity")
+        .select(
+          "id, profile_id, capability, current_level, required_level, expectation_band, finding, gap_interpretation, has_existence, has_consistency, has_repeatability, has_measurement, influences_decisions, confidence",
+        )
+        .in("profile_id", profileIds)
+    : { data: [] };
+
+  const capabilityIds = (capacidades ?? []).map((c) => c.id as string);
+  const { data: evidencias } = capabilityIds.length
+    ? await supabase
+        .from("maturity_evidence")
+        .select("capability_maturity_id, evidence_type, description, source, observed_at")
+        .in("capability_maturity_id", capabilityIds)
+    : { data: [] };
+
+  // El grafo de capacidades: sin organizacion, lo lee cualquier autenticado.
+  const { data: dependencias } = await supabase
+    .from("capability_dependencies")
+    .select("capability, depends_on, relation, rationale");
+
+  const profiles = [];
+  for (const perfil of perfiles ?? []) {
+    const suyas = (capacidades ?? []).filter((c) => c.profile_id === perfil.id);
+
+    // Lo que el dato no puede ver, medido ahora. Es la mitad util de esta
+    // pantalla: un hueco con su numero le dice al consultor que preguntar.
+    let unobserved: { capability: string; reason: string }[] = [];
+    let complexity: { key: string; label: string; value: number; unit: string }[] = [];
+    if (perfil.store_id) {
+      const hechos = await leerHechos(
+        supabase as never,
+        perfil.organization_id as string,
+        perfil.store_id as string,
+      );
+      if (hechos) {
+        const observacion = observeMaturity(hechos);
+        unobserved = observacion.unobserved;
+        complexity = observacion.complexity;
+      }
+    }
+
+    profiles.push({
+      ...perfil,
+      organization_name: nombrePorOrg.get(perfil.organization_id as string) ?? null,
+      capabilities: suyas.map((c) => ({
+        ...c,
+        evidence: (evidencias ?? []).filter((e) => e.capability_maturity_id === c.id),
+      })),
+      unobserved,
+      complexity,
+      dependencies: dependencias ?? [],
+    });
+  }
+
+  return { ok: true as const, data: { profiles } };
 }

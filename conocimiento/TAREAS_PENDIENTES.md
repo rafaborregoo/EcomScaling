@@ -23,13 +23,14 @@ que es el checklist canonico del piloto. Aqui solo lo de esta linea de trabajo.
       (`pending` es "recien creada", no "averiada"), asi que se quedan
       invisibles: ni dan dato ni dan aviso. O se completan o se descartan.
 - [ ] **Activar los `schedule` de los workflows de motores**, si procede.
-      `Data Quality Engine`, `Signal Engine`, `Context Engine` y `Symptom
-      Engine` estan sin
+      `Data Quality Engine`, `Signal Engine`, `Context Engine`, `Symptom
+      Engine` y `Maturity Engine` estan sin
       disparador automatico por decision tuya del 2026-08-03: hoy solo corren a
       mano desde Actions. Mientras sigan asi, **las pantallas de fase 3 muestran
       la ultima pasada manual**, no el estado de hoy. Si se activan, el orden de
       la cadena importa: calidad (06:07), senales (06:17), contexto (06:27) y
-      sintomas (06:37).
+      sintomas (06:37). El de madurez va aparte (05:47) porque no depende de
+      ellos: mide de que es capaz el negocio, no que se ha movido.
 - [ ] **Commits.** Hay ~100 ficheros sin commitear y la instruccion es no hacer
       commits ni push. Cuando quieras, dime y los preparo.
 - [ ] **Destilar los 5 bloques que siguen sin capas** (`6.04`, `7.15`, `7.17`,
@@ -100,14 +101,39 @@ siendo buena idea dejarla.
 - [ ] **`D07` no recorre el grafo de relaciones candidatas.** El motor las
       escribe (`often_cooccurs`) y nadie las lee todavia.
 
+### De `D03` (madurez por capacidad)
+
+- [ ] **Decidir `required_level` por capacidad.** Es el recorte mas grande del
+      bloque y **no es codigo**: el apartado 19 del artefacto dice que el
+      algoritmo, los umbrales y las ponderaciones no estan definidos, asi que
+      el motor no los inventa y la pantalla escribe "nadie ha dicho que necesita
+      este negocio". Sin esto no hay brecha, y sin brecha no hay pasos 5 a 14
+      del runtime (asimetrias, cuellos de botella, regresion, riesgo latente,
+      growth-system fit, sobreingenieria).
+- [ ] **Escribir el resto del grafo de capacidades.** Van 7 aristas, que son
+      literalmente las que el artefacto escribe. Las demas son conocimiento de
+      ecommerce por escribir, y ponerlas a ojo seria lo mismo que inventar los
+      umbrales.
+- [ ] **Conectar el `business_stage` de la fase 2.** `D03` lo consume y no lo
+      redefine; hoy se queda nulo porque la fase 2 no esta implementada.
+- [ ] **Dejar que una persona suba una capacidad por encima de `defined`.** El
+      motor tiene techo estructural ahi: `measured` exige que la medida cambie
+      decisiones (guardrail 20) y eso no esta en ninguna tabla. Falta la pantalla
+      donde el consultor marque `influences_decisions` y `has_ownership`.
+- [ ] **Cerrar los huecos de dato que el bloque saca a la luz.** En la tienda
+      real de produccion: el 96% de los pedidos no trae origen, 43 de 44
+      referencias no tienen coste y no hay historico de existencias. Mientras
+      sigan asi, adquisicion y economia unitaria **no se pueden diagnosticar**
+      -- y eso lo dice el motor, no yo.
+
 ### De la fase 3 entera
 
-- [ ] **5 flujos escritos y sin implementar**: `d03`, `d07`, `d09`, `d10`,
-      `d11`. No hay que inventarlos — estan escritos en
+- [ ] **4 flujos escritos y sin implementar**: `d07`, `d09`, `d10` y `d11`. No
+      hay que inventarlos — estan escritos en
       `conocimiento/fase-03/03-runtime/`.
 - [ ] **5 bloques que necesitan motor y no tienen flujo escrito**: `D04`, `D08`,
       `D12`, `D13`, `D14`. Ahi si hay diseno que hacer.
-- [ ] **Pantalla en 12 de los 15 bloques.** La matriz de audiencia de
+- [ ] **Pantalla en 11 de los 15 bloques.** La matriz de audiencia de
       [`fase-03/IMPLEMENTACION.md`](fase-03/IMPLEMENTACION.md) ya dice que lleva
       cada una.
 - [ ] **Ningun agente lee todavia una tabla de fase 3.** Conectarlos es anadir

@@ -246,15 +246,16 @@ casuales: tres bloquean la ola 1 y uno la ola 2.
    contextualizacion~~, ~~`D03` madurez~~, ~~`D04` salud~~, ~~`D05` senales~~ ~~`D06` sintomas~~ ~~`D07` grafo causal~~ ~~`D08` hipotesis~~ ~~`D09` causa raiz y constraints~~ ~~`D10` severidad e impacto~~ ~~`D11` confianza e incertidumbre~~ ~~`D12` confusores y falsos diagnosticos~~ ~~`D13` diagnostico temporal y regresion~~ y ~~`D14` salida diagnostica y validacion~~ — **los 15 contratos de la fase 3, en test y en produccion**. Contrato hecho; motor y pixel no. Ver
    [`conocimiento/fase-03/IMPLEMENTACION.md`](../conocimiento/fase-03/IMPLEMENTACION.md).
 3. **Cerrando la fase 3.** ~~`D01` calidad de datos~~, ~~`D02`
-   contextualizacion~~ y ~~`D06` motor de sintomas~~ — **hechos de verdad**:
-   contrato, motor y pantalla. Y entre ellos ya hay cadena de cuatro motores:
-   `D01` dice si el dato aguanta, `D05` que se movio, `D02` si fue rendimiento
-   o composicion, y `D06` que patron forman juntos — heredando cada uno el
-   limite del anterior en vez de volver a afirmarlo desde cero.
-   Queda: (a) **5 flujos escritos sin implementar** (`d03`, `d07`, `d09`,
-   `d10`, `d11`) — esos no hay que inventarlos, hay que escribirlos;
+   contextualizacion~~, ~~`D03` madurez~~ y ~~`D06` motor de sintomas~~ —
+   **hechos de verdad**: contrato, motor y pantalla. Cinco motores corriendo, y
+   cuatro de ellos encadenados: `D01` dice si el dato aguanta, `D05` que se
+   movio, `D02` si fue rendimiento o composicion, y `D06` que patron forman
+   juntos, heredando cada uno el limite del anterior. `D03` va aparte porque
+   mide de que es capaz el negocio, no que se ha movido.
+   Queda: (a) **4 flujos escritos sin implementar** (`d07`, `d09`, `d10`,
+   `d11`) — esos no hay que inventarlos, hay que escribirlos;
    (b) **5 bloques que necesitan motor y no tienen flujo escrito** (`D04`,
-   `D08`, `D12`, `D13`, `D14`); (c) **pantalla en 12 de los 15 bloques**.
+   `D08`, `D12`, `D13`, `D14`); (c) **pantalla en 11 de los 15 bloques**.
    **F4 no se abre hasta que esto cierre.**
 4. **Patron confirmado en cuatro bloques** (`D04` no tiene capa de runtime, asi
    que no cuenta): la capa `03-runtime` describe un motor

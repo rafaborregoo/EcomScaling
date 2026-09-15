@@ -417,3 +417,482 @@ export function checkMaturityInvariants(
 
   return v;
 }
+
+// ---------------------------------------------------------------------------
+// EL MOTOR (pasos 2, 3, 4 y 17 del runtime)
+// ---------------------------------------------------------------------------
+//
+// Todo lo que sigue es puro: entran hechos medidos de la tienda y salen
+// capacidades observadas con su evidencia. La parte sucia --leer Supabase,
+// escribir filas-- vive en `apps/api/src/maturity-engine.ts`.
+//
+// LA DECISION QUE ORDENA EL BLOQUE, y es una decision sobre lo que **no** se
+// hace. El apartado 19 del artefacto dice, con todas las letras, que el
+// algoritmo de scoring, los umbrales y las ponderaciones **no estan
+// definidos**. Asi que este motor no calcula `required_level` ni emite
+// hallazgos de brecha: inventar esos umbrales seria fabricar la respuesta y
+// presentarla como derivada del documento. Lo que si puede hacer, y hace, es
+// **mirar el dato del negocio y decir que capacidades demuestra** --con el
+// numero delante-- y, sobre todo, **cuales no puede ver y por que**.
+//
+// LO SEGUNDO, QUE VALE TANTO COMO LO PRIMERO: una capacidad que el dato no
+// puede ver **no se escribe**. La tentacion es ponerla en `absent`, y `absent`
+// es una afirmacion --"esto no existe"-- que ningun dato ausente sostiene. "No
+// lo se" y "no lo hay" son cosas distintas, y confundirlas en un diagnostico es
+// como se le dice a un cliente que no tiene algo que si tiene. Las no
+// observables salen aparte, con el motivo y el numero.
+//
+// EL TECHO ES `defined`, Y ES ESTRUCTURAL. `measured` y todo lo que hay por
+// encima exigen `influences_decisions` (guardrail 20), y eso **no se puede
+// observar desde la base de datos**: el dato puede demostrar que algo se mide;
+// no puede demostrar que alguien lo mire. Ese salto lo da una persona.
+
+/** Los hechos del negocio, medidos en SQL. Ninguno es una opinion. */
+export type BusinessFacts = {
+  window_days: number;
+  orders: number;
+  net_sales: number;
+  /** Pedidos con `first_visit_source_type` informado, y cuantos canales hay. */
+  orders_with_attribution: number;
+  channels: number;
+  currencies: number;
+  repeat_orders: number;
+  orders_with_repeat_flag: number;
+  customers: number;
+  repeat_customers: number;
+  products: number;
+  variants: number;
+  session_days: number;
+  sessions: number;
+  fulfillments: number;
+  fulfilled_orders: number;
+  inventory_items: number;
+  inventory_items_with_cost: number;
+  inventory_snapshots: number;
+  discounts: number;
+  discounts_used: number;
+  active_months: number;
+};
+
+/**
+ * Cobertura minima para que un campo pueda sostener una afirmacion.
+ *
+ * **Este numero es nuestro, no del artefacto.** Por debajo de el, un campo
+ * informado en unos pocos pedidos no describe al negocio: describe a esos
+ * pedidos. Exportado para poder calibrarlo cuando haya varias tiendas delante.
+ */
+export const COBERTURA_MINIMA = 0.6;
+
+/** Meses con actividad para poder hablar de consistencia y no de una racha. */
+export const MESES_PARA_CONSISTENCIA = 3;
+
+/** Una medida de complejidad: un hecho con su numero y su unidad. */
+export type ComplexityMeasure = {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+};
+
+/**
+ * Paso 2 del runtime: medir la complejidad actual.
+ *
+ * Son medidas, no puntuaciones. El artefacto pide volumen, SKUs, mercados,
+ * canales, base de clientes y crecimiento; lo que no se puede medir con el dato
+ * de la tienda --equipo, exposicion de caja-- no aparece inventado con un cero.
+ */
+export function measureComplexity(facts: BusinessFacts): ComplexityMeasure[] {
+  const medidas: ComplexityMeasure[] = [
+    { key: "orders", label: "Pedidos en la ventana", value: facts.orders, unit: "pedidos" },
+    { key: "net_sales", label: "Ventas netas", value: facts.net_sales, unit: "EUR" },
+    { key: "skus", label: "Referencias vivas", value: facts.variants, unit: "variantes" },
+    { key: "products", label: "Productos", value: facts.products, unit: "productos" },
+    { key: "customers", label: "Clientes", value: facts.customers, unit: "clientes" },
+    { key: "currencies", label: "Monedas de venta", value: facts.currencies, unit: "monedas" },
+    { key: "active_months", label: "Meses con actividad", value: facts.active_months, unit: "meses" },
+  ];
+  // Los canales solo se cuentan si la atribucion cubre lo suficiente. Decir
+  // "1 canal" cuando el 96% de los pedidos no tiene origen no es medir: es
+  // confundir un hueco de datos con un negocio monocanal.
+  if (proporcion(facts.orders_with_attribution, facts.orders) >= COBERTURA_MINIMA) {
+    medidas.push({
+      key: "channels",
+      label: "Canales de adquisicion",
+      value: facts.channels,
+      unit: "canales",
+    });
+  }
+  return medidas;
+}
+
+function proporcion(parte: number, total: number): number {
+  return total > 0 ? parte / total : 0;
+}
+
+function pct(parte: number, total: number): string {
+  return `${Math.round(proporcion(parte, total) * 100)}%`;
+}
+
+/** Una capacidad que el dato no puede ver, y por que. */
+export type UnobservedCapability = {
+  capability: Capability;
+  reason: string;
+};
+
+export type MaturityObservation = {
+  observed: CapabilityMaturity[];
+  unobserved: UnobservedCapability[];
+  complexity: ComplexityMeasure[];
+};
+
+/**
+ * El techo de lo observable desde la base de datos.
+ *
+ * Guardrail 20: `measured` exige medir **y** que la medida cambie decisiones.
+ * Lo segundo no esta en ninguna tabla. Subir de aqui es trabajo de una persona
+ * mirando, y por eso la pantalla lo pide en vez de rellenarlo.
+ */
+export const TECHO_OBSERVABLE: MaturityLevel = "defined";
+
+type Dimensiones = {
+  existence: boolean;
+  consistency: boolean;
+  repeatability: boolean;
+  measurement: boolean;
+};
+
+/**
+ * De las dimensiones observadas al nivel, sin saltarse la escalera.
+ *
+ * No hay atajo: cada peldano exige el anterior. Un negocio que mide pero no
+ * repite no es `defined`, es `ad_hoc` con un panel.
+ */
+export function levelFromDimensions(d: Dimensiones): MaturityLevel | null {
+  if (!d.existence) return null;
+  if (!d.consistency) return "ad_hoc";
+  if (!d.repeatability) return "repeatable";
+  if (!d.measurement) return "repeatable";
+  return TECHO_OBSERVABLE;
+}
+
+function capacidad(
+  capability: Capability,
+  d: Dimensiones,
+  descripcion: string,
+  extra: Partial<CapabilityMaturity> = {},
+): CapabilityMaturity | null {
+  const level = levelFromDimensions(d);
+  if (level == null) return null;
+  return capabilityMaturitySchema.parse({
+    capability,
+    current_level: level,
+    has_existence: d.existence,
+    has_consistency: d.consistency,
+    has_repeatability: d.repeatability,
+    has_measurement: d.measurement,
+    // Lo demas no se observa desde el dato y por eso se queda en false: son
+    // los campos que una persona rellena, no huecos que el motor deba adivinar.
+    influences_decisions: false,
+    // Nunca `high`: el dato del sistema es la segunda fuente de evidencia, no la
+    // primera (apartado 10). Para `high` hace falta comportamiento observado.
+    confidence: d.measurement ? "medium" : "low",
+    evidence: [
+      {
+        evidence_type: "system_data",
+        description: descripcion,
+        source: "shopify",
+        supports: "current_level",
+        persistent: true,
+      },
+    ],
+    ...extra,
+  });
+}
+
+/**
+ * Pasos 3 y 4: construir el perfil mirando lo que el dato demuestra.
+ *
+ * Devuelve tres cosas y las tres importan: lo observado, **lo que no se puede
+ * observar con su motivo**, y las medidas de complejidad que sostienen ambas.
+ */
+export function observeMaturity(facts: BusinessFacts): MaturityObservation {
+  const observed: CapabilityMaturity[] = [];
+  const unobserved: UnobservedCapability[] = [];
+  const consistente = facts.active_months >= MESES_PARA_CONSISTENCIA;
+  const anade = (c: CapabilityMaturity | null, capability: Capability, motivo: string) => {
+    if (c) observed.push(c);
+    else unobserved.push({ capability, reason: motivo });
+  };
+
+  // --- Conversion: hay visitas y hay pedidos -------------------------------
+  const coberturaSesiones = proporcion(facts.session_days, facts.window_days);
+  anade(
+    facts.sessions > 0 && facts.orders > 0
+      ? capacidad(
+          "conversion",
+          {
+            existence: true,
+            consistency: consistente,
+            repeatability: coberturaSesiones >= COBERTURA_MINIMA,
+            measurement: coberturaSesiones >= COBERTURA_MINIMA,
+          },
+          `${facts.sessions} sesiones y ${facts.orders} pedidos en ${facts.window_days} dias; hay serie de visitas en el ${pct(facts.session_days, facts.window_days)} de los dias, asi que la conversion se puede calcular.`,
+        )
+      : null,
+    "conversion",
+    facts.sessions === 0
+      ? "no hay serie de sesiones: sin visitas no se puede hablar de conversion"
+      : "no hay pedidos en la ventana",
+  );
+
+  // --- Retencion: hay clientes que vuelven ---------------------------------
+  const coberturaRepeticion = proporcion(facts.orders_with_repeat_flag, facts.orders);
+  anade(
+    coberturaRepeticion >= COBERTURA_MINIMA && facts.orders > 0
+      ? capacidad(
+          "retention",
+          {
+            existence: facts.repeat_orders > 0,
+            consistency: consistente && facts.repeat_customers > 0,
+            repeatability: proporcion(facts.repeat_orders, facts.orders) > 0,
+            measurement: true,
+          },
+          `${facts.repeat_orders} de ${facts.orders} pedidos (${pct(facts.repeat_orders, facts.orders)}) son de clientes que ya habian comprado, y ${facts.repeat_customers} clientes tienen mas de un pedido.`,
+        )
+      : null,
+    "retention",
+    `solo el ${pct(facts.orders_with_repeat_flag, facts.orders)} de los pedidos dice si el cliente era nuevo`,
+  );
+
+  // --- Producto: hay catalogo ----------------------------------------------
+  anade(
+    facts.products > 0
+      ? capacidad(
+          "product",
+          {
+            existence: true,
+            consistency: consistente,
+            repeatability: facts.variants > facts.products,
+            measurement: false,
+          },
+          `${facts.products} productos y ${facts.variants} variantes en catalogo.`,
+        )
+      : null,
+    "product",
+    "no hay productos sincronizados",
+  );
+
+  // --- Oferta: se usan descuentos de verdad --------------------------------
+  anade(
+    facts.discounts > 0
+      ? capacidad(
+          "offer",
+          {
+            existence: true,
+            consistency: facts.discounts_used > 0,
+            repeatability: facts.discounts_used > 1,
+            measurement: false,
+          },
+          `${facts.discounts} descuentos creados, ${facts.discounts_used} con uso registrado. Crear un descuento y que alguien lo use son cosas distintas.`,
+        )
+      : null,
+    "offer",
+    "no hay descuentos creados",
+  );
+
+  // --- Operaciones: se preparan y se entregan pedidos ----------------------
+  const coberturaFulfillment = proporcion(facts.fulfilled_orders, facts.orders);
+  anade(
+    facts.fulfillments > 0
+      ? capacidad(
+          "operations",
+          {
+            existence: true,
+            consistency: coberturaFulfillment >= COBERTURA_MINIMA,
+            repeatability: coberturaFulfillment >= COBERTURA_MINIMA,
+            measurement: false,
+          },
+          `${facts.fulfillments} preparaciones sobre ${facts.orders} pedidos (${pct(facts.fulfilled_orders, facts.orders)} de los pedidos con preparacion registrada).`,
+        )
+      : null,
+    "operations",
+    "no hay preparaciones de pedido registradas",
+  );
+
+  // --- Inventario: se controla el stock ------------------------------------
+  anade(
+    facts.inventory_items > 0
+      ? capacidad(
+          "inventory",
+          {
+            existence: true,
+            consistency: facts.inventory_snapshots > 0,
+            repeatability: facts.inventory_snapshots > 0,
+            // Sin historico de existencias no hay medicion: se sabe lo que hay
+            // hoy, no lo que paso.
+            measurement: facts.inventory_snapshots > 0,
+          },
+          `${facts.inventory_items} referencias con inventario y ${facts.inventory_snapshots} lecturas de existencias guardadas.`,
+        )
+      : null,
+    "inventory",
+    "no hay referencias con inventario",
+  );
+
+  // --- Adquisicion: solo si se sabe de donde vienen los pedidos ------------
+  const coberturaAtribucion = proporcion(facts.orders_with_attribution, facts.orders);
+  anade(
+    coberturaAtribucion >= COBERTURA_MINIMA
+      ? capacidad(
+          "acquisition",
+          {
+            existence: true,
+            consistency: consistente,
+            repeatability: facts.channels > 1,
+            measurement: true,
+          },
+          `${pct(facts.orders_with_attribution, facts.orders)} de los pedidos traen origen, repartidos en ${facts.channels} canales.`,
+        )
+      : null,
+    "acquisition",
+    `solo el ${pct(facts.orders_with_attribution, facts.orders)} de los pedidos dice de donde viene: no se puede saber que hace la adquisicion`,
+  );
+
+  // --- Unit economics: solo si hay coste ----------------------------------
+  const coberturaCoste = proporcion(facts.inventory_items_with_cost, facts.inventory_items);
+  anade(
+    coberturaCoste >= COBERTURA_MINIMA
+      ? capacidad(
+          "unit_economics",
+          {
+            existence: true,
+            consistency: consistente,
+            repeatability: true,
+            measurement: true,
+          },
+          `${facts.inventory_items_with_cost} de ${facts.inventory_items} referencias tienen coste unitario, asi que el margen se puede calcular.`,
+        )
+      : null,
+    "unit_economics",
+    `solo ${facts.inventory_items_with_cost} de ${facts.inventory_items} referencias tiene coste: sin coste no hay margen que evaluar`,
+  );
+
+  // --- Datos: la capacidad que se observa mirando a las demas -------------
+  //
+  // Es la unica que no se mide con sus propias filas sino con la cobertura de
+  // todo lo anterior. Un negocio que factura y no sabe de donde vienen sus
+  // pedidos ni cuanto le cuesta cada uno tiene un problema de datos, y el
+  // numero que lo demuestra ya esta calculado aqui arriba.
+  const huecos = [
+    coberturaAtribucion < COBERTURA_MINIMA ? "origen de los pedidos" : null,
+    coberturaCoste < COBERTURA_MINIMA ? "coste por referencia" : null,
+    facts.inventory_snapshots === 0 ? "historico de existencias" : null,
+    coberturaSesiones < COBERTURA_MINIMA ? "serie de visitas" : null,
+  ].filter((x): x is string => x != null);
+
+  anade(
+    facts.orders > 0
+      ? capacidad(
+          "data",
+          {
+            existence: true,
+            consistency: consistente,
+            repeatability: huecos.length <= 2,
+            measurement: huecos.length === 0,
+          },
+          huecos.length === 0
+            ? "El negocio tiene origen de pedidos, coste por referencia, historico de existencias y serie de visitas."
+            : `Faltan ${huecos.length} piezas para poder diagnosticar con el dato propio: ${huecos.join(", ")}.`,
+        )
+      : null,
+    "data",
+    "no hay pedidos con los que juzgar la cobertura del dato",
+  );
+
+  // --- Lo que la base de datos de una tienda no puede ver -----------------
+  //
+  // No es pereza: no hay ninguna fila en ningun sitio que hable de esto, y
+  // deducirlo de la facturacion es justo lo que prohiben los guardrails 1 y 5.
+  const fuera: [Capability, string][] = [
+    ["market", "una sola moneda no demuestra un solo mercado; hace falta que alguien lo diga"],
+    ["creative", "no hay piezas ni resultados creativos ingeridos"],
+    ["finance", "no hay contabilidad ni tesoreria conectadas"],
+    ["technology", "el stack no se deduce de los pedidos"],
+    ["team", "quien hace que no esta en ninguna tabla, y el tamano del equipo no es madurez (guardrail 5)"],
+    ["strategy", "la estrategia no se observa en el dato transaccional"],
+  ];
+  for (const [c, motivo] of fuera) unobserved.push({ capability: c, reason: motivo });
+
+  return { observed, unobserved, complexity: measureComplexity(facts) };
+}
+
+/**
+ * Paso 16 y guardrail 28: **por que cambia** el perfil respecto al anterior.
+ *
+ * El ejemplo es del propio artefacto: pasar de "Finance E3-E5 con confianza
+ * baja" a "Finance E4 con confianza alta" **no es una mejora del negocio**, es
+ * una mejora de la observacion. Si no se distinguen, el sistema celebra
+ * progresos que no existieron -- y el consultor felicita al cliente por algo
+ * que no ha hecho.
+ *
+ * Aqui se distinguen mirando dos cosas distintas: si cambio algun nivel (eso es
+ * el negocio) o si solo cambio lo que se ve de el (eso somos nosotros).
+ *
+ * Devolver `null` es una respuesta y es la util: si nada cambio, el motor no
+ * escribe un perfil nuevo para repetir lo de ayer.
+ */
+export function classifyProfileChange(
+  previous: { capabilities: CapabilityMaturity[] } | null,
+  next: { capabilities: CapabilityMaturity[] },
+): { change_type: MaturityChangeType; change_summary: string } | null {
+  if (!previous) {
+    return { change_type: "initial", change_summary: "Primer perfil observado." };
+  }
+
+  const antes = new Map(previous.capabilities.map((c) => [c.capability, c]));
+  const ahora = new Map(next.capabilities.map((c) => [c.capability, c]));
+
+  const movidas: string[] = [];
+  for (const [nombre, c] of ahora) {
+    const previa = antes.get(nombre);
+    if (previa && previa.current_level !== c.current_level) {
+      movidas.push(`${nombre}: ${previa.current_level} -> ${c.current_level}`);
+    }
+  }
+  if (movidas.length > 0) {
+    return { change_type: "real_change", change_summary: movidas.join("; ") };
+  }
+
+  // Nadie se movio de nivel. Lo que puede haber cambiado es cuanto vemos.
+  const nuevas = [...ahora.keys()].filter((n) => !antes.has(n));
+  const perdidas = [...antes.keys()].filter((n) => !ahora.has(n));
+  if (nuevas.length > 0 || perdidas.length > 0) {
+    return {
+      change_type: "uncertainty_reduction",
+      change_summary: [
+        nuevas.length > 0 ? `ahora se pueden ver: ${nuevas.join(", ")}` : null,
+        perdidas.length > 0 ? `han dejado de verse: ${perdidas.join(", ")}` : null,
+      ]
+        .filter(Boolean)
+        .join("; "),
+    };
+  }
+
+  const subeConfianza = [...ahora].some(([nombre, c]) => {
+    const previa = antes.get(nombre);
+    return previa != null && confianzaRank(c.confidence) > confianzaRank(previa.confidence);
+  });
+  if (subeConfianza) {
+    return {
+      change_type: "confidence_increase",
+      change_summary: "Mismos niveles, mas confianza: se ve mejor, no se hace mejor.",
+    };
+  }
+
+  return null;
+}
+
+const ORDEN_CONFIANZA_MADUREZ = ["insufficient_data", "low", "medium", "high"];
+function confianzaRank(c: string): number {
+  return ORDEN_CONFIANZA_MADUREZ.indexOf(c);
+}

@@ -40,15 +40,15 @@ done — incluidos el punto 2 (existe codigo que escribe esas tablas) y el punto
 viola cada invariante de `04-policies`. Los recortes deliberados se anotan en la
 fila con su motivo.
 
-**129 bloques**: 18 en la ola 1, 5 sin destilar. **3 en `hecho`** (`D01`, `D02`
-y `D06`, con las tres patas); los otros 12 de la fase 3 siguen en `contrato`, a
-la espera de motor y pantalla.
+**129 bloques**: 18 en la ola 1, 5 sin destilar. **4 en `hecho`** (`D01`, `D02`,
+`D03` y `D06`, con las tres patas); los otros 11 de la fase 3 siguen en
+`contrato`, a la espera de motor y pantalla.
 
 ## fase-03 — Sistema de diagnostico
 
-Los 15 bloques tienen su contrato en test y en produccion, y **`D01`, `D02` y
-`D06` estan `hecho`**: falta el motor de 11 de ellos (`D05` escribe filas pero
-no se ve) y la pantalla de 12. El detalle, en
+Los 15 bloques tienen su contrato en test y en produccion, y **`D01`, `D02`,
+`D03` y `D06` estan `hecho`**: falta el motor de 10 de ellos (`D05` escribe
+filas pero no se ve) y la pantalla de 11. El detalle, en
 [`fase-03/IMPLEMENTACION.md`](fase-03/IMPLEMENTACION.md).
 
 | Bloque | Tema | Capas | Ola | Estado | Codigo |
@@ -56,7 +56,7 @@ no se ve) y la pantalla de 12. El detalle, en
 | `D00` | Contrato de diagnostico | `C····` | — | **contrato** | migracion `20260914110000` + `packages/contracts/src/diagnostics.ts` |
 | `D01` | Calidad y fiabilidad de los datos | `CRP·T` | **1** | **hecho** | migraciones `20260914160000` y `20260926090000` + `packages/contracts/src/data-quality.ts` + motor `apps/api/src/data-quality-engine.ts` + pantalla `apps/web/src/app/integraciones/data-quality-panel.tsx`. Recorte: falta el agregado de cartera de platform_admin, que se hara una vez para varios bloques en `/admin/observabilidad` |
 | `D02` | Contextualizacion | `CRPET` | — | **hecho** | migraciones `20260914190000`, `20260927090000` y `20260927093000` + `packages/contracts/src/context.ts` + motor `apps/api/src/context-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/context-readings.tsx`. Recortes: la edicion del contexto declarado por el cliente y la apertura de casos (provisional aqui hasta que exista `D06`) |
-| `D03` | Deteccion de etapa de madurez | `CRPET` | — | **contrato** | migracion `20260915090000` + `packages/contracts/src/maturity.ts` |
+| `D03` | Deteccion de etapa de madurez | `CRPET` | — | **hecho** | migraciones `20260915090000` y `20260930090000` + `packages/contracts/src/maturity.ts` + motor `apps/api/src/maturity-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/maturity-panel.tsx`. Recorte grande y deliberado: **no calcula `required_level` ni hallazgos de brecha**, porque el apartado 19 del artefacto dice que los umbrales no estan definidos e inventarlos seria fabricar la respuesta |
 | `D04` | Diagnostico de salud por capacidad | `C·PET` | — | **contrato** | migracion `20260915140000` + `packages/contracts/src/health.ts` |
 | `D05` | Motor de senales y anomalias | `CRPET` | **1** | **contrato + motor** | migraciones `20260916090000` y `20260916120000` + `packages/contracts/src/signals.ts` + `apps/api/src/signal-engine.ts` |
 | `D06` | Motor de sintomas | `CRPET` | **1** | **hecho** | migraciones `20260917090000` y `20260928090000` + `packages/contracts/src/symptoms.ts` + motor `apps/api/src/symptom-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/symptom-map.tsx`. Recortes: la libreria de patrones tiene 4 entradas (las metricas que `D05` sabe emitir), no hay evidencia cualitativa y la composicion de sintomas superiores queda para cuando haya mas de una clase de relacion declarada |

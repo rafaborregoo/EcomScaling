@@ -2519,6 +2519,167 @@ el tiempo con" por "provoca", el bloque deja de servir para lo que existe.
 
 ---
 
+
+---
+
+## `D03` — Motor y pantalla · **hecho** 2026-09-30
+
+**Fuente:** `03-runtime/d03-flujo-deteccion-madurez.md` (17 pasos y 8 ramas). El
+contrato se cerro el 2026-09-15; esto son el motor y el pixel.
+
+**Lo que aporta, en una frase:** convierte "no conozco a este cliente" en **"el
+dato demuestra estas siete capacidades, no puede ver estas ocho, y este es el
+numero de por que"**. Eso es lo que decide donde preguntar en la primera
+llamada.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Logica pura | `packages/contracts/src/maturity.ts` (`observeMaturity`, `measureComplexity`, `classifyProfileChange`) |
+| Parte sucia | `apps/api/src/maturity-engine.ts` |
+| Hechos medidos | funcion SQL `public.maturity_business_facts` (migracion `20260930090000`) |
+| Grafo de capacidades | 7 aristas declaradas en la misma migracion |
+| Cron | `apps/worker/src/maturity-once.ts` + `.github/workflows/maturity-engine.yml` |
+| Lectura de consultor | `listConsultantMaturity` + `GET /v1/consultant/maturity` |
+| Pantalla | `apps/web/src/app/shopify/diagnostico/maturity-panel.tsx` y su view-model |
+| Tests | 18 nuevos en `maturity.test.ts` (486 en el paquete) + 7 en el view-model |
+
+### La decision principal es sobre lo que **no** se hace
+
+**El apartado 19 del artefacto dice, con todas las letras, que el algoritmo de
+scoring, los umbrales y las ponderaciones no estan definidos.** Asi que este
+motor **no calcula `required_level` ni emite hallazgos de brecha**. Inventar
+esos umbrales seria fabricar la respuesta y presentarla como derivada del
+documento -- que es exactamente lo que el plan maestro prohibe.
+
+Lo que si puede hacer, y hace, es mirar el dato del negocio y decir que
+capacidades demuestra, con el numero delante. La brecha la pone una persona, y
+la pantalla se la pide en vez de fingirla: donde iria un cero pone **"nadie ha
+dicho que necesita este negocio"**.
+
+### La segunda decision vale igual: lo que no se ve, no se escribe
+
+Una capacidad que el dato no puede observar **no genera fila**. La tentacion es
+ponerla en `absent`, y `absent` es una afirmacion --"esto no existe"-- que
+ningun dato ausente sostiene. **"No lo se" y "no lo hay" son cosas distintas**, y
+confundirlas en un diagnostico es como se le dice a un cliente que no tiene algo
+que si tiene.
+
+Las no observables salen en su propia lista, cada una con su motivo y su cifra:
+"solo el 4% de los pedidos dice de donde viene". Esa lista es la mitad util del
+bloque.
+
+### El techo es `defined`, y es estructural
+
+El guardrail 20 dice que `measured` exige medir **y** que la medida cambie
+decisiones. Lo segundo no esta en ninguna tabla: **el dato puede demostrar que
+algo se mide; no puede demostrar que alguien lo mire.** Por eso el motor no
+puede pasar de `defined` por bueno que sea el dato, y ese salto lo da una
+persona. Hay test.
+
+### Que pasos del runtime cubre
+
+**5 de 17**: medir complejidad (2), construir el perfil de capacidades (3),
+evaluar sus dimensiones (4), contrastar evidencia por fuerza (15) y emitir el
+perfil (17). Y el paso 16 --por que cambia-- entero.
+
+**Los pasos 5 a 14** (required maturity, comparacion, asimetrias, cuellos de
+botella, regresion, riesgo latente, growth-system fit, sobreingenieria) **cuelgan
+todos del umbral que el artefacto no define**. No es que falten de hacer: es que
+hacerlos hoy seria inventarlos. El paso 1 (business stage) lo define la fase 2.
+
+### Un fallo que solo aparecio al ejecutar
+
+La primera pasada real dio `conversion` en `defined`. Mirando el dato: **365
+dias con fila de sesiones y 9 sesiones en todo el ano**. Una serie diaria tiene
+una fila por dia aunque ese dia no entrara nadie, asi que contar filas mide que
+la serie existe, no que haya trafico. Corregido a dias **con visitas**; la misma
+tienda salio entonces en `repeatable`, que es lo que su dato sostiene.
+
+### El grafo de capacidades: solo lo que el artefacto escribe
+
+`capability_dependencies` se creo vacia el 2026-09-15 a proposito. Ahora lleva
+**siete aristas, que son literalmente las del artefacto**: el apartado 13 dice
+que escalar adquisicion requiere inventario, finanzas, creatividad, conversion,
+operaciones y datos; el 14 pone el ejemplo de techo, "creative production
+capacity -> paid acquisition scalability". El resto del grafo sigue sin
+escribirse, y ponerlo a ojo seria lo mismo que inventar los umbrales.
+
+### Mejorar y vernos mejor no se dicen igual
+
+Guardrail 28, con el ejemplo del propio artefacto: pasar de "Finance E3-E5 con
+confianza baja" a "Finance E4 con confianza alta" **no es una mejora del
+negocio**, es una mejora de la observacion. `classifyProfileChange` los separa
+mirando dos cosas distintas -- si se movio algun nivel (eso es el negocio) o si
+cambio lo que vemos de el (eso somos nosotros) -- y **devuelve `null` cuando no
+cambio nada**, que es lo que impide escribir un perfil nuevo cada dia para
+repetir lo de ayer.
+
+En la prueba real se vio funcionando: al empezar a llegar preparaciones de
+pedido, el motor escribio `uncertainty_reduction` con el resumen "ahora se
+pueden ver: operations". No `real_change`, que es lo que habria hecho felicitar
+al cliente por algo que no hizo.
+
+### La pantalla
+
+En `/shopify/diagnostico`, encima de `D06`, y solo consultor -- "tu retencion es
+a ratos" dicho sin acompanamiento es un juicio, no una ayuda, y asi lo dejo
+escrito la RLS del contrato.
+
+**Los niveles se dicen por lo que significan.** "repeatable" no es una nota:
+es "lo hacen siempre igual, pero no lo miden". Esa frase se lleva a una llamada;
+la etiqueta inglesa no.
+
+**Lo no observable va en su propio bloque, no en un pie en gris**, y ordenado
+por si tiene arreglo: los huecos que se cierran conectando o rellenando algo
+van antes que los que hay que preguntar. Un panel con siete capacidades y ocho
+vacias se lee como "a este negocio le faltan ocho cosas"; le faltan ocho **a
+nuestra vista**, y toda la pantalla existe para no confundirlo.
+
+**La complejidad se mide en vivo y no se guarda.** Son medidas, no
+conclusiones: guardar una medida es quedarse con la de ayer. Lo que si se guarda
+es el perfil, porque su valor esta en la historia.
+
+### Verificacion y despliegue
+
+- **Test** (`kopcblejsxpkxoykldyh`): bloque `DO` con **9/9** -- dos perfiles
+  vigentes, sustituir sin decir por que, hallazgo sin interpretacion, `measured`
+  sin que la medida sirva y regresion sin persistencia, todos rechazados; el
+  perfil que produce el motor entra tal cual; las 7 aristas declaradas; la
+  funcion `stable` sin `security definer`; y **0 columnas de revenue,
+  performance, score, tamano de equipo o prioridad**.
+- **Motor ejecutado de verdad** sobre 723 pedidos sinteticos: escribio el perfil
+  inicial, la segunda pasada escribio **0** (nada cambio) y al aparecer
+  preparaciones escribio uno nuevo con `uncertainty_reduction`. Datos borrados
+  despues; test vuelve a estar en cero.
+- **Produccion, solo lectura**: se llamo a la funcion sobre las dos tiendas
+  reales sin escribir nada. `Grippadel` --786 pedidos, 11.241 clientes-- sale
+  con **retencion `defined`: 585 de 786 pedidos (74%) son de clientes que ya
+  habian comprado**, y con adquisicion y economia unitaria **no observables**,
+  porque solo el 4% de los pedidos trae origen y solo 1 de 44 referencias tiene
+  coste. Eso ultimo es un hallazgo real sobre un negocio real.
+- **Mutacion deliberada**: hacer que las capacidades no observables se escriban
+  como `absent` rompe 3 tests. Revertido.
+- **Produccion** (`cthjwpeygpzwdmjkxeqa`): funcion, 7 aristas, indice, 0
+  columnas prohibidas, migracion anotada, **0 perfiles escritos**. Despliegue
+  condicionado al typecheck.
+- 25 tests nuevos (**486 en contratos**, 195 en la web), suite completa y
+  typecheck en verde.
+
+### Lo que quedo fuera, a proposito
+
+- **`required_level` y los hallazgos de brecha**, por lo dicho arriba. Es la
+  pieza mas grande que falta y no es codigo: es una decision.
+- **El resto del grafo de capacidades.** Siete aristas son las que el artefacto
+  escribe; las demas son conocimiento de ecommerce por escribir.
+- **`market`, `creative`, `finance`, `technology`, `team` y `strategy`** no se
+  observan desde el dato de una tienda, y el motor lo dice en vez de rellenarlas.
+- **El business stage de la fase 2** (`business_stage` se queda nulo): D03 lo
+  consume, no lo redefine, y la fase 2 no esta implementada.
+
+---
+
 ## Audiencia: que vera cada vista de esta fase
 
 Añadido 2026-09-14 despues de `D00`, `D01` y `D02`. Los tres se cerraron con RLS
@@ -2629,16 +2790,16 @@ fase necesita ademas motor y pixel (plan maestro, apartado 3).
 
 ### El motor
 
-La capa `03-runtime` de esta fase **ya tiene 9 flujos escritos**. Cuatro estan
-implementados (`d05`, `d01`, `d02` y `d06`). No hay que inventar los cinco que
-quedan: hay que leerlos y escribirlos, como se hizo con esos cuatro.
+La capa `03-runtime` de esta fase **ya tiene 9 flujos escritos**. Cinco estan
+implementados (`d05`, `d01`, `d02`, `d06` y `d03`). No hay que inventar los
+cuatro que quedan: hay que leerlos y escribirlos, como se hizo con esos cinco.
 
 | Flujo | Bloque | Estado |
 | --- | --- | --- |
 | `d05-flujo-motor-senales` | `D05` | **hecho** — `apps/api/src/signal-engine.ts` |
 | `d01-flujo-evaluacion-calidad-datos` | `D01` | **hecho** — `apps/api/src/data-quality-engine.ts` |
 | `d02-flujo-contextualizacion` | `D02` | **hecho** — `apps/api/src/context-engine.ts` |
-| `d03-flujo-deteccion-madurez` | `D03` | pendiente |
+| `d03-flujo-deteccion-madurez` | `D03` | **hecho** — `apps/api/src/maturity-engine.ts` |
 | `d06-flujo-motor-sintomas` | `D06` | **hecho** — `apps/api/src/symptom-engine.ts` |
 | `d07-flujo-razonamiento-causal` | `D07` | pendiente |
 | `d09-flujo-root-cause-constraint` | `D09` | pendiente |
@@ -2668,8 +2829,8 @@ plataforma, y con el la primera pantalla se disena contra datos que existen.
 
 ### El pixel
 
-`D01` ya se ve en `/integraciones`, y `D02` y `D06` en `/shopify/diagnostico`.
-De los 15 bloques, **queda pantalla por hacer en 12**. La matriz de
+`D01` ya se ve en `/integraciones`, y `D02`, `D03` y `D06` en
+`/shopify/diagnostico`. De los 15 bloques, **queda pantalla por hacer en 11**. La matriz de
 audiencia de mas arriba ya dice que lleva cada una.
 
 Esa matriz es la especificacion de las primeras pantallas, y no vino del corpus

@@ -21,11 +21,20 @@ const apiEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SUPABASE_JWT_SECRET: z.string().min(1).optional(),
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_BREVO: z.string().min(1).optional(),
+  SMTP_FROM_EMAIL: z.string().email().optional(),
+  SMTP_FROM_NAME: z.string().min(1).optional(),
   SHOPIFY_API_KEY: z.string().min(1).optional(),
   SHOPIFY_API_SECRET: z.string().min(1).optional(),
   SHOPIFY_SCOPES: z.string().min(1).optional(),
   SHOPIFY_REDIRECT_URI: z.string().url().optional(),
-  SHOPIFY_API_VERSION: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  SHOPIFY_API_VERSION: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .optional(),
   // App Shopify de distribucion personalizada (custom distribution): permite conectar
   // tiendas reales de clientes antes de que la app publica pase la revision de Shopify.
   // Opcional: si no esta seteada, la opcion "app personalizada" no aparece en la UI.
@@ -38,7 +47,10 @@ const apiEnvSchema = z.object({
   META_APP_ID: z.string().min(1).optional(),
   META_APP_SECRET: z.string().min(1).optional(),
   META_REDIRECT_URI: z.string().url().optional(),
-  META_GRAPH_VERSION: z.string().regex(/^v\d+\.\d+$/).optional(),
+  META_GRAPH_VERSION: z
+    .string()
+    .regex(/^v\d+\.\d+$/)
+    .optional(),
   META_SCOPES: z.string().min(1).optional(),
   // Id de una configuracion de Facebook Login for Business. Cuando esta, el
   // dialogo se invoca con config_id en vez de scope: las apps de tipo Business
@@ -111,7 +123,11 @@ const apiEnvSchema = z.object({
   // runs/dia por organizacion, 15 agentes por pasada del orquestador).
   AI_PLATFORM_DAILY_COST_CAP_USD: z.coerce.number().positive().optional(),
   AI_ORG_DAILY_RUN_CAP: z.coerce.number().int().positive().optional(),
-  AI_DIAGNOSTICS_MAX_RUNS_PER_TICK: z.coerce.number().int().positive().optional(),
+  AI_DIAGNOSTICS_MAX_RUNS_PER_TICK: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
   // Interruptor de desarrollo: con "false" ningun agente se lanza solo (ni el
   // cron del orquestador ni la regeneracion al abrir una pagina). Los botones
   // de "Ejecutar" siguen funcionando, para poder probar un agente concreto sin
@@ -136,6 +152,12 @@ export type LoadedApiEnv = {
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_JWT_SECRET?: string;
+  SMTP_HOST?: string;
+  SMTP_PORT?: number;
+  SMTP_USER?: string;
+  SMTP_BREVO?: string;
+  SMTP_FROM_EMAIL?: string;
+  SMTP_FROM_NAME?: string;
   SHOPIFY_API_KEY: string;
   SHOPIFY_API_SECRET: string;
   SHOPIFY_SCOPES: string;
@@ -181,7 +203,6 @@ export type LoadedApiEnv = {
   AI_AUTORUN_ENABLED?: "true" | "false";
   AI_MANUAL_REFRESH_DAILY_CAP?: number;
 };
-
 
 /**
  * Proyecto Supabase de PRODUCCION. Sale del `--project-ref` de
@@ -330,6 +351,12 @@ export function loadApiEnv(
     ...(env.SUPABASE_JWT_SECRET
       ? { SUPABASE_JWT_SECRET: env.SUPABASE_JWT_SECRET }
       : {}),
+    ...(env.SMTP_HOST ? { SMTP_HOST: env.SMTP_HOST } : {}),
+    ...(env.SMTP_PORT !== undefined ? { SMTP_PORT: env.SMTP_PORT } : {}),
+    ...(env.SMTP_USER ? { SMTP_USER: env.SMTP_USER } : {}),
+    ...(env.SMTP_BREVO ? { SMTP_BREVO: env.SMTP_BREVO } : {}),
+    ...(env.SMTP_FROM_EMAIL ? { SMTP_FROM_EMAIL: env.SMTP_FROM_EMAIL } : {}),
+    ...(env.SMTP_FROM_NAME ? { SMTP_FROM_NAME: env.SMTP_FROM_NAME } : {}),
     SHOPIFY_API_KEY: env.SHOPIFY_API_KEY,
     SHOPIFY_API_SECRET: env.SHOPIFY_API_SECRET,
     SHOPIFY_SCOPES: env.SHOPIFY_SCOPES,
@@ -376,7 +403,9 @@ export function loadApiEnv(
         }
       : {}),
     ...(env.FATHOM_API_KEY ? { FATHOM_API_KEY: env.FATHOM_API_KEY } : {}),
-    ...(env.FATHOM_WEBHOOK_SECRET ? { FATHOM_WEBHOOK_SECRET: env.FATHOM_WEBHOOK_SECRET } : {}),
+    ...(env.FATHOM_WEBHOOK_SECRET
+      ? { FATHOM_WEBHOOK_SECRET: env.FATHOM_WEBHOOK_SECRET }
+      : {}),
     ...(env.INTEGRATION_FEATURE_FLAGS
       ? { INTEGRATION_FEATURE_FLAGS: env.INTEGRATION_FEATURE_FLAGS }
       : {}),
@@ -416,7 +445,10 @@ export function loadApiEnv(
       ? { AI_ORG_DAILY_RUN_CAP: env.AI_ORG_DAILY_RUN_CAP }
       : {}),
     ...(env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK !== undefined
-      ? { AI_DIAGNOSTICS_MAX_RUNS_PER_TICK: env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK }
+      ? {
+          AI_DIAGNOSTICS_MAX_RUNS_PER_TICK:
+            env.AI_DIAGNOSTICS_MAX_RUNS_PER_TICK,
+        }
       : {}),
     ...(env.AI_AUTORUN_ENABLED
       ? { AI_AUTORUN_ENABLED: env.AI_AUTORUN_ENABLED }

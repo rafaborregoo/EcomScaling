@@ -96,7 +96,13 @@ export default function OnboardingPage() {
               <ProfileStep
                 supabase={supabase}
                 userId={userId}
-                onDone={() => router.replace("/dashboard")}
+                onDone={(role) =>
+                  router.replace(
+                    role === "consultant"
+                      ? "/consultor?welcome=1"
+                      : "/dashboard",
+                  )
+                }
               />
             ) : null}
           </>
@@ -178,12 +184,15 @@ function ProfileStep({
 }: {
   supabase: ReturnType<typeof getSupabaseClient>;
   userId: string;
-  onDone: () => void;
+  onDone: (role: string) => void;
 }) {
   const [name, setName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState("");
   const [isConsultant, setIsConsultant] = useState(false);
+  const [platformRole, setPlatformRole] = useState("client");
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -195,11 +204,14 @@ function ProfileStep({
         .select("full_name, avatar_url, business_name, platform_role")
         .eq("id", userId)
         .maybeSingle();
-      if (cancelled || !data) return;
+      if (cancelled) return;
+      setProfileLoading(false);
+      if (!data) return;
       setName((current) => current || (data.full_name ?? ""));
       setAvatarUrl((current) => current ?? data.avatar_url ?? null);
       setBusinessName((current) => current || (data.business_name ?? ""));
       setIsConsultant(data.platform_role === "consultant");
+      setPlatformRole(data.platform_role);
     }
     void loadProfile();
     return () => {
@@ -210,21 +222,36 @@ function ProfileStep({
   async function submit() {
     setBusy(true);
     setError(null);
-    const { error: profileError } = await supabase
+    const fullName = name.trim();
+    const agencyName = isConsultant ? businessName.trim() : "";
+    const { data: savedProfile, error: profileError } = await supabase
       .from("profiles")
       .update({
-        full_name: name.trim() || null,
+        full_name: fullName,
         avatar_url: avatarUrl,
-        business_name: isConsultant ? businessName.trim() || null : null,
+        business_name: agencyName || null,
         onboarding_completed_at: new Date().toISOString(),
       })
-      .eq("id", userId);
+      .eq("id", userId)
+      .select("full_name, avatar_url, business_name, onboarding_completed_at")
+      .single();
     setBusy(false);
     if (profileError) {
       setError(profileError.message);
       return;
     }
-    onDone();
+    if (
+      !savedProfile?.onboarding_completed_at ||
+      savedProfile.full_name !== fullName ||
+      savedProfile.avatar_url !== avatarUrl ||
+      (isConsultant && savedProfile.business_name !== agencyName)
+    ) {
+      setError(
+        "No se pudieron verificar todos los datos guardados. Inténtalo de nuevo.",
+      );
+      return;
+    }
+    onDone(platformRole);
   }
 
   return (
@@ -233,8 +260,12 @@ function ProfileStep({
       description="Puedes cambiar el nombre que te asignaron y elegir un avatar."
     >
       <div className="mt-4 grid gap-5">
-        <Field label="Nombre">
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        <Field label="Nombre personal">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
         </Field>
 
         {isConsultant ? (
@@ -253,14 +284,23 @@ function ProfileStep({
           value={avatarUrl}
           onChange={setAvatarUrl}
           userId={userId}
+          onUploadingChange={setAvatarUploading}
         />
 
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <Button disabled={busy || (isConsultant && !businessName.trim())} onClick={() => void submit()}>
+        <Button
+          disabled={
+            busy ||
+            profileLoading ||
+            avatarUploading ||
+            !name.trim() ||
+            (isConsultant && !businessName.trim())
+          }
+          onClick={() => void submit()}
+        >
           {busy ? "Guardando..." : "Finalizar"}
         </Button>
       </div>
     </Card>
   );
 }
-

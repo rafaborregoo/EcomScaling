@@ -6,7 +6,14 @@ import { Avatar, EYEBROW, UploadButton, cn } from "@/components/ui";
 
 // Avatares alojados por HeroUI. Si alguno no carga, el <Avatar.Fallback> con
 // las iniciales del nombre lo cubre.
-export const AVATAR_PRESETS = ["blue", "green", "purple", "red", "yellow", "pink"].map(
+export const AVATAR_PRESETS = [
+  "blue",
+  "green",
+  "purple",
+  "red",
+  "yellow",
+  "pink",
+].map(
   (color) =>
     `https://heroui-assets.nyc3.cdn.digitaloceanspaces.com/avatars/${color}.jpg`,
 );
@@ -18,17 +25,20 @@ export function AvatarPicker({
   value,
   onChange,
   userId,
+  onUploadingChange,
 }: {
   name: string;
   value: string | null;
   onChange: (url: string) => void;
   userId: string;
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const uploadAvatar = useCallback(
     async (file: File) => {
       setUploadError(null);
+      onUploadingChange?.(true);
       const supabase = getSupabaseClient();
       const ext = (file.name.split(".").pop() || "png").toLowerCase();
       const path = `${userId}/${crypto.randomUUID()}.${ext}`;
@@ -37,12 +47,14 @@ export function AvatarPicker({
         .upload(path, file, { contentType: file.type, upsert: false });
       if (error) {
         setUploadError(error.message);
+        onUploadingChange?.(false);
         return;
       }
       const { data } = supabase.storage.from("avatars").getPublicUrl(path);
       onChange(data.publicUrl);
+      onUploadingChange?.(false);
     },
-    [onChange, userId],
+    [onChange, onUploadingChange, userId],
   );
 
   return (

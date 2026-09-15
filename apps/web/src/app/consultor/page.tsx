@@ -19,6 +19,7 @@ import {
   Avatar,
   Badge,
   Button,
+  ButtonLink,
   Card,
   Checkbox,
   Dropdown,
@@ -169,7 +170,9 @@ function attentionBadge(score: number) {
 // CHECKLIST-SALUD-CLIENTE.md: score, luego alertas criticas siempre, luego
 // antiguedad, luego tareas vencidas. Aqui solo se explica en una linea por
 // que un cliente esta donde esta, sin repetir el checklist a mano cada lunes.
-function attentionReasons(attention: ConsultantOrganization["attention"]): string {
+function attentionReasons(
+  attention: ConsultantOrganization["attention"],
+): string {
   const parts: string[] = [];
   if (attention.critical_alerts > 0) {
     parts.push(`${attention.critical_alerts} alerta(s) critica(s)`);
@@ -178,7 +181,9 @@ function attentionReasons(attention: ConsultantOrganization["attention"]): strin
     parts.push(`${attention.high_alerts} alerta(s) alta(s)`);
   }
   if (attention.oldest_alert_days >= 7) {
-    parts.push(`la mas antigua lleva ${attention.oldest_alert_days} dias abierta`);
+    parts.push(
+      `la mas antigua lleva ${attention.oldest_alert_days} dias abierta`,
+    );
   }
   if (attention.overdue_tasks > 0) {
     parts.push(`${attention.overdue_tasks} tarea(s) vencida(s)`);
@@ -224,7 +229,12 @@ function PriorityQueue({
     items: ConsultantOrganization[];
   }> = [
     { key: "urgent", label: "Urgente hoy", tone: "danger", items: urgent },
-    { key: "review", label: "Revisar esta semana", tone: "warn", items: review },
+    {
+      key: "review",
+      label: "Revisar esta semana",
+      tone: "warn",
+      items: review,
+    },
     { key: "watch", label: "Vigilar", tone: "neutral", items: watch },
   ];
 
@@ -264,7 +274,9 @@ function PriorityQueue({
                           {attentionReasons(organization.attention)}
                         </p>
                       </div>
-                      <Badge tone={tier.tone}>{organization.attention.score}</Badge>
+                      <Badge tone={tier.tone}>
+                        {organization.attention.score}
+                      </Badge>
                     </li>
                   ))}
                 </ul>
@@ -298,7 +310,9 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
       setAccess((await response.json()) as OrganizationAccess);
       setError(null);
     } catch {
-      setError("No se pudo cargar el acceso del cliente. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo cargar el acceso del cliente. Revisa la conexión e inténtalo de nuevo.",
+      );
     }
   }, [organizationId]);
 
@@ -322,7 +336,9 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
       if (!response.ok) setError(await readApiError(response));
       else await loadAccess();
     } catch {
-      setError("No se pudo guardar el miembro. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo guardar el miembro. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -342,7 +358,9 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
       if (!response.ok) setError(await readApiError(response));
       else await loadAccess();
     } catch {
-      setError("No se pudo quitar el miembro. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo quitar el miembro. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setRemovingId(null);
     }
@@ -365,7 +383,9 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
       if (!response.ok) setError(await readApiError(response));
       else await loadAccess();
     } catch {
-      setError("No se pudo quitar el consultor. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo quitar el consultor. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setRemovingId(null);
     }
@@ -390,7 +410,9 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
       if (!response.ok) setError(await readApiError(response));
       else await loadAccess();
     } catch {
-      setError("No se pudo guardar la asignación. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo guardar la asignación. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -635,7 +657,9 @@ function EditOrganizationForm({
         setError(await readApiError(response));
       }
     } catch {
-      setError("No se pudo actualizar el cliente. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo actualizar el cliente. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -736,7 +760,9 @@ function StoresPanel({
         setStores(payload.stores);
         setError(null);
       } catch {
-        setError("No se pudieron cargar las tiendas. Revisa la conexión e inténtalo de nuevo.");
+        setError(
+          "No se pudieron cargar las tiendas. Revisa la conexión e inténtalo de nuevo.",
+        );
       }
     }
     void load();
@@ -761,7 +787,9 @@ function StoresPanel({
         setError(await readApiError(response));
       }
     } catch {
-      setError("No se pudo eliminar la tienda. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo eliminar la tienda. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setDeletingStoreId(null);
     }
@@ -784,7 +812,9 @@ function StoresPanel({
         setError(await readApiError(response));
       }
     } catch {
-      setError("No se pudo restaurar la tienda. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo restaurar la tienda. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setRestoringStoreId(null);
     }
@@ -894,7 +924,6 @@ function StoresPanel({
           onCancel={() => setConfirmDeleteStore(null)}
         />
       ) : null}
-
     </div>
   );
 }
@@ -957,7 +986,10 @@ function ClientActionsMenu({
         setError(await readApiError(response));
         return;
       }
-      const data = (await response.json()) as { code: string; access_url: string };
+      const data = (await response.json()) as {
+        code: string;
+        access_url: string;
+      };
       await navigator.clipboard.writeText(data.access_url).catch(() => {});
       toast.success(`Código ${data.code} · enlace copiado`);
     } catch {
@@ -1083,6 +1115,18 @@ type CreatedInvite = {
   invite: { code: string; access_url: string; expires_at: string };
 };
 
+function OwnStoreShortcut() {
+  return (
+    <Card
+      kicker="Tu negocio"
+      title="Añadir mi tienda"
+      description="Crea una organización propia y conecta tus canales sin mezclarla con las organizaciones de tus clientes."
+    >
+      <ButtonLink href="/tiendas">Añadir mi tienda</ButtonLink>
+    </Card>
+  );
+}
+
 // Alta de cliente por el consultor: crea la organización (queda en su cartera)
 // y genera un código único y temporal. El consultor comparte el código o el
 // enlace; el cliente lo canjea en /acceso y hace su onboarding.
@@ -1123,7 +1167,9 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
       setOwnerFullName("");
       onCreated();
     } catch {
-      setError("No se pudo crear el cliente. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudo crear el cliente. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setBusy(false);
     }
@@ -1181,11 +1227,11 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
     return (
       <Card
         kicker="Alta"
-        title="Nuevo cliente"
-        description="Da de alta un cliente y genera su código de acceso."
+        title="Invitar cliente"
+        description="Crea una organización separada para el cliente y genera su código de acceso."
       >
         <Button size="sm" onClick={() => setOpen(true)}>
-          Añadir cliente
+          Invitar cliente
         </Button>
       </Card>
     );
@@ -1194,8 +1240,8 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
   return (
     <Card
       kicker="Alta"
-      title="Nuevo cliente"
-      description="Se crea la organización en tu cartera y un código único para que el cliente entre."
+      title="Invitar cliente"
+      description="Se crea su organización en tu cartera y el cliente decide si quiere unirse antes de obtener acceso."
     >
       <div className="grid gap-4">
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
@@ -1225,7 +1271,7 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
         </div>
         <div className="flex gap-3">
           <Button disabled={!canSubmit || busy} onClick={() => void submit()}>
-            {busy ? "Creando..." : "Crear y generar código"}
+            {busy ? "Creando..." : "Crear invitación"}
           </Button>
           <Button variant="ghost" onClick={() => setOpen(false)}>
             Cancelar
@@ -1274,7 +1320,9 @@ function ConsultantPanel({
       setOrganizations(payload.organizations);
       setError(null);
     } catch {
-      setError("No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -1298,7 +1346,10 @@ function ConsultantPanel({
   if (organizations.length === 0) {
     return (
       <div className="portal-page space-y-5 sm:space-y-6">
-        <NewClientForm onCreated={() => void load()} />
+        <div className="grid gap-5 lg:grid-cols-2">
+          <NewClientForm onCreated={() => void load()} />
+          <OwnStoreShortcut />
+        </div>
         <EmptyState
           title="Aún no tienes clientes"
           hint="Da de alta el primero aquí arriba, o espera a que te asignen una organización como consultor."
@@ -1316,12 +1367,17 @@ function ConsultantPanel({
       )
     : organizations;
 
-
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
-      <NewClientForm onCreated={() => void load()} />
+      <div className="grid gap-5 lg:grid-cols-2">
+        <NewClientForm onCreated={() => void load()} />
+        <OwnStoreShortcut />
+      </div>
 
-      <PriorityQueue organizations={organizations} onSelect={setOrganizationId} />
+      <PriorityQueue
+        organizations={organizations}
+        onSelect={setOrganizationId}
+      />
 
       <Card
         title="Buscar cliente"
@@ -1360,9 +1416,7 @@ function ConsultantPanel({
                   className="py-3 first:pt-1 last:pb-1"
                 >
                   <div
-                    {...cardToggle(() =>
-                      setExpandedId(open ? null : row.id),
-                    )}
+                    {...cardToggle(() => setExpandedId(open ? null : row.id))}
                     aria-expanded={open}
                     className="-mx-2 flex cursor-pointer flex-wrap items-start gap-3 rounded-md px-2 py-1 hover:bg-surface"
                   >
@@ -1389,8 +1443,8 @@ function ConsultantPanel({
                         {row.slug} ·{" "}
                         {row.status === "pending_deletion"
                           ? "Borrado en 30 días"
-                          : ORGANIZATION_STATUS_LABELS[row.status] ??
-                            row.status}
+                          : (ORGANIZATION_STATUS_LABELS[row.status] ??
+                            row.status)}
                       </p>
                       <p className="mt-1 text-xs text-muted">
                         {row.attention.open_alerts} alertas
@@ -1441,7 +1495,9 @@ function ConsultantPanel({
                             }}
                             onChanged={() => void load()}
                             onRemoved={() => {
-                              setExpandedId((id) => (id === row.id ? null : id));
+                              setExpandedId((id) =>
+                                id === row.id ? null : id,
+                              );
                               setEditingId((id) => (id === row.id ? null : id));
                               setOrganizations((prev) =>
                                 prev.filter((org) => org.id !== row.id),
@@ -1693,7 +1749,9 @@ function ObjectiveTypesCard({
                   </div>
                 ) : null}
 
-                <p className={EYEBROW}>Estándar de plataforma (siempre activos)</p>
+                <p className={EYEBROW}>
+                  Estándar de plataforma (siempre activos)
+                </p>
                 <ul className="mt-1 flex flex-wrap gap-1.5">
                   {builtins.map((b) => (
                     <li key={b.key}>
@@ -1737,7 +1795,11 @@ function ObjectiveTypesCard({
                                 "Nuevo nombre del objetivo",
                                 def.label,
                               );
-                              if (next && next.trim() && next.trim() !== def.label) {
+                              if (
+                                next &&
+                                next.trim() &&
+                                next.trim() !== def.label
+                              ) {
                                 void renameDefinition(def.id, next.trim());
                               }
                             }}
@@ -1850,7 +1912,11 @@ function ObjectiveTypesCard({
                       de Mi Camino de cada cliente.
                     </p>
                   ) : null}
-                  <Button type="submit" size="sm" disabled={isSaving || !label.trim()}>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSaving || !label.trim()}
+                  >
                     {isSaving ? "Creando..." : "Crear tipo de objetivo"}
                   </Button>
                 </form>
@@ -1901,7 +1967,9 @@ function ConsultantPanelWithViewMode({
   return (
     <ConsultantPanel
       token={token}
-      isPlatformAdmin={platformRole === "platform_admin" && viewMode === "admin"}
+      isPlatformAdmin={
+        platformRole === "platform_admin" && viewMode === "admin"
+      }
       canManageStores={["consultant", "platform_admin"].includes(platformRole)}
     />
   );
