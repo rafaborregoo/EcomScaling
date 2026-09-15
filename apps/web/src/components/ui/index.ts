@@ -66,6 +66,7 @@ export { Link } from "./link";
 export { ButtonLink } from "./link";
 export { List } from "./list";
 export { Heading } from "./heading";
+export { Markdown } from "./markdown";
 export type { TableColumnDef } from "./table";
 export { Table } from "./table";
 export {

@@ -10,6 +10,7 @@ import {
   shouldBlockOnEnvironmentRisk,
 } from "@ecomscaling/config";
 import {
+  healthReferenceInputSchema,
   healthResponseSchema,
   readinessResponseSchema,
 } from "@ecomscaling/contracts";
@@ -40,6 +41,9 @@ import {
   listConsultantContextReadings,
   listConsultantMaturity,
   listConsultantCapabilityHealth,
+  createConsultantHealthReference,
+  listConsultantHealthReferences,
+  retireConsultantHealthReference,
   listConsultantSeverity,
   listConsultantSignals,
   listConsultantSymptomMap,
@@ -268,6 +272,7 @@ import { getAgentEvalReadiness } from "./agent-eval-readiness.js";
 import {
   createKnowledgeDocument,
   listKnowledgeDocuments,
+  getKnowledgeDocument,
   searchKnowledge,
 } from "./knowledge.js";
 import {
@@ -1646,6 +1651,69 @@ export async function buildApp(): Promise<FastifyInstance> {
       return sendServiceFailure(reply, result);
     }
 
+    return result.data;
+  });
+
+  // F3/D04. Contra que se juzga cada metrica en cada tienda. Es la declaracion
+  // que el guardrail 11 exige y que hasta ahora no tenia donde escribirse: sin
+  // ella, D04 y D10 contestan "falta un dato" en vez de diagnosticar.
+  app.get("/v1/consultant/health-references", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantHealthReferences(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post("/v1/consultant/health-references", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const parsed = healthReferenceInputSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ error: "invalid_health_reference", detail: parsed.error.message });
+    }
+
+    const result = await createConsultantHealthReference(
+      env,
+      authorization,
+      auth.context,
+      parsed.data,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return reply.code(201).send(result.data);
+  });
+
+  app.delete("/v1/consultant/health-references/:id", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const { id } = request.params as { id: string };
+    const result = await retireConsultantHealthReference(
+      env,
+      authorization,
+      auth.context,
+      id,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
     return result.data;
   });
 
@@ -6012,6 +6080,30 @@ export async function buildApp(): Promise<FastifyInstance> {
         authorization,
         auth.context,
         request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.get<{ Params: { organizationId: string; documentId: string } }>(
+    "/v1/organizations/:organizationId/knowledge/documents/:documentId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await getKnowledgeDocument(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.documentId,
       );
 
       if (isServiceFailure(result)) {

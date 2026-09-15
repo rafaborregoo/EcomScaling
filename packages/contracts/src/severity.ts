@@ -713,6 +713,30 @@ const DENOMINADOR_POR_METRICA: Record<
 };
 
 /**
+ * En que esta medida cada base.
+ *
+ * Existe porque la primera corrida real dividio 2.280 EUR entre 50 pedidos y
+ * saco un 4.560 %. No era un error de magnitud sino **de categoria**: una
+ * perdida en dinero no tiene cuota sobre un recuento. El guardrail 15 deja
+ * registrar varias bases, pero solo las que comparten unidad con la perdida
+ * dan una cuota que signifique algo.
+ */
+const UNIDAD_DE_BASE: Record<DenominatorReading["denominator"], "money" | "count"> = {
+  revenue: "money",
+  spend: "money",
+  orders: "count",
+  customers: "count",
+  traffic: "count",
+};
+
+/** Las metricas que se miden en dinero. Las demas cuentan cosas. */
+const METRICAS_EN_DINERO = ["net_sales", "average_order_value"];
+
+export function metricUnitKind(metric: string): "money" | "count" {
+  return METRICAS_EN_DINERO.includes(metric) ? "money" : "count";
+}
+
+/**
  * Sobre que base se juzga esta metrica, y por que.
  *
  * El guardrail 16 dice que elegir un denominador en vez de otro es un juicio y
@@ -733,7 +757,12 @@ export function chooseDenominator(targetMetric: string): {
  * esta mal elegida o mal medida. Devolver 1 seria tapar un error de medicion con
  * una cifra creible, asi que devuelve `null` y quien lo lea ve el hueco.
  */
-export function exposureShare(loss: number, denominator: number): number | null {
+export function exposureShare(
+  loss: number,
+  denominator: number,
+  sameUnit = true,
+): number | null {
+  if (!sameUnit) return null;
   if (!Number.isFinite(loss) || !Number.isFinite(denominator) || denominator <= 0) {
     return null;
   }
@@ -859,18 +888,24 @@ export function assessSeverity(input: SeverityCaseInput): SeverityAssessmentDraf
     });
   }
 
+  const unidadPerdida = signal ? metricUnitKind(signal.metric) : null;
+
   const exposures: ImpactExposureDraft[] = denominators
     .filter((d) => d.value > 0)
     .map((d) => {
       const elegido = eleccion?.denominator === d.denominator;
-      const cuota = perdida === null ? null : exposureShare(perdida, d.value);
+      const mismaUnidad = unidadPerdida !== null && UNIDAD_DE_BASE[d.denominator] === unidadPerdida;
+      const cuota =
+        perdida === null ? null : exposureShare(perdida, d.value, mismaUnidad);
       return {
         denominator: d.denominator,
         denominator_value: d.value,
         denominator_note:
-          perdida !== null && cuota === null
-            ? "La perdida calculada supera esta base: la base esta mal elegida o mal medida, y la cuota no se escribe."
-            : null,
+          perdida === null || cuota !== null
+            ? null
+            : !mismaUnidad
+              ? "No se calcula cuota: la perdida y esta base no estan en la misma unidad. La base queda registrada como contexto."
+              : "La perdida calculada supera esta base: la base esta mal elegida o mal medida, y la cuota no se escribe.",
         exposure_share: cuota,
         // El esquema exige que la fila diga algo: si no hay cuota, dice al menos
         // sobre que parte del negocio se mira.

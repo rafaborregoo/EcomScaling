@@ -5,7 +5,11 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { ContextReadingsPanel } from "./context-readings";
+import { CapabilityHealthPanel } from "./capability-health";
+import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
+import { SeverityPanel } from "./severity-panel";
+import { SignalListPanel } from "./signal-list";
 import { SymptomMapPanel } from "./symptom-map";
 import { type BootstrapResponse } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
@@ -467,11 +471,21 @@ function ShopifyDiagnosticoView({
 
       {tab === "resumen" ? (
         <div className="space-y-6">
-          {/* F3/D03, D06 y D02, en el orden en que se leen: de que es capaz el
-              negocio, que patron forman sus senales y contra que se compara
-              cada una. */}
+          {/* F3/D03, D05, D06, D04, D10 y D02, en el orden en que se leen: de
+              que es capaz el negocio, que ha cambiado, que patron forman esos
+              cambios juntos, como deja eso a cada capacidad, cuanto dano hay
+              medido y contra que se compara cada movimiento. Cada uno lee al
+              anterior, asi que leerlo al reves es empezar por la conclusion. */}
           <MaturityPanel />
+          <SignalListPanel />
           <SymptomMapPanel />
+          {/* La declaracion va JUSTO ENCIMA de la salud, no en otra pantalla:
+              quien lee "no hay guardrail declarado para adquisicion" lo declara
+              aqui mismo. Un hueco que te dice que falta algo y no te deja
+              arreglarlo es una queja, no una herramienta. */}
+          <HealthReferencesPanel />
+          <CapabilityHealthPanel />
+          <SeverityPanel />
           <ContextReadingsPanel />
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">

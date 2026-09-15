@@ -3206,6 +3206,7 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
       organization_id: string;
       display_name: string;
       is_primary: boolean;
+      status: string;
     }>
   >();
   for (const assignment of assignments ?? []) {
@@ -3216,6 +3217,7 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
       organization_id: orgId,
       display_name: orgById.get(orgId)?.display_name ?? orgId,
       is_primary: Boolean(assignment.is_primary),
+      status: (orgById.get(orgId)?.status as string) ?? "onboarding",
     });
     byConsultant.set(consultantId, list);
   }
@@ -6910,6 +6912,208 @@ export async function listConsultantSymptomMap(
   }));
 
   return { ok: true as const, data: { symptoms } };
+}
+
+/**
+ * FASE 3 / D04 — declarar contra que se juzga una metrica en ESTA tienda.
+ *
+ * POR QUE EXISTE ESTO. `D04` y `D10` estan implementados y los dos sacaban
+ * `unknown` en todo por el mismo motivo: el guardrail 11 prohibe clasificar CAC,
+ * CVR o refund rate por umbral global, y el 13 prohibe depender de benchmarks
+ * externos. Contra que se juzga cada metrica **lo tiene que decir alguien**, y
+ * hasta ahora no habia donde decirlo: la tabla existia desde el 2026-09-15 y
+ * solo la leia un motor.
+ *
+ * Sin esta pantalla, dos motores enteros contestan "falta un dato" en vez de
+ * diagnosticar. Con ella, la misma pasada que hoy da `not_assessable` empieza a
+ * dar un estado.
+ *
+ * NO SE BORRA, SE RETIRA. Una referencia que cambia explica por que una
+ * capacidad paso de `bad` a `healthy` sin que el negocio se moviera: cambiamos
+ * la vara. Borrarla dejaria ese salto sin explicacion en el historico, asi que
+ * retirar es poner `effective_to`, y la fila se queda.
+ */
+export async function listConsultantHealthReferences(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data, error } = await supabase
+    .from("health_references")
+    .select(
+      "id, organization_id, store_id, capability, metric, scope, reference_type, value, value_text, unit, direction, source, effective_from, effective_to",
+    )
+    .in("organization_id", safeIds)
+    .is("effective_to", null)
+    .order("capability", { ascending: true });
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_health_references_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const references = (data ?? []).map((fila) => ({
+    ...fila,
+    organization_name: nombrePorOrg.get(fila.organization_id as string) ?? null,
+  }));
+
+  return {
+    ok: true as const,
+    data: { references, organizations: organizations.map((o) => ({ id: o.id, display_name: o.display_name })) },
+  };
+}
+
+export type HealthReferenceInput = {
+  organization_id: string;
+  capability: string;
+  metric: string;
+  reference_type: string;
+  value?: number | null | undefined;
+  value_text?: string | null | undefined;
+  unit?: string | null | undefined;
+  direction?: string | null | undefined;
+  source?: string | null | undefined;
+};
+
+export async function createConsultantHealthReference(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  input: HealthReferenceInput,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+
+  // ADR-0006 punto 7: se escribe con la service role, asi que el permiso se
+  // comprueba a mano. La lista de organizaciones del consultor **es** ese
+  // permiso: si la tienda no esta ahi, no es suya.
+  const permitida = orgsResult.data.organizations.some(
+    (o) => o.id === input.organization_id,
+  );
+  if (!permitida) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_not_assigned",
+      message: "Esa tienda no esta en tu cartera.",
+    };
+  }
+
+  if (input.value == null && !input.value_text) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "reference_needs_a_value",
+      message: "Una referencia sin valor no sirve para juzgar nada.",
+    };
+  }
+
+  // El guardrail 13 no prohibe el benchmark externo, exige poder discutirlo: si
+  // no dice de donde sale, no entra.
+  if (input.reference_type === "external_benchmark" && !input.source) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "benchmark_needs_source",
+      message:
+        "Un benchmark externo tiene que decir de donde sale para poder discutirlo.",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+
+  // Una metrica no puede tener dos varas vigentes a la vez: la anterior se
+  // retira en el mismo movimiento, y el historico conserva las dos.
+  await supabase
+    .from("health_references")
+    .update({ effective_to: new Date().toISOString() })
+    .eq("organization_id", input.organization_id)
+    .eq("metric", input.metric)
+    .eq("reference_type", input.reference_type)
+    .is("effective_to", null);
+
+  const { data, error } = await supabase
+    .from("health_references")
+    .insert({
+      organization_id: input.organization_id,
+      capability: input.capability,
+      metric: input.metric,
+      reference_type: input.reference_type,
+      value: input.value ?? null,
+      value_text: input.value_text ?? null,
+      unit: input.unit ?? null,
+      direction: input.direction ?? null,
+      source: input.source ?? null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_health_reference_write_failed",
+      detail: error?.message,
+    };
+  }
+
+  return { ok: true as const, data: { id: data.id as string } };
+}
+
+export async function retireConsultantHealthReference(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  referenceId: string,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+
+  const ids = orgsResult.data.organizations.map((o) => o.id);
+  const supabase = createServiceClient(env);
+
+  const { data, error } = await supabase
+    .from("health_references")
+    .update({ effective_to: new Date().toISOString() })
+    .eq("id", referenceId)
+    .in("organization_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"])
+    .is("effective_to", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_health_reference_retire_failed",
+      detail: error.message,
+    };
+  }
+  if (!data) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "reference_not_found",
+      message: "Esa referencia no existe, ya estaba retirada o no es de tu cartera.",
+    };
+  }
+
+  return { ok: true as const, data: { id: data.id as string } };
 }
 
 /**

@@ -1,0 +1,75 @@
+name: Capability Health Engine
+
+# F3/D04. Lee las senales de D05 y los sintomas de D06 y dice como esta cada
+# capacidad hoy -- o, cuando no se puede saber, que falta declarar para poder
+# saberlo.
+#
+# **No tiene un solo umbral propio.** El guardrail 11 prohibe clasificar CAC,
+# CVR o refund rate por umbral global; contra que se juzga cada metrica lo
+# declara el tenant en `health_references`. Sin esa declaracion la capacidad sale
+# `not_assessable` con el motivo, que es la respuesta honesta.
+#
+# Sin `schedule`, igual que los otros cinco motores: decision de Rafa del
+# 2026-08-03, sin disparadores automaticos. Se lanza a mano hasta que haya motivo
+# para automatizarlo. Para activarlo, descomentar el bloque de abajo.
+#
+# **Va detras de senales y sintomas** en la cadena. Si algun dia se activan
+# (calidad 06:07, senales 06:17, contexto 06:27, sintomas 06:37), este va a las
+# 06:47: lanzarlo antes mide un instante en que las senales de hoy todavia no
+# existen.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "47 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: health-engine
+  cancel-in-progress: false
+
+jobs:
+  health:
+    name: Assess capability health for all organizations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+      SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+      SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required runtime secrets
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY SUPABASE_JWT_SECRET; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required secret $key is not configured for the health engine." >&2
+              exit 1
+            fi
+          done
+
+      - name: Build API and worker
+        run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
+
+      - name: Assess capability health
+        run: npm run start:health -w @ecomscaling/worker

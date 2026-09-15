@@ -209,13 +209,59 @@ type ShippingRule = {
   max_order_total: number | null;
 };
 
+type MetricTarget = {
+  id: string;
+  metric_key: string;
+  target_value: number;
+  period: string;
+  valid_from: string;
+  valid_until: string | null;
+};
+
 type FinancialConfigResponse = {
   organization_id: string;
   settings: FinancialSettings;
   fixed_expenses: FixedExpense[];
   shipping_cost_rules: ShippingRule[];
-  metric_targets: unknown[];
+  metric_targets: MetricTarget[];
 };
+
+// Mismas claves que `METRIC_TARGET_KEYS` en la API: el panel busca el objetivo
+// por la clave exacta para pintarlo junto a su cifra. La etiqueta y el sufijo
+// son de aquí; la clave manda y no se traduce.
+const METRIC_TARGET_OPTIONS: Array<{
+  value: string;
+  label: string;
+  unit: "eur" | "pct" | "num";
+}> = [
+  { value: "net_revenue_ex_tax", label: "Ingresos sin IVA", unit: "eur" },
+  { value: "net_profit", label: "Beneficio neto", unit: "eur" },
+  { value: "net_margin_pct", label: "Margen neto", unit: "pct" },
+  { value: "aov_ex_tax", label: "Ticket medio sin IVA", unit: "eur" },
+  { value: "orders_count", label: "Pedidos", unit: "num" },
+  { value: "conversion_rate", label: "Conversión", unit: "pct" },
+  { value: "recurrence_pct", label: "Recurrencia", unit: "pct" },
+  { value: "cac_blended", label: "CAC (todas las plataformas)", unit: "eur" },
+  { value: "roas", label: "ROAS", unit: "num" },
+  { value: "email_attributed_pct", label: "Facturación vía email", unit: "pct" },
+];
+
+const METRIC_TARGET_PERIOD_LABELS: Record<string, string> = {
+  monthly: "al mes",
+  quarterly: "al trimestre",
+  yearly: "al año",
+};
+
+function formatTargetValue(target: MetricTarget) {
+  const option = METRIC_TARGET_OPTIONS.find(
+    (item) => item.value === target.metric_key,
+  );
+  const value = Number(target.target_value);
+
+  if (option?.unit === "pct") return `${value.toFixed(2)} %`;
+  if (option?.unit === "eur") return `${value.toFixed(2)} €`;
+  return value.toFixed(2);
+}
 
 function FinancialConfigSection({
   bootstrap,
@@ -256,8 +302,15 @@ function FinancialConfigSection({
     "monthly",
   );
 
+  const [targetMetricKey, setTargetMetricKey] = useState(
+    METRIC_TARGET_OPTIONS[0]!.value,
+  );
+  const [targetValue, setTargetValue] = useState("");
+  const [targetPeriod, setTargetPeriod] = useState("monthly");
+  const [isAddingTarget, setIsAddingTarget] = useState(false);
+  const [busyTargetId, setBusyTargetId] = useState<string | null>(null);
+
   const [ruleName, setRuleName] = useState("");
-  const [ruleCountryCode, setRuleCountryCode] = useState("");
   const [ruleCostPerOrder, setRuleCostPerOrder] = useState("");
   const [ruleMinOrderTotal, setRuleMinOrderTotal] = useState("");
 
@@ -385,6 +438,60 @@ function FinancialConfigSection({
     }
   }
 
+  async function addMetricTarget(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsAddingTarget(true);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/metric-targets`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            metricKey: targetMetricKey,
+            targetValue: Number(targetValue),
+            period: targetPeriod,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      setTargetValue("");
+      void loadConfig();
+    } catch {
+      setError("No se pudo guardar el objetivo por un error de red. Reintenta.");
+    } finally {
+      setIsAddingTarget(false);
+    }
+  }
+
+  async function removeMetricTarget(targetId: string) {
+    setError(null);
+    setBusyTargetId(targetId);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${organizationId}/financial-config/metric-targets/${targetId}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+
+      void loadConfig();
+    } catch {
+      setError("No se pudo quitar el objetivo por un error de red. Reintenta.");
+    } finally {
+      setBusyTargetId(null);
+    }
+  }
+
   async function addShippingRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -397,9 +504,12 @@ function FinancialConfigSection({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: ruleName,
-            countryCode: ruleCountryCode.trim()
-              ? ruleCountryCode.trim().toUpperCase()
-              : null,
+            // Siempre null: el motor de margen solo puede aplicar reglas sin
+            // pais, porque los pedidos no guardan el pais del cliente (se dejo
+            // de pedir en 20260910130000_shopify_customers_drop_location.sql
+            // por minimizacion de datos protegidos). Ofrecer el campo seria
+            // prometer un calculo que no ocurre.
+            countryCode: null,
             costPerOrder: Number(ruleCostPerOrder),
             minOrderTotal: ruleMinOrderTotal ? Number(ruleMinOrderTotal) : 0,
           }),
@@ -412,7 +522,6 @@ function FinancialConfigSection({
       }
 
       setRuleName("");
-      setRuleCountryCode("");
       setRuleCostPerOrder("");
       setRuleMinOrderTotal("");
       void loadConfig();
@@ -615,8 +724,107 @@ function FinancialConfigSection({
       </Card>
 
       <Card
+        title="Objetivos"
+        description="La cifra a batir en cada métrica. El panel la enseña junto al dato, para que se vea si va bien o mal sin tener que recordarlo."
+      >
+        {canManage ? (
+          <form className="grid gap-4 md:grid-cols-4" onSubmit={addMetricTarget}>
+            <div className="md:col-span-2">
+              <Field label="Métrica">
+                <Select
+                  className="mt-2"
+                  value={targetMetricKey}
+                  onChange={(value) => setTargetMetricKey(value)}
+                  options={METRIC_TARGET_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
+              </Field>
+            </div>
+            <Field label="Objetivo">
+              <Input
+                className="mt-2"
+                type="number"
+                step="0.01"
+                min="0"
+                value={targetValue}
+                onChange={(event) => setTargetValue(event.target.value)}
+                placeholder="30"
+                required
+              />
+            </Field>
+            <Field label="Periodicidad">
+              <Select
+                className="mt-2"
+                value={targetPeriod}
+                onChange={(value) => setTargetPeriod(value)}
+                options={[
+                  { value: "monthly", label: "al mes" },
+                  { value: "quarterly", label: "al trimestre" },
+                  { value: "yearly", label: "al año" },
+                ]}
+              />
+            </Field>
+            <Button
+              className="w-full md:w-auto"
+              type="submit"
+              disabled={isAddingTarget}
+            >
+              {isAddingTarget ? "Guardando..." : "Fijar objetivo"}
+            </Button>
+          </form>
+        ) : null}
+
+        <List className="mt-4 border-t border-separator">
+          {(config?.metric_targets ?? []).length === 0 ? (
+            <EmptyState
+              title="Sin objetivos fijados"
+              hint="Sin objetivo, una cifra no dice si va bien o mal."
+            />
+          ) : (
+            (config?.metric_targets ?? []).map((target) => (
+              <List.Item
+                key={target.id}
+                className="flex items-center justify-between gap-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-medium">
+                    {METRIC_TARGET_OPTIONS.find(
+                      (option) => option.value === target.metric_key,
+                    )?.label ?? target.metric_key}
+                  </p>
+                  <p className="text-xs text-muted">
+                    desde {target.valid_from}
+                    {target.valid_until ? ` hasta ${target.valid_until}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <p className="font-mono text-sm">
+                    {formatTargetValue(target)}{" "}
+                    {METRIC_TARGET_PERIOD_LABELS[target.period] ?? target.period}
+                  </p>
+                  {canManage ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      onClick={() => void removeMetricTarget(target.id)}
+                      disabled={busyTargetId === target.id}
+                    >
+                      {busyTargetId === target.id ? "Quitando..." : "Quitar"}
+                    </Button>
+                  ) : null}
+                </div>
+              </List.Item>
+            ))
+          )}
+        </List>
+      </Card>
+
+      <Card
         title="Reglas de envío"
-        description="Coste de envío por país o tramo de importe: sustituye al envío medio para los pedidos que las cumplan."
+        description="Coste de envío por tramo de importe: sustituye al envío medio en los pedidos que entren en el tramo."
       >
         {canManage ? (
           <form
@@ -634,17 +842,6 @@ function FinancialConfigSection({
                 />
               </Field>
             </div>
-            <Field label="País (opcional)">
-              <Input
-                className="mt-2"
-                value={ruleCountryCode}
-                maxLength={2}
-                onChange={(event) =>
-                  setRuleCountryCode(event.target.value.toUpperCase())
-                }
-                placeholder="ES"
-              />
-            </Field>
             <Field label="Coste por pedido">
               <Input
                 className="mt-2"
@@ -693,7 +890,9 @@ function FinancialConfigSection({
                 <div>
                   <p className="text-sm font-medium">{rule.name}</p>
                   <p className="text-xs text-muted">
-                    {rule.country_code ?? "cualquier país"}
+                    {rule.country_code
+                      ? `${rule.country_code} · no se aplica: el cálculo ignora el país`
+                      : "cualquier país"}
                     {rule.min_order_total
                       ? ` · desde ${Number(rule.min_order_total).toFixed(2)}`
                       : ""}

@@ -84,6 +84,9 @@ const values: Record<string, string> = {
   restocked: "reintegrado al inventario",
   running: "en curso",
   syncing: "sincronizando",
+  onboarding: "onboarding",
+  suspended: "suspendido",
+  pending_deletion: "borrado pendiente",
   queued: "en cola",
   succeeded: "completado",
   completed: "completado",
@@ -135,6 +138,28 @@ export function displayBoolean(value: boolean | null | undefined): string {
   if (value === true) return "Sí";
   if (value === false) return "No";
   return "Sin indicar";
+}
+
+// Tono del estado de una organizacion (clientes, tiendas propias): el mismo
+// mapeo lo necesitan /admin/clientes y /admin/consultores para que "activo"
+// se lea de un vistazo entre las que siguen en onboarding (nunca hubo forma
+// de distinguirlas: badge neutral para las cinco).
+export function organizationStatusTone(
+  status: string | null | undefined,
+): "neutral" | "brand" | "success" | "warn" | "danger" {
+  switch (status) {
+    case "active":
+      return "success";
+    case "onboarding":
+      return "warn";
+    case "suspended":
+    case "pending_deletion":
+      return "danger";
+    case "cancelled":
+      return "neutral";
+    default:
+      return "neutral";
+  }
 }
 
 function humanize(value: string): string {

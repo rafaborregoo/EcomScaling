@@ -131,6 +131,13 @@ type ShopifyMetricsData = {
     conversion_rate_own: number | null;
     revenue_per_session: number | null;
     days_with_sessions: number;
+    // Paso "pago iniciado" del embudo. `has_checkout_data` en false = no lo
+    // sabemos (la sincronizacion de checkouts empezo despues del periodo que
+    // se esta mirando), que no es lo mismo que "nadie inicio el pago".
+    checkouts_started: number;
+    has_checkout_data: boolean;
+    checkout_rate: number | null;
+    checkout_to_order_rate: number | null;
   } | null;
   funnel_daily: Array<{
     date: string;
@@ -596,6 +603,8 @@ export async function getShopifyMetrics(
       online_store_visitors: number;
       conversion_rate_shopify: number | null;
       days_with_sessions: number;
+      abandoned_checkouts: number;
+      checkout_data_since: string | null;
     };
     const funnelRow = (!funnelResult.error
       ? (funnelResult.data?.[0] as FunnelRow | undefined)
@@ -603,9 +612,33 @@ export async function getShopifyMetrics(
     const funnelSessions = Number(funnelRow?.sessions) || 0;
     const funnelOrders = Number(sales.orders_count) || 0;
     const funnelNetSales = Number(sales.net_sales) || 0;
+    // Pagos iniciados = checkouts abandonados + pedidos. Shopify solo nos lista
+    // los checkouts que se quedaron sin terminar (comprobado en produccion: 0
+    // filas con completed_at), asi que no hay doble conteo con los pedidos.
+    const abandonedCheckouts = Number(funnelRow?.abandoned_checkouts) || 0;
+    const checkoutsStarted = abandonedCheckouts + funnelOrders;
+    // El paso solo vale si TODO el periodo esta cubierto por el sync de
+    // checkouts. Con "Todo" no se puede afirmar (el historico arranca en el
+    // primer pedido, muy anterior), asi que se declara desconocido.
+    const checkoutDataSince = funnelRow?.checkout_data_since ?? null;
+    const hasCheckoutData =
+      checkoutDataSince !== null &&
+      periodStart !== null &&
+      checkoutDataSince <= periodStart.toISOString().slice(0, 10);
+
     const funnel = funnelRow
       ? {
           has_sessions: Number(funnelRow.days_with_sessions) > 0,
+          checkouts_started: checkoutsStarted,
+          has_checkout_data: hasCheckoutData,
+          checkout_rate:
+            hasCheckoutData && funnelSessions > 0
+              ? checkoutsStarted / funnelSessions
+              : null,
+          checkout_to_order_rate:
+            hasCheckoutData && checkoutsStarted > 0
+              ? funnelOrders / checkoutsStarted
+              : null,
           sessions: funnelSessions,
           online_store_visitors: Number(funnelRow.online_store_visitors) || 0,
           conversion_rate_shopify:

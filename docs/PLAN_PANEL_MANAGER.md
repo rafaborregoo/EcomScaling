@@ -12,10 +12,9 @@ ninguna.
 
 ---
 
-## F1 · El motor financiero de verdad  ✅ HECHO en desarrollo · pendiente de producción
+## F1 · El motor financiero de verdad  ✅ HECHO · en producción
 
-Migración `20260929093000_panel_motor_financiero_real.sql`. Aplicada en *TEST ES IA*
-(`kopcblejsxpkxoykldyh`); **falta `npm run db:push:prod`**.
+Migración `20260929093000_panel_motor_financiero_real.sql`, aplicada en desarrollo y en producción.
 
 Golden test reescrito y en verde 4/4 contra Postgres real: el beneficio del escenario baja de
 403,80 € a 143,80 € por los dos términos que faltaban — 160 € de IVA que nunca fue tuyo y 100 €
@@ -39,8 +38,9 @@ cliente. Lo llamamos "facturación neta" y no lo es.
 
 ### 1.2 Envíos reales, no plano
 
-- Coste: `shipping_cost_rules` (país + tramo de importe) con fallback a `default_shipping_cost`.
-  La tabla existe desde DB-03 y nunca se ha leído.
+- Coste: `shipping_cost_rules` por tramo de importe, con fallback a `default_shipping_cost`. La
+  tabla existe desde DB-03 y nunca se había leído. Las reglas por país no se aplican: los pedidos
+  no guardan país (ver F3b).
 - Ingreso: suma de `current_shipping_price`.
 - `shipping_net = shipping_paid − shipping_charged` → la métrica "Envíos netos −1.453 €".
 
@@ -69,7 +69,7 @@ de 1.810 €: **+132 %**. Y arrastra margen neto y break-even.
 Todo por pedido, sobre las cifras ya calculadas:
 
 | Métrica | Fórmula |
-|---|---|
+| --- | --- |
 | `cogs_per_order` | COGS / pedidos |
 | `shipping_per_order` | envío pagado / pedidos |
 | `fixed_per_order` | fijos prorrateados / pedidos |
@@ -90,67 +90,210 @@ no se actualiza conscientemente, la migración no se cierra.
 
 ---
 
-## F2 · Serie mensual
+## F2 · Serie mensual  ✅ HECHO · en producción
 
-`shopify_financial_monthly(org, months, store)` → una fila por mes con ingresos sin IVA y
-beneficio neto. Hoy solo existe `shopify_sales_daily`, que agrupa por día y no devuelve beneficio.
+Migración `20261003090000_panel_serie_mensual.sql`. `shopify_financial_monthly(org, months_back,
+store)` → una fila por mes con pedidos, ingresos sin IVA, beneficio, ads y clientes nuevos, del
+mes en curso hacia atrás. Los meses vacíos salen a cero, no ausentes: el gráfico necesita la
+barra a cero para que se vea el hueco.
 
-La fórmula de F1 se extrae a una función interna reutilizable: el mes y el periodo tienen que dar
-el mismo número o el gráfico contradice al KPI.
+**La fórmula no se reimplementa: se llama.** Un `lateral` sobre `shopify_financial_summary`, un
+mes por fila. Copiarla aquí habría sido más rápido de escribir y garantizaba que algún día el
+gráfico y la tarjeta de beneficio se contradijeran en la misma pantalla, delante de un cliente.
+El test lo fija: el mes de marzo tiene que dar exactamente el mismo beneficio que la llamada
+directa a ese periodo.
 
-Índice que calce con el predicado de fecha (ADR-0006 pto 6).
+No hizo falta índice nuevo: el predicado calza con `shopify_order_facts_org_processed_idx`, que
+ya existía. El término caro es el conteo de clientes nuevos, que recorre el histórico una vez por
+mes; si algún día roza el `statement_timeout` de 8 s, la salida es materializar los primeros
+pedidos por cliente, no duplicar la fórmula.
 
----
-
-## F3 · Contrato y API
-
-- `packages/contracts`: los campos nuevos del resumen financiero.
-- `apps/api/src/shopify-metrics.ts`: el resumen crece; se añade `financial_monthly` y el bloque
-  `unit_economics`. Ojo al `statement_timeout` de 8 s que ya tumbó `/shopify/metrics` una vez
-  (ver `20260903160000_shopify_funnel_sessions_only.sql`): las RPC nuevas no se lanzan a lo
-  bruto en paralelo con las 10 existentes.
-- Objetivos: `organization_metric_targets` (tabla poblada, nunca leída) entra en el payload para
-  que cada card pinte su "objetivo 30 % / obj. 40 % / ≤11,37 €".
+Golden test ampliado, 5/5 en verde.
 
 ---
 
-## F4 · El panel  (pixel)
+## F3 · Contrato y API  ✅ HECHO
 
-Reordenar `apps/web/src/app/dashboard/page.tsx` a las cuatro bandas de la captura:
+No hacía falta migración: `financial` se propagaba tal cual desde la RPC, así que los 18 campos
+nuevos **ya viajaban** en la respuesta desde F1 — solo faltaba declararlos para que la pantalla
+pudiera usarlos.
 
-1. **KPI primarios** — beneficio neto, ingresos sin IVA, pedidos (+ clientes nuevos), **costes
-   totales desglosados**.
-2. **Unit economics por pedido** — las 5 cifras de F1.5.
-3. **Ratios** — margen neto, conversión, recurrencia, AOV, atribución email. Cada uno con su
-   objetivo.
-4. **Ads** — ROAS vs break-even ROAS, CAC blended vs objetivo, inversión total desglosada por
-   plataforma, MBEE, envíos netos.
+- `apps/api/src/shopify-metrics.ts`: tipo `financial` ampliado, más `financial_monthly` y
+  `metric_targets`. Las dos consultas nuevas van en el mismo `Promise.all` y son **no fatales**:
+  si fallan, el panel pierde el gráfico o el "vs objetivo", no se cae entero.
+- Los objetivos viajan con las métricas y no se piden a `/financial-config`: una llamada en vez
+  de dos, y sin depender de un endpoint restringido a owner/manager/consultor (el dashboard del
+  cliente usa el mismo payload).
+- El objeto de respuesta ahora va anotado con su tipo. Sin la anotación, TypeScript infería la
+  forma del literal y el contrato de arriba no comprobaba nada. Ojo: el cliente de Supabase no
+  lleva el genérico `Database`, así que se verifican las claves, no la forma de cada fila.
 
-Gráficos (Recharts ya está; `apps/web/src/components/ui/chart.tsx` tiene Area y Bar con los
-tokens de ADR-0020):
-
-- Barras mensuales ingresos + beneficio, 12 meses, mes actual destacado.
-- Waterfall / desglose de costes totales.
-- Embudo horizontal con % de caída entre pasos.
-
-Recurrencia, cohortes, atribución por canal, recuperación de carrito, coste de descuentos, valor
-de cliente y tiempos de entrega **ya existen en SQL** y hoy solo los leen los agentes
-(`apps/api/src/shopify-insights.ts`). Aquí salen a pantalla: cero motor, solo UI.
-
-Estilos: HeroUI v3 nativo, sin tokens legacy (memoria "HeroUI nativo").
+Comprobado: 322/322 unitarios (incluido uno nuevo para la selección de objetivos vigentes) y
+10/10 de aislamiento entre clientes, con dos casos nuevos para `ads_spend_summary` y
+`shopify_financial_monthly`. Ese último prueba además que un usuario autenticado normal puede
+llamarlas: los `grant` y la cadena de RLS a través del `lateral` funcionan fuera del service role.
 
 ---
 
-## F5 · Embudo de 4 pasos
+## F3b · Que los datos se puedan meter  ✅ 4 de 5 hechos
 
-`20260903160000_shopify_funnel_sessions_only.sql` dejó el embudo en sesiones → pedidos por un
-problema de coste de consulta, no de datos. Faltan añadir-al-carrito y pago-iniciado, que son
-exactamente los dos pasos donde la captura localiza la fuga.
+**Hecho**: el puente de costes (migración `20261004090000`, ya en producción), la carga masiva de
+costes, los objetivos editables en `/configuracion` (API + pantalla) y la retirada del campo País.
 
-Primer paso: **mirar `shopify_sessions_daily.raw`**. La respuesta cruda de ShopifyQL se guarda
-entera (ADR-0006 pto 8) y es probable que las columnas ya estén ahí sin modelar. Si están, es
-una migración de tres columnas y un mapper; si no, se amplía la consulta ShopifyQL del bloque
-`sessions`.
+**Pendiente**: solo limpiar `vat_pct`, que sobra desde F1 pero cuesta tocar modelo y pantalla para
+un beneficio nulo.
+
+### Carga masiva de costes
+
+`POST …/shopify/product-costs/import`, con pegado de dos columnas desde Excel en `/shopify`.
+
+Tres decisiones para que no pueda romper nada:
+
+1. **Nunca escribe a la primera.** El botón pide previsualización (`dryRun`) y solo después
+   aparece el de aplicar, diciendo cuántas líneas exactas va a escribir.
+2. **Reimportar es seguro.** `product_costs` no tiene unique y el motor resuelve el coste con
+   `order by valid_from desc limit 1`: dos filas del mismo artículo con la misma fecha harían que
+   el COGS dependiera de cuál devolviera Postgres primero. Si ya hay coste de hoy, se actualiza.
+3. **No se borra nada.** Los costes de días anteriores son el histórico con el que se valoran los
+   pedidos viejos.
+
+Lo que no se adivina: un SKU repetido en el pegado invalida **las dos** líneas (es una
+contradicción del usuario), un SKU que existe en dos tiendas se deja sin tocar, y con comas de
+separador un "3,40" se rechaza en vez de interpretarse. 16 tests entre el parser del pegado y la
+clasificación de líneas.
+
+Detalle de lo hecho:
+
+- **Puente de costes**: `shopify_margin_summary` lee ahora `product_costs` y, si no hay fila que
+  cubra la fecha del pedido, cae al `current_unit_cost` que Shopify ya reporta. La precedencia es
+  ésa y no al revés: el sync nunca pisa lo que escribió una persona. `items_with_estimated_cost`
+  declara cuántas líneas van por el respaldo, porque el coste de hoy aplicado a un pedido viejo es
+  una aproximación y la pantalla tiene que poder decirlo.
+- **Objetivos**: `upsertMetricTarget` / `retireMetricTarget` + tarjeta en `/configuracion` con
+  diez claves fijadas por el producto (no texto libre: el panel busca por la clave exacta).
+  Guardar es insertar y, si choca, actualizar — **no** `upsert`: la unicidad la da un índice sobre
+  una expresión (`coalesce(store_id, …)`) que Postgres no puede inferir desde una lista de
+  columnas. Comprobado contra la base: el `on conflict` daba `42P10` en cada guardado. Retirar es
+  borrar, porque el CHECK `valid_until > valid_from` impide cerrar un objetivo el mismo día que se
+  fija, y el trigger de auditoría ya guarda el `old_data`.
+- Los objetivos de tienda ganan a los de la organización: la consulta los ordena para que el orden
+  sea la regla de precedencia.
+
+Medido en producción el 2026-09-15: el motor de F1 es correcto y aun así da un margen del 77,84 %
+porque **no hay ni un solo coste de producto ni un gasto fijo cargado**. Un panel sobre esos
+números es peor que no tener panel: parece exacto y no lo es.
+
+Lo que ya se puede rellenar, en `/configuracion`:
+
+- Costes por pedido (comisión %, comisión fija, envío medio) → alimenta `payment_fees` y el
+  fallback de envío.
+- Gastos fijos (alta, baja, periodicidad) → alimenta los fijos y el break-even.
+- Reglas de envío por tramo → desde F1 **sí las lee el motor**.
+
+Lo que falta:
+
+1. **Los costes de Shopify no llegan al motor.** El sync ya pide `unitCost` y lo guarda en
+   `shopify_inventory_items.current_unit_cost`, pero **nunca escribe una fila en `product_costs`**,
+   y `shopify_margin_summary` solo lee `product_costs`. En producción: 44 artículos, 1 con coste en
+   Shopify, **0 filas en `product_costs`** (la tabla está vacía entera). O sea que aunque el cliente
+   rellene el coste en Shopify, el COGS sigue saliendo a cero. Es el arreglo más barato y el que más
+   cambia el panel.
+2. **Carga masiva de costes.** Hoy `/shopify` deja meterlos de uno en uno por SKU. Con 44 artículos
+   es tedioso; con 400 es imposible.
+3. **Objetivos por métrica.** `organization_metric_targets` se carga en `/configuracion`
+   (`metric_targets: unknown[]`) y no se pinta ni se edita. Sin ellos, las tarjetas del panel no
+   pueden mostrar "objetivo 30 %" ni "CAC ≤ 11,37 €", que es la mitad de lo que hace útil la cifra.
+4. **El campo País de las reglas de envío no puede funcionar.** La UI lo pide, pero los pedidos no
+   guardan país desde `20260910130000_shopify_customers_drop_location.sql` (dato protegido que se
+   dejó de pedir a propósito). O se quita el campo, o se decide volver a solicitar ese acceso. Hoy
+   la pantalla promete algo que el motor no puede cumplir.
+5. **`vat_pct` sobra.** Se carga en `/configuracion` pero no se edita, y tras F1 el IVA sale del
+   propio pedido. Retirarlo del modelo evita que alguien lo "arregle" aplicándolo dos veces.
+
+## F4 · El panel  ✅ HECHO
+
+**Ruta nueva `/panel`, solo del consultor** (decisión de Rafa, 2026-09-15). No se toca el
+dashboard del cliente. El panel dice cosas que hay que saber interpretar — un CAC de break-even,
+un margen de contribución por pedido — y en manos de un cliente sin contexto asustan o se
+malinterpretan.
+
+Ruta nueva y no una pestaña más del dashboard por dos razones: `dashboard/page.tsx` ya tiene 3.262
+líneas, y el panel se entra a mirar entero, no se cruza de paso. Va segundo en el nav del
+consultor, pegado al Dashboard, porque es su versión de asesoramiento.
+
+### Distribución
+
+El orden no es decorativo: es el orden en el que se diagnostica una tienda.
+
+1. **Lo que invalida el panel, arriba del todo.** Sin costes de producto ni gastos fijos, el
+   beneficio es ficción. Eso no puede ir en una nota al pie: va en un aviso antes de la primera
+   cifra, con los dos enlaces para arreglarlo.
+2. **Cuánto ganas** (4 tarjetas) — beneficio neto, ingresos sin IVA, pedidos + clientes nuevos, y
+   costes totales con su desglose.
+3. **Cada pedido** (5 cifras) — ticket medio, producto, envío, fijos y lo que deja tras captarlo.
+4. **Publicidad** (4 cifras) — inversión con desglose por plataforma, CAC real contra su techo,
+   margen tras CAC, y ROAS real contra el de break-even.
+5. **Tres cifras sueltas** — conversión, envíos netos y margen neto.
+6. **Dos gráficos** — ingresos y beneficio por mes (12 meses) y a dónde va el dinero (barras
+   horizontales, de mayor a menor).
+
+Los objetivos de F3b se pintan como insignia junto a la cifra que juzgan, con la dirección
+correcta: en el CAC cumplir es estar por **debajo**.
+
+### Derivaciones aparte, con test
+
+`panel-view-model.ts` + 11 tests: desglose de costes, estado contra objetivo, etiqueta de mes y
+variación contra el periodo anterior. Un fallo ahí no rompe nada visible — pinta un número
+equivocado con aspecto de correcto.
+
+Dos trampas fijadas por test: la etiqueta del mes se lee de la cadena y **no** con `new Date()`
+(una fecha sin hora es medianoche UTC y en España sale el mes anterior — ya se comió una
+comprobación de la serie mensual), y la variación contra un periodo anterior en pérdidas da una
+mejora, no un porcentaje negativo.
+
+### Lo que NO entró
+
+Recurrencia, cohortes, atribución por canal, recuperación de carrito, coste de descuentos y valor
+de cliente siguen existiendo solo en SQL y para los agentes. El panel se queda en la ruta del
+dinero; sacarlos a pantalla es trabajo aparte y no depende de nada de esto.
+
+El embudo sigue en sesiones → pedidos (F5).
+
+---
+
+## F5 · Embudo  ✅ HECHO (3 de los 4 pasos) · en producción
+
+Migración `20261010090000_embudo_paso_de_pago_iniciado.sql`.
+
+**El `raw` no traía los pasos.** La idea del plan era que la respuesta cruda de ShopifyQL ya los
+tuviera sin modelar. Comprobado en producción: `{"day", "sessions", "online_store_visitors"}` y
+nada más, porque es exactamente lo que pide la consulta.
+
+**El paso llegó por otro lado, y con dato propio.** `shopify_abandoned_checkouts` tiene 34 filas
+y **cero** con `completed_at`: Shopify solo lista los checkouts sin terminar. Por tanto
+`pagos iniciados = checkouts abandonados + pedidos`, sin doble conteo, sin depender del proveedor
+y sin volver a escanear `shopify_order_facts` (la función solo lee la tabla de checkouts, que son
+decenas de filas).
+
+**No saber no es cero.** El sync de checkouts empezó el 2026-07-16. En un periodo anterior, pintar
+0 diría que todos los pedidos entraron sin pasar por el pago. Por eso la función devuelve
+`checkout_data_since`, la API compara con el inicio del periodo, y si no está cubierto el paso
+**se omite** del embudo en vez de mostrarse a cero.
+
+**Lo que falta: "añadir al carrito".** Necesita una métrica del schema `sessions` de ShopifyQL
+cuyo nombre exacto no he podido verificar contra la API real — la tienda de dev necesita
+reautorización y la otra usa una app personalizada cuyos secretos solo están en el VPS. Meter un
+nombre de columna a ojo es como se rompen los sync en silencio, así que se queda fuera. Para
+cerrarlo: reautorizar `ecomscaling-dev.myshopify.com` y sondear los nombres candidatos
+(`cart_sessions`, `checkout_sessions`, `converted_sessions`, `view_sessions`).
+
+Pantalla: tarjeta de embudo en `/panel`, barras horizontales con la caída respecto al paso
+anterior. 14 tests en el view-model, tres de ellos del embudo.
+
+**Cautela sobre el dato**: en la tienda de pruebas salen 34 checkouts abandonados frente a 453
+pedidos (93 % de finalización), que para una tienda real sería implausible. O son pedidos
+sembrados, o la cobertura del sync de checkouts es parcial. Conviene mirarlo en una tienda real
+antes de sacarle conclusiones al embudo.
 
 ---
 

@@ -1,0 +1,74 @@
+name: Severity Engine
+
+# F3/D10. Mide el impacto de cada caso abierto: cuanto se movio, sobre que base
+# y con que supuestos.
+#
+# **No pone ni una severidad.** Las cinco salen `unknown` porque el apartado 29
+# declara que la fuente no define formula de severidad ni ponderacion de impacto,
+# y el guardrail 17 que un scope pequeno puede ser material -- o sea que tampoco
+# hay umbral por cuota. Lo que produce es la cuenta, con su denominador razonado.
+#
+# Sin `schedule`, igual que los otros seis motores: decision de Rafa del
+# 2026-08-03, sin disparadores automaticos. Se lanza a mano hasta que haya motivo
+# para automatizarlo. Para activarlo, descomentar el bloque de abajo.
+#
+# **Va detras de senales, sintomas y salud** en la cadena. Si algun dia se
+# activan (calidad 06:07, senales 06:17, contexto 06:27, sintomas 06:37, salud
+# 06:47), este va a las 06:57: lanzarlo antes mide un instante en que las senales
+# de hoy todavia no existen.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "47 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: severity-engine
+  cancel-in-progress: false
+
+jobs:
+  severity:
+    name: Measure severity and impact for all organizations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+      SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+      SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required runtime secrets
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY SUPABASE_JWT_SECRET; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required secret $key is not configured for the severity engine." >&2
+              exit 1
+            fi
+          done
+
+      - name: Build API and worker
+        run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
+
+      - name: Measure severity
+        run: npm run start:severity -w @ecomscaling/worker

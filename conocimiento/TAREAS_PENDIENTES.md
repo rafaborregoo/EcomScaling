@@ -133,6 +133,17 @@ siendo buena idea dejarla.
       **Cola en produccion: 419 pedidos** dentro de la ventana esperando la
       primera pasada; 334 se quedan fuera porque Shopify ya no guarda su
       journey y eso no tiene arreglo.
+- [x] ~~**Nadie puede declarar un `health_reference`.**~~ **Hecho el
+      2026-10-04**: panel en `/shopify/diagnostico`, justo encima de la salud.
+      Verificado de punta a punta -- declarar `cac <= 32 EUR` hace que la
+      adquisicion pase de `not_assessable` a `bad` con el motivo escrito.
+      Queda: el alcance por tienda (hoy se declara por organizacion) y los
+      umbrales de severidad de `D10`, que son otra pregunta.
+- [ ] **Los umbrales de severidad de `D10` siguen sin sitio.** Con el guardrail
+      economico declarado, `D04` ya dice si una capacidad esta mal. `D10` sigue
+      sacando las cinco severidades en `unknown` porque nadie ha dicho **a partir
+      de que cuota esto es grave** -- y eso es otra pregunta, con otra respuesta
+      por tienda. Antes del formulario hace falta la decision.
 - [ ] **Coste por referencia: 43 de 44 vacias.** Sin coste no hay margen, y sin
       margen `D03` declara la economia unitaria no observable. Se rellena en
       Shopify (coste por variante) o conectando la fuente que lo tenga.

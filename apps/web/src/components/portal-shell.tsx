@@ -39,11 +39,6 @@ import {
   ActiveOrganizationContext,
 } from "@/components/active-organization";
 import {
-  ADMIN_VIEW_MODE_STORAGE_KEY,
-  AdminViewModeContext,
-  type AdminViewMode,
-} from "@/components/admin-view-mode";
-import {
   ACTIVE_CONNECTION_STORAGE_KEY,
   ActiveConnectionContext,
 } from "@/components/active-connection";
@@ -104,6 +99,11 @@ const consultantNavGroups: NavGroup[] = [
     label: "",
     items: [
       { href: "/dashboard", label: "Dashboard" },
+      // El panel va pegado al dashboard porque es su version de asesoramiento:
+      // las mismas cifras llevadas hasta el margen por pedido y el CAC de
+      // break-even. Solo del consultor a proposito -- son numeros que hay que
+      // saber interpretar (ver docs/PLAN_PANEL_MANAGER.md).
+      { href: "/panel", label: "Panel" },
       // Lo unico del nav que NO es de un cliente: es la pantalla del consultor
       // sobre si mismo, asi que va la primera y no cambia al cambiar de tienda.
       { href: "/mi-trabajo", label: "Mi trabajo" },
@@ -440,7 +440,6 @@ function PortalShellContent({
     );
     return isConsultantRole ? "" : (validIds[0] ?? "");
   });
-  const [adminViewMode, setAdminViewMode] = useState<AdminViewMode>("admin");
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   // Pregunta con la que un módulo abre el Consultor IA (ver copilot-ask.tsx).
@@ -461,21 +460,6 @@ function PortalShellContent({
   useEffect(() => {
     setIsMobileNavOpen(false);
   }, [pathname]);
-
-  // Vista activa de platform_admin (persistida en localStorage). Se lee en un
-  // efecto para no arriesgar un mismatch de hidratación con el valor por
-  // defecto del render en servidor.
-  useEffect(() => {
-    const stored = window.localStorage.getItem(ADMIN_VIEW_MODE_STORAGE_KEY);
-    if (stored === "admin" || stored === "consultant") {
-      setAdminViewMode(stored);
-    }
-  }, []);
-
-  function selectAdminViewMode(mode: AdminViewMode) {
-    setAdminViewMode(mode);
-    window.localStorage.setItem(ADMIN_VIEW_MODE_STORAGE_KEY, mode);
-  }
 
   // WCAG 2.4.2 (Page Titled): antes todas las paginas compartian el mismo
   // <title>"EcomScaling IA" del layout raiz (los componentes de pagina son
@@ -797,17 +781,16 @@ function PortalShellContent({
     bootstrap.profile.platform_role,
   );
   const isPlatformAdmin = bootstrap.profile.platform_role === "platform_admin";
-  const inPlatformAdminView = isPlatformAdmin && adminViewMode === "admin";
   // Consultor en vista general (sin cliente activo) sobre una ruta que necesita
   // un cliente concreto: se muestra un aviso en vez del contenido de la pagina.
   const needsClientForRoute =
     isConsultant &&
-    !inPlatformAdminView &&
+    !isPlatformAdmin &&
     !activeOrganizationId &&
     ORG_SCOPED_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     );
-  const visibleGroups = inPlatformAdminView
+  const visibleGroups = isPlatformAdmin
     ? platformAdminNavGroups
     : isConsultant
       ? consultantNavGroups
@@ -857,21 +840,6 @@ function PortalShellContent({
 
   const navigation = (
     <nav className="grid gap-6" aria-label="Navegacion principal">
-      {isPlatformAdmin ? (
-        <div className="grid gap-1.5">
-          <p className={navGroupLabelClass}>Vista</p>
-          <Select
-            className="w-full"
-            aria-label="Cambiar vista"
-            value={adminViewMode}
-            onChange={(value) => selectAdminViewMode(value as AdminViewMode)}
-            options={[
-              { value: "admin", label: "Platform admin" },
-              { value: "consultant", label: "Consultor" },
-            ]}
-          />
-        </div>
-      ) : null}
       {visibleGroups.map((group) => (
         <div key={group.label}>
           {group.label ? (
@@ -916,7 +884,7 @@ function PortalShellContent({
           </div>
         </div>
       ))}
-      {!inPlatformAdminView ? (
+      {!isPlatformAdmin ? (
         <div className="border-t border-separator pt-4">
           <Link
             aria-current={
@@ -987,7 +955,7 @@ function PortalShellContent({
   // Selector de cliente / tienda: se muestra en la barra superior en desktop y
   // en una fila propia en movil. Mismo contenido en ambos sitios.
   const showClientSelect =
-    !inPlatformAdminView &&
+    !isPlatformAdmin &&
     (isConsultant
       ? bootstrap.memberships.length >= 1
       : bootstrap.memberships.length >= 2);
@@ -1039,7 +1007,7 @@ function PortalShellContent({
   // preguntas distintas ("en que cliente estoy" contra "entrar en una tienda
   // mia") y juntas se leian como una sola lista de sitios a los que ir.
   const ownStoreSelectNode =
-    isConsultant && !inPlatformAdminView && ownMemberships.length > 0 ? (
+    isConsultant && !isPlatformAdmin && ownMemberships.length > 0 ? (
       <div className="flex shrink-0 items-center gap-2">
         <span className="whitespace-nowrap text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted">
           Mis Tiendas
@@ -1284,52 +1252,43 @@ function PortalShellContent({
               </div>
             ) : null}
             <div className="px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14">
-              <AdminViewModeContext.Provider
+              <ActiveOrganizationContext.Provider
                 value={{
-                  viewMode: adminViewMode,
-                  setViewMode: selectAdminViewMode,
+                  // Un consultor puede estar en vista general -> "" real.
+                  // Un cliente normal siempre tiene su organizacion.
+                  organizationId: isConsultant
+                    ? activeOrganizationId
+                    : activeOrganizationId ||
+                      (bootstrap.memberships[0]?.organization_id ?? ""),
+                  setOrganizationId: selectOrganization,
                 }}
               >
-                <ActiveOrganizationContext.Provider
+                <ActiveConnectionContext.Provider
                   value={{
-                    // Un consultor puede estar en vista general -> "" real.
-                    // Un cliente normal siempre tiene su organizacion.
-                    organizationId: isConsultant
-                      ? activeOrganizationId
-                      : activeOrganizationId ||
-                        (bootstrap.memberships[0]?.organization_id ?? ""),
-                    setOrganizationId: selectOrganization,
+                    connectionId: activeConnectionId,
+                    setConnectionId: selectConnection,
                   }}
                 >
-                  <ActiveConnectionContext.Provider
-                    value={{
-                      connectionId: activeConnectionId,
-                      setConnectionId: selectConnection,
-                    }}
-                  >
-                    {needsClientForRoute ? (
-                      <EmptyState
-                        title="Estás en vista general"
-                        hint="Esta sección opera sobre un cliente concreto. Elige uno en el selector «Cliente activo» de arriba, o abre tu cartera en Clientes."
-                        action={
-                          <Link href="/consultor">Ir a Clientes</Link>
-                        }
-                      />
-                    ) : (
-                      <ModuleSummaryProvider publish={setModuleSummary}>
-                        <CopilotAskProvider
-                          ask={(next) => {
-                            setCopilotAsk({ ...next, key: Date.now() });
-                            setIsCopilotOpen(true);
-                          }}
-                        >
-                          {children(bootstrap, token)}
-                        </CopilotAskProvider>
-                      </ModuleSummaryProvider>
-                    )}
-                  </ActiveConnectionContext.Provider>
-                </ActiveOrganizationContext.Provider>
-              </AdminViewModeContext.Provider>
+                  {needsClientForRoute ? (
+                    <EmptyState
+                      title="Estás en vista general"
+                      hint="Esta sección opera sobre un cliente concreto. Elige uno en el selector «Cliente activo» de arriba, o abre tu cartera en Clientes."
+                      action={<Link href="/consultor">Ir a Clientes</Link>}
+                    />
+                  ) : (
+                    <ModuleSummaryProvider publish={setModuleSummary}>
+                      <CopilotAskProvider
+                        ask={(next) => {
+                          setCopilotAsk({ ...next, key: Date.now() });
+                          setIsCopilotOpen(true);
+                        }}
+                      >
+                        {children(bootstrap, token)}
+                      </CopilotAskProvider>
+                    </ModuleSummaryProvider>
+                  )}
+                </ActiveConnectionContext.Provider>
+              </ActiveOrganizationContext.Provider>
             </div>
           </section>
         </div>

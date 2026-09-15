@@ -5,6 +5,7 @@ import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
+import { displayValue, organizationStatusTone } from "@/lib/display-labels";
 import {
   AsyncState,
   Badge,
@@ -15,6 +16,7 @@ import {
   ErrorBlock,
   Field,
   Input,
+  Metric,
   Select,
   Table,
   type TableColumnDef,
@@ -56,6 +58,7 @@ function ClientsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("");
 
   async function deleteClient(id: string) {
     setNotice(null);
@@ -100,7 +103,11 @@ function ClientsPanel() {
     {
       key: "status",
       label: "Estado",
-      render: (row) => <Badge tone="neutral">{row.status}</Badge>,
+      render: (row) => (
+        <Badge tone={organizationStatusTone(row.status)}>
+          {displayValue(row.status)}
+        </Badge>
+      ),
     },
     {
       key: "consultants",
@@ -170,6 +177,14 @@ function ClientsPanel() {
 
   const editing = clients.find((client) => client.id === editingId) ?? null;
 
+  const counts = clients.reduce<Record<string, number>>((acc, client) => {
+    acc[client.status] = (acc[client.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const filteredClients = statusFilter
+    ? clients.filter((client) => client.status === statusFilter)
+    : clients;
+
   return (
     <div className="grid gap-6">
       <CreateClientForm
@@ -182,16 +197,37 @@ function ClientsPanel() {
       {notice ? <Banner tone="success">{notice}</Banner> : null}
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric card label="Activos" tone="default" value={String(counts.active ?? 0)} />
+        <Metric card label="Onboarding" value={String(counts.onboarding ?? 0)} />
+        <Metric card label="Suspendidos" value={String(counts.suspended ?? 0)} />
+        <Metric
+          card
+          label="Cancelados / borrado pendiente"
+          value={String((counts.cancelled ?? 0) + (counts.pending_deletion ?? 0))}
+        />
+      </div>
+
       <Card
         kicker="Panel platform admin"
         title="Clientes"
         description="Todas las organizaciones cliente, tengan o no consultor asignado."
+        actions={
+          <Select
+            className="w-48"
+            aria-label="Filtrar por estado"
+            placeholder="Todos"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[{ value: "", label: "Todos los estados" }, ...STATUS_OPTIONS]}
+          />
+        }
       >
         <Table
           ariaLabel="Clientes"
           columns={columns}
-          rows={clients}
-          emptyLabel="No hay clientes todavía."
+          rows={filteredClients}
+          emptyLabel="Ningún cliente coincide con el filtro."
         />
       </Card>
 

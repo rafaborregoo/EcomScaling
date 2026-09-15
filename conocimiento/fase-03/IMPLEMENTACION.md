@@ -1442,6 +1442,11 @@ perdida economica por observada cuando la medicion esta comprometida.
 
 - **No hay motor**, como en `D06` a `D09`. Evaluar severidad exige un
   diagnostico causal cerrado, y no hay ninguno.
+  > **Corregido el 2026-10-03.** Era demasiado estricto. El guardrail 13 exige
+  > que se pueda estar seguro del dano y no de la causa, asi que **medir el
+  > impacto no necesita causa**; lo que no se puede sin ella --ni con ella-- es
+  > puntuar la gravedad, porque la fuente no da formula. El motor existe desde
+  > entonces y hace solo la rama de cuantificacion.
 - **Sin formula de severidad, sin ponderacion de impacto, sin modelo monetario
   universal y sin modelo de probabilidad de riesgo** (apartado 29: la fuente no
   los define).
@@ -2680,6 +2685,422 @@ es el perfil, porque su valor esta en la historia.
 
 ---
 
+## `D05` — Pantalla · **hecho** 2026-10-01
+
+D05 tenia contrato y motor desde el 2026-09-16 y le faltaba la tercera pata. Es
+el unico bloque de la fase que llego a `hecho` solo con una pantalla.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Lectura del consultor | `listConsultantSignals()` en `apps/api/src/consultant.ts` |
+| Ruta | `GET /v1/consultant/signals` en `apps/api/src/server.ts` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/signal-list-view-model.ts` |
+| Tests | `signal-list-view-model.test.ts` (10) |
+| Panel | `apps/web/src/app/shopify/diagnostico/signal-list.tsx` |
+
+### Decisiones
+
+**No se ordena por magnitud.** Es la decision de la pantalla y la unica que
+cambia como se lee. Una lista de desviaciones puesta de mayor a menor **se lee
+como una lista de prioridades**, y D05 no calcula ninguna: el guardrail 8 separa
+magnitud de impacto justamente porque un +200% sobre una base minuscula no es la
+primera cosa que mirar. Se ordena por fin de ventana, lo mas reciente arriba, y
+el desempate es el id para que dos senales del mismo dia no bailen entre
+recargas. Hay un test con una senal del -2% reciente y otra del -91% vieja que
+falla si alguien invierte el criterio.
+
+**Cuando la magnitud y la exposicion no dicen lo mismo, se dice en voz alta.**
+`magnitudeCaveat()` devuelve una frase solo cuando la desviacion es grande y la
+exposicion no es material — y `null` el resto de las veces, para no llenar la
+lista de avisos que nadie lee. Sin esa frase, la pantalla grita mas fuerte
+cuanto menos importa lo que mira, que es el fallo que el guardrail 8 viene a
+impedir.
+
+**Una senal sin sintoma es "aun no forma patron", nunca "sin importancia".** El
+mapa de D06 solo ensena las senales que llegaron a formar un patron; esta lista
+las ensena todas, y la diferencia es lo unico que anade. Pero una senal sola
+puede ser la primera de un patron que todavia no existe, o la unica que hay
+porque falta la metrica que la acompanaria. Decir que no importa seria afirmar
+una ausencia que nadie ha comprobado — el mismo criterio que `D03` aplica a las
+capacidades que no puede ver.
+
+**Lo que debilita la senal va en la fila, no en un tooltip.** Muestra corta,
+baselines en conflicto, metodo sin fuerza, dato que `D01` no da por utilizable.
+Y solo cuando lo hay: lo que se cumple no cambia ninguna decision. Mismo
+criterio que `coherenceReasons` en el mapa de sintomas.
+
+**Las senales apartadas se separan, no se esconden.**
+`tenant_signal_patterns` esta vacia hoy y por tanto no se silencia nada, pero
+cuando alguien declare un patron de supresion el consultor tiene que poder ver
+que se aparto y comprobar si estuvo bien. Una supresion invisible es una
+supresion que nadie audita.
+
+**Solo consultor**, y aqui el motivo es el mas fuerte de la fase: el guardrail 2
+dice que no toda senal es un problema. Esta lista delante del cliente es una
+alarma permanente el primer martes que el trafico baje.
+
+**El titular no interpreta.** `headline()` compone "Ventas netas baja" a partir
+de metrica y direccion, y hay un test que falla si aparece una palabra de causa.
+Es la frontera de los guardrails 49 y 50 puesta en la capa que mas facil se la
+salta: la que escribe el texto.
+
+### Verificacion
+
+- 10 tests nuevos del view model; suite de la web en verde (**207**).
+- **Mutacion deliberada**: ordenar por `magnitude_relative` en vez de por fin
+  de ventana rompe el primer test. Revertido.
+- Las 33 columnas del `select` resuelven contra el esquema de **produccion**.
+- Typecheck de `api` y `web` sin errores.
+
+### Lo que quedo fuera
+
+**No se ha podido ver con senales reales: `signals` esta a cero en test y en
+produccion.** El motor existe y corre, pero no esta programado (el workflow no
+tiene `schedule`, decision de Rafa del 2026-08-03) y nadie lo ha lanzado contra
+la tienda real. La pantalla se ve vacia hasta que alguien lo ejecute — y el
+vacio dice lo que debe decir: "que no haya ninguna significa que nada se ha
+salido en la ventana medida, no que todo vaya bien".
+
+---
+
+## `D04` — Motor y pantalla · **hecho** 2026-10-02
+
+Cierra el lazo que `D05` dejo abierto en su paso 29: `METRICS -> SIGNALS ->
+HEALTH`. Hasta ahora las senales se escribian y nadie las convertia en un estado.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Motor puro | `assessHealth()` y compania en `packages/contracts/src/health.ts` |
+| Tests | `packages/contracts/src/health.test.ts` (13 nuevos, 36 en total) |
+| Runtime con I/O | `apps/api/src/health-engine.ts` |
+| Job | `apps/worker/src/health-once.ts` + `.github/workflows/health-engine.yml` |
+| Lectura del consultor | `listConsultantCapabilityHealth()` + `GET /v1/consultant/capability-health` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/capability-health-view-model.ts` (8 tests) |
+| Panel | `apps/web/src/app/shopify/diagnostico/capability-health.tsx` |
+
+**Sin migracion**: el esquema de `D04` esta puesto desde el 2026-09-15 y no
+hizo falta tocarlo. Es el primer bloque de la fase que llega a `hecho` sin
+escribir una linea de SQL nueva.
+
+### Decisiones
+
+**El motor no tiene un solo umbral propio, y esa es la decision entera.** El
+guardrail 11 prohibe clasificar CAC, CVR o refund rate por umbral global; el 13
+prohibe depender de benchmarks externos; el 39 dice que un CAC alto puede ser
+sano si cabe en la economia y el 40 que uno bajo puede ser critico si destruye
+contribucion. Contra que se juzga cada metrica lo declara el tenant en
+`health_references`, y `D05` ya evaluo la senal contra **esa misma referencia**
+en `guardrail_status`. El motor solo traduce: `within -> healthy`,
+`approaching -> fragile`, `breached -> bad`, `crossed -> critical`. Sin
+referencia declarada no clasifica: escribe `not_assessable` y **dice que falta**,
+con la frase entera y nombrando la capacidad.
+
+**`disaster` no aparece nunca.** No hay ninguna regla en la fuente que diga
+cuando se llega ahi, y los guardrails 48 a 50 dicen que los estados extremos no
+son un recurso retorico. Un estado que nadie sabe derivar es un estado que no se
+escribe.
+
+**No ver anomalias no es estar sano** (guardrail 9, el error mas facil de
+cometer). Para decir `healthy` hace falta que la metrica se haya **medido** en
+la ventana, asi que el motor recibe `measuredMetrics` en vez de deducirlo de la
+ausencia de senales. Sin serie medida la respuesta es "no lo se", no "va bien".
+
+**Trayectorias opuestas dan `volatile`, no la media.** Si unas senales mejoran y
+otras empeoran, promediarlas inventa una calma que no existe. En la corrida real
+la adquisicion salio `bad` + `volatile`, que es exactamente la foto: el CAC se
+deteriora y las sesiones mejoran a la vez.
+
+**Un riesgo alto a corto plazo exige indicadores adelantados** (guardrail 25).
+Sin ellos el riesgo se queda en `low` por fea que sea la foto, y **la pantalla lo
+avisa**: "sin indicadores adelantados, lo que se ve aqui confirma, no avisa". Un
+"bajo" que en realidad significa "no miramos hacia delante" es peor que no decir
+nada.
+
+**Lo que contradice el estado se guarda como tal.** `evidenceRelation()` marca
+`contradicting` la senal que mejora dentro de una capacidad en mal estado, o la
+que empeora dentro de una sana. Los guardrails 27 y 28 piden resolver la
+inconsistencia por escrito, y para resolverla primero hay que guardarla. En la
+corrida real, la senal de sesiones --que mejoraba-- entro como contradictoria de
+una adquisicion `bad`. Eso es el guardrail funcionando sobre datos de verdad.
+
+**El riesgo estructural se queda en `none` y se enlaza el perfil de madurez.**
+Derivarlo del nivel de `D03` seria una formula que nadie ha escrito. Se enlaza
+`maturity_profile_id` (apartado 16 de D03: **referencia, no copia**) y lo lee
+una persona.
+
+**En pantalla, estado y trayectoria no se funden nunca** (apartado 3): "mal
+mejorando" y "sana cayendo en picado" son situaciones distintas y una sola
+etiqueta las iguala. Y **la severidad vive en el hallazgo, no en la capacidad**
+(guardrail 6): el color de la tarjeta sale del `health_state` y jamas del peor
+de sus hallazgos, porque un problema grave y localizado no pinta de rojo algo que
+funciona.
+
+**`not_assessable` no se pinta como una mala noticia.** No saber no es que la
+tienda vaya mal: es una declaracion que nos falta. Tiene tono neutro y su
+contenido principal es el blocker, que se lee como una instruccion. Hoy esa lista
+es casi toda la pantalla, y **eso es el guardrail 11 funcionando**, no un estado
+transitorio.
+
+**Las capacidades no se ordenan de peor a mejor.** Ordenarlas es pintar una
+prioridad, y "prioridad != salud" es uno de los diez guardrails del bloque.
+Alfabetico dentro de cada grupo: un orden que no dice nada y por eso no miente.
+
+### Un fallo que encontro el esquema
+
+Escribi la evidencia con `source_kind` y `reference_id`, copiando la forma de
+`D06`. **`health_evidence` no tiene esas columnas**: tiene `relation`
+(supporting / contradicting / positive), `metric`, `indicator_type` (leading /
+lagging) y la ventana. La tabla estaba diseñada para los guardrails 25, 26 y 27 y
+mi version los perdia los tres. Corregido antes de escribir nada real, y con dos
+tests que lo fijan.
+
+### Verificacion
+
+- **Bloque `DO` en test**: 6/6, rollback limpio. Incluye los tres rechazos que
+  importan -- `not_assessable` sin blocker, oportunidad con severidad alta
+  (guardrail 46) y una `relation` inventada.
+- **Corrida real del motor** sobre datos sembrados en test: 2 capacidades, 2
+  hallazgos, 1 `not_assessable`. `acquisition` salio `bad` **porque el
+  guardrail economico declarado se incumplio**, no por un umbral nuestro;
+  `retention` salio `not_assessable` diciendo que declarar -- pero **conservando
+  la trayectoria**: no sabemos su estado y si sabemos que baja.
+- **Mutacion deliberada**: quitar la regla de "sin referencia no se clasifica"
+  rompe su test y solo el suyo. Revertida.
+- Datos sembrados **borrados**: las seis tablas vuelven a cero.
+- 21 tests nuevos (36 en `health.test.ts`, 215 en la web), suite completa y
+  typecheck de los cuatro workspaces en verde.
+
+### Lo que quedo fuera, a proposito
+
+- **La politica de agregacion padre/hijo** (guardrails 17 a 21) — sigue sin
+  definirse en la fuente, asi que el motor no escribe `parent_id`. Solo evalua
+  scope `global`.
+- **`chronicity`** — el artefacto no da umbrales temporales y `capability_health`
+  ya guarda el historico. Derivarla es leer ese historico, y eso es F9 segun el
+  propio artefacto. Hoy sigue siendo una etiqueta que nadie escribe.
+- **`issue_role` y `suspected_downstream_of`** — decir que una capacidad
+  arrastra a otra necesita el grafo causal de `D07`, que no existe.
+- **`contradiction_resolution`** — el motor **guarda** la contradiccion y la
+  pantalla la ensena aparte; resolverla por escrito es juicio humano y la columna
+  espera a quien lo escriba.
+
+### El resultado que hay que leer bien
+
+`health_references` esta vacia en test y en produccion, asi que **hoy todo
+saldria `not_assessable`**. No es que el motor no funcione: es que nadie ha
+declarado todavia contra que se juzga ninguna metrica de ninguna tienda. La
+pantalla convierte eso en una lista de lo que hay que declarar, que es la unica
+cosa util que se puede decir antes de tenerlo.
+
+---
+
+## `D10` — Motor y pantalla · **hecho** 2026-10-03
+
+La entrada del contrato decia "**no hay motor**: evaluar severidad exige un
+diagnostico causal cerrado, y no hay ninguno". Era demasiado estricta, y quien lo
+desmiente es el propio artefacto: el **guardrail 13 exige** que se pueda estar
+muy seguro de que el dano es grave y nada seguro de por que pasa. Asi que se
+puede medir el impacto sin saber la causa -- lo que no se puede es puntuar la
+gravedad.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Motor puro | `assessSeverity()` y compania en `packages/contracts/src/severity.ts` |
+| Tests | `packages/contracts/src/severity.test.ts` (13 nuevos, 46 en total) |
+| Runtime con I/O | `apps/api/src/severity-engine.ts` |
+| Job | `apps/worker/src/severity-once.ts` + `.github/workflows/severity-engine.yml` |
+| Lectura del consultor | `listConsultantSeverity()` + `GET /v1/consultant/severity` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/severity-view-model.ts` (8 tests) |
+| Panel | `apps/web/src/app/shopify/diagnostico/severity-panel.tsx` |
+
+**Sin migracion**, como `D04`: el esquema esta puesto desde el 2026-09-21.
+
+### Decisiones
+
+**El motor no pone ni una severidad. Las cinco salen `unknown`.** El apartado 29
+dice que la fuente **no define formula de severidad, ni ponderacion de impacto,
+ni modelo monetario, ni modelo de probabilidad**, y el guardrail 17 anade que un
+scope pequeno puede ser material -- o sea que tampoco hay umbral por cuota.
+Escribir "un 3% del revenue es moderate" seria inventarse el umbral que el
+documento se niega a dar y presentarlo como derivado de el. Hay un test que falla
+si alguna de las cinco deja de ser `unknown`.
+
+**Lo que si hace es la rama de cuantificacion, que es donde estaba el valor
+escondido.** Convierte "las ventas netas bajan un 21,7%" en "-2.280 USD en la
+semana, el 27,7% de la facturacion del periodo". Segun los guardrails 15 a 18,
+elegir mal esa base es la forma mas comun de exagerar un problema o de quitarle
+importancia, asi que la base se elige **una**, se marca, y el esquema no deja
+marcarla sin escribir por que.
+
+**La cuenta es estimada, no observada.** El valor de hoy se observa; la perdida
+es la diferencia contra un baseline, y un baseline es un modelo. Poner
+`evidence_type = observed` presentaria un calculo como una medicion, y ademas el
+esquema obliga a escribir los supuestos de todo lo que no sea observado
+(guardrail 22). Los supuestos dicen lo que hay que decir: que se supone que el
+baseline habria seguido vigente, y que no se ajusta por estacionalidad porque
+`D05` todavia no lo hace.
+
+**Nunca se dice `exact`.** El esquema solo lo permite sobre algo observado con
+el periodo cerrado y metodo escrito. Como la cifra es estimada, `exact` queda
+fuera por construccion, que es justo la respuesta estructural al "no digas
+*exact loss* cuando es una estimacion".
+
+**La lista no se ordena por importe.** Ordenar por cuanto dinero es pintar la
+prioridad que los guardrails 3, 46, 47 y 48 dejan fuera del bloque: un HIGH puede
+ir antes que un CRITICAL segun esfuerzo y momento, y eso es F4. Va por fecha de
+evaluacion, y hay un test con una evaluacion de 40 EUR reciente y otra de 99.000
+vieja que falla si alguien invierte el criterio.
+
+**Una evaluacion vigente por caso, y solo se reescribe si la medida cambia.**
+`assessment_status` distingue `current` de `superseded`. Volver a escribir la
+misma cifra cada dia convertiria el historico en ruido y haria imposible ver
+cuando se movio de verdad. La segunda pasada de la corrida real escribio cero.
+
+**Los denominadores salen de `shopify_sales_daily`,** la misma funcion SQL que
+alimenta a `D05` (ADR-0006 punto 6). Escribir otra habria garantizado que dentro
+de seis meses dieran cifras distintas sobre el mismo periodo.
+
+**En pantalla, el `unknown` se explica.** "Nadie ha definido a partir de que
+cuota esto es grave en esta tienda, y un umbral inventado se leeria como si lo
+estuviera". Sin esa frase, un `unknown` se lee como que el sistema no sabe hacer
+su trabajo.
+
+**Las tres confianzas se ensenan juntas y separadas** (apartado 27). Verlas a la
+vez es el punto: "en la cifra: media / en la causa: insuficiente / en la
+gravedad: insuficiente" dice exactamente lo que sabemos y lo que no. Una sola
+cifra de confianza borraria esa diferencia.
+
+### Un fallo que encontro la corrida real
+
+La primera pasada escribio una cuota de **4.560 %**: estaba dividiendo 2.280 USD
+entre 50 pedidos. No era un error de magnitud sino **de categoria** -- una
+perdida en dinero no tiene cuota sobre un recuento. La guarda que tenia (cuota
+fuera de 0..1 se descarta) evito escribir el disparate, pero lo explicaba mal:
+decia "la base esta mal medida" cuando lo que pasaba es que las unidades no
+encajaban.
+
+Arreglado con `metricUnitKind()` y una tabla de unidad por base. Ahora la base en
+pedidos **se sigue guardando** --el guardrail 15 quiere varias-- pero sin cuota y
+diciendo por que: "no estan en la misma unidad; la base queda registrada como
+contexto". Con su test.
+
+### Verificacion
+
+- **Corrida real del motor** en test sobre un caso abierto con senal y 50 pedidos
+  sinteticos: 1 evaluacion, 1 medida, 2 exposiciones. La segunda pasada escribio
+  **cero** (idempotencia). Datos borrados: las seis tablas vuelven a cero.
+- **Mutacion deliberada**: derivar `overall_severity` de la cuota rompe su test y
+  solo el suyo. Revertida.
+- 21 tests nuevos (46 en `severity.test.ts`, 233 en la web), suite completa y
+  typecheck de los cuatro workspaces en verde.
+
+### Lo que quedo fuera, a proposito
+
+- **Las cinco severidades**, por lo dicho arriba. Es el recorte del bloque y no
+  es codigo: es una decision que alguien tiene que tomar por tienda.
+- **La contribucion como denominador** -- seria la mejor base para casi todo
+  esto (el mismo incidente es un 3% del revenue y un 30% de la contribucion) y no
+  se puede calcular: 43 de 44 referencias no tienen coste. El motor lo dice en
+  `limitations` en vez de usar revenue y callarse.
+- **Reversibilidad, recuperabilidad y severidad estructural** -- dependen de
+  `D09`, que no tiene motor.
+- **`impact_propagation` y `absorption_buffers`** -- la cascada exige una ruta
+  causal de `D07` (guardrail 36) y el colchon lo declara el tenant. Ninguna de
+  las dos se escribe.
+- **El coste de oportunidad y el revenue en riesgo** -- son `potential` y exigen
+  verosimilitud declarada; no hay de donde sacarla sin modelo.
+
+---
+
+## `D04` — El declarador de referencias · 2026-10-04
+
+No es un bloque nuevo: es la pieza que faltaba para que `D04` y `D10` sirvieran
+de algo. Los dos estaban implementados y los dos contestaban `unknown` en todo
+por el **mismo** motivo -- nadie podia decir "el CAC maximo de esta tienda son 32
+EUR". La tabla `health_references` existia desde el 2026-09-15 y solo la leia un
+motor.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Esquema de la declaracion | `healthReferenceInputSchema` en `packages/contracts/src/health.ts` |
+| Lectura y escritura | `listConsultantHealthReferences()`, `createConsultantHealthReference()`, `retireConsultantHealthReference()` |
+| Rutas | `GET`, `POST` y `DELETE /v1/consultant/health-references` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/health-references-view-model.ts` (7 tests) |
+| Panel | `apps/web/src/app/shopify/diagnostico/health-references.tsx` |
+
+### Decisiones
+
+**La declaracion va donde se reporta la ausencia.** El panel esta justo encima
+del de salud, no en `/configuracion` ni en una pantalla de ajustes: quien lee "no
+hay guardrail economico declarado para adquisicion" lo declara ahi mismo. Un
+hueco que te dice que falta algo y no te deja arreglarlo es una queja, no una
+herramienta.
+
+**Solo el guardrail economico juzga, y la pantalla lo dice.** Los cinco tipos del
+esquema no son equivalentes: `economic_guardrail` es el unico que dice "a partir
+de aqui, duele", y por tanto el unico que hace que una capacidad pueda salir
+`bad` o `critical`. El objetivo y el historico sirven para comparar. Si la
+pantalla los tratara igual, alguien declararia su baseline, veria que sigue
+saliendo `not_assessable` y concluiria que el sistema esta roto. Hay un test que
+lo fija.
+
+**No se borra, se retira.** Cambiar la vara explica por que una capacidad paso de
+`bad` a `healthy` sin que el negocio se moviera: cambiamos el criterio. Borrar la
+referencia dejaria ese salto sin explicacion en el historico, asi que retirar es
+poner `effective_to` y la fila se queda. Declarar una nueva sobre la misma
+metrica retira la anterior en el mismo movimiento: dos varas vigentes a la vez
+darian dos diagnosticos.
+
+**La direccion se declara junto al numero.** Un CAC sostenible es un techo y una
+cobertura de stock es un suelo; el mismo 32 significa lo contrario en cada caso.
+Sin `direction`, el motor no puede saber si 38 es incumplir o cumplir de sobra.
+
+**El boton apagado dice por que.** `validateDraft()` devuelve el motivo en vez de
+un booleano, para que el formulario pueda explicarse. Un control desactivado sin
+explicacion es una pared.
+
+**Se escribe con la service role y el permiso se comprueba a mano** (ADR-0006
+punto 7): la lista de organizaciones del consultor **es** ese permiso. Si la
+tienda no esta en su cartera, la escritura sale 403 antes de tocar nada.
+
+**Un benchmark externo tiene que decir de donde sale.** El guardrail 13 no lo
+prohibe, exige poder discutirlo. La regla vive en el esquema Zod y en el
+servicio, para dar un mensaje util en vez de un error de Postgres.
+
+### Verificacion: el lazo entero, de punta a punta
+
+Es la primera vez en la fase que se comprueba la cadena completa sobre datos:
+
+1. Se declara `cac <= 32 EUR` como guardrail economico de adquisicion.
+2. Entra una senal de `D05` con `guardrail_status = breached`.
+3. Se corre el motor de `D04`.
+4. La adquisicion pasa de `not_assessable` a **`bad`, con el motivo escrito**:
+   "El CAC sube a 38 EUR, por encima del guardrail declarado de 32", confianza
+   `medium`, sin bloqueo.
+
+Datos borrados despues: las tres tablas vuelven a cero. 7 tests nuevos (251 en la
+web), suite completa y typecheck en verde.
+
+### Lo que quedo fuera
+
+- **El alcance por tienda**: `health_references` tiene `store_id` y la pantalla
+  declara a nivel de organizacion. Con una tienda por organizacion da igual; con
+  varias habra que elegir.
+- **Los umbrales de severidad de `D10`** siguen sin sitio donde declararse. Son
+  otra pregunta ("a partir de que cuota esto es grave") y necesitan su propia
+  decision antes que su propio formulario.
+- **Que el cliente vea o corrija su propia vara.** Hoy es consultor.
+
+---
+
 ## Audiencia: que vera cada vista de esta fase
 
 Añadido 2026-09-14 despues de `D00`, `D01` y `D02`. Los tres se cerraron con RLS
@@ -2790,8 +3211,8 @@ fase necesita ademas motor y pixel (plan maestro, apartado 3).
 
 ### El motor
 
-La capa `03-runtime` de esta fase **ya tiene 9 flujos escritos**. Cinco estan
-implementados (`d05`, `d01`, `d02`, `d06` y `d03`). No hay que inventar los
+La capa `03-runtime` de esta fase **ya tiene 9 flujos escritos**. Seis estan
+implementados (`d05`, `d01`, `d02`, `d06`, `d03` y `d10`). No hay que inventar los
 cuatro que quedan: hay que leerlos y escribirlos, como se hizo con esos cinco.
 
 | Flujo | Bloque | Estado |
@@ -2803,11 +3224,11 @@ cuatro que quedan: hay que leerlos y escribirlos, como se hizo con esos cinco.
 | `d06-flujo-motor-sintomas` | `D06` | **hecho** — `apps/api/src/symptom-engine.ts` |
 | `d07-flujo-razonamiento-causal` | `D07` | pendiente |
 | `d09-flujo-root-cause-constraint` | `D09` | pendiente |
-| `d10-flujo-evaluacion-severidad-impacto` | `D10` | pendiente |
+| `d10-flujo-evaluacion-severidad-impacto` | `D10` | **hecho** (solo la rama de cuantificacion) — `apps/api/src/severity-engine.ts` |
 | `d11-flujo-evaluacion-confianza-incertidumbre` | `D11` | pendiente |
 
-Y **cinco bloques necesitan motor sin tener flujo escrito**, asi que ahi si hay
-diseno que hacer: `D04` (salud por capacidad, no tiene capa de runtime), `D08`
+Y **cuatro bloques necesitan motor sin tener flujo escrito**, asi que ahi si hay
+diseno que hacer (`D04` ya lo tiene, escrito sin flujo el 2026-10-02): `D08`
 (el indice le pone `CRPET` pero **no existe `d08` en `03-runtime`** — la fila
 esta mal), `D12` (los checks deterministas del apartado 17: alineacion de
 periodos, descomposicion de mix, suficiencia de muestra, madurez de cohorte),
@@ -2829,8 +3250,8 @@ plataforma, y con el la primera pantalla se disena contra datos que existen.
 
 ### El pixel
 
-`D01` ya se ve en `/integraciones`, y `D02`, `D03` y `D06` en
-`/shopify/diagnostico`. De los 15 bloques, **queda pantalla por hacer en 11**. La matriz de
+`D01` ya se ve en `/integraciones`, y `D02`, `D03`, `D04`, `D05`, `D06` y `D10`
+en `/shopify/diagnostico`. De los 15 bloques, **queda pantalla por hacer en 8**. La matriz de
 audiencia de mas arriba ya dice que lleva cada una.
 
 Esa matriz es la especificacion de las primeras pantallas, y no vino del corpus

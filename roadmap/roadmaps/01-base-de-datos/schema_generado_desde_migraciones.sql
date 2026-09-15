@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (206 archivos).
+-- Regenerado desde supabase/migrations (211 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -29611,3 +29611,732 @@ where not exists (
     where ca.organization_id = o.id
       and ca.is_active
   );
+
+-- =============================================================================
+-- Migracion: 20261003090000_panel_serie_mensual.sql
+-- =============================================================================
+-- F2 del panel del manager: la serie mensual.
+-- Ver docs/PLAN_PANEL_MANAGER.md.
+--
+-- El panel de referencia ancla toda su narrativa en un grafico de barras de 12
+-- meses con los ingresos de cada mes y el beneficio debajo. Hoy no hay forma de
+-- dibujarlo: `shopify_sales_daily` agrupa por dia y no devuelve beneficio.
+--
+-- Decision de diseno: esta funcion NO reimplementa la formula financiera, la
+-- LLAMA una vez por mes con un `lateral`. Copiar la formula aqui seria mas
+-- rapido de escribir y garantizaria que algun dia el grafico y el KPI del
+-- periodo se contradigan -- que es justo lo que no puede pasar cuando el
+-- consultor esta ensenando la pantalla a un cliente. Una sola fuente de verdad
+-- para el beneficio, aunque cueste 12 llamadas.
+--
+-- Coste: cada llamada filtra por `(organization_id, coalesce(processed_at,
+-- external_created_at))`, que es exactamente el indice parcial
+-- `shopify_order_facts_org_processed_idx` que ya existe (ADR-0006 pto 6, el
+-- indice ya calza; no hace falta uno nuevo). El termino caro es el conteo de
+-- clientes nuevos, que recorre el historico completo de la tienda una vez por
+-- mes; si algun dia esto se acerca al statement_timeout de 8 s del rol
+-- `authenticated`, la salida es materializar los primeros pedidos por cliente,
+-- no duplicar la formula.
+
+drop function if exists public.shopify_financial_monthly(uuid, integer, uuid);
+create function public.shopify_financial_monthly(
+  target_organization_id uuid,
+  months_back integer,
+  target_store_id uuid
+)
+returns table (
+  bucket_month date,
+  orders_count bigint,
+  net_revenue_ex_tax numeric,
+  net_profit numeric,
+  ads_spend numeric,
+  new_customers bigint
+)
+language sql
+stable
+as $$
+  with bounds as (
+    select
+      m::date as bucket_month,
+      m as period_start,
+      -- El fin de mes es el ultimo instante del mes, no el primero del
+      -- siguiente: `shopify_financial_summary` compara con `<= period_end` y
+      -- un pedido de las 00:00:00 del dia 1 contaria en los dos meses.
+      (m + interval '1 month' - interval '1 microsecond') as period_end
+    from generate_series(
+      date_trunc('month', now()) - make_interval(months => greatest(months_back, 1) - 1),
+      date_trunc('month', now()),
+      interval '1 month'
+    ) as m
+  )
+  select
+    b.bucket_month,
+    f.orders_count,
+    f.net_revenue_ex_tax,
+    f.net_profit,
+    f.ads_spend,
+    f.new_customers
+  from bounds b
+  cross join lateral public.shopify_financial_summary(
+    target_organization_id,
+    b.period_start,
+    b.period_end,
+    target_store_id
+  ) f
+  order by b.bucket_month;
+$$;
+
+grant execute on function public.shopify_financial_monthly(uuid, integer, uuid) to authenticated;
+
+comment on function public.shopify_financial_monthly(uuid, integer, uuid) is
+  'Serie mensual de ingresos sin IVA y beneficio neto, un mes por fila, del mes '
+  'actual hacia atras. Llama a shopify_financial_summary mes a mes en vez de '
+  'reimplementar la formula: el grafico y el KPI del periodo no pueden '
+  'contradecirse porque salen del mismo calculo. months_back cuenta el mes en '
+  'curso (12 = este mes y los once anteriores).';
+
+-- =============================================================================
+-- Migracion: 20261004090000_coste_de_shopify_llega_al_margen.sql
+-- =============================================================================
+-- F3b del panel del manager: el coste que el cliente pone en Shopify llega al
+-- motor de margen. Ver docs/PLAN_PANEL_MANAGER.md.
+--
+-- EL PROBLEMA, medido en produccion el 2026-09-15: 44 articulos de inventario,
+-- 1 con coste puesto en Shopify, **0 filas en `product_costs`** -- la tabla
+-- esta vacia entera. El COGS sale a cero y con el un margen del 77,84% que no
+-- existe.
+--
+-- No es falta de datos, es una tuberia cortada:
+--
+--   * el sync SI pide `unitCost` a Shopify y lo guarda en
+--     `shopify_inventory_items.current_unit_cost` (shopify-sync.ts);
+--   * `shopify_margin_summary` SOLO lee `public.product_costs`;
+--   * y nada escribe nunca en `product_costs` salvo el formulario manual de
+--     `/shopify`, de uno en uno por SKU.
+--
+-- Asi que un cliente puede tener todos sus costes puestos en Shopify y seguir
+-- viendo COGS 0 para siempre, sin ningun error por ningun lado.
+--
+-- POR QUE UN RESPALDO EN LA LECTURA Y NO UNA ESCRITURA EN EL SYNC. La opcion
+-- obvia era que el sync creara una fila en `product_costs` con cada coste de
+-- Shopify. Se descarta: `product_costs` es la tabla de costes *con historico y
+-- con autor* (source, valid_from, valid_until, audit_logs), y es donde el
+-- consultor mete a mano lo que Shopify no sabe. Si el sync empieza a escribir
+-- ahi, cada importacion compite con el trabajo manual del consultor y antes o
+-- despues lo pisa. La precedencia correcta es al reves: manda lo que una
+-- persona escribio, y Shopify solo rellena el hueco.
+--
+-- EL TECHO, y se declara en la propia salida. `current_unit_cost` es el coste
+-- de HOY: no tiene historico. Aplicarlo a un pedido de hace seis meses es una
+-- aproximacion. Es muchisimo mejor que contar ese pedido como si el producto
+-- fuera gratis, pero no es lo mismo que un coste fechado, y la pantalla tiene
+-- que poder decirlo. Por eso sale `items_with_estimated_cost`: lineas cuyo
+-- coste viene del valor actual de Shopify y no de una fila fechada.
+
+drop function if exists public.shopify_margin_summary(uuid, timestamptz, timestamptz, uuid);
+create function public.shopify_margin_summary(
+  target_organization_id uuid,
+  period_start timestamptz,
+  period_end timestamptz,
+  target_store_id uuid
+)
+returns table (
+  revenue numeric,
+  cogs numeric,
+  gross_margin numeric,
+  margin_pct numeric,
+  items_with_cost bigint,
+  items_without_cost bigint,
+  items_with_estimated_cost bigint
+)
+language sql
+stable
+as $$
+  with priced_items as (
+    select
+      oi.id as order_item_id,
+      greatest(oi.quantity_current - oi.refunded_quantity, 0) as net_quantity,
+      oi.current_line_total - oi.discount_total as item_revenue,
+      -- Coste fechado: lo que una persona escribio para la fecha del pedido.
+      (
+        select pc.unit_cost
+        from public.product_costs pc
+        where pc.inventory_item_id = ii.id
+          and pc.valid_from <= coalesce(o.processed_at, o.external_created_at)::date
+          and (pc.valid_until is null or pc.valid_until >= coalesce(o.processed_at, o.external_created_at)::date)
+        order by pc.valid_from desc
+        limit 1
+      ) as dated_cost,
+      -- Respaldo: el coste actual que Shopify reporta para ese articulo.
+      ii.current_unit_cost as shopify_cost
+    from public.shopify_order_items oi
+    join public.shopify_order_facts o on o.id = oi.order_id
+    left join public.shopify_inventory_items ii on ii.variant_id = oi.variant_id
+    where o.organization_id = target_organization_id
+      and (target_store_id is null or o.store_id = target_store_id)
+      and o.is_test_order = false
+      and o.cancelled_at is null
+      and (period_start is null or coalesce(o.processed_at, o.external_created_at) >= period_start)
+      and coalesce(o.processed_at, o.external_created_at) <= period_end
+  ),
+  resolved as (
+    select
+      order_item_id,
+      net_quantity,
+      item_revenue,
+      coalesce(dated_cost, shopify_cost) as unit_cost,
+      dated_cost is null and shopify_cost is not null as is_estimated
+    from priced_items
+  )
+  select
+    coalesce(sum(item_revenue), 0) as revenue,
+    coalesce(sum(net_quantity * unit_cost) filter (where unit_cost is not null), 0) as cogs,
+    coalesce(sum(item_revenue) filter (where unit_cost is not null), 0)
+      - coalesce(sum(net_quantity * unit_cost) filter (where unit_cost is not null), 0) as gross_margin,
+    case
+      when coalesce(sum(item_revenue) filter (where unit_cost is not null), 0) > 0 then round(
+        (
+          coalesce(sum(item_revenue) filter (where unit_cost is not null), 0)
+          - coalesce(sum(net_quantity * unit_cost) filter (where unit_cost is not null), 0)
+        ) / sum(item_revenue) filter (where unit_cost is not null) * 100,
+        2
+      )
+      else 0
+    end as margin_pct,
+    count(*) filter (where unit_cost is not null) as items_with_cost,
+    count(*) filter (where unit_cost is null) as items_without_cost,
+    count(*) filter (where is_estimated) as items_with_estimated_cost
+  from resolved;
+$$;
+
+grant execute on function public.shopify_margin_summary(uuid, timestamptz, timestamptz, uuid) to authenticated;
+
+comment on function public.shopify_margin_summary(uuid, timestamptz, timestamptz, uuid) is
+  'Margen Shopify filtrable por store_id. El coste de cada linea sale de '
+  'product_costs (fechado, escrito por una persona) y, si no hay fila que cubra '
+  'la fecha del pedido, del current_unit_cost que Shopify reporta hoy. La '
+  'precedencia es esa y no al reves: el sync nunca pisa el trabajo manual del '
+  'consultor. items_with_estimated_cost cuenta las lineas que van por el '
+  'respaldo, porque el coste de hoy aplicado a un pedido viejo es una '
+  'aproximacion y la pantalla tiene que poder decirlo.';
+
+-- =============================================================================
+-- Migracion: 20261005090000_knowledge_document_content.sql
+-- =============================================================================
+-- AI-04/admin-conocimiento: knowledge_documents solo guardaba el chunking
+-- (knowledge_chunks), nunca el texto original -- no habia forma de "ver bien"
+-- un documento entero en el panel, solo su ficha (titulo/estado/autoridad).
+-- Se guarda el contenido completo junto al documento; el chunking para
+-- embeddings sigue igual, esto no lo sustituye.
+
+alter table public.knowledge_documents add column if not exists content text;
+
+-- Backfill de lo ya ingerido: reconstruye el contenido concatenando sus
+-- chunks en orden. No es byte-a-byte identico al original (el chunking
+-- repite el titulo de seccion en cada trozo que la cruza), pero es fiel al
+-- contenido y de sobra para leerlo -- la alternativa era dejar sin texto
+-- todo lo ingerido antes de este cambio.
+update public.knowledge_documents d
+set content = backfill.joined
+from (
+  select document_id, string_agg(content, e'\n\n' order by chunk_index) as joined
+  from public.knowledge_chunks
+  group by document_id
+) as backfill
+where backfill.document_id = d.id
+  and d.content is null;
+
+-- =============================================================================
+-- Migracion: 20261006090000_rol_derivado_de_la_suscripcion.sql
+-- =============================================================================
+-- El rol deja de concederse y pasa a derivarse.
+--
+-- `profiles.platform_role` mezclaba dos cosas que no son la misma:
+--
+--   1. si alguien lleva la plataforma (staff). Eso no lo otorga ningun plan:
+--      es una decision nuestra, y si dependiera de una fila de facturacion,
+--      cancelarla dejaria a la plataforma sin administradores.
+--   2. si alguien es consultor o cliente. Eso SI es consecuencia de lo que
+--      paga, y tenerlo ademas como columna suelta son dos fuentes de verdad
+--      que se separan en cuanto una suscripcion caduca: alguien se queda con
+--      platform_role = 'consultant' y sin plan que lo respalde, o al reves.
+--
+-- A partir de aqui:
+--   staff     -> profiles.is_platform_staff (explicito, solo lo da otro staff)
+--   consultor -> tiene una suscripcion activa A SU NOMBRE
+--                (service_subscriptions.user_id), no de una tienda
+--   cliente   -> todo lo demas
+--
+-- Ligar la suscripcion al usuario y no a la organizacion es lo que hace que
+-- esto no dependa del catalogo de planes: no hay que saber "que codigos de
+-- plan son de consultor", basta con a quien pertenece la fila.
+--
+-- Esta migracion NO borra platform_role todavia. Añade las fuentes nuevas,
+-- rellena, y reapunta las 5 funciones que lo leian. La columna se retira en
+-- una migracion posterior, cuando se haya comprobado contra produccion que
+-- nadie perdio ni gano acceso.
+
+-- 1. Fuentes nuevas ----------------------------------------------------------
+
+alter table public.profiles
+  add column if not exists is_platform_staff boolean not null default false;
+
+alter table public.service_subscriptions
+  add column if not exists user_id uuid references public.profiles (id) on delete cascade;
+
+-- La suscripcion de un consultor no cuelga de ninguna tienda.
+alter table public.service_subscriptions
+  alter column organization_id drop not null;
+
+-- Exactamente una de las dos: o es de una organizacion, o es de una persona.
+-- Una fila con las dos (o con ninguna) no se sabe a quien cobrarle.
+alter table public.service_subscriptions
+  drop constraint if exists service_subscriptions_sujeto_unico;
+alter table public.service_subscriptions
+  add constraint service_subscriptions_sujeto_unico
+  check ((organization_id is not null) <> (user_id is not null));
+
+create index if not exists service_subscriptions_user_idx
+  on public.service_subscriptions (user_id)
+  where user_id is not null;
+
+-- 2. Backfill ----------------------------------------------------------------
+-- Sin esto, al cambiar la fuente todo el mundo pierde su rol de golpe.
+
+update public.profiles
+set is_platform_staff = true
+where platform_role = 'platform_admin'
+  and is_platform_staff = false;
+
+-- Cada consultor de hoy pasa a tener su suscripcion a nombre propio. Los
+-- platform_admin tambien: llevan cartera ademas de la plataforma, y sin
+-- suscripcion dejarian de ser consultores al reapuntar las funciones.
+insert into public.service_subscriptions (user_id, plan_code, status, starts_at)
+select p.id, 'consultant', 'active'::public.subscription_status, now()
+from public.profiles p
+where p.platform_role in ('consultant', 'platform_admin')
+  and not exists (
+    select 1
+    from public.service_subscriptions s
+    where s.user_id = p.id
+      and s.status in ('trial', 'active')
+  );
+
+-- 3. La regla, en un solo sitio ----------------------------------------------
+
+create or replace function private.is_platform_staff()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.is_platform_staff
+      and p.is_active
+  );
+$$;
+
+-- Consultor = tiene plan a su nombre. Se mira la vigencia igual que
+-- `has_valid_subscription` hace con las de organizacion: un plan caducado deja
+-- de dar rol sin que nadie tenga que acordarse de bajar una columna.
+create or replace function private.is_consultant(target_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.service_subscriptions ss
+    join public.profiles p on p.id = ss.user_id
+    where ss.user_id = target_user_id
+      and ss.status in ('trial', 'active')
+      and (ss.starts_at is null or ss.starts_at <= now())
+      and (ss.ends_at is null or ss.ends_at > now())
+      and p.is_active
+  )
+  or exists (
+    select 1
+    from public.profiles p
+    where p.id = target_user_id
+      and p.is_platform_staff
+      and p.is_active
+  );
+$$;
+
+revoke all on function private.is_platform_staff() from public;
+revoke all on function private.is_consultant(uuid) from public;
+grant execute on function private.is_platform_staff() to authenticated;
+grant execute on function private.is_consultant(uuid) to authenticated;
+
+-- 4. Las 5 funciones que leian la columna ------------------------------------
+-- Ninguna policy menciona platform_role directamente (comprobado en
+-- pg_policies contra produccion): todas pasan por estas.
+
+create or replace function private.is_platform_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.is_platform_staff();
+$$;
+
+create or replace function private.is_assigned_consultant(target_organization_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.consultant_assignments ca
+    join public.profiles p on p.id = ca.consultant_user_id
+    join public.organizations o on o.id = ca.organization_id
+    where ca.organization_id = target_organization_id
+      and ca.consultant_user_id = auth.uid()
+      and ca.is_active
+      and p.is_active
+      and private.is_consultant(ca.consultant_user_id)
+      and o.status in ('onboarding', 'active')
+  );
+$$;
+
+create or replace function private.assigned_consultant_org_ids()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path to ''
+as $fn$
+  select ca.organization_id
+  from public.consultant_assignments ca
+  join public.profiles p on p.id = ca.consultant_user_id
+  join public.organizations o on o.id = ca.organization_id
+  where ca.consultant_user_id = auth.uid()
+    and ca.is_active
+    and p.is_active
+    and private.is_consultant(ca.consultant_user_id)
+    and o.status in ('onboarding', 'active');
+$fn$;
+
+create or replace function private.accessible_org_ids()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path to ''
+as $fn$
+  select o.id
+  from public.organizations o
+  where (select private.is_platform_admin())
+  union
+  select ca.organization_id
+  from public.consultant_assignments ca
+  join public.profiles p on p.id = ca.consultant_user_id
+  join public.organizations o on o.id = ca.organization_id
+  where ca.consultant_user_id = auth.uid()
+    and ca.is_active
+    and p.is_active
+    and private.is_consultant(ca.consultant_user_id)
+    and o.status in ('onboarding', 'active')
+  union
+  select om.organization_id
+  from public.organization_members om
+  join public.organizations o on o.id = om.organization_id
+  where om.user_id = auth.uid()
+    and om.is_active
+    and o.status in ('onboarding', 'active')
+    and exists (
+      select 1
+      from public.service_subscriptions ss
+      where ss.organization_id = om.organization_id
+        and ss.status in ('trial', 'active')
+        and (ss.starts_at is null or ss.starts_at <= now())
+        and (ss.ends_at is null or ss.ends_at > now())
+    );
+$fn$;
+
+-- El guardarrail de "no te subas el rol a ti mismo" pasa a proteger la bandera
+-- nueva. Se deja tambien platform_role mientras la columna siga existiendo.
+create or replace function private.prevent_profile_privilege_escalation()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if auth.uid() = old.id
+    and (
+      new.platform_role is distinct from old.platform_role
+      or new.is_platform_staff is distinct from old.is_platform_staff
+      or new.is_active is distinct from old.is_active
+    )
+  then
+    raise exception 'profiles.is_platform_staff and profiles.is_active cannot be changed by the profile owner';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- 5. Asercion: nadie gana ni pierde acceso -----------------------------------
+-- Mismo patron que 20260908190000: para CADA par (usuario, organizacion) de
+-- los datos reales, el rol derivado tiene que coincidir con el que decia la
+-- columna. Si diverge, la migracion aborta entera y el esquema se queda como
+-- estaba -- un permiso de mas aqui es una fuga entre tenants.
+-- Lo que se compara NO es "el rol derivado coincide con la columna" -- eso solo
+-- comprobaria que el backfill de arriba corrio, porque usa su misma condicion.
+-- Se compara el conjunto de organizaciones accesibles por cada usuario, que es
+-- lo que de verdad decide quien ve que. Se calculan las dos versiones enteras,
+-- la vieja (por platform_role) y la nueva (por private.is_consultant), y
+-- cualquier par que aparezca en una y no en la otra aborta la migracion.
+do $$
+declare
+  divergentes integer;
+  detalle text;
+begin
+  with viejo as (
+    select p.id as user_id, o.id as org_id
+    from public.profiles p cross join public.organizations o
+    where p.platform_role = 'platform_admin' and p.is_active
+    union
+    select ca.consultant_user_id, ca.organization_id
+    from public.consultant_assignments ca
+    join public.profiles p on p.id = ca.consultant_user_id
+    join public.organizations o on o.id = ca.organization_id
+    where ca.is_active and p.is_active
+      and p.platform_role in ('consultant', 'platform_admin')
+      and o.status in ('onboarding', 'active')
+    union
+    select om.user_id, om.organization_id
+    from public.organization_members om
+    join public.organizations o on o.id = om.organization_id
+    where om.is_active and o.status in ('onboarding', 'active')
+      and exists (
+        select 1 from public.service_subscriptions ss
+        where ss.organization_id = om.organization_id
+          and ss.status in ('trial', 'active')
+          and (ss.starts_at is null or ss.starts_at <= now())
+          and (ss.ends_at is null or ss.ends_at > now())
+      )
+  ),
+  nuevo as (
+    select p.id as user_id, o.id as org_id
+    from public.profiles p cross join public.organizations o
+    where p.is_platform_staff and p.is_active
+    union
+    select ca.consultant_user_id, ca.organization_id
+    from public.consultant_assignments ca
+    join public.profiles p on p.id = ca.consultant_user_id
+    join public.organizations o on o.id = ca.organization_id
+    where ca.is_active and p.is_active
+      and private.is_consultant(ca.consultant_user_id)
+      and o.status in ('onboarding', 'active')
+    union
+    select om.user_id, om.organization_id
+    from public.organization_members om
+    join public.organizations o on o.id = om.organization_id
+    where om.is_active and o.status in ('onboarding', 'active')
+      and exists (
+        select 1 from public.service_subscriptions ss
+        where ss.organization_id = om.organization_id
+          and ss.status in ('trial', 'active')
+          and (ss.starts_at is null or ss.starts_at <= now())
+          and (ss.ends_at is null or ss.ends_at > now())
+      )
+  ),
+  diff as (
+    select 'pierde' as lado, user_id, org_id from (select * from viejo except select * from nuevo) a
+    union all
+    select 'gana', user_id, org_id from (select * from nuevo except select * from viejo) b
+  )
+  select count(*), coalesce(string_agg(lado || ' ' || user_id::text || '/' || org_id::text, ', '), '')
+  into divergentes, detalle
+  from diff;
+
+  if divergentes > 0 then
+    raise exception 'el acceso cambia en % pares (usuario, organizacion): %',
+      divergentes, detalle;
+  end if;
+
+  select count(*) into divergentes
+  from public.profiles p
+  where p.is_active
+    and (p.platform_role = 'platform_admin') is distinct from p.is_platform_staff;
+
+  if divergentes > 0 then
+    raise exception 'is_platform_staff no coincide con platform_role en % perfiles', divergentes;
+  end if;
+end;
+$$;
+
+-- =============================================================================
+-- Migracion: 20261010090000_embudo_paso_de_pago_iniciado.sql
+-- =============================================================================
+-- F5 del panel del manager: el embudo gana el paso de "pago iniciado".
+-- Ver docs/PLAN_PANEL_MANAGER.md.
+--
+-- El embudo se quedo en sesiones -> pedidos en
+-- 20260903160000_shopify_funnel_sessions_only.sql, por coste de consulta y no
+-- por falta de datos. Faltan los dos pasos donde se localiza la fuga: anadir al
+-- carrito y pago iniciado.
+--
+-- ESTE ARREGLO TRAE UNO DE LOS DOS, Y CON DATO PROPIO. Medido en produccion el
+-- 2026-09-15: `shopify_abandoned_checkouts` tiene 35 filas desde julio y
+-- **cero** con `completed_at`, o sea que Shopify solo nos lista los checkouts
+-- que se quedaron sin terminar. Por tanto:
+--
+--   pagos iniciados = checkouts abandonados + pedidos
+--
+-- sin doble conteo: en cuanto uno se completa deja de estar en esa lista y pasa
+-- a ser un pedido. Los pedidos los pone quien ya los tiene (ADR de la migracion
+-- de sessions-only: esta funcion NO vuelve a escanear shopify_order_facts, que
+-- es lo que hizo saltar el statement_timeout de 8s).
+--
+-- EL PASO QUE NO VIENE: "anadir al carrito". Ese si necesita una metrica de
+-- ShopifyQL que no tenemos verificada contra la API real, y meter un nombre de
+-- columna a ojo es como se rompen los sync en silencio. Se deja fuera.
+--
+-- NO SABER NO ES CERO. La sincronizacion de checkouts empezo el 2026-07-16: en
+-- un periodo anterior a esa fecha no hay checkouts porque no se pedian, no
+-- porque nadie iniciara el pago. Si el embudo pintara 0 ahi, diria que todos
+-- los pedidos entraron sin pasar por el pago, que es absurdo. Por eso sale
+-- `checkout_data_since`: la API compara con el inicio del periodo y, si el
+-- periodo empieza antes, el paso se muestra como desconocido.
+
+drop function if exists public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid);
+create function public.shopify_funnel_summary(
+  target_organization_id uuid,
+  period_start timestamptz,
+  period_end timestamptz,
+  target_store_id uuid
+)
+returns table (
+  sessions bigint,
+  online_store_visitors bigint,
+  conversion_rate_shopify numeric,
+  days_with_sessions bigint,
+  abandoned_checkouts bigint,
+  checkout_data_since date
+)
+language sql
+stable
+set search_path to 'pg_catalog', 'public'
+as $$
+  with sesiones as (
+    select
+      coalesce(sum(d.sessions), 0)::bigint as sessions,
+      coalesce(sum(d.online_store_visitors), 0)::bigint as online_store_visitors,
+      -- Media ponderada por sesiones, no media de medias.
+      round(
+        case
+          when coalesce(sum(d.sessions), 0) > 0
+          then sum(d.conversion_rate * d.sessions) / nullif(sum(d.sessions), 0)
+        end,
+        5
+      ) as conversion_rate_shopify,
+      count(*)::bigint as days_with_sessions
+    from public.shopify_sessions_daily d
+    where d.organization_id = target_organization_id
+      and (target_store_id is null or d.store_id = target_store_id)
+      -- period_start null = "Todo": sin cota inferior.
+      and (period_start is null or d.bucket_date >= date_trunc('day', period_start)::date)
+      and d.bucket_date <= date_trunc('day', period_end)::date
+  ),
+  checkouts as (
+    select count(*)::bigint as abandoned_checkouts
+    from public.shopify_abandoned_checkouts c
+    where c.organization_id = target_organization_id
+      and (target_store_id is null or c.store_id = target_store_id)
+      and (period_start is null or c.external_created_at >= period_start)
+      and c.external_created_at <= period_end
+  ),
+  -- Desde cuando tenemos checkouts de esta tienda, sin acotar al periodo: es lo
+  -- que distingue "nadie inicio el pago" de "todavia no lo sincronizabamos".
+  cobertura as (
+    select min(c.external_created_at)::date as checkout_data_since
+    from public.shopify_abandoned_checkouts c
+    where c.organization_id = target_organization_id
+      and (target_store_id is null or c.store_id = target_store_id)
+  )
+  select
+    s.sessions,
+    s.online_store_visitors,
+    s.conversion_rate_shopify,
+    s.days_with_sessions,
+    k.abandoned_checkouts,
+    v.checkout_data_since
+  from sesiones s
+  cross join checkouts k
+  cross join cobertura v;
+$$;
+
+grant execute on function public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid) to authenticated;
+
+comment on function public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid) is
+  'Embudo: sesiones (ShopifyQL) y checkouts abandonados del periodo. Los pagos '
+  'iniciados se componen fuera sumando estos checkouts a los pedidos, que la '
+  'misma peticion ya tiene -- esta funcion no vuelve a escanear '
+  'shopify_order_facts a proposito. checkout_data_since dice desde cuando hay '
+  'datos de checkout, para no confundir "nadie inicio el pago" con "todavia no '
+  'lo sincronizabamos".';
+
+-- Serie diaria: mismo anadido, para que la curva del embudo tenga el paso.
+drop function if exists public.shopify_funnel_daily(uuid, timestamptz, timestamptz, uuid);
+create function public.shopify_funnel_daily(
+  target_organization_id uuid,
+  period_start timestamptz,
+  period_end timestamptz,
+  target_store_id uuid
+)
+returns table (
+  bucket_date date,
+  sessions bigint,
+  abandoned_checkouts bigint
+)
+language sql
+stable
+set search_path to 'pg_catalog', 'public'
+as $$
+  with sesiones as (
+    select d.bucket_date, sum(d.sessions)::bigint as sessions
+    from public.shopify_sessions_daily d
+    where d.organization_id = target_organization_id
+      and (target_store_id is null or d.store_id = target_store_id)
+      and d.bucket_date >= date_trunc('day', period_start)::date
+      and d.bucket_date <= date_trunc('day', period_end)::date
+    group by d.bucket_date
+  ),
+  checkouts as (
+    select c.external_created_at::date as bucket_date, count(*)::bigint as abandoned_checkouts
+    from public.shopify_abandoned_checkouts c
+    where c.organization_id = target_organization_id
+      and (target_store_id is null or c.store_id = target_store_id)
+      and c.external_created_at >= period_start
+      and c.external_created_at <= period_end
+    group by 1
+  )
+  -- `full join`: un dia puede tener checkouts sin sesiones (dato de analitica
+  -- que Shopify aun no ha consolidado) o sesiones sin checkouts.
+  select
+    coalesce(s.bucket_date, k.bucket_date) as bucket_date,
+    coalesce(s.sessions, 0) as sessions,
+    coalesce(k.abandoned_checkouts, 0) as abandoned_checkouts
+  from sesiones s
+  full join checkouts k on k.bucket_date = s.bucket_date
+  order by 1;
+$$;
+
+grant execute on function public.shopify_funnel_daily(uuid, timestamptz, timestamptz, uuid) to authenticated;
+
+-- El indice que calza con el predicado de fecha, junto a la funcion que lo
+-- necesita (ADR-0006 pto 6).
+create index if not exists shopify_abandoned_checkouts_org_created_idx
+  on public.shopify_abandoned_checkouts (organization_id, store_id, external_created_at);

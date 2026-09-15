@@ -15,6 +15,7 @@ import { formatMoney } from "@/lib/money";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
 import { ModuleSummary } from "@/components/module-summary";
 import { ShopifyInsightsSections } from "./insights-sections";
+import { ProductCostImport } from "./product-cost-import";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
   AreaChart,
@@ -70,6 +71,9 @@ type ShopifyMetrics = {
     margin_pct: number;
     items_with_cost: number;
     items_without_cost: number;
+    // Lineas valoradas con el coste que Shopify reporta HOY, porque no hay un
+    // coste fechado que cubra la fecha del pedido.
+    items_with_estimated_cost: number;
   };
   // Embudo: sesiones de ShopifyQL + pedidos propios. `null` o
   // `has_sessions: false` = todavía no tenemos el dato (bloque `sessions` sin
@@ -143,6 +147,23 @@ function MeasurementCard({ metrics }: { metrics: ShopifyMetrics | null }) {
           aqui abajo se puede cargar suelto por SKU
         </a>
         .
+      </>,
+    );
+  }
+
+  // No es un error, es una aproximacion que hay que declarar: el coste actual
+  // de Shopify aplicado a un pedido viejo. Mejor que contar el producto como
+  // gratis, pero el margen de ese periodo no es exacto y conviene saberlo.
+  if (metrics.margin.items_with_estimated_cost > 0) {
+    problems.push(
+      <>
+        <strong>
+          {metrics.margin.items_with_estimated_cost.toLocaleString("es-ES")}{" "}
+          lineas se valoran con el coste de hoy.
+        </strong>{" "}
+        No tienen un coste cargado para la fecha de su pedido, asi que se usa el
+        que Shopify reporta ahora mismo. Si los costes han cambiado desde
+        entonces, el margen de los meses viejos se desvia.
       </>,
     );
   }
@@ -725,6 +746,10 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   </div>
                   {costFeedback ? <p className="text-xs text-muted">{costFeedback}</p> : null}
                 </form>
+                <ProductCostImport
+                  organizationId={organization!.id}
+                  onImported={() => void loadMetrics()}
+                />
               </div>
             </div>
           </>

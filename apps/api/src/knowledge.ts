@@ -299,6 +299,7 @@ export async function createKnowledgeDocument(
       title: title.slice(0, 255),
       description:
         typeof payload.description === "string" ? payload.description : null,
+      content,
       source_type: sourceType,
       visibility: organizationId === null ? "global" : "organization",
       audience: requestedAudience,
@@ -490,6 +491,66 @@ export async function listKnowledgeDocuments(
     ok: true as const,
     data: { organization_id: organizationId, documents: data ?? [] },
   };
+}
+
+/**
+ * Contenido completo de un documento (para "verlo bien" en el panel, no solo
+ * su ficha). Mismo criterio de acceso que listar: global = platform_admin,
+ * organizacion = membership sobre esa org. No usa RLS (`createServiceClient`)
+ * porque el filtro de tenant ya esta aqui, igual que en el resto del modulo.
+ */
+export async function getKnowledgeDocument(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  documentId: string,
+) {
+  const isGlobal = organizationId === "global";
+
+  if (isGlobal) {
+    if (context.profile.platform_role !== "platform_admin") {
+      return {
+        ok: false as const,
+        statusCode: 403,
+        error: "global_knowledge_denied",
+      };
+    }
+  } else if (
+    !context.memberships.some((item) => item.organization_id === organizationId)
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_access_denied",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const query = supabase
+    .from("knowledge_documents")
+    .select(
+      "id, organization_id, title, description, source_type, visibility, version, status, audience, content, created_at, updated_at",
+    )
+    .eq("id", documentId);
+
+  const { data: document, error } = await (
+    isGlobal ? query.is("organization_id", null) : query.eq("organization_id", organizationId)
+  ).maybeSingle();
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "knowledge_document_load_failed",
+      detail: error.message,
+    };
+  }
+
+  if (!document) {
+    return { ok: false as const, statusCode: 404, error: "knowledge_document_not_found" };
+  }
+
+  return { ok: true as const, data: { document } };
 }
 
 /**

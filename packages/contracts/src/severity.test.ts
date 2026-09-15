@@ -13,6 +13,7 @@ import {
   assessSeverity,
   checkSeverityInvariants,
   exposureShare,
+  metricUnitKind,
   recurrenceFrom,
   velocityFrom,
   type CaseForSeverity,
@@ -652,4 +653,29 @@ test("D10: la evaluacion no tiene prioridad, accion ni esfuerzo", () => {
   ]) {
     assert.ok(!(prohibida in e), `${prohibida} no puede existir aqui`);
   }
+});
+
+test("D10: una perdida en dinero no tiene cuota sobre un recuento", () => {
+  // Lo encontro la primera corrida real: 2.280 EUR entre 50 pedidos daba un
+  // 4.560%. No era un error de magnitud sino de categoria. La base se registra
+  // igual --el guardrail 15 quiere varias-- pero sin cuota y diciendo por que.
+  assert.equal(metricUnitKind("net_sales"), "money");
+  assert.equal(metricUnitKind("orders_count"), "count");
+  assert.equal(exposureShare(2280, 50, false), null);
+  assert.ok(exposureShare(2280, 8220, true) != null);
+
+  const e = assessSeverity(entrada());
+  const pedidos = e.exposures.find((x) => x.denominator === "orders");
+
+  assert.equal(pedidos?.exposure_share, null);
+  assert.match(pedidos?.denominator_note ?? "", /misma unidad/);
+  assert.equal(
+    pedidos?.denominator_value,
+    410,
+    "la base se guarda igual: quitarla dejaria la cuota sin contexto",
+  );
+
+  // Y la que si comparte unidad conserva su cuota.
+  const revenue = e.exposures.find((x) => x.denominator === "revenue");
+  assert.ok(Math.abs((revenue?.exposure_share ?? 0) - 2400 / 78000) < 1e-9);
 });

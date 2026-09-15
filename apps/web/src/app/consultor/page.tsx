@@ -10,7 +10,6 @@ import {
 } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
-import { useAdminViewMode } from "@/components/admin-view-mode";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
@@ -1946,35 +1945,15 @@ export default function ConsultantPage() {
   return (
     <PortalShell title="Clientes">
       {(bootstrap, token) => (
-        <ConsultantPanelWithViewMode
+        <ConsultantPanel
           token={token}
-          platformRole={bootstrap.profile.platform_role}
+          isPlatformAdmin={bootstrap.profile.platform_role === "platform_admin"}
+          canManageStores={["consultant", "platform_admin"].includes(
+            bootstrap.profile.platform_role,
+          )}
         />
       )}
     </PortalShell>
   );
 }
 
-// Separacion de capacidades:
-//  - canManageStores: borrar/restaurar una tienda del cliente. Es del rol
-//    consultor -> tambien en la vista "consultor" de un platform_admin.
-//  - isPlatformAdmin (vista admin): editar/borrar el cliente entero y el panel
-//    de accesos. Se apaga cuando un platform_admin cambia a la vista consultor.
-function ConsultantPanelWithViewMode({
-  token,
-  platformRole,
-}: {
-  token: string;
-  platformRole: string;
-}) {
-  const { viewMode } = useAdminViewMode();
-  return (
-    <ConsultantPanel
-      token={token}
-      isPlatformAdmin={
-        platformRole === "platform_admin" && viewMode === "admin"
-      }
-      canManageStores={["consultant", "platform_admin"].includes(platformRole)}
-    />
-  );
-}

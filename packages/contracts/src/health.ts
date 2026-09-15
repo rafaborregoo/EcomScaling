@@ -829,3 +829,39 @@ export function assessHealth(input: HealthEngineInput): HealthAssessment[] {
     };
   });
 }
+
+// --- Lo que se declara ------------------------------------------------------
+
+/**
+ * Lo que alguien escribe para decir contra que se juzga una metrica en ESTA
+ * tienda.
+ *
+ * Los catalogos son los mismos que las check constraints de
+ * `20260915140000_f3_d04_salud_por_capacidad.sql`, como el resto del fichero.
+ * Las dos reglas que van aqui y no en el esquema son las dos que dan un mensaje
+ * util en pantalla en vez de un error de Postgres:
+ *
+ *   - una referencia sin valor no sirve para juzgar nada;
+ *   - un benchmark externo tiene que decir de donde sale (guardrail 13: no lo
+ *     prohibe, exige poder discutirlo).
+ */
+export const healthReferenceInputSchema = z
+  .object({
+    organization_id: z.string().uuid(),
+    capability: z.enum(CAPABILITIES),
+    metric: z.string().min(1).max(80),
+    reference_type: z.enum(HEALTH_REFERENCE_TYPES),
+    value: z.number().nullable().optional(),
+    value_text: z.string().max(400).nullable().optional(),
+    unit: z.string().max(16).nullable().optional(),
+    direction: z.enum(["max", "min", "range"]).nullable().optional(),
+    source: z.string().max(400).nullable().optional(),
+  })
+  .refine((r) => r.value != null || (r.value_text != null && r.value_text.length > 0), {
+    message: "Una referencia sin valor no sirve para juzgar nada.",
+  })
+  .refine((r) => r.reference_type !== "external_benchmark" || Boolean(r.source), {
+    message: "Un benchmark externo tiene que decir de donde sale para poder discutirlo.",
+  });
+
+export type HealthReferenceDeclaration = z.infer<typeof healthReferenceInputSchema>;

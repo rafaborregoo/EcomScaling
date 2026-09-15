@@ -5,6 +5,7 @@ import { useCachedQuery } from "@/lib/use-cached-query";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { displayValue, organizationStatusTone } from "@/lib/display-labels";
 import {
   AsyncState,
   Badge,
@@ -32,6 +33,7 @@ type AssignedOrg = {
   organization_id: string;
   display_name: string;
   is_primary: boolean;
+  status: string;
 };
 
 type Consultant = {
@@ -366,6 +368,15 @@ function AssignmentEditor({
             </Badge>
           ) : null}
         </span>
+      ),
+    },
+    {
+      key: "status",
+      label: "Estado",
+      render: (row) => (
+        <Badge tone={organizationStatusTone(row.status)}>
+          {displayValue(row.status)}
+        </Badge>
       ),
     },
     {

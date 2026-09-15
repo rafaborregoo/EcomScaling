@@ -16,6 +16,8 @@ import {
   Input,
   List,
   LoadingBlock,
+  Markdown,
+  Modal,
   Textarea,
   toast,
 } from "@/components/ui";
@@ -50,6 +52,30 @@ function PlatformKnowledgePanel() {
   const [content, setContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [viewing, setViewing] = useState<GlobalDocument | null>(null);
+  const [viewedContent, setViewedContent] = useState<string | null>(null);
+  const [viewError, setViewError] = useState<string | null>(null);
+
+  async function openDocument(document: GlobalDocument) {
+    setViewing(document);
+    setViewedContent(null);
+    setViewError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/global/knowledge/documents/${document.id}`,
+      );
+      if (!response.ok) {
+        setViewError(await readApiError(response));
+        return;
+      }
+      const payload = (await response.json()) as {
+        document: { content: string | null };
+      };
+      setViewedContent(payload.document.content ?? "Sin contenido.");
+    } catch {
+      setViewError("No se pudo cargar el documento por un error de red.");
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -222,7 +248,7 @@ function PlatformKnowledgePanel() {
             {documents.map((document) => (
               <List.Item
                 key={document.id}
-                className="grid gap-2 px-4 py-3 md:grid-cols-[1fr_140px_120px]"
+                className="grid items-center gap-2 px-4 py-3 md:grid-cols-[1fr_140px_120px_80px]"
               >
                 <div>
                   <p className="font-medium">{document.title}</p>
@@ -241,11 +267,49 @@ function PlatformKnowledgePanel() {
                   {displayValue(document.status)} ·{" "}
                   {new Date(document.created_at).toLocaleDateString("es-ES")}
                 </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void openDocument(document)}
+                >
+                  Ver
+                </Button>
               </List.Item>
             ))}
           </List>
         )}
       </Card>
+
+      <Modal
+        isOpen={viewing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setViewing(null);
+            setViewedContent(null);
+            setViewError(null);
+          }
+        }}
+      >
+        <Modal.Backdrop>
+          <Modal.Container size="lg">
+            <Modal.Dialog aria-label={viewing?.title ?? "Documento"}>
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <Modal.Heading>{viewing?.title}</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                {viewError ? (
+                  <ErrorBlock>{viewError}</ErrorBlock>
+                ) : viewedContent === null ? (
+                  <LoadingBlock label="Cargando documento…" />
+                ) : (
+                  <Markdown>{viewedContent}</Markdown>
+                )}
+              </Modal.Body>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
     </div>
   );
 }
