@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (201 archivos).
+-- Regenerado desde supabase/migrations (202 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -22005,6 +22005,15 @@ drop policy if exists "capability_dependencies_select_all" on public.capability_
 create policy "capability_dependencies_select_all" on public.capability_dependencies
   for select to authenticated
   using (true);
+
+-- =============================================================================
+-- Migracion: 20260915092321_consultant_business_name.sql
+-- =============================================================================
+alter table public.profiles
+  add column if not exists business_name text;
+
+comment on column public.profiles.business_name is
+  'Nombre del negocio o agencia mostrado durante el onboarding del consultor.';
 
 -- =============================================================================
 -- Migracion: 20260915140000_f3_d04_salud_por_capacidad.sql
