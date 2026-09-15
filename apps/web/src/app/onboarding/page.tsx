@@ -182,6 +182,8 @@ function ProfileStep({
 }) {
   const [name, setName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState("");
+  const [isConsultant, setIsConsultant] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -190,12 +192,14 @@ function ProfileStep({
     async function loadProfile() {
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, avatar_url")
+        .select("full_name, avatar_url, business_name, platform_role")
         .eq("id", userId)
         .maybeSingle();
       if (cancelled || !data) return;
       setName((current) => current || (data.full_name ?? ""));
       setAvatarUrl((current) => current ?? data.avatar_url ?? null);
+      setBusinessName((current) => current || (data.business_name ?? ""));
+      setIsConsultant(data.platform_role === "consultant");
     }
     void loadProfile();
     return () => {
@@ -211,6 +215,7 @@ function ProfileStep({
       .update({
         full_name: name.trim() || null,
         avatar_url: avatarUrl,
+        business_name: isConsultant ? businessName.trim() || null : null,
         onboarding_completed_at: new Date().toISOString(),
       })
       .eq("id", userId);
@@ -232,6 +237,17 @@ function ProfileStep({
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
 
+        {isConsultant ? (
+          <Field label="Nombre de tu negocio o agencia">
+            <Input
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              placeholder="Mi agencia"
+              required
+            />
+          </Field>
+        ) : null}
+
         <AvatarPicker
           name={name}
           value={avatarUrl}
@@ -240,7 +256,7 @@ function ProfileStep({
         />
 
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <Button disabled={busy} onClick={() => void submit()}>
+        <Button disabled={busy || (isConsultant && !businessName.trim())} onClick={() => void submit()}>
           {busy ? "Guardando..." : "Finalizar"}
         </Button>
       </div>

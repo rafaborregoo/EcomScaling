@@ -107,6 +107,7 @@ const consultantNavGroups: NavGroup[] = [
       // Lo unico del nav que NO es de un cliente: es la pantalla del consultor
       // sobre si mismo, asi que va la primera y no cambia al cambiar de tienda.
       { href: "/mi-trabajo", label: "Mi trabajo" },
+      { href: "/consultor", label: "Clientes" },
       // Tampoco es de un cliente: son las tiendas propias del consultor.
       { href: "/tiendas", label: "Mis Tiendas" },
       { href: "/camino", label: "Mi Camino" },

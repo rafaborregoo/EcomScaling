@@ -14,6 +14,7 @@ import {
   type AssignmentRow,
 } from "./consultant-partners.js";
 import type { AuthContext } from "./auth-context.js";
+import { isAuthEmailRateLimit } from "./consultant.js";
 
 const A = "consultor-a";
 const B = "consultor-b";
@@ -21,6 +22,12 @@ const B = "consultor-b";
 const row = (org: string, user: string): AssignmentRow => ({
   organization_id: org,
   consultant_user_id: user,
+});
+
+test("reconoce el límite de correo de Supabase sin ocultarlo como invite_failed", () => {
+  assert.equal(isAuthEmailRateLimit({ message: "email rate limit exceeded" }), true);
+  assert.equal(isAuthEmailRateLimit({ status: 429, message: "too many requests" }), true);
+  assert.equal(isAuthEmailRateLimit({ status: 500, message: "smtp unavailable" }), false);
 });
 
 test("cada socio recibe las tiendas que solo lleva el otro", () => {

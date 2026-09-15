@@ -474,10 +474,14 @@ function ConsultantCreateForm({
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [manualInvite, setManualInvite] = useState<{ email: string; url: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   async function submit() {
     setBusy(true);
     setError(null);
+    setManualInvite(null);
+    const targetEmail = email.trim().toLowerCase();
     try {
       const response = await apiFetch("/v1/admin/consultants", {
         method: "POST",
@@ -491,9 +495,18 @@ function ConsultantCreateForm({
         setError(await readApiError(response));
         return;
       }
+      const payload = (await response.json()) as {
+        delivery?: "email" | "manual_link";
+        invite_url?: string | null;
+      };
       setEmail("");
       setFullName("");
-      await onCreated(`Invitación enviada por email a ${email}.`);
+      if (payload.delivery === "manual_link" && payload.invite_url) {
+        setManualInvite({ email: targetEmail, url: payload.invite_url });
+        await onCreated("Consultor creado. Supabase alcanzó el límite de correo; copia y comparte el enlace de acceso.");
+      } else {
+        await onCreated(`Invitación enviada por email a ${targetEmail}.`);
+      }
     } catch {
       setError("No se pudo invitar al consultor. Revisa la conexión e inténtalo de nuevo.");
     } finally {
@@ -511,6 +524,29 @@ function ConsultantCreateForm({
     >
       <div className="grid gap-4">
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        {manualInvite ? (
+          <div className="rounded-md border border-separator bg-surface p-4">
+            <p className="text-sm font-medium">Enlace de acceso para {manualInvite.email}</p>
+            <p className="mt-1 text-xs text-muted">
+              El correo de Supabase está temporalmente limitado. Comparte este enlace únicamente con el consultor invitado.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Input readOnly value={manualInvite.url} aria-label="Enlace de invitación" />
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard.writeText(manualInvite.url).then(() => {
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 2000);
+                  });
+                }}
+              >
+                {copied ? "Copiado" : "Copiar enlace"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Email">
             <Input

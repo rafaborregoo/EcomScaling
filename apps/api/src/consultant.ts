@@ -4013,8 +4013,20 @@ function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-/** Invita a un consultor por email (Supabase manda el correo) y le sube el
- *  platform_role a 'consultant'. El profile lo crea handle_new_auth_user. */
+export function isAuthEmailRateLimit(
+  error: {
+    message?: string | undefined;
+    status?: number | undefined;
+  } | null,
+) {
+  return (
+    error?.status === 429 ||
+    /email\s+rate\s+limit|rate\s+limit.*email/i.test(error?.message ?? "")
+  );
+}
+
+/** Invita a un consultor y le sube el platform_role a 'consultant'. Si el
+ * SMTP de Supabase agota su limite, crea un enlace para compartir manualmente. */
 export async function inviteConsultant(
   env: ApiEnv,
   context: AuthContext,
@@ -4030,24 +4042,44 @@ export async function inviteConsultant(
   }
 
   const supabase = createServiceClient(env);
-  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
+  const inviteOptions = {
     redirectTo: onboardingRedirectTo(env),
     ...(fullName ? { data: { full_name: fullName } } : {}),
-  });
-  if (error || !data?.user) {
-    const already = /already/i.test(error?.message ?? "");
+  };
+  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);
+
+  let invitedUser = data?.user ?? null;
+  let delivery: "email" | "manual_link" = "email";
+  let inviteUrl: string | null = null;
+  let finalError = error;
+
+  if (error && isAuthEmailRateLimit(error)) {
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: "invite",
+      email,
+      options: inviteOptions,
+    });
+    invitedUser = linkData?.user ?? null;
+    inviteUrl = linkData?.properties?.action_link ?? null;
+    finalError = linkError;
+    if (!linkError && invitedUser && inviteUrl) delivery = "manual_link";
+  }
+
+  if (finalError || !invitedUser || (delivery === "manual_link" && !inviteUrl)) {
+    const already = /already|exist/i.test(finalError?.message ?? "");
+    const rateLimited = isAuthEmailRateLimit(finalError);
     return {
       ok: false as const,
-      statusCode: already ? 409 : 502,
-      error: already ? "email_already_registered" : "invite_failed",
-      detail: error?.message,
+      statusCode: already ? 409 : rateLimited ? 429 : 502,
+      error: already ? "email_already_registered" : rateLimited ? "auth_email_rate_limited" : "invite_failed",
+      detail: finalError?.message,
     };
   }
 
   const { error: roleError } = await supabase
     .from("profiles")
     .update({ platform_role: CONSULTANT_ROLE, full_name: fullName, is_active: true })
-    .eq("id", data.user.id);
+    .eq("id", invitedUser.id);
   if (roleError) {
     return { ok: false as const, statusCode: 500, error: "profile_role_update_failed", detail: roleError.message };
   }
@@ -4057,10 +4089,13 @@ export async function inviteConsultant(
     actorUserId: context.user.id,
     action: "admin.invite_consultant",
     entityType: "profile",
-    entityId: data.user.id,
-    newData: { email, full_name: fullName, platform_role: CONSULTANT_ROLE },
+    entityId: invitedUser.id,
+    newData: { email, full_name: fullName, platform_role: CONSULTANT_ROLE, delivery },
   });
-  return { ok: true as const, data: { user_id: data.user.id, email, full_name: fullName } };
+  return {
+    ok: true as const,
+    data: { user_id: invitedUser.id, email, full_name: fullName, delivery, invite_url: inviteUrl },
+  };
 }
 
 /** Renombra o activa/desactiva un consultor ya existente. Solo perfiles que ya
