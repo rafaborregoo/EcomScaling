@@ -38,12 +38,6 @@ type Partner = {
 export function ConsultantPartnersSection() {
   const [partners, setPartners] = useState<Partner[] | null>(null);
   const [email, setEmail] = useState("");
-  // Cuenta existente que no es de consultor: se pregunta antes de convertirla.
-  const [promoteTarget, setPromoteTarget] = useState<{
-    email: string;
-    message: string;
-    storeCount: number;
-  } | null>(null);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,36 +63,16 @@ export function ConsultantPartnersSection() {
 
   async function add(event: FormEvent) {
     event.preventDefault();
-    void submit(email.trim(), false);
-  }
-
-  // `promote` va aparte del formulario: la primera llamada puede volver con
-  // "esa cuenta es de cliente", y solo entonces se pregunta. Un correo mal
-  // escrito no puede cambiarle el rol a un desconocido de un tiron.
-  async function submit(targetEmail: string, promote: boolean) {
+    const targetEmail = email.trim();
     if (!targetEmail) return;
     setAdding(true);
-    setPromoteTarget(null);
     try {
       const response = await apiFetch("/v1/consultant/partners", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: targetEmail, promote }),
+        body: JSON.stringify({ email: targetEmail }),
       });
       if (!response.ok) {
-        const body = (await response.clone().json().catch(() => null)) as {
-          can_promote?: boolean;
-          message?: string;
-          partner_preview?: { full_name: string | null; store_count: number };
-        } | null;
-        if (body?.can_promote) {
-          setPromoteTarget({
-            email: targetEmail,
-            message: body.message ?? "Esa cuenta no es de consultor.",
-            storeCount: body.partner_preview?.store_count ?? 0,
-          });
-          return;
-        }
         toast.danger(await readApiError(response));
         return;
       }
@@ -107,7 +81,6 @@ export function ConsultantPartnersSection() {
         shared_assignments: number;
         invited_new_account?: boolean;
         invite_url?: string;
-        promoted_to_consultant?: boolean;
       };
       const invitado = targetEmail;
       setEmail("");
@@ -124,13 +97,6 @@ export function ConsultantPartnersSection() {
             ? `No se pudo enviar el correo. Pásale este enlace: ${payload.invite_url}`
             : `Tiene que abrir el correo y crear su contraseña. ${reparto}`,
         });
-      } else if (payload.promoted_to_consultant) {
-        toast.success(
-          `${payload.partner.full_name ?? invitado} ya es consultor`,
-          {
-            description: `Sus tiendas siguen siendo suyas y las tiene en Mis Tiendas. Le hemos avisado por correo. ${reparto}`,
-          },
-        );
       } else {
         toast.success(
           `Ahora compartes cartera con ${payload.partner.full_name ?? "tu socio"}`,
@@ -190,35 +156,6 @@ export function ConsultantPartnersSection() {
           {adding ? "Emparejando…" : "Compartir cartera"}
         </Button>
       </form>
-
-      {promoteTarget ? (
-        <Banner tone="warn" className="mt-3">
-          <p className="text-sm">{promoteTarget.message}</p>
-          <p className="mt-1 text-xs text-muted">
-            {promoteTarget.storeCount > 0
-              ? `No pierde nada: sus ${promoteTarget.storeCount} ${
-                  promoteTarget.storeCount === 1 ? "tienda" : "tiendas"
-                } siguen siendo suyas y pasan a Mis Tiendas. Le avisamos por correo.`
-              : "Le avisamos por correo del cambio."}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              disabled={adding}
-              onClick={() => void submit(promoteTarget.email, true)}
-            >
-              {adding ? "Convirtiendo…" : "Convertir en consultor"}
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setPromoteTarget(null)}
-            >
-              Cancelar
-            </Button>
-          </div>
-        </Banner>
-      ) : null}
 
       <p className="mt-2 text-xs text-muted">
         Si no tiene cuenta, se la creamos y le llega una invitación por correo.

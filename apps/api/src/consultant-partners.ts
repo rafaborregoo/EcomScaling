@@ -15,7 +15,6 @@ import type { LoadedApiEnv } from "@ecomscaling/config";
 import type { AuthContext } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
 import { provisionConsultantAccount } from "./consultant.js";
-import { sendInviteMail } from "./invite-mailer.js";
 
 /** Portada de la app, para los correos que no llevan enlace de un solo uso. */
 function appUrl(env: ApiEnv): string {
@@ -29,35 +28,33 @@ export type PartnerProfileSnapshot = {
 
 export type PartnerDecision =
   | { kind: "pair" }
-  | { kind: "ask_promote" }
-  | { kind: "promote" }
   | { kind: "refuse"; error: string };
 
 /**
  * Qué hacer con la cuenta que hay detrás del correo. Aparte del acceso a datos
- * porque es la regla que decide si a alguien le cambia el rol, y esa no puede
+ * porque es la regla que decide quien entra en una cartera, y esa no puede
  * quedar enterrada entre queries donde nadie la vuelva a mirar.
  *
- *  - ya es consultor (o admin)  -> emparejar y ya.
- *  - es un usuario normal       -> preguntar primero; solo con `promote` se toca.
- *  - desactivada                -> no, en ninguno de los dos casos.
- *  - un admin NUNCA se promociona por aqui: entra por "pair", no por "promote".
+ *  - ya es consultor (o admin), activa -> emparejar.
+ *  - cualquier otra cosa               -> no, y se explica por que.
+ *
+ * Lo que esta funcion NO hace, a proposito: convertir en consultor una cuenta
+ * que hoy entra como cliente. Esa cuenta es de otra persona y el cambio de rol
+ * lo decide ella, no quien escribe su correo aqui. Se lo pide fuera de la
+ * plataforma y, cuando esa persona sea consultora, el emparejado funciona.
  */
 export function decidePartnerPromotion(
   profile: PartnerProfileSnapshot,
-  promote: boolean,
 ): PartnerDecision {
   if (!profile) return { kind: "refuse", error: "profile_missing" };
 
-  if (["consultant", "platform_admin"].includes(profile.platform_role)) {
-    return profile.is_active
-      ? { kind: "pair" }
-      : { kind: "refuse", error: "consultant_inactive" };
+  if (!["consultant", "platform_admin"].includes(profile.platform_role)) {
+    return { kind: "refuse", error: "not_a_consultant" };
   }
 
-  if (!promote) return { kind: "ask_promote" };
-  if (!profile.is_active) return { kind: "refuse", error: "account_inactive" };
-  return { kind: "promote" };
+  return profile.is_active
+    ? { kind: "pair" }
+    : { kind: "refuse", error: "consultant_inactive" };
 }
 
 type ApiEnv = LoadedApiEnv;
@@ -282,7 +279,7 @@ export async function listConsultantPartners(
 export async function addConsultantPartner(
   env: ApiEnv,
   context: AuthContext,
-  body: { email?: unknown; promote?: unknown },
+  body: { email?: unknown },
 ) {
   const gate = requireConsultant(context);
   if (gate.ok === false) return gate;
@@ -346,11 +343,10 @@ export async function addConsultantPartner(
   // Emparejarse reparte tiendas: el socio tiene que ser consultor, no un
   // cliente ni un usuario cualquiera con cuenta.
   //
-  // Una cuenta de cliente SI se puede convertir, pero nunca en silencio: el
-  // fallo realista aqui es una errata en el correo, y una letra de mas no puede
-  // cambiarle el rol a un desconocido. Primero se responde `not_a_consultant`
-  // contando a quien pertenece y que arrastra; el consultor confirma y se
-  // reenvia con `promote`. La persona se entera por correo en cualquier caso.
+  // Una cuenta que ya existe NO se convierte desde aqui, ni con confirmacion:
+  // es de otra persona y el cambio de rol lo decide ella. Lo unico que se crea
+  // sin preguntar es una cuenta que no existia (arriba), que no le quita nada
+  // a nadie.
   const decision = decidePartnerPromotion(
     partnerProfile
       ? {
@@ -358,17 +354,19 @@ export async function addConsultantPartner(
           is_active: Boolean(partnerProfile.is_active),
         }
       : null,
-    body.promote === true,
   );
 
   if (decision.kind === "refuse") {
     const MESSAGES: Record<string, string> = {
       profile_missing:
         "Esa cuenta existe en el sistema de acceso pero no tiene perfil. Avisa a la dirección de EcomScaling con el correo.",
+      // No se ofrece convertirla desde aqui a proposito: esa cuenta es de otra
+      // persona y el cambio de rol lo decide ella. El consultor se lo pide
+      // fuera, y cuando esa persona sea consultora el emparejado funciona.
+      not_a_consultant:
+        "Esa cuenta existe, pero hoy entra como cliente. Habla con esa persona para que pase su cuenta a consultor; cuando lo haya hecho, vuelve aquí y os emparejáis.",
       consultant_inactive:
         "Esa cuenta de consultor está desactivada y no puede llevar tiendas. Pide a la dirección de EcomScaling que la reactiven.",
-      account_inactive:
-        "Esa cuenta está desactivada. Pide a la dirección de EcomScaling que la reactiven antes de convertirla en consultor.",
     };
     return {
       ok: false as const,
@@ -376,96 +374,6 @@ export async function addConsultantPartner(
       error: decision.error,
       message: MESSAGES[decision.error] ?? "No se puede emparejar esa cuenta.",
     };
-  }
-
-  let promoted = false;
-  if (decision.kind !== "pair") {
-    if (!partnerProfile) {
-      return {
-        ok: false as const,
-        statusCode: 404,
-        error: "profile_missing",
-      };
-    }
-
-    // Cuantas tiendas se lleva consigo. Se cuenta antes de convertir para
-    // poder decirselo al consultor en la confirmacion.
-    const { count: storeCount } = await supabase
-      .from("organization_members")
-      .select("organization_id", { count: "exact", head: true })
-      .eq("user_id", partnerId)
-      .eq("is_active", true);
-    const stores = storeCount ?? 0;
-
-    if (decision.kind === "ask_promote") {
-      return {
-        ok: false as const,
-        statusCode: 409,
-        error: "not_a_consultant",
-        message: `Esa cuenta no es de consultor: hoy entra como cliente${
-          stores > 0
-            ? ` y lleva ${stores} ${stores === 1 ? "tienda" : "tiendas"}`
-            : ""
-        }. Si es tu compañero, puedes convertirla en consultor${
-          stores > 0 ? ": sus tiendas pasan a ser suyas en Mis Tiendas" : ""
-        }.`,
-        // La UI ofrece "Convertir en consultor" con estos datos; sin esto
-        // tendria que adivinar que este 409 concreto tiene salida.
-        can_promote: true,
-        partner_preview: {
-          full_name: (partnerProfile.full_name as string | null) ?? null,
-          store_count: stores,
-        },
-      };
-    }
-
-    // Solo se sube de 'user' a 'consultant'. Un platform_admin ya entra por la
-    // rama de arriba, y nada de lo que hay aqui debe poder tocar a un admin.
-    const { error: promoteError } = await supabase
-      .from("profiles")
-      .update({ platform_role: "consultant" })
-      .eq("id", partnerId)
-      .eq("platform_role", "user");
-    if (promoteError) {
-      return {
-        ok: false as const,
-        statusCode: 500,
-        error: "promote_failed",
-        detail: promoteError.message,
-      };
-    }
-    promoted = true;
-
-    // Las membresias no se tocan: son ellas las que dan acceso a sus tiendas, y
-    // al pasar a consultor esas mismas filas se leen como "tiendas propias".
-    // No se toca tampoco su suscripcion: cambiarle a alguien lo que paga sin
-    // decirselo es peor que el cambio de rol.
-    await recordAuditLog(supabase, {
-      organizationId: null,
-      actorUserId: context.user.id,
-      action: "consultant.promote_to_consultant",
-      entityType: "profile",
-      entityId: partnerId,
-      oldData: { platform_role: partnerProfile.platform_role },
-      newData: { platform_role: "consultant", stores_carried: stores },
-    });
-
-    // Que se entere la persona, no solo la auditoria: es su cuenta.
-    await sendInviteMail(env, {
-      to: email,
-      recipientName: (partnerProfile.full_name as string | null) ?? null,
-      title: "Ahora eres consultor en EcomScaling",
-      intro: `Tu cuenta ha pasado a ser de consultor${
-        stores > 0
-          ? `, y tus ${stores} ${stores === 1 ? "tienda" : "tiendas"} siguen siendo tuyas: las encuentras en Mis Tiendas`
-          : ""
-      }. Si crees que es un error, responde a este correo.`,
-      actionLabel: "Entrar en EcomScaling",
-      actionUrl: appUrl(env),
-      senderName: context.profile.full_name,
-    });
-
-    partnerProfile.platform_role = "consultant";
   }
 
   // Las dos direcciones en la misma escritura: una pareja a medias haria que
@@ -535,7 +443,6 @@ export async function addConsultantPartner(
       // consultor que su compañero tiene que abrir el correo, y darle el enlace
       // a mano si el SMTP no estaba disponible.
       invited_new_account: invited !== null,
-      promoted_to_consultant: promoted,
       ...(invited && invited.delivery === "manual_link"
         ? { invite_url: invited.url }
         : {}),

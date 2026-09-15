@@ -123,6 +123,8 @@ import {
   deactivateShippingRule,
   getFinancialConfig,
   upsertFinancialSettings,
+  upsertMetricTarget,
+  retireMetricTarget,
 } from "./financial-config.js";
 import {
   createMetaConnectionAuthUrl,
@@ -884,7 +886,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
-  app.post<{ Body: { email?: string; promote?: boolean } }>(
+  app.post<{ Body: { email?: string } }>(
     "/v1/consultant/partners",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -3041,6 +3043,62 @@ export async function buildApp(): Promise<FastifyInstance> {
         auth.context,
         request.params.organizationId,
         request.params.ruleId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: {
+      metricKey?: string;
+      targetValue?: number;
+      period?: string;
+      storeId?: string | null;
+    };
+  }>(
+    "/v1/organizations/:organizationId/financial-config/metric-targets",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await upsertMetricTarget(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; targetId: string } }>(
+    "/v1/organizations/:organizationId/financial-config/metric-targets/:targetId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await retireMetricTarget(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.targetId,
       );
 
       if (isServiceFailure(result)) {
