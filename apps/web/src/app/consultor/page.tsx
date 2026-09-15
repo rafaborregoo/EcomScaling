@@ -101,6 +101,7 @@ type ConsultantOrganization = {
   timezone: string;
   currency_code: string;
   consultant_count: number;
+  is_own_store: boolean;
   store_count: number;
   subscription: {
     organization_id: string;
@@ -1317,7 +1318,10 @@ function ConsultantPanel({
       const payload = (await response.json()) as {
         organizations: ConsultantOrganization[];
       };
-      setOrganizations(payload.organizations);
+      // Las tiendas propias del consultor vienen en la misma lista (las
+      // necesitan integraciones, agenda y planificacion), pero esta pantalla
+      // es la cartera: aqui "Clientes" son clientes.
+      setOrganizations(payload.organizations.filter((o) => !o.is_own_store));
       setError(null);
     } catch {
       setError(

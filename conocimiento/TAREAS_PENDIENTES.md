@@ -31,7 +31,12 @@ que es el checklist canonico del piloto. Aqui solo lo de esta linea de trabajo.
       la cadena importa: calidad (06:07), senales (06:17), contexto (06:27) y
       sintomas (06:37). El de madurez va aparte (05:47) porque no depende de
       ellos: mide de que es capaz el negocio, no que se ha movido.
-- [ ] **Commits.** Hay ~100 ficheros sin commitear y la instruccion es no hacer
+- [ ] **Desplegar la API y el worker al VPS.** El arreglo de la atribucion
+      vive en `shopify-order-journey.ts` y corre dentro de la reconciliacion,
+      que ya esta programada en el worker. Hasta que se despliegue, la cola de
+      419 pedidos sigue parada: el esquema esta puesto en produccion, el codigo
+      no.
+- [ ] **Commits.** Hay ficheros sin commitear y la instruccion es no hacer
       commits ni push. Cuando quieras, dime y los preparo.
 - [ ] **Destilar los 5 bloques que siguen sin capas** (`6.04`, `7.15`, `7.17`,
       `7.18`, `8.12`): solo tienen corpus maestro, hay que pasarlos por el
@@ -120,11 +125,19 @@ siendo buena idea dejarla.
       motor tiene techo estructural ahi: `measured` exige que la medida cambie
       decisiones (guardrail 20) y eso no esta en ninguna tabla. Falta la pantalla
       donde el consultor marque `influences_decisions` y `has_ownership`.
-- [ ] **Cerrar los huecos de dato que el bloque saca a la luz.** En la tienda
-      real de produccion: el 96% de los pedidos no trae origen, 43 de 44
-      referencias no tienen coste y no hay historico de existencias. Mientras
-      sigan asi, adquisicion y economia unitaria **no se pueden diagnosticar**
-      -- y eso lo dice el motor, no yo.
+- [x] ~~**El 96% de los pedidos no trae origen.**~~ **Arreglado el 2026-09-15.**
+      No era un problema de permisos: el webhook de Shopify no trae el customer
+      journey y la reconciliacion incremental filtra por `updated_at`, asi que
+      un pedido que entraba por webhook y no se volvia a tocar no se pedia
+      nunca. Ahora la reconciliacion lo rellena (`shopify-order-journey.ts`).
+      **Cola en produccion: 419 pedidos** dentro de la ventana esperando la
+      primera pasada; 334 se quedan fuera porque Shopify ya no guarda su
+      journey y eso no tiene arreglo.
+- [ ] **Coste por referencia: 43 de 44 vacias.** Sin coste no hay margen, y sin
+      margen `D03` declara la economia unitaria no observable. Se rellena en
+      Shopify (coste por variante) o conectando la fuente que lo tenga.
+- [ ] **No hay historico de existencias** (`shopify_inventory_level_snapshots`
+      esta a cero). Se sabe el stock de hoy, no el de la semana pasada.
 
 ### De la fase 3 entera
 

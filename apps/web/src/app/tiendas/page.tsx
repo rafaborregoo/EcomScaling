@@ -474,8 +474,9 @@ function ClientStoresCard({
         <LoadingBlock label="Cargando clientes..." />
       ) : clients.length === 0 ? (
         <EmptyState
-          title="Aún no tienes clientes asignados"
-          hint="Cuando se te asigne una organización como consultor, aparecerá aquí."
+          title="Aún no llevas clientes"
+          hint="Esto es tu cartera, aparte de tus tiendas propias de arriba. Da de alta un cliente o espera a que te asignen una organización."
+          action={<Link href="/consultor">Dar de alta un cliente</Link>}
         />
       ) : (
         <List as="ul">

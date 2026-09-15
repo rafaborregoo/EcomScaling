@@ -779,12 +779,14 @@ function PortfolioSection() {
           return;
         }
         const clients = (await clientsResponse.json()) as {
-          organizations: unknown[];
+          organizations: Array<{ is_own_store?: boolean }>;
         };
         const stores = (await storesResponse.json()) as { stores: unknown[] };
         if (cancelled) return;
         setCounts({
-          clients: clients.organizations.length,
+          // Sin filtrar, las tiendas propias se contarian dos veces: aqui y
+          // en la tarjeta de al lado.
+          clients: clients.organizations.filter((o) => !o.is_own_store).length,
           stores: stores.stores.length,
         });
         setError(null);

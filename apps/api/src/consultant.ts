@@ -152,8 +152,21 @@ export async function listConsultantOrganizations(
       };
     }
 
+    // Las tiendas propias del consultor (createOwnStore: membership real de
+    // owner, sin consultant_assignment) tienen que entrar aqui. De esta lista
+    // cuelgan integraciones, planificacion, agenda y el rollup del dashboard,
+    // asi que dejandola solo en las asignaciones la tienda se creaba bien en la
+    // base de datos y luego no aparecia en ningun sitio donde conectarla:
+    // "Sin clientes" en /integraciones aunque la tienda existiera.
+    const ownStoreIds = context.memberships
+      .filter((membership) => membership.accessSource === "membership")
+      .map((membership) => membership.organization_id);
+
     organizationIds = [
-      ...new Set((data ?? []).map((row) => row.organization_id as string)),
+      ...new Set([
+        ...(data ?? []).map((row) => row.organization_id as string),
+        ...ownStoreIds,
+      ]),
     ];
   }
 
@@ -316,8 +329,18 @@ export async function listConsultantOrganizations(
     });
   }
 
+  // Una tienda propia se opera igual que un cliente (integraciones, metricas,
+  // tareas) pero no es cartera. Quien liste "Clientes" filtra por esto en vez
+  // de adivinarlo cruzando memberships en el navegador.
+  const ownStoreIdSet = new Set(
+    context.memberships
+      .filter((membership) => membership.accessSource === "membership")
+      .map((membership) => membership.organization_id),
+  );
+
   const enriched = organizations.map((organization) => ({
     ...organization,
+    is_own_store: ownStoreIdSet.has(organization.id),
     subscription:
       subscriptionRows.find(
         (subscription) => subscription.organization_id === organization.id,

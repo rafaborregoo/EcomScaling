@@ -4,6 +4,7 @@ import type { LoadedApiEnv } from "@ecomscaling/config";
 import { createLogger } from "@ecomscaling/observability";
 import { STALE_SYNCING_MS } from "./shopify.js";
 import { runShopifyInitialSync } from "./shopify-sync.js";
+import { backfillOrderJourneys } from "./shopify-order-journey.js";
 
 type ApiEnv = LoadedApiEnv;
 const logger = createLogger("shopify-reconcile");
@@ -44,6 +45,8 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
   let attempted = 0;
   let failed = 0;
   let skipped = 0;
+  let journeysAsked = 0;
+  let journeysUpdated = 0;
 
   for (const connection of connections ?? []) {
     attempted += 1;
@@ -115,9 +118,36 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
         error: syncError instanceof Error ? syncError.message : String(syncError),
       });
     }
+
+    // La atribucion de los pedidos que entraron por webhook. Va aqui y no en el
+    // manejador del webhook porque aquel se procesa dentro de la peticion: una
+    // llamada a Shopify ahi puede marcar el webhook como fallido y hacernos
+    // perder el pedido entero por no haber podido averiguar de donde venia.
+    //
+    // Y va **fuera del try de arriba** a proposito: aunque el sync incremental
+    // falle, los pedidos que ya estan guardados siguen mereciendo su origen. El
+    // incremental filtra por `updated_at`, asi que un pedido que llego por
+    // webhook y no se volvio a tocar no entra en el nunca.
+    try {
+      const journeys = await backfillOrderJourneys(env, connection.id);
+      journeysAsked += journeys.asked;
+      journeysUpdated += journeys.updated;
+    } catch (journeyError) {
+      logger.error("Shopify journey backfill failed for connection", {
+        connection_id: connection.id,
+        organization_id: connection.organization_id,
+        error: journeyError instanceof Error ? journeyError.message : String(journeyError),
+      });
+    }
   }
 
-  logger.info("Shopify reconciliation pass completed", { attempted, failed, skipped });
+  logger.info("Shopify reconciliation pass completed", {
+    attempted,
+    failed,
+    skipped,
+    journeys_asked: journeysAsked,
+    journeys_updated: journeysUpdated,
+  });
 
-  return { attempted, failed, skipped };
+  return { attempted, failed, skipped, journeysAsked, journeysUpdated };
 }
