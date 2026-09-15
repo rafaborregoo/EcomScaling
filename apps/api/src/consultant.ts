@@ -6913,6 +6913,194 @@ export async function listConsultantSymptomMap(
 }
 
 /**
+ * FASE 3 / D04 — como esta cada capacidad hoy.
+ *
+ * Solo consultor. El estado de una capacidad ("tu operativa esta BAD") es una
+ * etiqueta sin la conversacion que la acompana; decidido en la matriz de
+ * audiencia el 2026-09-14 y no cambia hasta que haya redaccion para ensenarlo
+ * bien.
+ *
+ * Lo que aporta en una linea: `D05` dice que el CAC subio y `D06` que forma
+ * patron con otra cosa; esto dice **si eso deja la adquisicion en mal estado o
+ * no** -- y cuando no se puede saber, que falta declarar para poder saberlo.
+ *
+ * SOLO LA LECTURA VIGENTE DE CADA CAPACIDAD. `capability_health` es append-only
+ * y guarda el historico entero; la pantalla ensena la ultima de cada capacidad,
+ * porque mezclar la de hoy con la de hace tres semanas es como se lee una mejora
+ * donde solo hay dos fotos distintas.
+ */
+export async function listConsultantCapabilityHealth(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: lecturas, error } = await supabase
+    .from("capability_health")
+    .select(
+      "id, organization_id, capability, scope, health_state, trajectory, near_term_risk, risk_horizon, has_leading_signals, structural_risk, chronicity, issue_role, impact_vector, current_failure, maturity_profile_id, confidence, assessment_blocker, contradiction_resolution, state_justification, assessed_at",
+    )
+    .in("organization_id", safeIds)
+    .order("assessed_at", { ascending: false })
+    .limit(300);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_capability_health_load_failed",
+      detail: error.message,
+    };
+  }
+
+  // La vigente de cada (organizacion, capacidad, scope). Viene ordenado por
+  // fecha descendente, asi que la primera que aparece es la ultima que hubo.
+  const vigentes = new Map<string, (typeof lecturas)[number]>();
+  for (const lectura of lecturas ?? []) {
+    const clave = `${lectura.organization_id}|${lectura.capability}|${lectura.scope}`;
+    if (!vigentes.has(clave)) vigentes.set(clave, lectura);
+  }
+
+  const vigentesIds = [...vigentes.values()].map((l) => l.id as string);
+  if (vigentesIds.length === 0) {
+    return { ok: true as const, data: { assessments: [] } };
+  }
+
+  const { data: hallazgos } = await supabase
+    .from("health_findings")
+    .select("capability_health_id, kind, description, severity, scope, impact, trajectory, confidence")
+    .in("capability_health_id", vigentesIds);
+
+  // Guardrails 26 y 27: la evidencia positiva cuenta y la que contradice no se
+  // tira. Si esta lectura no la trajera, la pantalla no podria ensenarla.
+  const { data: evidencias } = await supabase
+    .from("health_evidence")
+    .select("capability_health_id, relation, metric, observation, indicator_type, window_start, window_end, source, confidence")
+    .in("capability_health_id", vigentesIds);
+
+  const assessments = [...vigentes.values()].map((lectura) => ({
+    ...lectura,
+    organization_name:
+      nombrePorOrg.get(lectura.organization_id as string) ?? null,
+    findings: (hallazgos ?? []).filter(
+      (h) => h.capability_health_id === lectura.id,
+    ),
+    evidence: (evidencias ?? []).filter(
+      (e) => e.capability_health_id === lectura.id,
+    ),
+  }));
+
+  return { ok: true as const, data: { assessments } };
+}
+
+/**
+ * FASE 3 / D05 — las senales, en crudo y sin interpretar.
+ *
+ * Solo consultor, y aqui el motivo es el mas fuerte de la fase: **el guardrail 2
+ * dice que no toda senal es un problema**. Una lista de desviaciones puesta
+ * delante del cliente se convierte en una alarma permanente el primer dia que
+ * el trafico baje un martes.
+ *
+ * Lo que aporta que no de ya el mapa de sintomas de D06: ahi solo salen las
+ * senales que **llegaron a formar patron**. Aqui salen todas, incluidas las que
+ * no encajaron con ninguna otra -- que no es lo mismo que "no importan": puede
+ * ser la primera de un patron que aun no existe, o la unica que hay porque
+ * falta la metrica que la acompanaria.
+ *
+ * NO SE ORDENA POR MAGNITUD, a proposito. Ordenar de mayor a menor caida es
+ * pintar una prioridad, y D05 no tiene prioridad: el guardrail 8 separa magnitud
+ * de impacto justamente porque un +200% sobre una base minuscula no es la
+ * primera cosa que mirar. Se ordena por cuando termina la ventana: lo mas
+ * reciente arriba.
+ */
+export async function listConsultantSignals(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) {
+    return orgsResult;
+  }
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: senales, error } = await supabase
+    .from("signals")
+    .select(
+      "id, organization_id, signal_type, anomaly_type, capability, metric, scope, scope_detail, direction, observed_value, baseline_value, magnitude_absolute, magnitude_relative, expected_low, expected_high, window_start, window_end, detected_at, persistence, trajectory, regime, baseline_kind, baseline_conflict, sample_size, low_sample, statistical_method, statistical_strength, business_relevance, business_exposure, data_confidence, signal_confidence, suppression, description",
+    )
+    .in("organization_id", safeIds)
+    .order("window_end", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_signals_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const signalIds = (senales ?? []).map((s) => s.id as string);
+  if (signalIds.length === 0) {
+    return { ok: true as const, data: { signals: [] } };
+  }
+
+  // Que senales llegaron a formar un sintoma. Es la unica lectura que esta
+  // pantalla anade a la de D06, y va aqui y no en el cliente porque el cliente
+  // no ve la tabla puente.
+  const { data: enlaces } = await supabase
+    .from("symptom_signals")
+    .select("signal_id, symptom_id")
+    .in("signal_id", signalIds);
+
+  const conSintoma = new Set(
+    (enlaces ?? []).map((l) => l.signal_id as string),
+  );
+
+  const signals = (senales ?? []).map((senal) => ({
+    ...senal,
+    organization_name:
+      nombrePorOrg.get(senal.organization_id as string) ?? null,
+    in_symptom: conSintoma.has(senal.id as string),
+  }));
+
+  return { ok: true as const, data: { signals } };
+}
+
+/**
  * FASE 3 / D03 — lo que el consultor ve de la madurez.
  *
  * Solo consultor. Decirle a un cliente "tu capacidad de retencion es ad_hoc"

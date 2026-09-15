@@ -14,6 +14,8 @@ const MIN_PERIOD_DAYS = 1;
 const MAX_PERIOD_DAYS = 3650;
 const DEFAULT_PERIOD_DAYS = 30;
 const METRICS_CACHE_TTL_SECONDS = 60;
+// Mes en curso y los once anteriores: el grafico de barras del panel.
+const MONTHLY_SERIES_MONTHS = 12;
 
 type ShopifyMetricsData = {
   organization_id: string;
@@ -43,7 +45,15 @@ type ShopifyMetricsData = {
     margin_pct: number;
     items_with_cost: number;
     items_without_cost: number;
+    // Lineas cuyo coste sale del `current_unit_cost` de Shopify y no de una
+    // fila fechada en `product_costs`: el coste de hoy aplicado a un pedido
+    // viejo. Mejor que contarlo como gratis, pero la pantalla debe decirlo.
+    items_with_estimated_cost: number;
   };
+  // `net_sales` sigue siendo el total con IVA y envio cobrado; el ingreso que
+  // manda en beneficio, margen y unit economics es `net_revenue_ex_tax`. Los
+  // dos viajan a proposito: la pantalla ensena el de sin IVA, y los agentes que
+  // ya leian `net_sales` no cambian de significado bajo los pies.
   financial: {
     net_sales: number;
     orders_count: number;
@@ -59,7 +69,47 @@ type ShopifyMetricsData = {
     has_settings: boolean;
     fixed_expenses_count: number;
     items_without_cost: number;
+    net_revenue_ex_tax: number;
+    tax_collected: number;
+    shipping_charged: number;
+    shipping_net: number;
+    uses_shipping_rules: boolean;
+    ads_spend: number;
+    ads_by_platform: Record<string, number>;
+    ads_days_with_data: number;
+    new_customers: number;
+    cac_blended: number | null;
+    aov_ex_tax: number;
+    cogs_per_order: number;
+    shipping_per_order: number;
+    payment_fee_per_order: number;
+    fixed_per_order: number;
+    fixed_pct_revenue: number;
+    cac_per_order: number;
+    contribution_per_order: number;
+    breakeven_cac_per_order: number;
+    mbee: number;
+    breakeven_roas: number | null;
   };
+  // Serie mensual para el grafico de barras del panel. Vacia si la consulta
+  // falla: el grafico desaparece, el resto del dashboard sigue en pie.
+  financial_monthly: Array<{
+    month: string;
+    orders_count: number;
+    net_revenue_ex_tax: number;
+    net_profit: number;
+    ads_spend: number;
+    new_customers: number;
+  }>;
+  // Objetivos vigentes por metrica (`organization_metric_targets`). Sin ellos
+  // una cifra no puede decir si va bien o mal, que es la mitad de su utilidad.
+  // Se leen aqui y no desde /financial-config porque ese endpoint es solo para
+  // owner/manager/consultor y el panel tambien lo ve el cliente.
+  metric_targets: Array<{
+    metric_key: string;
+    target_value: number;
+    period: string;
+  }>;
   previous_period: {
     period: { start: string; end: string };
     sales: ShopifyMetricsData["sales"];
@@ -102,6 +152,51 @@ function parsePeriodDays(daysInput: string | undefined): number | "all" {
   }
 
   return Math.min(MAX_PERIOD_DAYS, Math.max(MIN_PERIOD_DAYS, Math.floor(parsed)));
+}
+
+export type MetricTargetRow = {
+  metric_key: string;
+  target_value: number;
+  period: string;
+  valid_until: string | null;
+};
+
+/**
+ * Un objetivo por metrica y periodicidad: el de `valid_from` mas reciente que
+ * siga vigente. Espera las filas ya ordenadas por `valid_from` descendente, asi
+ * que el primero que aparece de cada clave es el que manda.
+ *
+ * Los caducados se descartan aqui y no en SQL porque `valid_until` es nullable
+ * ("sin fecha de fin" es lo normal) y un `or` de PostgREST sobre nulos se lee
+ * mucho peor que esta comparacion.
+ */
+export function selectCurrentTargets(
+  rows: MetricTargetRow[],
+  today: string,
+): Array<{ metric_key: string; target_value: number; period: string }> {
+  const selected: Array<{ metric_key: string; target_value: number; period: string }> = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    if (row.valid_until && row.valid_until < today) {
+      continue;
+    }
+
+    const key = `${row.metric_key}:${row.period}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    selected.push({
+      metric_key: row.metric_key,
+      target_value: Number(row.target_value) || 0,
+      period: row.period,
+    });
+  }
+
+  return selected;
 }
 
 async function loadStoreIdForConnection(
@@ -167,8 +262,11 @@ function emptyMetricsData(
       margin_pct: 0,
       items_with_cost: 0,
       items_without_cost: 0,
+      items_with_estimated_cost: 0,
     },
     financial: emptyFinancialData(),
+    financial_monthly: [],
+    metric_targets: [],
     previous_period: null,
     daily: [],
     funnel: null,
@@ -192,6 +290,27 @@ function emptyFinancialData(): ShopifyMetricsData["financial"] {
     has_settings: false,
     fixed_expenses_count: 0,
     items_without_cost: 0,
+    net_revenue_ex_tax: 0,
+    tax_collected: 0,
+    shipping_charged: 0,
+    shipping_net: 0,
+    uses_shipping_rules: false,
+    ads_spend: 0,
+    ads_by_platform: {},
+    ads_days_with_data: 0,
+    new_customers: 0,
+    cac_blended: null,
+    aov_ex_tax: 0,
+    cogs_per_order: 0,
+    shipping_per_order: 0,
+    payment_fee_per_order: 0,
+    fixed_per_order: 0,
+    fixed_pct_revenue: 0,
+    cac_per_order: 0,
+    contribution_per_order: 0,
+    breakeven_cac_per_order: 0,
+    mbee: 0,
+    breakeven_roas: null,
   };
 }
 
@@ -256,6 +375,8 @@ export async function getShopifyMetrics(
       dailyResult,
       funnelResult,
       funnelDailyResult,
+      monthlyResult,
+      targetsResult,
     ] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
@@ -325,6 +446,36 @@ export async function getShopifyMetrics(
             target_store_id: storeId,
           })
         : Promise.resolve({ data: null, error: null }),
+      // No depende del periodo elegido: siempre los ultimos 12 meses. Es la
+      // llamada mas cara de la request (12 periodos encadenados por dentro),
+      // pero va en paralelo y es no fatal; medido en produccion: 87 ms con 789
+      // pedidos. Si algun dia se acerca al statement_timeout de 8s, lo que hay
+      // que materializar es el primer pedido por cliente, no partir la funcion.
+      supabase.rpc("shopify_financial_monthly", {
+        target_organization_id: organizationId,
+        months_back: MONTHLY_SERIES_MONTHS,
+        target_store_id: storeId,
+      }),
+      // Los objetivos pueden ser de la organizacion (store_id null) o de una
+      // tienda concreta. Con la tienda activa se piden los dos y manda el de la
+      // tienda: por eso se ordena primero por store_id con los nulos al final,
+      // y despues por fecha. `selectCurrentTargets` se queda con el primero de
+      // cada metrica, asi que el orden ES la regla de precedencia.
+      (storeId
+        ? supabase
+            .from("organization_metric_targets")
+            .select("metric_key, target_value, period, valid_from, valid_until")
+            .eq("organization_id", organizationId)
+            .or(`store_id.is.null,store_id.eq.${storeId}`)
+        : supabase
+            .from("organization_metric_targets")
+            .select("metric_key, target_value, period, valid_from, valid_until")
+            .eq("organization_id", organizationId)
+            .is("store_id", null)
+      )
+        .lte("valid_from", new Date().toISOString().slice(0, 10))
+        .order("store_id", { ascending: false, nullsFirst: false })
+        .order("valid_from", { ascending: false }),
     ]);
 
     if (salesResult.error) {
@@ -367,6 +518,15 @@ export async function getShopifyMetrics(
     if (funnelDailyResult.error) {
       logger.error("shopify_funnel_daily_failed", { organization_id: organizationId, error: funnelDailyResult.error.message });
     }
+    // No fatales: sin serie mensual el panel pierde el grafico de barras, y sin
+    // objetivos las tarjetas pierden el "vs objetivo". Ninguna de las dos cosas
+    // justifica tumbar el dashboard entero.
+    if (monthlyResult.error) {
+      logger.error("shopify_financial_monthly_failed", { organization_id: organizationId, error: monthlyResult.error.message });
+    }
+    if (targetsResult.error) {
+      logger.error("organization_metric_targets_failed", { organization_id: organizationId, error: targetsResult.error.message });
+    }
 
     type DailyRow = { bucket_date: string; net_sales: number; orders_count: number };
     const daily = !dailyResult.error && Array.isArray(dailyResult.data)
@@ -401,6 +561,7 @@ export async function getShopifyMetrics(
       margin_pct: 0,
       items_with_cost: 0,
       items_without_cost: 0,
+      items_with_estimated_cost: 0,
     };
 
     const financial = financialResult.data?.[0] ?? emptyFinancialData();
@@ -483,7 +644,36 @@ export async function getShopifyMetrics(
       };
     });
 
-    const data = {
+    type MonthlyRow = {
+      bucket_month: string;
+      orders_count: number;
+      net_revenue_ex_tax: number;
+      net_profit: number;
+      ads_spend: number;
+      new_customers: number;
+    };
+    const financialMonthly =
+      !monthlyResult.error && Array.isArray(monthlyResult.data)
+        ? (monthlyResult.data as MonthlyRow[]).map((row) => ({
+            month: row.bucket_month,
+            orders_count: Number(row.orders_count) || 0,
+            net_revenue_ex_tax: Number(row.net_revenue_ex_tax) || 0,
+            net_profit: Number(row.net_profit) || 0,
+            ads_spend: Number(row.ads_spend) || 0,
+            new_customers: Number(row.new_customers) || 0,
+          }))
+        : [];
+
+    const metricTargets = selectCurrentTargets(
+      !targetsResult.error && Array.isArray(targetsResult.data)
+        ? (targetsResult.data as MetricTargetRow[])
+        : [],
+      new Date().toISOString().slice(0, 10),
+    );
+
+    // Anotado a proposito: sin el tipo explicito, TypeScript infiere la forma
+    // del literal y el contrato de arriba no comprueba nada.
+    const data: ShopifyMetricsData = {
       organization_id: organizationId,
       selected_connection_id: connectionId ?? null,
       store_id: storeId,
@@ -497,6 +687,8 @@ export async function getShopifyMetrics(
       stock,
       margin,
       financial,
+      financial_monthly: financialMonthly,
+      metric_targets: metricTargets,
       previous_period: previousPeriod,
       daily,
       funnel,

@@ -577,6 +577,59 @@ test("meta_spend_summary con target_organization_id=B llamado por un usuario de 
   // devolver ninguna), tambien es un resultado seguro: no hay dato real de B.
 });
 
+// F1 y F2 del panel del manager: dos funciones nuevas en la ruta del dinero.
+// `ads_spend_summary` lee gasto publicitario y `shopify_financial_monthly`
+// encadena doce llamadas al resumen financiero -- justo el tipo de funcion
+// donde un `security definer` de mas o un grant flojo filtraria entre clientes.
+
+test("ads_spend_summary con target_organization_id=B llamado por un usuario de A no devuelve el gasto real de B", async () => {
+  const { data, error } = await ownerAClient.rpc("ads_spend_summary", {
+    target_organization_id: orgB,
+    period_start: PERIOD_START,
+    period_end: PERIOD_END,
+    target_store_id: null,
+  });
+
+  assert.equal(error, null);
+  const row = (data as Array<{ spend: number }> | null)?.[0];
+  assert.ok(row, "la funcion deberia devolver una fila agregada");
+  assert.equal(
+    Number(row.spend),
+    0,
+    "no deberia sumar los 100 EUR reales de gasto de B",
+  );
+});
+
+test("shopify_financial_monthly con target_organization_id=B llamado por un usuario de A no devuelve los meses reales de B", async () => {
+  // El pedido de B es de 2025-06: la ventana se calcula para cubrirlo siempre,
+  // porque un mes fuera de rango haria pasar el test sin probar nada.
+  const seeded = new Date("2025-06-01T00:00:00Z");
+  const now = new Date();
+  const monthsBack =
+    (now.getUTCFullYear() - seeded.getUTCFullYear()) * 12 +
+    (now.getUTCMonth() - seeded.getUTCMonth()) +
+    1;
+
+  const { data, error } = await ownerAClient.rpc("shopify_financial_monthly", {
+    target_organization_id: orgB,
+    months_back: monthsBack,
+    target_store_id: null,
+  });
+
+  assert.equal(error, null);
+  const rows = (data ?? []) as Array<{
+    orders_count: number;
+    net_revenue_ex_tax: number;
+    ads_spend: number;
+  }>;
+  assert.equal(rows.length, monthsBack, "una fila por mes, tambien para A");
+  for (const row of rows) {
+    assert.equal(Number(row.orders_count), 0, "no deberia contar pedidos de B");
+    assert.equal(Number(row.net_revenue_ex_tax), 0, "no deberia sumar ingresos de B");
+    assert.equal(Number(row.ads_spend), 0, "no deberia sumar el gasto de B");
+  }
+});
+
 test("control positivo: el mismo usuario si ve datos reales (aunque vacios) al pedir su propia organizacion", async () => {
   const { data, error } = await ownerAClient.rpc("shopify_sales_summary", {
     target_organization_id: orgA,

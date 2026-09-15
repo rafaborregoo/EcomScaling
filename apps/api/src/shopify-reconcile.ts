@@ -108,26 +108,17 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
       continue;
     }
 
-    try {
-      await runShopifyInitialSync(env, connection.id, "incremental");
-    } catch (syncError) {
-      failed += 1;
-      logger.error("Shopify reconciliation sync failed for connection", {
-        connection_id: connection.id,
-        organization_id: connection.organization_id,
-        error: syncError instanceof Error ? syncError.message : String(syncError),
-      });
-    }
-
     // La atribucion de los pedidos que entraron por webhook. Va aqui y no en el
     // manejador del webhook porque aquel se procesa dentro de la peticion: una
     // llamada a Shopify ahi puede marcar el webhook como fallido y hacernos
     // perder el pedido entero por no haber podido averiguar de donde venia.
     //
-    // Y va **fuera del try de arriba** a proposito: aunque el sync incremental
-    // falle, los pedidos que ya estan guardados siguen mereciendo su origen. El
-    // incremental filtra por `updated_at`, asi que un pedido que llego por
-    // webhook y no se volvio a tocar no entra en el nunca.
+    // Y va **antes del sync incremental**, no detras: el sync recorre la tienda
+    // entera y puede quedarse colgado -- es justo lo que dejo esta conexion en
+    // `syncing` quince horas el 2026-09-15. Detras de el, la atribucion no
+    // llegaba a pedirse nunca; delante, no depende de que el sync termine. El
+    // incremental ademas filtra por `updated_at`, asi que un pedido que llego
+    // por webhook y no se volvio a tocar no entra en el jamas.
     try {
       const journeys = await backfillOrderJourneys(env, connection.id);
       journeysAsked += journeys.asked;
@@ -137,6 +128,17 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
         connection_id: connection.id,
         organization_id: connection.organization_id,
         error: journeyError instanceof Error ? journeyError.message : String(journeyError),
+      });
+    }
+
+    try {
+      await runShopifyInitialSync(env, connection.id, "incremental");
+    } catch (syncError) {
+      failed += 1;
+      logger.error("Shopify reconciliation sync failed for connection", {
+        connection_id: connection.id,
+        organization_id: connection.organization_id,
+        error: syncError instanceof Error ? syncError.message : String(syncError),
       });
     }
   }

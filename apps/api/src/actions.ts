@@ -53,7 +53,17 @@ export async function listAccountActions(
   authorization: string,
   context: AuthContext,
 ) {
-  const organizationIds = context.memberships.map((membership) => membership.organization_id);
+  // La membership virtual "platform_admin" (ADR-0012) da acceso a TODAS las
+  // organizaciones para autorizar rutas de forma uniforme, pero no es
+  // responsabilidad personal de nadie: un platform_admin no gestiona cada
+  // cliente de la plataforma. Colarla aqui convertía este aviso en "todas las
+  // integraciones rotas de todos los clientes", ruido ajeno en el panel del
+  // propio admin. Solo generan aviso las organizaciones con las que hay
+  // relacion real: membership propia o cartera de consultor.
+  const ownedMemberships = context.memberships.filter(
+    (membership) => membership.accessSource !== "platform_admin",
+  );
+  const organizationIds = ownedMemberships.map((membership) => membership.organization_id);
   const requiredShopifyScopes = parseScopes(env.SHOPIFY_SCOPES);
 
   if (!organizationIds.length || !requiredShopifyScopes.length) {
@@ -130,7 +140,7 @@ export async function listAccountActions(
   }
 
   const now = new Date();
-  const actions = context.memberships.flatMap((membership) => {
+  const actions = ownedMemberships.flatMap((membership) => {
     // Un cliente pausado o marcado para borrado no genera avisos: que su sync
     // esté parado es la consecuencia esperada, no algo que reconectar.
     if (["suspended", "pending_deletion"].includes(membership.organization?.status ?? "")) {

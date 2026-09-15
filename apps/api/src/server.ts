@@ -39,6 +39,7 @@ import {
   listConsultantCalls,
   listConsultantContextReadings,
   listConsultantMaturity,
+  listConsultantCapabilityHealth,
   listConsultantSignals,
   listConsultantSymptomMap,
   listConsultantDataQuality,
@@ -1638,6 +1639,34 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     const result = await listConsultantMaturity(env, authorization, auth.context);
+
+    if (isServiceFailure(result)) {
+      return sendServiceFailure(reply, result);
+    }
+
+    return result.data;
+  });
+
+  // F3/D04. Como esta cada capacidad hoy, y cuando no se puede saber, que falta
+  // declarar para poder saberlo. Solo consultor: el estado de una capacidad es
+  // una etiqueta sin la conversacion que la acompana.
+  app.get("/v1/consultant/capability-health", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+
+    if (isAuthContextError(auth)) {
+      return sendAuthFailure(reply, auth.error);
+    }
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantCapabilityHealth(
+      env,
+      authorization,
+      auth.context,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);

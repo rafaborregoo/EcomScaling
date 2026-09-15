@@ -406,6 +406,107 @@ test("el IVA sale del pedido, no de vat_pct", async () => {
   assert.notEqual(numeric(data?.[0]?.net_revenue_ex_tax), 826.45);
 });
 
+test("la serie mensual no puede contradecir al KPI del periodo", async () => {
+  // F2: `shopify_financial_monthly` llama a `shopify_financial_summary` mes a
+  // mes en vez de reimplementar la formula. Este test es la razon de ser de esa
+  // decision: el mes de los pedidos tiene que dar EXACTAMENTE el mismo
+  // beneficio que la llamada directa al periodo, porque el grafico de barras y
+  // la tarjeta de beneficio se ensenan juntos en la misma pantalla.
+  //
+  // El periodo golden es marzo de 2025 y `months_back` cuenta hacia atras desde
+  // el mes en curso, asi que la distancia se calcula, no se escribe a mano: un
+  // 19 literal dejaria de cubrir marzo el mes que viene.
+  const orderMonth = new Date(ORDER_DATE);
+  const now = new Date();
+  const monthsBack =
+    (now.getUTCFullYear() - orderMonth.getUTCFullYear()) * 12 +
+    (now.getUTCMonth() - orderMonth.getUTCMonth()) +
+    1;
+
+  const { data, error } = await admin.rpc("shopify_financial_monthly", {
+    target_organization_id: orgId,
+    months_back: monthsBack,
+    target_store_id: storeId,
+  });
+  assert.equal(error, null, error?.message);
+  assert.equal(data?.length, monthsBack, "una fila por mes pedido");
+
+  const march = data?.find(
+    (row: { bucket_month: string }) => row.bucket_month === "2025-03-01",
+  );
+  assert.ok(march, "marzo de 2025 deberia estar en la serie");
+  assert.equal(numeric(march.orders_count), 4);
+  assert.equal(numeric(march.net_revenue_ex_tax), 840);
+  assert.equal(numeric(march.net_profit), 143.8);
+  assert.equal(numeric(march.ads_spend), 100);
+  assert.equal(numeric(march.new_customers), 3);
+
+  // Los demas meses estan vacios, no ausentes: el grafico necesita la barra a
+  // cero para que se vea el hueco.
+  const total = (data ?? []).reduce(
+    (acc: number, row: { orders_count: number }) => acc + numeric(row.orders_count),
+    0,
+  );
+  assert.equal(total, 4, "ningun pedido se cuenta en dos meses a la vez");
+});
+
+// OJO: este test muta y luego borra el coste sembrado. Va despues de todos los
+// que fijan el beneficio del escenario; el unico posterior mira envios, que no
+// dependen del COGS. Cualquier test nuevo que dependa del coste va ANTES.
+test("el coste manual manda; el de Shopify solo rellena el hueco", async () => {
+  // F3b: hasta ahora `shopify_margin_summary` solo leia `product_costs`, y el
+  // coste que el cliente pone en Shopify (que el sync ya guarda en
+  // `shopify_inventory_items.current_unit_cost`) no llegaba nunca al margen. En
+  // produccion eso eran 0 filas de coste y un margen del 77,84% inventado.
+  const margin = async () => {
+    const { data, error } = await admin.rpc("shopify_margin_summary", {
+      target_organization_id: orgId,
+      period_start: PERIOD_START,
+      period_end: PERIOD_END,
+      target_store_id: storeId,
+    });
+    assert.equal(error, null, error?.message);
+    return data?.[0];
+  };
+
+  // 1. Con coste fechado distinto del de Shopify (60), manda el fechado.
+  const { error: updateError } = await admin
+    .from("product_costs")
+    .update({ unit_cost: 50 })
+    .eq("organization_id", orgId);
+  assert.equal(updateError, null, updateError?.message);
+
+  const conCosteManual = await margin();
+  assert.equal(numeric(conCosteManual.cogs), 200, "4 lineas x 50, no x 60");
+  assert.equal(
+    numeric(conCosteManual.items_with_estimated_cost),
+    0,
+    "ninguna linea va por el respaldo: todas tienen coste fechado",
+  );
+
+  // 2. Sin fila fechada, entra el coste que Shopify reporta hoy (60) -- y la
+  // salida lo declara como estimado, porque es el coste de HOY aplicado a un
+  // pedido de marzo de 2025.
+  const { error: deleteError } = await admin
+    .from("product_costs")
+    .delete()
+    .eq("organization_id", orgId);
+  assert.equal(deleteError, null, deleteError?.message);
+
+  const conCosteDeShopify = await margin();
+  assert.equal(
+    numeric(conCosteDeShopify.cogs),
+    240,
+    "4 lineas x 60 desde current_unit_cost, no 0",
+  );
+  assert.equal(numeric(conCosteDeShopify.items_without_cost), 0);
+  assert.equal(
+    numeric(conCosteDeShopify.items_with_estimated_cost),
+    4,
+    "las 4 lineas van por el respaldo y hay que poder decirlo en pantalla",
+  );
+});
+
 test("una shipping_cost_rule activa manda sobre default_shipping_cost", async () => {
   // Hasta F1, `shipping_cost_rules` era CRUD-able desde /configuracion y
   // ninguna funcion de metricas la leia: el envio siempre salia de
