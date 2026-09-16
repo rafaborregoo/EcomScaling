@@ -31,6 +31,7 @@ function context(
           status: organizationStatus,
           timezone: "Europe/Madrid",
           currency_code: "EUR",
+          kind: "client",
         },
       },
     ],

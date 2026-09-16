@@ -44,6 +44,24 @@ export type BootstrapResponse = {
 
 export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
+const SESSION_EXPIRED_REDIRECT = "/login?reason=session_expired";
+let sessionExpiryHandling = false;
+
+async function clearExpiredSessionAndRedirect() {
+  if (typeof window === "undefined" || sessionExpiryHandling) {
+    return;
+  }
+
+  sessionExpiryHandling = true;
+  try {
+    // `local` removes the stale browser session without revoking sessions on
+    // the user's other devices.
+    await getSupabaseClient().auth.signOut({ scope: "local" });
+  } finally {
+    window.location.replace(SESSION_EXPIRED_REDIRECT);
+  }
+}
+
 export async function getAccessToken() {
   const supabase = getSupabaseClient();
   const {
@@ -144,12 +162,13 @@ export async function apiFetch(
   const refreshedToken = await refreshAccessToken();
 
   if (!refreshedToken) {
+    void clearExpiredSessionAndRedirect();
     return response;
   }
 
   const retryHeaders = authHeaders(init, refreshedToken);
 
-  return fetchApiWithTimeout(
+  const retryResponse = await fetchApiWithTimeout(
     `${apiUrl}${path}`,
     {
       ...init,
@@ -157,6 +176,12 @@ export async function apiFetch(
     },
     timeoutMs,
   );
+
+  if (retryResponse.status === 401) {
+    void clearExpiredSessionAndRedirect();
+  }
+
+  return retryResponse;
 }
 
 export async function fetchBootstrap(token: string) {

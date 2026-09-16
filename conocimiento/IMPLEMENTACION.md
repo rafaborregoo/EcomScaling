@@ -40,15 +40,15 @@ done — incluidos el punto 2 (existe codigo que escribe esas tablas) y el punto
 viola cada invariante de `04-policies`. Los recortes deliberados se anotan en la
 fila con su motivo.
 
-**129 bloques**: 18 en la ola 1, 5 sin destilar. **7 en `hecho`** (`D01`, `D02`,
-`D03`, `D04`, `D05`, `D06` y `D10`, con las tres patas); los otros 8 de la
-fase 3 siguen en `contrato`, a la espera de motor y pantalla.
+**129 bloques**: 18 en la ola 1, 5 sin destilar. **11 en `hecho`** (`D01`, `D02`,
+`D03`, `D04`, `D05`, `D06`, `D07`, `D08`, `D09`, `D10` y `D11`, con las tres
+patas); los otros 4 de la fase 3 siguen en `contrato`, a la espera de motor y pantalla.
 
 ## fase-03 — Sistema de diagnostico
 
 Los 15 bloques tienen su contrato en test y en produccion, y **`D01`, `D02`,
-`D03`, `D04`, `D05`, `D06` y `D10` estan `hecho`**: falta el motor de 8 de
-ellos y la pantalla de 8. El detalle, en
+`D03`, `D04`, `D05`, `D06`, `D07`, `D08`, `D09`, `D10` y `D11` estan `hecho`**:
+falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 [`fase-03/IMPLEMENTACION.md`](fase-03/IMPLEMENTACION.md).
 
 | Bloque | Tema | Capas | Ola | Estado | Codigo |
@@ -60,11 +60,11 @@ ellos y la pantalla de 8. El detalle, en
 | `D04` | Diagnostico de salud por capacidad | `C·PET` | — | **hecho** | migracion `20260915140000` + `packages/contracts/src/health.ts` + motor `apps/api/src/health-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/capability-health.tsx`. Recorte grande y deliberado: **no tiene un solo umbral propio**. Sin `health_references` declaradas (hoy vacia) toda capacidad sale `not_assessable` diciendo que falta, porque el guardrail 11 prohibe el umbral universal |
 | `D05` | Motor de senales y anomalias | `CRPET` | **1** | **hecho** | migraciones `20260916090000` y `20260916120000` + `packages/contracts/src/signals.ts` + motor `apps/api/src/signal-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/signal-list.tsx`. Recorte: la lista se ve vacia hasta que alguien ejecute el motor, que no esta programado |
 | `D06` | Motor de sintomas | `CRPET` | **1** | **hecho** | migraciones `20260917090000` y `20260928090000` + `packages/contracts/src/symptoms.ts` + motor `apps/api/src/symptom-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/symptom-map.tsx`. Recortes: la libreria de patrones tiene 4 entradas (las metricas que `D05` sabe emitir), no hay evidencia cualitativa y la composicion de sintomas superiores queda para cuando haya mas de una clase de relacion declarada |
-| `D07` | Grafo causal del ecommerce | `CRPET` | **1** | **contrato** | migracion `20260918090000` + `packages/contracts/src/causal.ts` |
-| `D08` | Generador y contraste de hipotesis | `CRPET` | **1** | **contrato** | migracion `20260919090000` + `packages/contracts/src/hypotheses.ts` (amplia `diagnostic_hypotheses` de `D00`) |
-| `D09` | Root cause constraint engine | `CRPET` | **1** | **contrato** | migracion `20260920090000` + `packages/contracts/src/root-cause.ts` |
+| `D07` | Grafo causal del ecommerce | `CRPET` | **1** | **hecho** | migraciones `20260918090000` y `20261017090000` + `packages/contracts/src/causal.ts` + motor `apps/api/src/causal-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/causal-paths.tsx`. Recorte grande y deliberado: **el grafo global trae seis nodos y cinco aristas**, cuatro de ellas aritmetica pura. Es lo que se sostiene con las metricas que la plataforma lee hoy; el resto lo declara el consultor desde la pantalla y entra como heuristica con techo. Ninguna ruta llega a `supported`, porque nadie ha revisado los confusores de D02 |
+| `D08` | Generador y contraste de hipotesis | `CRPET` | **1** | **hecho** | migraciones `20260919090000` y `20261021090000` + `packages/contracts/src/hypotheses.ts` + motor `apps/api/src/hypothesis-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/hypotheses.tsx`. Recorte: **no elige ninguna** (guardrail 1) y el techo es `under_test`. Lo que si hace y nadie hacia: guardar las descartadas con su motivo, y escribir sola la hipotesis de que no haya pasado nada y solo se haya roto la medida |
+| `D09` | Root cause constraint engine | `CRPET` | **1** | **hecho** | migracion `20260920090000` + `packages/contracts/src/root-cause.ts` + motor `apps/api/src/root-cause-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/root-cause.tsx`. Recorte grande y deliberado: **casi todo sale `unresolved` o `latent`**, porque la evidencia de D07-D08 es siempre correlacion y la plataforma no mide capacidad ni demanda de ninguna capacidad. `probable`/`confirmed`/`binding` quedan fuera de alcance hasta que eso cambie |
 | `D10` | Severidad e impacto | `CRPET` | **1** | **hecho** | migracion `20260921090000` + `packages/contracts/src/severity.ts` + motor `apps/api/src/severity-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/severity-panel.tsx`. Recorte grande y deliberado: **no pone ninguna severidad**, las cinco salen `unknown`. El apartado 29 dice que la fuente no define formula ni umbral; lo que si hace es medir el impacto con su denominador razonado |
-| `D11` | Confianza e incertidumbre | `CRPET` | **1** | **contrato** | migracion `20260922090000` + `packages/contracts/src/confidence.ts` |
+| `D11` | Confianza e incertidumbre | `CRPET` | **1** | **hecho** | migracion `20260922090000` + `packages/contracts/src/confidence.ts` + motor `apps/api/src/confidence-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/confidence-panel.tsx`. Recorte: las capas causales (`why`, `root_cause`, `constraint`) salen siempre desconocidas porque `D07` a `D09` no tienen motor — y escribirlo es justo lo que impide leer un caso descrito como un caso explicado |
 | `D12` | Contrato de confusores y falsos diagnosticos | `C····` | **1** | **contrato** | migracion `20260923090000` + `packages/contracts/src/adversarial.ts` |
 | `D13` | Contrato de diagnostico temporal y regresion | `C····` | **1** | **contrato** | migracion `20260924090000` + `packages/contracts/src/temporal.ts` |
 | `D14` | Contrato de salida diagnostica trazabilidad y validacion | `C····` | **1** | **contrato** | migracion `20260925090000` + `packages/contracts/src/output.ts` |

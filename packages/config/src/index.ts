@@ -75,18 +75,24 @@ const apiEnvSchema = z.object({
   // de prueba aprobada. Nunca se expone al frontend.
   FATHOM_API_KEY: z.string().min(1).optional(),
   FATHOM_WEBHOOK_SECRET: z.string().min(1).optional(),
-  // Whop: la pasarela de cobro de la plataforma. Las dos variables son
-  // independientes -- solo con el secreto ya se reciben altas y bajas de plan;
-  // la API key hace falta ademas para abrir un checkout desde la app. Sin
-  // ninguna, la plataforma funciona igual y los planes se tocan a mano.
-  WHOP_API_KEY: z.string().min(1).optional(),
-  WHOP_WEBHOOK_SECRET: z.string().min(1).optional(),
-  // Whop versiona por fecha. Sin esto se usa la version por defecto de la key;
-  // fijarla es lo que evita que un cambio suyo mueva el payload bajo los pies.
-  WHOP_API_VERSION_DATE: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  // Stripe: la pasarela de cobro de la plataforma. Las dos variables son
+  // independientes -- solo con el secreto del webhook ya se reciben altas y
+  // bajas de plan; la clave secreta hace falta ademas para abrir un checkout y
+  // para listar el catalogo. Sin ninguna, la plataforma funciona igual y los
+  // planes se conceden a mano desde /admin/facturacion.
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Stripe versiona por fecha (mas sufijo de nombre, p.ej. 2025-03-31.basil).
+  // Fijarla es lo que evita que un cambio suyo mueva el payload bajo los pies
+  // -- y en concreto donde vive current_period_end, que cambio de sitio.
+  STRIPE_API_VERSION: z.string().min(1).optional(),
+
+  // VERI*FACTU: el certificado nunca se guarda en Supabase. Se inyecta como
+  // secreto de entorno y solo se usa en el worker/server para el canal HTTPS
+  // mutual-TLS de la AEAT.
+  VERIFACTU_CERT_PFX_BASE64: z.string().min(1).optional(),
+  VERIFACTU_CERT_PASSWORD: z.string().min(1).optional(),
+  VERIFACTU_ENVIRONMENT: z.enum(["test", "production"]).optional(),
   // Allowlist opcional de providers implementados, separado por comas.
   // Ejemplo: INTEGRATION_FEATURE_FLAGS=shopify,meta_ads
   INTEGRATION_FEATURE_FLAGS: z.string().min(1).optional(),
@@ -124,6 +130,7 @@ const apiEnvSchema = z.object({
   // conocimiento devuelve 503 y la tool search_knowledge no se habilita.
   VOYAGE_API_KEY: z.string().min(1).optional(),
   INTERNAL_API_SECRET: z.string().min(1).optional(),
+  INVITE_CODE_SECRET: z.string().min(16).optional(),
   REDIS_URL: z.string().url().optional(),
   // SQO-02: URL publica de una instancia de la API ya desplegada, para que el
   // chequeo de salud operativa (corrido aparte, por cron/CI) pueda leer
@@ -154,6 +161,7 @@ const workerEnvSchema = z.object({
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
   API_URL: z.string().url().default("http://localhost:4000"),
   INTERNAL_API_SECRET: z.string().min(1).optional(),
+  INVITE_CODE_SECRET: z.string().min(16).optional(),
 });
 
 export type LoadedApiEnv = {
@@ -193,9 +201,12 @@ export type LoadedApiEnv = {
   KLAVIYO_SCOPES?: string;
   FATHOM_API_KEY?: string;
   FATHOM_WEBHOOK_SECRET?: string;
-  WHOP_API_KEY?: string;
-  WHOP_WEBHOOK_SECRET?: string;
-  WHOP_API_VERSION_DATE?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_API_VERSION?: string;
+  VERIFACTU_CERT_PFX_BASE64?: string;
+  VERIFACTU_CERT_PASSWORD?: string;
+  VERIFACTU_ENVIRONMENT?: "test" | "production";
   INTEGRATION_FEATURE_FLAGS?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
@@ -210,6 +221,8 @@ export type LoadedApiEnv = {
   GIT_SHA?: string;
   VOYAGE_API_KEY?: string;
   INTERNAL_API_SECRET?: string;
+  /** Clave del HMAC de los codigos de vinculacion. Sin ella no se emiten. */
+  INVITE_CODE_SECRET?: string;
   REDIS_URL?: string;
   API_BASE_URL?: string;
   AI_PLATFORM_DAILY_COST_CAP_USD?: number;
@@ -421,12 +434,23 @@ export function loadApiEnv(
     ...(env.FATHOM_WEBHOOK_SECRET
       ? { FATHOM_WEBHOOK_SECRET: env.FATHOM_WEBHOOK_SECRET }
       : {}),
-    ...(env.WHOP_API_KEY ? { WHOP_API_KEY: env.WHOP_API_KEY } : {}),
-    ...(env.WHOP_WEBHOOK_SECRET
-      ? { WHOP_WEBHOOK_SECRET: env.WHOP_WEBHOOK_SECRET }
+    ...(env.STRIPE_SECRET_KEY
+      ? { STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY }
       : {}),
-    ...(env.WHOP_API_VERSION_DATE
-      ? { WHOP_API_VERSION_DATE: env.WHOP_API_VERSION_DATE }
+    ...(env.STRIPE_WEBHOOK_SECRET
+      ? { STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET }
+      : {}),
+    ...(env.STRIPE_API_VERSION
+      ? { STRIPE_API_VERSION: env.STRIPE_API_VERSION }
+      : {}),
+    ...(env.VERIFACTU_CERT_PFX_BASE64
+      ? { VERIFACTU_CERT_PFX_BASE64: env.VERIFACTU_CERT_PFX_BASE64 }
+      : {}),
+    ...(env.VERIFACTU_CERT_PASSWORD
+      ? { VERIFACTU_CERT_PASSWORD: env.VERIFACTU_CERT_PASSWORD }
+      : {}),
+    ...(env.VERIFACTU_ENVIRONMENT
+      ? { VERIFACTU_ENVIRONMENT: env.VERIFACTU_ENVIRONMENT }
       : {}),
     ...(env.INTEGRATION_FEATURE_FLAGS
       ? { INTEGRATION_FEATURE_FLAGS: env.INTEGRATION_FEATURE_FLAGS }
@@ -457,6 +481,9 @@ export function loadApiEnv(
     ...(env.VOYAGE_API_KEY ? { VOYAGE_API_KEY: env.VOYAGE_API_KEY } : {}),
     ...(env.INTERNAL_API_SECRET
       ? { INTERNAL_API_SECRET: env.INTERNAL_API_SECRET }
+      : {}),
+    ...(env.INVITE_CODE_SECRET
+      ? { INVITE_CODE_SECRET: env.INVITE_CODE_SECRET }
       : {}),
     ...(env.REDIS_URL ? { REDIS_URL: env.REDIS_URL } : {}),
     ...(env.API_BASE_URL ? { API_BASE_URL: env.API_BASE_URL } : {}),

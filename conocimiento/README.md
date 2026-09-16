@@ -11,6 +11,12 @@ estimados. `--limit=N` ingesta N documentos y para. Entre documento y
 documento espera `INGEST_DELAY_MS` (3000 por defecto) para no encadenar
 peticiones a Voyage.
 
+Para **implementar** un bloque ya clasificado (contrato + motor + pixel), usa
+[`Prompt maestro — Implementación de fases (contrato + motor + pixel).md`](Prompt%20maestro%20%E2%80%94%20Implementaci%C3%B3n%20de%20fases%20(contrato%20%2B%20motor%20%2B%20pixel).md)
+junto con [`docs/PLAN_MAESTRO_CONOCIMIENTO_A_SOFTWARE.md`](../docs/PLAN_MAESTRO_CONOCIMIENTO_A_SOFTWARE.md).
+Este README y el prompt de clasificación de abajo son para el paso anterior:
+convertir un `.md` de origen en las 8 capas.
+
 ## Estructura por fase
 
 Cada `fase-XX/` tiene 8 capas (ver `Prompt maestro — Clasificacion y

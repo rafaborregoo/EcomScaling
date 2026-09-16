@@ -9,6 +9,249 @@
 export type Database = {
   private: {
     Tables: {
+      billing_invoice_events: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          event_type: string
+          external_event_id: string
+          id: string
+          invoice_id: string | null
+          payload: Json
+          processed_at: string | null
+          provider: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          event_type: string
+          external_event_id: string
+          id?: string
+          invoice_id?: string | null
+          payload?: Json
+          processed_at?: string | null
+          provider: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          event_type?: string
+          external_event_id?: string
+          id?: string
+          invoice_id?: string | null
+          payload?: Json
+          processed_at?: string | null
+          provider?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_invoice_events_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "billing_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_invoice_lines: {
+        Row: {
+          base_amount: number
+          created_at: string
+          description: string
+          id: string
+          invoice_id: string
+          metadata: Json
+          position: number
+          quantity: number
+          tax_amount: number
+          total_amount: number
+          unit_price: number
+          vat_rate: number
+          verifactu_classification: string
+        }
+        Insert: {
+          base_amount: number
+          created_at?: string
+          description: string
+          id?: string
+          invoice_id: string
+          metadata?: Json
+          position: number
+          quantity?: number
+          tax_amount: number
+          total_amount: number
+          unit_price: number
+          vat_rate?: number
+          verifactu_classification?: string
+        }
+        Update: {
+          base_amount?: number
+          created_at?: string
+          description?: string
+          id?: string
+          invoice_id?: string
+          metadata?: Json
+          position?: number
+          quantity?: number
+          tax_amount?: number
+          total_amount?: number
+          unit_price?: number
+          vat_rate?: number
+          verifactu_classification?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_invoice_lines_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "billing_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_invoices: {
+        Row: {
+          created_at: string
+          currency_code: string
+          customer_address: Json
+          customer_email: string | null
+          customer_name: string | null
+          customer_tax_id: string | null
+          external_event_id: string | null
+          external_payment_id: string | null
+          external_subscription_id: string | null
+          id: string
+          invoice_code: string
+          invoice_number: number
+          invoice_series: string
+          invoice_type: string
+          invoice_year: number
+          issue_date: string
+          issuer_address: Json
+          issuer_name: string
+          issuer_tax_id: string
+          metadata: Json
+          operation_date: string
+          operation_description: string
+          payment_method: string
+          payment_provider: string
+          pdf_storage_path: string | null
+          rectifies_invoice_id: string | null
+          status: string
+          subtotal: number
+          tax_amount: number
+          tax_regime_code: string
+          total: number
+          updated_at: string
+          verifactu_hash: string | null
+          verifactu_previous_hash: string | null
+          verifactu_previous_invoice_code: string | null
+          verifactu_previous_issue_date: string | null
+          verifactu_qr_url: string | null
+          verifactu_response: Json | null
+          verifactu_status: string
+          verifactu_submitted_at: string | null
+          verifactu_xml: string | null
+        }
+        Insert: {
+          created_at?: string
+          currency_code?: string
+          customer_address?: Json
+          customer_email?: string | null
+          customer_name?: string | null
+          customer_tax_id?: string | null
+          external_event_id?: string | null
+          external_payment_id?: string | null
+          external_subscription_id?: string | null
+          id?: string
+          invoice_code: string
+          invoice_number: number
+          invoice_series: string
+          invoice_type?: string
+          invoice_year: number
+          issue_date: string
+          issuer_address?: Json
+          issuer_name: string
+          issuer_tax_id: string
+          metadata?: Json
+          operation_date: string
+          operation_description: string
+          payment_method?: string
+          payment_provider?: string
+          pdf_storage_path?: string | null
+          rectifies_invoice_id?: string | null
+          status?: string
+          subtotal: number
+          tax_amount: number
+          tax_regime_code?: string
+          total: number
+          updated_at?: string
+          verifactu_hash?: string | null
+          verifactu_previous_hash?: string | null
+          verifactu_previous_invoice_code?: string | null
+          verifactu_previous_issue_date?: string | null
+          verifactu_qr_url?: string | null
+          verifactu_response?: Json | null
+          verifactu_status?: string
+          verifactu_submitted_at?: string | null
+          verifactu_xml?: string | null
+        }
+        Update: {
+          created_at?: string
+          currency_code?: string
+          customer_address?: Json
+          customer_email?: string | null
+          customer_name?: string | null
+          customer_tax_id?: string | null
+          external_event_id?: string | null
+          external_payment_id?: string | null
+          external_subscription_id?: string | null
+          id?: string
+          invoice_code?: string
+          invoice_number?: number
+          invoice_series?: string
+          invoice_type?: string
+          invoice_year?: number
+          issue_date?: string
+          issuer_address?: Json
+          issuer_name?: string
+          issuer_tax_id?: string
+          metadata?: Json
+          operation_date?: string
+          operation_description?: string
+          payment_method?: string
+          payment_provider?: string
+          pdf_storage_path?: string | null
+          rectifies_invoice_id?: string | null
+          status?: string
+          subtotal?: number
+          tax_amount?: number
+          tax_regime_code?: string
+          total?: number
+          updated_at?: string
+          verifactu_hash?: string | null
+          verifactu_previous_hash?: string | null
+          verifactu_previous_invoice_code?: string | null
+          verifactu_previous_issue_date?: string | null
+          verifactu_qr_url?: string | null
+          verifactu_response?: Json | null
+          verifactu_status?: string
+          verifactu_submitted_at?: string | null
+          verifactu_xml?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_invoices_rectifies_invoice_id_fkey"
+            columns: ["rectifies_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "billing_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integration_credentials: {
         Row: {
           connection_id: string
@@ -51,6 +294,36 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_number_sequences: {
+        Row: {
+          invoice_series: string
+          invoice_year: number
+          last_invoice_code: string | null
+          last_issue_date: string | null
+          last_verifactu_hash: string | null
+          next_number: number
+          updated_at: string
+        }
+        Insert: {
+          invoice_series: string
+          invoice_year: number
+          last_invoice_code?: string | null
+          last_issue_date?: string | null
+          last_verifactu_hash?: string | null
+          next_number?: number
+          updated_at?: string
+        }
+        Update: {
+          invoice_series?: string
+          invoice_year?: number
+          last_invoice_code?: string | null
+          last_issue_date?: string | null
+          last_verifactu_hash?: string | null
+          next_number?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       meta_asset_tokens: {
         Row: {
           access_token_encrypted: string
@@ -87,6 +360,150 @@ export type Database = {
           scopes?: Json | null
           token_expires_at?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      platform_billing_settings: {
+        Row: {
+          address_line1: string
+          address_line2: string | null
+          city: string
+          country_code: string
+          created_at: string
+          default_vat_rate: number
+          email: string | null
+          installation_number: string
+          invoice_series: string
+          legal_name: string
+          phone: string | null
+          postal_code: string
+          prices_include_vat: boolean
+          region: string | null
+          singleton_id: boolean
+          system_id: string
+          system_name: string
+          system_version: string
+          tax_id: string
+          updated_at: string
+          updated_by: string | null
+          vat_regime_code: string
+          verifactu_enabled: boolean
+          verifactu_environment: string
+        }
+        Insert: {
+          address_line1: string
+          address_line2?: string | null
+          city: string
+          country_code?: string
+          created_at?: string
+          default_vat_rate?: number
+          email?: string | null
+          installation_number?: string
+          invoice_series?: string
+          legal_name: string
+          phone?: string | null
+          postal_code: string
+          prices_include_vat?: boolean
+          region?: string | null
+          singleton_id?: boolean
+          system_id?: string
+          system_name?: string
+          system_version?: string
+          tax_id: string
+          updated_at?: string
+          updated_by?: string | null
+          vat_regime_code?: string
+          verifactu_enabled?: boolean
+          verifactu_environment?: string
+        }
+        Update: {
+          address_line1?: string
+          address_line2?: string | null
+          city?: string
+          country_code?: string
+          created_at?: string
+          default_vat_rate?: number
+          email?: string | null
+          installation_number?: string
+          invoice_series?: string
+          legal_name?: string
+          phone?: string | null
+          postal_code?: string
+          prices_include_vat?: boolean
+          region?: string | null
+          singleton_id?: boolean
+          system_id?: string
+          system_name?: string
+          system_version?: string
+          tax_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          vat_regime_code?: string
+          verifactu_enabled?: boolean
+          verifactu_environment?: string
+        }
+        Relationships: []
+      }
+      platform_expenses: {
+        Row: {
+          amount: number
+          billing_period: string
+          category: string
+          created_at: string
+          created_by: string | null
+          currency_code: string
+          deductible: boolean
+          document_url: string | null
+          ends_on: string | null
+          id: string
+          name: string
+          notes: string | null
+          starts_on: string
+          status: string
+          tax_amount: number
+          updated_at: string
+          updated_by: string | null
+          vendor: string | null
+        }
+        Insert: {
+          amount: number
+          billing_period?: string
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          currency_code?: string
+          deductible?: boolean
+          document_url?: string | null
+          ends_on?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          starts_on?: string
+          status?: string
+          tax_amount?: number
+          updated_at?: string
+          updated_by?: string | null
+          vendor?: string | null
+        }
+        Update: {
+          amount?: number
+          billing_period?: string
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          currency_code?: string
+          deductible?: boolean
+          document_url?: string | null
+          ends_on?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          starts_on?: string
+          status?: string
+          tax_amount?: number
+          updated_at?: string
+          updated_by?: string | null
+          vendor?: string | null
         }
         Relationships: []
       }
@@ -162,6 +579,15 @@ export type Database = {
     }
     Functions: {
       accessible_org_ids: { Args: never; Returns: string[] }
+      allocate_billing_invoice_number: {
+        Args: { target_series: string; target_year: number }
+        Returns: {
+          invoice_number: number
+          previous_invoice_code: string
+          previous_issue_date: string
+          previous_verifactu_hash: string
+        }[]
+      }
       assigned_consultant_org_ids: { Args: never; Returns: string[] }
       can_access_org: {
         Args: { target_organization_id: string }
@@ -215,6 +641,16 @@ export type Database = {
       record_agent_version_evaluation: {
         Args: { p_payload: Json }
         Returns: string
+      }
+      set_billing_verifactu_hash: {
+        Args: {
+          target_hash: string
+          target_invoice_code: string
+          target_issue_date: string
+          target_series: string
+          target_year: number
+        }
+        Returns: undefined
       }
       user_id_by_email: { Args: { target_email: string }; Returns: string }
     }
@@ -2837,8 +3273,11 @@ export type Database = {
       }
       client_invites: {
         Row: {
-          code: string
+          captured_by_consultant_id: string | null
+          code: string | null
+          code_hash: string | null
           consultant_user_id: string
+          consulting_organization_id: string | null
           created_at: string
           email: string
           expires_at: string
@@ -2849,8 +3288,11 @@ export type Database = {
           status: string
         }
         Insert: {
-          code: string
+          captured_by_consultant_id?: string | null
+          code?: string | null
+          code_hash?: string | null
           consultant_user_id: string
+          consulting_organization_id?: string | null
           created_at?: string
           email: string
           expires_at: string
@@ -2861,8 +3303,11 @@ export type Database = {
           status?: string
         }
         Update: {
-          code?: string
+          captured_by_consultant_id?: string | null
+          code?: string | null
+          code_hash?: string | null
           consultant_user_id?: string
+          consulting_organization_id?: string | null
           created_at?: string
           email?: string
           expires_at?: string
@@ -2874,10 +3319,24 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "client_invites_captured_by_consultant_id_fkey"
+            columns: ["captured_by_consultant_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "client_invites_consultant_user_id_fkey"
             columns: ["consultant_user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_invites_consulting_organization_id_fkey"
+            columns: ["consulting_organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
           {
@@ -3149,6 +3608,7 @@ export type Database = {
           assigned_at: string
           assigned_by: string | null
           consultant_user_id: string
+          consulting_organization_id: string | null
           ended_at: string | null
           id: string
           is_active: boolean
@@ -3160,6 +3620,7 @@ export type Database = {
           assigned_at?: string
           assigned_by?: string | null
           consultant_user_id: string
+          consulting_organization_id?: string | null
           ended_at?: string | null
           id?: string
           is_active?: boolean
@@ -3171,6 +3632,7 @@ export type Database = {
           assigned_at?: string
           assigned_by?: string | null
           consultant_user_id?: string
+          consulting_organization_id?: string | null
           ended_at?: string | null
           id?: string
           is_active?: boolean
@@ -3191,6 +3653,13 @@ export type Database = {
             columns: ["consultant_user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consultant_assignments_consulting_organization_id_fkey"
+            columns: ["consulting_organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
           {
@@ -11552,6 +12021,7 @@ export type Database = {
           display_name: string
           ecommerce_url: string | null
           id: string
+          kind: string
           legal_name: string | null
           onboarding_completed_at: string | null
           scheduled_purge_at: string | null
@@ -11573,6 +12043,7 @@ export type Database = {
           display_name: string
           ecommerce_url?: string | null
           id?: string
+          kind?: string
           legal_name?: string | null
           onboarding_completed_at?: string | null
           scheduled_purge_at?: string | null
@@ -11594,6 +12065,7 @@ export type Database = {
           display_name?: string
           ecommerce_url?: string | null
           id?: string
+          kind?: string
           legal_name?: string | null
           onboarding_completed_at?: string | null
           scheduled_purge_at?: string | null
@@ -12008,6 +12480,9 @@ export type Database = {
       service_subscriptions: {
         Row: {
           cancelled_at: string | null
+          contracted_client_slots: number
+          copilot_model_tier: string
+          copilot_monthly_tokens: number
           created_at: string
           ends_at: string | null
           external_subscription_id: string | null
@@ -12023,6 +12498,9 @@ export type Database = {
         }
         Insert: {
           cancelled_at?: string | null
+          contracted_client_slots?: number
+          copilot_model_tier?: string
+          copilot_monthly_tokens?: number
           created_at?: string
           ends_at?: string | null
           external_subscription_id?: string | null
@@ -12038,6 +12516,9 @@ export type Database = {
         }
         Update: {
           cancelled_at?: string | null
+          contracted_client_slots?: number
+          copilot_model_tier?: string
+          copilot_monthly_tokens?: number
           created_at?: string
           ends_at?: string | null
           external_subscription_id?: string | null
@@ -16195,6 +16676,15 @@ export type Database = {
           segment: string
         }[]
       }
+      copilot_bank_organization: {
+        Args: { actor_user_id: string; run_organization_id: string }
+        Returns: string
+      }
+      copilot_tokens_consumidos: {
+        Args: { bank_organization_id: string; desde: string; hasta: string }
+        Returns: number
+      }
+      es_consultor: { Args: never; Returns: boolean }
       klaviyo_email_inventory: {
         Args: { target_organization_id: string; target_store_id?: string }
         Returns: {
@@ -16602,6 +17092,10 @@ export type Database = {
       organization_activity_digest: {
         Args: { target_organization_id: string }
         Returns: string
+      }
+      plazas_de_cartera_ocupadas: {
+        Args: { consulting_organization_id: string }
+        Returns: number
       }
       reorder_strategic_milestones: {
         Args: { p_ordered_ids: string[]; p_phase_id: string }

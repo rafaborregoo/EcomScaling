@@ -8,7 +8,8 @@
 //
 // `consultant_partners` guarda con quien trabaja cada consultor, en las dos
 // direcciones. Al emparejarse se sincronizan las carteras existentes, y
-// `createClientForConsultant` asigna a los socios en cada alta nueva.
+// `ensureOwnOrganization` (registro.ts) asigna a los socios cada vez que un
+// codigo de invitacion vincula la organizacion que crea un cliente nuevo.
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";

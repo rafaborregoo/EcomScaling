@@ -102,11 +102,20 @@ export function isMetaAppSecretProofError(message: string): boolean {
   return message.includes("Invalid appsecret_proof");
 }
 
-/** El token caduco. Mismo final que el anterior: reautorizar, no reintentar. */
+/**
+ * El token caduco. Mismo final que el anterior: reautorizar, no reintentar.
+ *
+ * `meta_access_token_unavailable` es el que lanza `runMetaSync` cuando la
+ * fecha de caducidad guardada en BD ya paso -- ni siquiera llega a llamar a
+ * Meta. Sin esto aqui, ese caso caia en el generico `meta_sync_partial_failure`,
+ * que no dice que hay que reconectar.
+ */
 export function isMetaTokenExpiredError(message: string): boolean {
   return (
     message.includes("Session has expired") ||
-    message.includes("Error validating access token")
+    message.includes("Error validating access token") ||
+    message.includes("meta_access_token_unavailable") ||
+    message.includes("meta_token_expired_reauth_required")
   );
 }
 
@@ -2624,6 +2633,18 @@ export async function reconcileAllMetaConnections(env: ApiEnv) {
         connection_id: connection.id,
         message: detail,
       });
+      // Sin esto la fila se queda en "syncing" (la dejo el claim de arriba) y
+      // el propio filtro `.eq("status", "connected")` de este cron la excluye
+      // de todas las pasadas futuras: la conexion queda muerta en silencio,
+      // sin error visible, hasta que alguien la sincroniza a mano.
+      await supabase
+        .from("integration_connections")
+        .update({
+          status: "error",
+          last_error_at: new Date().toISOString(),
+          last_error_message: metaConnectionErrorMessage([detail]),
+        })
+        .eq("id", connection.id);
       return { connectionId: connection.id, status: "failed" as const, detail };
     }
   });

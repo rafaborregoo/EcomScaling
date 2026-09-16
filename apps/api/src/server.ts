@@ -10,6 +10,7 @@ import {
   shouldBlockOnEnvironmentRisk,
 } from "@ecomscaling/config";
 import {
+  causalEdgeInputSchema,
   healthReferenceInputSchema,
   healthResponseSchema,
   readinessResponseSchema,
@@ -24,7 +25,7 @@ import { apiMetrics } from "./metrics.js";
 import { listAccountActions } from "./actions.js";
 import {
   addMarketingDraftNote,
-  createClientForConsultant,
+  generateClientInviteCode,
   createClientOrganization,
   deleteOrganization,
   deleteOrganizationStore,
@@ -44,6 +45,11 @@ import {
   createConsultantHealthReference,
   listConsultantHealthReferences,
   retireConsultantHealthReference,
+  createConsultantCausalEdge,
+  listConsultantCausalPaths,
+  listConsultantHypotheses,
+  listConsultantRootCauses,
+  listConsultantConfidence,
   listConsultantSeverity,
   listConsultantSignals,
   listConsultantSymptomMap,
@@ -112,8 +118,29 @@ import { getMetaInsights } from "./meta-insights.js";
 import { getKlaviyoInsights } from "./klaviyo-insights.js";
 import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
 import { handleFathomWebhookRequest } from "./fathom-webhook-handler.js";
-import { handleWhopWebhookRequest } from "./whop-webhook-handler.js";
-import { createWhopCheckout } from "./whop-checkout.js";
+import { ensureOwnOrganization } from "./registro.js";
+import {
+  grantSubscription,
+  getPlatformFinancialDashboard,
+  listPlans,
+  listPlatformSubscriptions,
+  revokeSubscription,
+  type GrantInput,
+} from "./billing.js";
+import {
+  getPlatformBillingSettings,
+  getPlatformInvoice,
+  listPlatformInvoices,
+  retryInvoiceVerifactu,
+  upsertPlatformBillingSettings,
+} from "./invoicing.js";
+import {
+  archivePlatformExpense,
+  createPlatformExpense,
+  listPlatformExpenses,
+  updatePlatformExpense,
+  type PlatformExpenseInput,
+} from "./platform-finance.js";
 import type { StandardWebhookHeaders } from "./standard-webhook.js";
 import { processQueuedFathomWebhookEvents } from "./fathom-webhook-handler.js";
 import type { FathomWebhookHeaders } from "./fathom-webhook.js";
@@ -257,6 +284,10 @@ import {
   type ConsultantChatViewContext,
   describeProviderRedundancy,
 } from "./ai-runtime.js";
+import { getCopilotBalance } from "./copilot-saldo.js";
+import { createStripeCheckout } from "./stripe-checkout.js";
+import { handleStripeWebhookRequest } from "./stripe-webhook-handler.js";
+import type { StripeWebhookHeaders } from "./stripe-webhook.js";
 import {
   enqueueInstagramImage,
   listInstagramImageBank,
@@ -864,27 +895,27 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
-  // Alta de cliente por un consultor (no requiere platform_admin).
-  app.post<{
-    Body: {
-      display_name?: string;
-      owner_email?: string;
-      owner_full_name?: string;
-      timezone?: string;
-      currency_code?: string;
-    };
-  }>("/v1/consultant/clients", async (request, reply) => {
-    const auth = await resolveAuthContext(env, request.headers.authorization);
-    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+  // Genera un codigo de vinculacion suelto (no requiere platform_admin). El
+  // cliente crea su propia organizacion en /planes -- ver §16 del plan de
+  // organizacion consultora.
+  app.post<{ Body: { email?: string } }>(
+    "/v1/consultant/clients",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(
+        env,
+        request.headers.authorization,
+      );
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
 
-    const result = await createClientForConsultant(
-      env,
-      auth.context,
-      request.body ?? {},
-    );
-    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
-    return reply.code(201).send(result.data);
-  });
+      const result = await generateClientInviteCode(
+        env,
+        auth.context,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
 
   // Con quien comparte cartera un consultor. Emparejarse reparte las tiendas
   // que ya tienen los dos y hace que las nuevas nazcan compartidas.
@@ -913,17 +944,228 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  app.post<{
-    Body: {
-      plan_id?: string;
-      organization_id?: string;
-      redirect_url?: string;
-    };
-  }>("/v1/billing/whop/checkout", async (request, reply) => {
+  app.post<{ Body: { business_name?: string; invite_code?: string } }>(
+    "/v1/mi-organizacion",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await ensureOwnOrganization(
+        env,
+        auth.context,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get("/v1/billing/plans", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
 
-    const result = await createWhopCheckout(
+    const result = await listPlans(env);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get("/v1/admin/subscriptions", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await listPlatformSubscriptions(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get<{ Querystring: { days?: string } }>(
+    "/v1/admin/financial-dashboard",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const requestedDays = Number.parseInt(request.query.days ?? "30", 10);
+      const result = await getPlatformFinancialDashboard(
+        env,
+        auth.context,
+        requestedDays,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get<{ Querystring: { days?: string } }>(
+    "/v1/admin/expenses",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const requestedDays = Number.parseInt(request.query.days ?? "30", 10);
+      const result = await listPlatformExpenses(
+        env,
+        auth.context,
+        requestedDays,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Body: PlatformExpenseInput }>(
+    "/v1/admin/expenses",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await createPlatformExpense(
+        env,
+        auth.context,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.patch<{ Params: { expenseId: string }; Body: PlatformExpenseInput }>(
+    "/v1/admin/expenses/:expenseId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await updatePlatformExpense(
+        env,
+        auth.context,
+        request.params.expenseId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { expenseId: string } }>(
+    "/v1/admin/expenses/:expenseId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await archivePlatformExpense(
+        env,
+        auth.context,
+        request.params.expenseId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get("/v1/admin/billing-settings", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    if (auth.context.profile.platform_role !== "platform_admin") {
+      return reply.code(403).send({ error: "platform_admin_required" });
+    }
+    const result = await getPlatformBillingSettings(env);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.put<{ Body: Record<string, unknown> }>(
+    "/v1/admin/billing-settings",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await upsertPlatformBillingSettings(
+        env,
+        auth.context,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get("/v1/admin/invoices", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await listPlatformInvoices(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get<{ Params: { invoiceId: string } }>(
+    "/v1/admin/invoices/:invoiceId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await getPlatformInvoice(
+        env,
+        auth.context,
+        request.params.invoiceId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { invoiceId: string } }>(
+    "/v1/admin/invoices/:invoiceId/verifactu/retry",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await retryInvoiceVerifactu(
+        env,
+        auth.context,
+        request.params.invoiceId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Body: GrantInput }>(
+    "/v1/admin/subscriptions",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await grantSubscription(
+        env,
+        auth.context,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.delete<{ Params: { subscriptionId: string } }>(
+    "/v1/admin/subscriptions/:subscriptionId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await revokeSubscription(
+        env,
+        auth.context,
+        request.params.subscriptionId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{
+    Body: {
+      price_id?: string;
+      organization_id?: string;
+      success_url?: string;
+      cancel_url?: string;
+      customer_tax_id?: string;
+    };
+  }>("/v1/billing/stripe/checkout", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await createStripeCheckout(
       env,
       auth.context,
       request.body ?? {},
@@ -1034,8 +1276,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  app.post<{ Params: { organizationId: string } }>(
-    "/v1/consultant/organizations/:organizationId/invite/regenerate",
+  app.post<{ Params: { inviteId: string } }>(
+    "/v1/consultant/invites/:inviteId/regenerate",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
@@ -1043,15 +1285,16 @@ export async function buildApp(): Promise<FastifyInstance> {
       const result = await regenerateClientInvite(
         env,
         auth.context,
-        request.params.organizationId,
+        request.params.inviteId,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },
   );
 
-  // Canje público del código de invitación: sin auth (el cliente aún no tiene
-  // sesión). Devuelve un enlace de sesión que lleva al onboarding.
+  // Vista previa publica de un codigo: sin auth (el cliente aun no tiene
+  // sesion). Un codigo suelto (§16) manda a /registro; uno de cliente ya
+  // existente devuelve `requires_signup: false` y sigue por /v1/invites/redeem.
   app.post<{ Body: { code?: string; email?: string } }>(
     "/v1/invites/preview",
     inviteRedeemRateLimit,
@@ -1667,7 +1910,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(401).send({ error: "missing_bearer_token" });
     }
 
-    const result = await listConsultantMaturity(env, authorization, auth.context);
+    const result = await listConsultantMaturity(
+      env,
+      authorization,
+      auth.context,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
@@ -1688,7 +1935,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(401).send({ error: "missing_bearer_token" });
     }
 
-    const result = await listConsultantHealthReferences(env, authorization, auth.context);
+    const result = await listConsultantHealthReferences(
+      env,
+      authorization,
+      auth.context,
+    );
     if (isServiceFailure(result)) return sendServiceFailure(reply, result);
     return result.data;
   });
@@ -1704,9 +1955,10 @@ export async function buildApp(): Promise<FastifyInstance> {
 
     const parsed = healthReferenceInputSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ error: "invalid_health_reference", detail: parsed.error.message });
+      return reply.code(400).send({
+        error: "invalid_health_reference",
+        detail: parsed.error.message,
+      });
     }
 
     const result = await createConsultantHealthReference(
@@ -1739,6 +1991,117 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  // F3/D07. Las rutas causales candidatas de un caso: las que apoya, las que
+  // contradice y las que nadie ha podido comprobar. Van **todas**, incluidas las
+  // contradichas -- una rama podada dice donde no esta el problema, y eso es la
+  // mitad de un diagnostico (guardrail 49). Solo consultor: son candidatas.
+  app.get("/v1/consultant/causal-paths", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantCausalPaths(
+      env,
+      authorization,
+      auth.context,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // F3/D08. Las explicaciones que se han barajado para un caso, **incluidas las
+  // descartadas con su motivo**: filtrarlas es como se repite el mes que viene
+  // una busqueda que ya se hizo. Y el test siguiente de cada una, que es la
+  // parte accionable. Solo consultor.
+  app.get("/v1/consultant/hypotheses", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantHypotheses(
+      env,
+      authorization,
+      auth.context,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // F3/D09. Causa raiz y constraint, dos preguntas independientes. Casi todo
+  // llega "unresolved" o "latent" y se ensena tal cual: no cerrar es la
+  // respuesta correcta cuando la evidencia es co-movimiento. Solo consultor.
+  app.get("/v1/consultant/root-causes", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantRootCauses(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // F3/D07. Declarar una relacion causal propia de una tienda. Es lo que
+  // desbloquea el bloque: el grafo global trae cinco aristas, y todo lo demas
+  // que un consultor sabe de una tienda concreta no tenia donde escribirse.
+  app.post("/v1/consultant/causal-edges", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const parsed = causalEdgeInputSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: "invalid_causal_edge",
+        detail: parsed.error.message,
+      });
+    }
+
+    const result = await createConsultantCausalEdge(
+      env,
+      authorization,
+      auth.context,
+      parsed.data,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return reply.code(201).send(result.data);
+  });
+  // F3/D11. Cuanto se puede afirmar de cada cosa, capa por capa, y que falta
+  // para afirmar mas. Es lo unico que impide leer un caso descrito como un caso
+  // explicado. Solo consultor.
+  app.get("/v1/consultant/confidence", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const result = await listConsultantConfidence(
+      env,
+      authorization,
+      auth.context,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
   // F3/D10. Cuanto dano hay, medido: cuanto se movio, sobre que base y con que
   // supuestos. **Ninguna severidad**: la fuente no define formula ni umbral.
   // Solo consultor -- una cifra de perdida sin causa es un susto sin salida.
@@ -1754,7 +2117,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(401).send({ error: "missing_bearer_token" });
     }
 
-    const result = await listConsultantSeverity(env, authorization, auth.context);
+    const result = await listConsultantSeverity(
+      env,
+      authorization,
+      auth.context,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
@@ -1807,7 +2174,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(401).send({ error: "missing_bearer_token" });
     }
 
-    const result = await listConsultantSignals(env, authorization, auth.context);
+    const result = await listConsultantSignals(
+      env,
+      authorization,
+      auth.context,
+    );
 
     if (isServiceFailure(result)) {
       return sendServiceFailure(reply, result);
@@ -1977,7 +2348,17 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
-  app.post<{ Body: { email?: string; full_name?: string } }>(
+  app.post<{
+    Body: {
+      email?: string;
+      full_name?: string;
+      grant_plan?: {
+        plan_code?: string;
+        store_limit?: number | string | null;
+        ends_at?: string | null;
+      } | null;
+    };
+  }>(
     "/v1/admin/consultants",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -2100,6 +2481,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       owner_full_name?: string;
       timezone?: string;
       currency_code?: string;
+      grant_plan?: {
+        plan_code?: string;
+        store_limit?: number | string | null;
+        ends_at?: string | null;
+      } | null;
     };
   }>("/v1/admin/clients", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -5967,6 +6353,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       message?: string;
       conversation_id?: string;
       view_context?: ConsultantChatViewContext;
+      model?: string;
     };
   }>(
     "/v1/organizations/:organizationId/consultant-chat",
@@ -5985,6 +6372,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.body?.message ?? "",
         request.body?.conversation_id,
         request.body?.view_context,
+        request.body?.model,
       );
 
       if (isServiceFailure(result)) {
@@ -5992,6 +6380,31 @@ export async function buildApp(): Promise<FastifyInstance> {
       }
 
       return reply.code(201).send(result.data);
+    },
+  );
+
+  // El saldo del copiloto. Solo se lee al abrir el panel: despues viaja en la
+  // respuesta de cada mensaje, que es cuando cambia.
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/copilot/saldo",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await getCopilotBalance(
+        env,
+        auth.context,
+        request.params.organizationId,
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return reply.send(result.data);
     },
   );
 
@@ -6574,10 +6987,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(result.statusCode).send(result.body);
     });
 
-    webhookScope.post("/v1/whop/webhooks", async (request, reply) => {
-      const result = await handleWhopWebhookRequest(
+    webhookScope.post("/v1/stripe/webhooks", async (request, reply) => {
+      const result = await handleStripeWebhookRequest(
         env,
-        request.headers as StandardWebhookHeaders,
+        request.headers as StripeWebhookHeaders,
         request.body as Buffer,
       );
       return reply.code(result.statusCode).send(result.body);

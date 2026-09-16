@@ -3101,6 +3101,538 @@ web), suite completa y typecheck en verde.
 
 ---
 
+## `D11` — Motor y pantalla · **hecho** 2026-10-05
+
+El bloque que le pone freno a los otros seis. Con senal, patron e impacto
+medido, un caso **parece** un diagnostico cerrado; esto escribe al lado la fila
+"¿Por que pasa? — no puede determinarse" y lo que haria falta para contestarla.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Motor puro | `assessConfidence()` y compania en `packages/contracts/src/confidence.ts` |
+| Tests | `packages/contracts/src/confidence.test.ts` (13 nuevos, 50 en total) |
+| Runtime con I/O | `apps/api/src/confidence-engine.ts` |
+| Job | `apps/worker/src/confidence-once.ts` + `.github/workflows/confidence-engine.yml` |
+| Lectura del consultor | `listConsultantConfidence()` + `GET /v1/consultant/confidence` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/confidence-view-model.ts` (11 tests) |
+| Panel | `apps/web/src/app/shopify/diagnostico/confidence-panel.tsx` |
+
+**Sin migracion**, como `D04` y `D10`: el esquema esta puesto desde el
+2026-09-22.
+
+### Decisiones
+
+**La confianza no es del caso, es de cada afirmacion.** Es la idea entera del
+bloque. Se puede saber con certeza que las ventas cayeron (capa `what`,
+observado) y no tener ni idea de por que (capa `why`, desconocido), y las dos
+cosas a la vez son lo normal, no una contradiccion. Colapsarlas en "confianza
+media" borra justo la informacion que sirve: te dice cuanto fiarte, pero no de
+que. Por eso el motor escribe **una fila por capa** y la pantalla las ensena
+todas juntas.
+
+**Sin formula, como todo en esta fase.** No hay media ponderada de dimensiones
+ni de capas. La unica derivacion es el techo (`capped_at`), y sale de una regla
+declarada y no de un umbral: **una afirmacion no puede ser mas firme que aquello
+en lo que se apoya**. Si `D01` no se fia del dato, ninguna lectura construida
+sobre ese dato se fia mas. En la corrida real se vio funcionando: sin evaluacion
+de `D01`, las capas `what` y `where` --que eran `observed`-- bajaron a `low`
+solas.
+
+**La global no se promedia: hereda el techo de la causa.** No es un umbral
+inventado, es la definicion de D00 -- un diagnostico es una explicacion, y una
+explicacion sin causa no es un diagnostico. Mientras `why` sea
+`insufficient_data`, `overall` tambien lo es, y el motivo va escrito en
+`cap_reason`.
+
+**"No lo se" y "no lo hay" son tres estados, no dos** (guardrail 8). Sin senal,
+la capa `what` sale con `negative_claim_state = no_evidence`, no
+`evidence_of_no_problem`: decir que no hay problema sin haber mirado es afirmar
+una ausencia que nadie ha comprobado. Y `evidence_of_stability` exige ademas
+medicion completa y observada. La mutacion deliberada fue justo esta, y rompio
+su test.
+
+**Cada nivel tiene su formula de lenguaje**, no un sinonimo elegante (guardrails
+43 a 46). `calibratedPhrase()` devuelve "no puede determinarse si" / "es
+compatible con que" / "la explicacion mas probable es que" / "la evidencia
+sostiene con solidez que". Cambiar esas frases es descalibrar el lenguaje, y hay
+un test que comprueba que **ninguna de las cuatro** dispara el lint de certeza
+del guardrail 47 -- incluida la mas alta.
+
+**Un mecanismo ausente no es un mecanismo debil.** Cuando dos metricas coinciden
+en el tiempo sin relacion declarada, la dimension `mechanism_strength` sale
+`absent`, no `weak`. Es la diferencia entre "el mecanismo es flojo" y "no hay
+ningun mecanismo", y en pantalla se pintan distinto.
+
+**Se reescribe entero, no se hace upsert.** La constraint unica del esquema es
+(caso, capa, sujeto, **texto del claim**) y `subject_id` va nulo: en Postgres
+dos nulos no colisionan, asi que un upsert insertaria una fila nueva en cada
+pasada. La lectura de un caso se borra y se vuelve a escribir, y el
+`on delete cascade` se lleva sus dimensiones, techos e incertidumbres. Es la
+foto de hoy; media foto vieja mezclada con media nueva no la sostiene nadie.
+
+**La falta de grafo causal se registra como `critical_unknown`**, enlazada a la
+capa `why` y con lo que la resolveria escrito. El guardrail 33 no deja dejarla
+caer sin decir a que afecta, y esa exigencia del esquema convierte la deuda mas
+grande de la fase en una fila consultable en vez de una nota en un markdown.
+
+### Dos fallos que encontro la corrida real
+
+1. **`explanatory_coverage` no admite `not_applicable` ni `none`.** Solo
+   `full` / `partial` / `minimal` / `unknown`. Lo corregi con criterio, no por
+   compilar: en las capas descriptivas el eje no aplica y `unknown` no afirma
+   nada; en las causales si se sabe cuanto explican --nada-- y eso es `minimal`,
+   que es el suelo del vocabulario.
+2. **`confidence_dimensions` y `confidence_caps` exigen `organization_id`** y yo
+   solo pasaba `claim_id`. Siete capas escribieron bien y sus dimensiones no.
+
+Las dos las caza el esquema, no un test: es el argumento entero a favor de
+escribir el contrato antes que el motor.
+
+### Verificacion
+
+- **Corrida real** en test sobre un caso abierto con senal: **7 capas, 1
+  incertidumbre critica, 3 causas sin resolver**. Segunda pasada identica (se
+  reescribe, no duplica). Datos borrados: las seis tablas a cero.
+- La herencia del techo se vio sobre datos: sin `D01`, `what` y `where` bajaron
+  de `high` a `low` solas, con el motivo escrito.
+- **Mutacion deliberada**: que la ausencia de senal se lea como
+  `evidence_of_no_problem` rompe su test y solo el suyo. Revertida.
+- 24 tests nuevos (50 en `confidence.test.ts`, 275 en la web), suite completa y
+  typecheck de los cuatro workspaces en verde.
+
+### Lo que quedo fuera, a proposito
+
+- **`confidence_history`** — la tabla existe y nadie la escribe. Responderia
+  "¿por que ayer estabamos mas seguros?", y para eso hace falta comparar dos
+  pasadas, que es trabajo de otro dia.
+- **`knowledge_applicability`** — califica si un conocimiento externo aplica a
+  esta tienda. No hay conocimiento externo que calificar todavia.
+- **Las capas `signal`, `future_impact`, `severity` y `forecast`** — o las
+  cubre otra capa que ya se escribe, o dependen de bloques sin motor.
+- **La composicion de la frase final** (guardrails 43 a 47 al completo) — hoy
+  `calibratedPhrase()` da la formula y nadie la usa para redactar: eso es `D14`.
+  Hasta entonces el lint de lenguaje cubre la mitad del guardrail, y conviene
+  saberlo.
+
+---
+
+## `D07` — Motor y pantalla · **hecho** 2026-10-06
+
+El bloque que llevaba tres semanas atascado, y no por el codigo: **el grafo
+estaba vacio**. La migracion `20260918090000` dejo cinco tablas y cero filas, y
+un grafo sin aristas no se recorre. Desatascarlo fue declarar el conocimiento,
+igual que D06 hizo con `metric_dependencies` y D04 con `health_references`.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Semilla del grafo global | `supabase/migrations/20261017090000_f3_d07_grafo_causal_semilla.sql` |
+| Motor puro | `exploreCausalPaths()` y compania en `packages/contracts/src/causal.ts` |
+| Tests | `packages/contracts/src/causal.test.ts` (13 nuevos) |
+| Runtime con I/O | `apps/api/src/causal-engine.ts` |
+| Job | `apps/worker/src/causal-once.ts` + `.github/workflows/causal-engine.yml` |
+| Lectura del consultor | `listConsultantCausalPaths()` + `GET /v1/consultant/causal-paths` |
+| Declarador | `createConsultantCausalEdge()` + `POST /v1/consultant/causal-edges` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/causal-view-model.ts` (8 tests) |
+| Panel | `apps/web/src/app/shopify/diagnostico/causal-paths.tsx` |
+
+### Decisiones
+
+**Una rama sin senal solo esta contradicha si esa metrica se mira.** Es la
+contribucion real del bloque y la regla que ordena el motor entero.
+
+Si las ventas caen y los pedidos aguantan, la rama de pedidos esta contradicha:
+se miro, no se movio, y lo que se hundio es el ticket. Eso es un hallazgo, y
+descarta media busqueda de un golpe. Pero si las ventas caen y no hay senal de
+`sessions`, esa rama **no** esta contradicha: es que nadie mide las sesiones.
+Tratar las dos ausencias igual convierte "no lo se" en "no lo hay" y poda la
+rama correcta por el motivo equivocado. Por eso `measuredMetrics` es un
+parametro del motor y no una constante, y por eso D05 exporta
+`METRICAS_VIGILADAS`.
+
+**Seis nodos y cinco aristas, y cuatro de las cinco son aritmetica.** Es poco
+para un grafo causal del ecommerce, y es exactamente lo que se puede sostener
+con las metricas que la plataforma lee hoy. Declarar mas seria inventar. Las
+aritmeticas no son un relleno: `relation_type = 'mathematical'` existe para
+esto, sirven para **acotar la busqueda** --si las ventas cayeron, o cayeron los
+pedidos o cayo el ticket, no hay tercera opcion-- y el guardrail 4 mas
+`checkCausalInvariants` impiden que una ruta hecha solo de ellas se presente
+como explicacion. El motor lo escribe el mismo en `missing_evidence`.
+
+**El unico calculo de magnitud sale de una identidad, no de un umbral.** Para una
+arista aritmetica se puede preguntar de que parte del movimiento da cuenta el
+factor: es el cociente de los dos movimientos relativos. El 1 no es un corte
+elegido --es "explica el movimiento entero"-- y el 0 tampoco --es "se movio al
+reves". Donde no hay identidad (`ad_spend -> sessions`) no hay cuota que
+calcular y el encaje se queda `untested`. Poner ahi un corte seria el umbral
+inventado que el guardrail 11 de D04 prohibe.
+
+**Del encaje temporal solo se comprueba la flecha del tiempo.** Si el efecto
+empezo antes que la causa candidata, esa causa no explica el arranque
+(guardrails 19 y 20) y el paso queda `contradicted`. Lo que **no** se comprueba
+es si el retardo observado se parece al esperado: para eso haria falta una
+tolerancia, la fuente no la da, e inventarla seria decidir por ella. El retardo
+se guarda en `observed_lag_days` para que se vea.
+
+**`sessions` y `conversion_rate` se declaran `observed_metric` a proposito.**
+Salen del tracking de la tienda, y un fallo de tracking las mueve sin que se
+mueva el negocio. Esa etiqueta es lo que hace saltar los guardrails 37-39 en
+cuanto una ruta pase por ellas sin validar la medicion. `net_sales`,
+`orders_count` y `ad_spend` no: salen del registro de pedidos y de la
+facturacion del anunciante, que son el sistema de registro y no una medida
+indirecta.
+
+**Ninguna ruta llega a `supported` hoy, y no es un fallo del motor.** El
+guardrail 50 dice que una ruta con huecos declarados no esta soportada, y siempre
+queda uno: nadie ha revisado los confusores de D02 contra ninguna ruta. Que eso
+sea asi es el estado real de la cadena, y escribirlo es lo que impide leer un
+caso descrito como un caso explicado.
+
+**El declarador es la mitad del bloque.** Sin el, la pantalla es una lista de
+"nadie mide eso" que no se puede arreglar desde ningun sitio -- exactamente lo
+que le pasaba a D04 antes de tener el suyo. Lo declarado entra como
+`expert_heuristic` con `plausible`, no como conocimiento establecido: el
+guardrail 45 le pone entonces techo y el 44 impide que ascienda a arista global.
+Lo que sabe un consultor vale; vale como lo que es. Y el formulario **no deja
+elegir el nivel de evidencia**, que seria dejarle firmar su propio certificado.
+
+**En pantalla, las rutas contradichas van primero.** Es contrario a la
+intuicion. Lo normal seria enterrarlas y subir la que mejor encaja; hoy eso seria
+al reves de lo util, porque ninguna esta sostenida y lo unico que el bloque sabe
+de verdad es donde **no** esta el problema. Y no se ordena por confianza: quien
+lee el primero de una lista entiende que es el bueno, y el guardrail 48 dice que
+D07 no prioriza.
+
+### Dos fallos que encontro la corrida real, no un test
+
+Los dos son el mismo error a dos alturas: **decir algo distinto de lo que paso**.
+
+1. La rama salia descartada **por tiempo** (la caida de ventas empezo el 1 y la
+   de pedidos el 3) y el `next_evidence` hablaba de magnitud: "que explica el
+   resto del movimiento". Mandaba a mirar donde no era. Ahora lo primero que se
+   nombra es lo que rompio la ruta, y la pregunta es la util: que se movio en los
+   dos dias en que el efecto ya caia y la causa aun no.
+2. La evidencia iba marcada `contradicting` con un texto de apoyo -- la etiqueta
+   cambiada y la frase igual. Ahora la observacion dice **por que** contradice.
+
+### Verificacion
+
+- **Corrida real** en test sobre un caso abierto con dos senales. Primer
+  escenario (arranques desalineados): **2 rutas, 1 contradicha por tiempo, 1 sin
+  probar**. Segundo escenario (arranques alineados): **3 rutas, 5 pasos**, y el
+  recorrido sube solo a `sessions` y `conversion_rate` porque la rama de
+  pedidos deja de estar podada.
+
+> **Corregido el 2026-10-06, al implementar `D08`.** Aqui ponia que la segunda
+> pasada era identica. **No lo era.** Comprobe lo que devolvia el motor --"3
+> rutas" las dos veces-- y no lo que quedaba en la tabla, que eran seis. El
+> borrado previo fallaba en silencio por una contradiccion del esquema
+> (`source_path_id` era `on delete set null` contra un check que prohibe el
+> nulo), y el motor no mira el error del `delete`. Arreglado en la migracion
+> `20261021090000`, y **reverificado contando filas**: 3 rutas, 5 pasos, 4
+> hipotesis, 4 tests, estable entre pasadas.
+>
+> La leccion no es la del bug: es que **"el motor devuelve lo mismo" no es
+> idempotencia**. Devolver lo esperado es justo lo que hace un motor que
+> duplica.
+- La poda se vio funcionando sobre datos: con la rama de pedidos contradicha,
+  **nadie sube a sesiones**. Con ella en pie, sube. Es el paso 5 del runtime.
+- **Mutacion deliberada**: que una metrica sin vigilar se lea como contradicha
+  rompe tres tests, incluido el que lleva el nombre de la regla. Revertida.
+- Datos sembrados borrados: rutas, pasos, evidencia, senales y casos a cero. El
+  grafo global (6 nodos, 5 aristas) queda, que es su sitio.
+- Migracion en **test y produccion**.
+- 21 tests nuevos. Suites: **538 contratos / 377 api / 283 web / 24 worker**,
+  typecheck limpio en los mios.
+
+### Lo que quedo fuera, a proposito
+
+- **`limits`, `requires` e `interaction`** — el esquema los admite y el motor no
+  los recorre (paso 9 del runtime). Ofrecerlos en el formulario seria prometer
+  algo que no pasa, asi que no estan.
+- **Los confusores de D02** — la tabla existe y el motor no la consulta; se
+  declara como hueco en cada ruta en vez de fingir que se reviso.
+- **El recorrido hacia delante** (seccion 3 del runtime) — validar una causa
+  candidata mirando si aparecen sus efectos aguas abajo. Necesita mas series de
+  las que hay.
+- **`causal_paths.symptom_id` se escribe, pero casi siempre nulo** — depende de
+  que D06 haya enlazado la senal a un sintoma.
+
+---
+
+## `D08` — Motor y pantalla · **hecho** 2026-10-06
+
+Convierte cada ruta candidata de D07 en una hipotesis **explicita**: con su
+estado, lo que la falsaria y el siguiente dato que la despejaria.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Motor puro | `generateHypotheses()` y compania en `packages/contracts/src/hypotheses.ts` |
+| Tests | `packages/contracts/src/hypotheses.test.ts` (12 nuevos) |
+| Runtime con I/O | `apps/api/src/hypothesis-engine.ts` |
+| Job | `apps/worker/src/hypothesis-once.ts` + `.github/workflows/hypothesis-engine.yml` |
+| Lectura del consultor | `listConsultantHypotheses()` + `GET /v1/consultant/hypotheses` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/hypotheses-view-model.ts` (10 tests) |
+| Panel | `apps/web/src/app/shopify/diagnostico/hypotheses.tsx` |
+| Migracion correctora | `supabase/migrations/20261021090000_f3_d08_hipotesis_siguen_a_su_ruta.sql` |
+
+### Decisiones
+
+**D08 no elige: enumera y descarta.** El guardrail 1 dice que la primera causa
+plausible no es un diagnostico y el 12 que el challenger vive mientras haya
+incertidumbre material; un motor que devolviera "la explicacion es X" rompe los
+dos a la vez. Ninguna hipotesis sale afirmada --el techo es `under_test`-- y
+ninguna lleva `relative_role = 'primary'`, porque el esquema exige entonces
+decir por que gana y por que pierden las otras, y no hay con que.
+
+**Las descartadas se guardan con su motivo, y eso es medio bloque.** "Los pedidos
+no lo explican, porque las ventas empezaron a caer antes" es un resultado. Sin
+escribirlo, dentro de un mes alguien vuelve a mirar los pedidos porque se le
+olvido que ya se habian mirado. La pantalla las ensena abajo con el motivo
+delante, no las filtra. Y no se les propone test: gastar en comprobar lo ya
+descartado es el gasto mas facil de evitar.
+
+**La hipotesis de que no haya pasado nada se escribe sola.** Siempre que alguna
+ruta pase por una metrica que sale del tracking, el motor anade
+`data_quality_explanation` con `relative_role = 'challenger'`: puede que las
+sesiones no hayan caido y solo se haya roto la medida. Esa explicacion **no sale
+de ninguna ruta causal** --no la hay, y por eso `source_path_id` va nulo-- y es
+la unica que puede tumbar a todas las demas de golpe. Si dependiera de que
+alguien se acuerde, no estaria nunca; por eso la escribe el motor. En pantalla va
+arriba del todo: leerla despues de estudiar cinco explicaciones es leerla tarde.
+
+**El prior y la confianza son dos columnas y se dicen por separado** (guardrail
+2). El prior sale del `evidence_level` **declarado en la arista** --lo que suele
+pasar-- y la confianza, de lo que se ha comprobado en este caso. Una identidad
+aritmetica tiene prior alto y confianza baja a la vez, y las dos cosas son
+ciertas. Fundirlas en un indicador es como se acaba afirmando que una tienda
+tiene un problema porque el libro dice que suele pasar.
+
+**Ninguna explicacion llega a completa.** Aunque el factor de cuenta del
+movimiento entero, **por que se movio el factor** sigue sin explicarse, asi que
+el residual siempre es material y se escribe en `residual_note`. El check
+`cobertura_vs_residual` no dejaria decir otra cosa.
+
+**Lo que nadie ha mirado entra como `not_observed` + `inconclusive`**
+(guardrail 5). No es evidencia en contra, y en pantalla va en su propia lista:
+en la misma que lo observado, un hueco cuenta como si fuera un hallazgo. La
+mutacion deliberada fue justo esta.
+
+**El test dice de donde sale el dato, y eso manda sobre que dato es** (guardrail
+47). `available` y `needs_integration` piden acciones de personas distintas, y
+verse iguales manda al consultor a molestar al cliente por algo que la plataforma
+ya tiene. Cuando falta la serie, el motor dice `needs_integration` y no
+`needs_user`: no hay que preguntarle a nadie, hay que conectar una fuente.
+
+### Tres fallos que encontro la corrida real
+
+Los dos primeros los canto el esquema; el tercero, la pantalla.
+
+1. **`target_node_id` es la causa propuesta, no el sintoma.** Yo le puse el
+   target del caso, y entonces las tres ramas parecian la misma hipotesis
+   contada tres veces -- que es exactamente lo que canta el invariante
+   `doble_conteo` (guardrails 41 y 42). Lo confirma el guardrail 43: la regla
+   comprueba que una candidata a raiz no apunte a una metrica de resultado, y eso
+   solo tiene sentido si la columna guarda la causa.
+2. **Tres bloques le dan tres nombres al negocio entero**: `business_global` en
+   D00, `business` en D07, `global` en las senales de D05. Cada esquema es
+   coherente consigo mismo, pero hay que traducir al cruzarlos. Ahora se hace en
+   una funcion con nombre (`alcanceDelCaso`) en vez de descubrirlo en un check.
+3. **La frase aplanaba las cadenas de dos saltos.** Decia que las sesiones entran
+   en la formula de las ventas. Entran en la de los **pedidos**, y los pedidos en
+   la de las ventas. Aplanarlo inventa una relacion directa que nadie declaro, y
+   lo vi leyendo la salida real, no en un test.
+
+### Y uno que llevaba tres semanas escondido en el esquema
+
+`diagnostic_hypotheses.source_path_id` se creo en D07 con `on delete set
+null`. D08 anadio despues el check `causal_exige_ruta`, que prohibe ese nulo en
+una hipotesis causal. Juntos hacen **imposible borrar una ruta** en cuanto algo
+se apoye en ella: Postgres pone el nulo, el check lo rechaza, y la transaccion
+entera se cae en silencio.
+
+El sintoma fue que las rutas de D07 se acumulaban --tres por pasada-- sin que
+nadie lo notara, porque el motor seguia devolviendo "3 rutas" y eso es justo lo
+que uno espera leer.
+
+**La correccion es `cascade`, no relajar el check.** El check tiene razon: una
+hipotesis causal sin ruta no es una hipotesis a la que le falta un campo, es una
+afirmacion causal sin nada detras. Lo que estaba mal era suponer que la hipotesis
+sobrevive al razonamiento que la produjo. La misma trampa estaba puesta en
+`root_causes.causal_path_id` y se arreglo en la misma migracion, antes de que
+D09 la descubra desde el otro lado.
+
+### Verificacion
+
+- **Corrida real** en test, encadenando D07 y D08 sobre un caso abierto.
+  Escenario con la cadena en pie: **3 rutas -> 4 hipotesis, 4 tests, 1
+  challenger**. Escenario con una rama contradicha: **2 rutas -> 2 hipotesis, 1
+  descartada con su motivo escrito y sin test propuesto**.
+- **Idempotencia comprobada contando filas**, no por lo que devuelve el motor:
+  3 rutas, 5 pasos, 4 hipotesis, 4 tests, 6 evidencias, estable entre pasadas.
+- La rama sin serie escribio `not_observed` + `inconclusive`, que es el
+  guardrail 5 funcionando sobre datos reales.
+- **Mutacion deliberada**: que el hueco de una rama sin medir cuente como
+  `contradicts` rompe su test y solo el suyo. Revertida.
+- Datos sembrados borrados: rutas, hipotesis, tests, evidencia, senales y casos a
+  cero. El grafo global queda.
+- Migracion en **test y produccion**.
+- 22 tests nuevos. Suites: **551 contratos / 382 api / 293 web / 25 worker**,
+  typecheck limpio en los cuatro workspaces.
+
+### Lo que quedo fuera, a proposito
+
+- **`hypothesis_status_history`** — la tabla existe y nadie la escribe.
+  Responderia "¿por que ayer esta hipotesis estaba viva?", y para eso hay que
+  comparar dos pasadas.
+- **Ejecutar los tests** — se proponen y se quedan en `proposed`. Ejecutarlos
+  es leer datos que en su mayoria no existen todavia.
+- **`interaction_hypothesis`** — necesita aristas con `interaction_group`, y
+  el grafo global no declara ninguna.
+- **La deteccion de doble conteo entre familias** (guardrails 41 y 42) — el
+  invariante la comprueba, el motor no la provoca porque cada ruta apunta a un
+  nodo distinto.
+
+---
+
+## `D09` — Motor y pantalla · **hecho** 2026-10-06
+
+Cierra la cadena causal que abrio D07: convierte las hipotesis vivas de D08 en
+una conclusion calibrada, y evalua por separado que capacidad podria estar
+limitando el objetivo. Es el unico bloque de la fase autorizado a cerrar una
+causa -- y aun asi casi nunca cierra nada, porque la evidencia de hoy no da
+para mas.
+
+### Que se ha construido
+
+| Pieza | Donde |
+| --- | --- |
+| Motor puro (causa raiz) | `generateRootCauses()` y compania en `packages/contracts/src/root-cause.ts` |
+| Motor puro (constraint) | `generateConstraintCandidates()`, mismo fichero |
+| Tests | `packages/contracts/src/root-cause.test.ts` (13 nuevos) |
+| Runtime con I/O | `apps/api/src/root-cause-engine.ts` |
+| Job | `apps/worker/src/root-cause-once.ts` + `.github/workflows/root-cause-engine.yml` |
+| Lectura del consultor | `listConsultantRootCauses()` + `GET /v1/consultant/root-causes` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/root-cause-view-model.ts` (10 tests) |
+| Panel | `apps/web/src/app/shopify/diagnostico/root-cause.tsx` (dos tarjetas) |
+
+**Sin migracion**: el esquema de `root_causes`, `root_cause_chain`,
+`business_constraints` y `constraint_tests` esta puesto desde el 2026-09-20.
+
+### Decisiones
+
+**Casi todo llega `unresolved` o `latent`, y no es un techo del motor.** Es el
+estado real de los datos que hoy existen. La evidencia de D07-D08 es siempre
+co-movimiento (`correlation_only`), y el guardrail 15 prohibe cerrar una causa
+con eso -- `probable` y `confirmed` quedan fuera de alcance mientras esa
+evidencia no cambie. La plataforma no mide capacidad ni demanda de ninguna
+capacidad, y los guardrails 29 y 31 prohiben declarar un cuello vinculante sin
+las dos. Cerrar mas hoy seria mentir; cuando esos datos existan, el motor
+cerrara mas sin que haga falta tocarlo.
+
+**La regla del eslabon mas debil, hecha literal.** Si algun tramo de la cadena
+tiene `case_support = 'untested'` -- nadie mide esa metrica -- la cadena entera
+se queda en `unresolved` con confianza `insufficient`, por fuerte que sea el
+resto. `partial_root_cause` es la conclusion mas fuerte que hoy se puede
+sostener, y solo cuando la cadena se ha medido entera.
+
+**El origen es siempre causa inmediata, nunca raiz.** El guardrail 9 exige
+profundidad y evidencia para llegar a `root_cause`, y hoy nunca hay mas alla de
+una serie que se movio a la vez. Etiquetarlo `root_cause` seria afirmar una
+busqueda que no se hizo. `structural_driver` tampoco se usa nunca hoy, por el
+mismo motivo.
+
+**D09 no elige, igual que D07 y D08: una fila por candidata viva, no una
+"ganadora".** El rol `primary` solo se usa con una sola candidata sobre la
+mesa; con varias, todas quedan `contributing`, porque D08 ya establecio que la
+separacion es baja y nombrar una "primaria" seria fingir un criterio que no
+existe.
+
+**Causa raiz y constraint son dos pipelines sin clave ajena entre si**
+(apartado 23). El primero lee las hipotesis de D08; el segundo, la salud por
+capacidad de D04. Ninguno referencia al otro, porque las cuatro combinaciones
+tienen que poder existir: causa resuelta con constraint activo, constraint
+resuelto con un driver estructural que sigue ahi. En pantalla son dos tarjetas
+separadas por el mismo motivo.
+
+**El desafiante de la medicion (H`n` de D08, `data_quality_explanation`)
+tambien se convierte en causa raiz candidata**, marcada
+`affects_observability_only`. No se resuelve nunca sola -- sigue `unresolved`
+como las demas -- pero aparece en la lista con la misma seriedad que el resto,
+porque si es cierta, ninguna de las otras hace falta.
+
+**Cada candidata a cuello trae el test que haria falta correr, aunque hoy nadie
+lo pueda ejecutar.** `binding_status` sale siempre `latent`, pero
+`counterfactual_question`, `expected_if_binding` y `expected_if_not_binding`
+quedan escritos: declarar la capacidad y la demanda el dia de manana es
+rellenar un hueco, no empezar de cero.
+
+### El fallo que encontro la corrida real, no un test
+
+**`exploreCausalPaths` de D07 nunca emitia la explicacion corta por si sola.**
+El recorrido solo emitia una cadena cuando ya no quedaba nada mas arriba que
+explorar, asi que "los pedidos explican la mitad, con encaje temporal y de
+alcance perfectos" -- un paso, totalmente medido -- se diluia siempre en su
+extension hacia "sesiones", que nadie mide. El resultado visible: D09 nunca
+llegaba a `partial_root_cause`, porque la version bien sostenida de la
+explicacion jamas existia como ruta propia.
+
+Se vio corriendo D07 encadenado con D09 sobre datos reales, no en un test
+aislado -- ninguno de los dos bloques por separado lo habria delatado. La
+correccion esta en `packages/contracts/src/causal.ts`: el recorrido emite la
+cadena tal como esta **antes** de intentar extenderla, no solo al llegar a un
+callejon sin salida. Es el paso 15 del runtime de D07 ("mantener alternativas")
+tomado en serio: la explicacion corta y sostenida es una alternativa a la
+extension mas larga, no un paso intermedio que se descarta.
+
+### Verificacion
+
+- **Corrida real encadenando D07, D08 y D09** en test sobre un caso abierto con
+  dos senales (ventas y pedidos, misma ventana). Antes de la correccion: **4
+  causas raiz, 0 parciales, 4 sin resolver**. Despues: **5 causas raiz, 1
+  parcial (`RC1`: "pedidos" con la cadena entera medida), 4 sin resolver** --
+  y las dos extensiones hacia sesiones y tasa de conversion siguen sin
+  resolver, correctamente, porque nadie las mide todavia.
+- **Idempotencia comprobada contando filas**: 5 causas, 1 parcial, 1 cuello
+  candidato, estable entre pasadas.
+- El pipeline de constraint se probo con una capacidad (`inventory`) marcada
+  `bad` en `capability_health`: escribio una candidata `latent` con su test
+  `pending`, nunca `binding`.
+- **Mutacion deliberada**: dejar que una cadena medida y de cobertura parcial
+  llegara a `probable` en vez de `partial_root_cause` rompe su test **y**
+  `checkRootCauseInvariants` (guardrail 15) a la vez. Revertida.
+- Datos sembrados borrados: causas, cadena, constraints, tests, hipotesis,
+  rutas, salud, senales y casos a cero. El grafo global (6 nodos, 5 aristas)
+  queda.
+- 23 tests nuevos entre motor y pantalla. Suites: **565 contratos / 414 api /
+  303 web / 26 worker**, typecheck limpio en los cuatro workspaces. Sin
+  migracion.
+
+### Lo que quedo fuera, a proposito
+
+- **`no_business_constraint`** -- la columna existe en `diagnostic_cases`
+  desde D09 (`no hay constraint relevante, y aqui esta el motivo`), pero es una
+  declaracion del consultor, no algo que el motor pueda decidir por si solo. No
+  se construyo el formulario: el motor de constraint ya hace la mitad del
+  trabajo (enumerar candidatas), y declarar "ninguna limita" exige haber
+  revisado la lista, que es un juicio humano.
+- **Recurrencia** -- `root_causes.recurrence` se escribe siempre `unknown`. El
+  paso 5 del runtime pide comparar con casos anteriores similares, y eso
+  necesita una busqueda historica que no existe todavia.
+- **El recorrido hacia delante de D07** (validar una causa mirando si aparecen
+  sus efectos aguas abajo) seguia sin motor, y D09 tampoco lo necesita para lo
+  que hoy puede cerrar.
+- **Capacidad y demanda medidas** -- es el hueco mas grande de los dos
+  pipelines. Sin ellas, `binding_status` no puede salir nunca `binding`, por
+  mucho que una capacidad este objetivamente mal.
+
+---
+
 ## Audiencia: que vera cada vista de esta fase
 
 Añadido 2026-09-14 despues de `D00`, `D01` y `D02`. Los tres se cerraron con RLS
@@ -3211,9 +3743,10 @@ fase necesita ademas motor y pixel (plan maestro, apartado 3).
 
 ### El motor
 
-La capa `03-runtime` de esta fase **ya tiene 9 flujos escritos**. Seis estan
-implementados (`d05`, `d01`, `d02`, `d06`, `d03` y `d10`). No hay que inventar los
-cuatro que quedan: hay que leerlos y escribirlos, como se hizo con esos cinco.
+La capa `03-runtime` de esta fase **ya tiene 9 flujos escritos**. Nueve estan
+implementados (`d05`, `d01`, `d02`, `d06`, `d03`, `d07`, `d09`, `d10` y `d11`),
+y `D08` tiene motor sin flujo escrito propio. No hay que inventar los tres que
+quedan: hay que leerlos y escribirlos, como se hizo con estos nueve.
 
 | Flujo | Bloque | Estado |
 | --- | --- | --- |
@@ -3222,10 +3755,10 @@ cuatro que quedan: hay que leerlos y escribirlos, como se hizo con esos cinco.
 | `d02-flujo-contextualizacion` | `D02` | **hecho** — `apps/api/src/context-engine.ts` |
 | `d03-flujo-deteccion-madurez` | `D03` | **hecho** — `apps/api/src/maturity-engine.ts` |
 | `d06-flujo-motor-sintomas` | `D06` | **hecho** — `apps/api/src/symptom-engine.ts` |
-| `d07-flujo-razonamiento-causal` | `D07` | pendiente |
-| `d09-flujo-root-cause-constraint` | `D09` | pendiente |
+| `d07-flujo-razonamiento-causal` | `D07` | **hecho** (recorrido hacia atras; el de ida y los confusores, no) — `apps/api/src/causal-engine.ts` |
+| `d09-flujo-root-cause-constraint` | `D09` | **hecho** — `apps/api/src/root-cause-engine.ts` |
 | `d10-flujo-evaluacion-severidad-impacto` | `D10` | **hecho** (solo la rama de cuantificacion) — `apps/api/src/severity-engine.ts` |
-| `d11-flujo-evaluacion-confianza-incertidumbre` | `D11` | pendiente |
+| `d11-flujo-evaluacion-confianza-incertidumbre` | `D11` | **hecho** (las capas que la cadena puede sostener hoy) — `apps/api/src/confidence-engine.ts` |
 
 Y **cuatro bloques necesitan motor sin tener flujo escrito**, asi que ahi si hay
 diseno que hacer (`D04` ya lo tiene, escrito sin flujo el 2026-10-02): `D08`
@@ -3250,8 +3783,10 @@ plataforma, y con el la primera pantalla se disena contra datos que existen.
 
 ### El pixel
 
-`D01` ya se ve en `/integraciones`, y `D02`, `D03`, `D04`, `D05`, `D06` y `D10`
-en `/shopify/diagnostico`. De los 15 bloques, **queda pantalla por hacer en 8**. La matriz de
+`D01` ya se ve en `/integraciones`, y `D02`, `D03`, `D04`, `D05`, `D06`, `D07`,
+`D08`, `D09`, `D10` y `D11` en `/shopify/diagnostico`. De los 15 bloques,
+**queda pantalla por hacer en 3** (`D12`, `D13`, `D14`; `D00` es contrato puro
+por diseno y no necesita una). La matriz de
 audiencia de mas arriba ya dice que lleva cada una.
 
 Esa matriz es la especificacion de las primeras pantallas, y no vino del corpus

@@ -153,6 +153,7 @@ function buildSystemContext(
           status: String(organization.status ?? "active"),
           timezone: String(organization.timezone ?? "UTC"),
           currency_code: String(organization.currency_code ?? "EUR"),
+          kind: String(organization.kind ?? "client"),
         },
       },
     ],
@@ -202,7 +203,7 @@ export async function processQueuedFathomWebhookEvents(
     try {
       const { data: connection } = await supabase
         .from("integration_connections")
-        .select("id, organization_id, connected_by, organizations(id, display_name, slug, status, timezone, currency_code)")
+        .select("id, organization_id, connected_by, organizations(id, display_name, slug, status, timezone, currency_code, kind)")
         .eq("id", candidate.connection_id)
         .eq("provider", "fathom")
         .maybeSingle();

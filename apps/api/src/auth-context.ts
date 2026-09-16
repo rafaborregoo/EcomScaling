@@ -28,7 +28,15 @@ type Profile = {
 // lo hace explicito sin cambiar el comportamiento de autorizacion existente
 // (nada consume este campo todavia, es aditivo).
 export type AccessSource =
-  "membership" | "consultant_assignment" | "platform_admin";
+  | "membership"
+  | "consultant_assignment"
+  | "platform_admin"
+  // La consultora (organizations.kind = 'consulting', ver 20261018090000) es
+  // una membership real, pero NO es una tienda: no tiene pedidos, ni
+  // integraciones, ni dashboard. Once sitios filtran por
+  // `accessSource === "membership"` para decir "mis tiendas propias"; sin una
+  // fuente propia, la consultora salia en todos ellos como una tienda mas.
+  | "consulting_organization";
 
 type Membership = {
   organization_id: string;
@@ -51,6 +59,9 @@ type Organization = {
   status: string;
   timezone: string;
   currency_code: string;
+  /** 'client' = tienda de un cliente (o propia). 'consulting' = la consultora,
+   *  que no tiene tiendas: tiene el plan y la gente. Ver 20261018090000. */
+  kind: string;
 };
 
 type Subscription = {
@@ -181,14 +192,14 @@ export function createUserScopedClient(env: ApiEnv, token: string) {
  */
 export function derivePlatformRole(input: {
   isPlatformStaff: boolean;
-  hasOwnSubscription: boolean;
+  isConsultant: boolean;
 }): string {
   if (input.isPlatformStaff) return "platform_admin";
-  return input.hasOwnSubscription ? "consultant" : "user";
+  return input.isConsultant ? "consultant" : "user";
 }
 
 async function loadProfile(supabase: SupabaseClient, userId: string) {
-  const [{ data, error }, { data: ownSubscriptions, error: subscriptionError }] =
+  const [{ data, error }, { data: esConsultor, error: subscriptionError }] =
     await Promise.all([
       supabase
         .from("profiles")
@@ -197,13 +208,12 @@ async function loadProfile(supabase: SupabaseClient, userId: string) {
         )
         .eq("id", userId)
         .maybeSingle(),
-      // Vigencia igual que en private.is_consultant: mismo criterio en SQL y en
-      // Node, o la API y la RLS acabarian discrepando sobre quien es consultor.
-      supabase
-        .from("service_subscriptions")
-        .select("id, status, starts_at, ends_at")
-        .eq("user_id", userId)
-        .in("status", ["trial", "active"]),
+      // Antes esto repetia en TypeScript la condicion de private.is_consultant.
+      // Con la regla nueva (miembro de una consultora con plan vigente) son
+      // tres tablas y la vigencia del plan: dos copias acaban discrepando, y
+      // entonces la API dice una cosa y la RLS otra. Se llama a la funcion, que
+      // es exactamente la que usan las policies.
+      supabase.rpc("es_consultor"),
     ]);
 
   if (error) {
@@ -239,15 +249,6 @@ async function loadProfile(supabase: SupabaseClient, userId: string) {
     };
   }
 
-  const now = Date.now();
-  const hasOwnSubscription = (ownSubscriptions ?? []).some((row) => {
-    const startsAt = row.starts_at ? Date.parse(row.starts_at as string) : null;
-    const endsAt = row.ends_at ? Date.parse(row.ends_at as string) : null;
-    return (
-      (startsAt === null || startsAt <= now) && (endsAt === null || endsAt > now)
-    );
-  });
-
   const profile: Profile = {
     id: data.id as string,
     full_name: (data.full_name as string | null) ?? null,
@@ -257,7 +258,7 @@ async function loadProfile(supabase: SupabaseClient, userId: string) {
       (data.onboarding_completed_at as string | null) ?? null,
     platform_role: derivePlatformRole({
       isPlatformStaff: Boolean(data.is_platform_staff),
-      hasOwnSubscription,
+      isConsultant: Boolean(esConsultor),
     }),
   };
 
@@ -445,7 +446,7 @@ async function resolveAuthContextUncached(
   ] = await Promise.all([
     supabase
       .from("organizations")
-      .select("id, display_name, slug, status, timezone, currency_code")
+      .select("id, display_name, slug, status, timezone, currency_code, kind")
       .in("id", organizationIds),
     supabase
       .from("service_subscriptions")
@@ -476,13 +477,22 @@ async function resolveAuthContextUncached(
   }
 
   const memberships = allMemberships
-    .map((membership) => ({
-      ...membership,
-      organization:
+    .map((membership) => {
+      const organization =
         ((organizations ?? []) as Organization[]).find(
-          (organization) => organization.id === membership.organization_id,
-        ) ?? null,
-    }))
+          (item) => item.id === membership.organization_id,
+        ) ?? null;
+
+      return {
+        ...membership,
+        organization,
+        accessSource:
+          organization?.kind === "consulting" &&
+          membership.accessSource === "membership"
+            ? ("consulting_organization" as const)
+            : membership.accessSource,
+      };
+    })
     .sort((a, b) =>
       (a.organization?.display_name ?? "").localeCompare(
         b.organization?.display_name ?? "",

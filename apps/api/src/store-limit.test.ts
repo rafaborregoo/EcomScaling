@@ -13,6 +13,7 @@ function stub(options: {
   existingConnection?: boolean;
   used?: number;
   countFails?: boolean;
+  sinSuscripcion?: boolean;
 }) {
   const chain = (result: { data: unknown; error: unknown }) => {
     const node: Record<string, unknown> = {};
@@ -27,8 +28,9 @@ function stub(options: {
     from(table: string) {
       if (table === "service_subscriptions") {
         return chain({
-          data:
-            options.storeLimit === null
+          data: options.sinSuscripcion
+            ? null
+            : options.storeLimit === null
               ? { store_limit: null }
               : { store_limit: options.storeLimit },
           error: null,
@@ -52,6 +54,18 @@ const run = (client: SupabaseClient) =>
 
 test("sin limite en el plan no bloquea nunca", async () => {
   assert.equal(await run(stub({ storeLimit: null, used: 99 })), null);
+});
+
+// "Sin fila de suscripcion" y "fila con store_limit nulo" parecen lo mismo y
+// son lo contrario: la segunda es un plan sin tope, la primera es no tener
+// plan. Desde que cualquiera puede registrarse y crear su organizacion, tratar
+// la primera como barra libre regalaba tiendas ilimitadas a quien no ha pagado.
+test("sin plan no se conecta ninguna tienda", async () => {
+  const result = await run(stub({ storeLimit: null, sinSuscripcion: true }));
+
+  assert.notEqual(result, null);
+  assert.equal(result?.statusCode, 402);
+  assert.equal(result?.error, "subscription_required");
 });
 
 test("por debajo del limite deja conectar", async () => {

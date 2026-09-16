@@ -140,7 +140,24 @@ export async function assertStoreLimit(
     .limit(1)
     .maybeSingle();
 
-  const limit = subscription?.store_limit as number | null | undefined;
+  // Sin plan no se conecta nada. Antes esto caia en el mismo camino que
+  // `store_limit` nulo y acababa en "sin limite", que es lo contrario de lo que
+  // significa: una organizacion que nadie ha dado de alta ni ha pagado podia
+  // conectar tiendas sin tope. Deja de ser teorico desde que cualquiera puede
+  // registrarse y crear la suya (`registro.ts`).
+  if (!subscription) {
+    return {
+      ok: false,
+      statusCode: 402,
+      error: "subscription_required",
+      message: "Elige un plan para conectar tu tienda.",
+    };
+  }
+
+  // NULL sigue siendo "sin limite": es el valor con el que nacieron las
+  // suscripciones anteriores a 20260907220000 y bajarles el tope de golpe
+  // dejaria fuera tiendas que ya estan conectadas y pagadas.
+  const limit = subscription.store_limit as number | null | undefined;
   if (limit === null || limit === undefined) return null;
 
   // Una tienda que ya esta conectada no consume cupo nuevo: reconectarla tras

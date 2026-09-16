@@ -16,8 +16,14 @@ import {
   hypothesisEvidenceSchema,
   diagnosticTestSchema,
   toCaseHypothesis,
+  coverageFromMagnitude,
+  generateHypotheses,
+  priorFromEdge,
+  testFor,
   type EngineHypothesis,
   type HypothesisCheckInput,
+  type HypothesisEngineInput,
+  type PathForHypothesis,
 } from "./hypotheses.js";
 
 function hip(over: Partial<EngineHypothesis> = {}): EngineHypothesis {
@@ -363,4 +369,316 @@ test("la hipotesis del motor es la misma del caso de D00, no otra", () => {
   const caso = toCaseHypothesis(causal({ status: "invalidated", rejection_reason: "El CPM no subio" }));
   assert.equal(caso.code, "H1");
   assert.equal(caso.status, "invalidated");
+});
+
+// ---------------------------------------------------------------------------
+// EL MOTOR
+// ---------------------------------------------------------------------------
+//
+// Todos estos tests persiguen la misma tentacion con disfraces distintos:
+// **quedarse con una**. Elegir la que mejor encaja, retirar el challenger,
+// contar el hueco de una rama como si fuera evidencia en su contra. Las tres
+// convierten una lista de candidatas en un diagnostico que nadie ha hecho.
+
+const rutaH = (over: Partial<PathForHypothesis> = {}): PathForHypothesis => ({
+  path_id: "P1",
+  target_node_id: "N-ns",
+  target_label: "Ventas netas",
+  origin_node_id: "N-oc",
+  status: "partial",
+  missing_evidence: ["Los confusores declarados en D02 no se han revisado."],
+  next_evidence: "Un contraste contra un periodo de control.",
+  origin_code: "orders_count",
+  origin_label: "Pedidos",
+  origin_measured: true,
+  origin_is_observed_metric: false,
+  capability: "conversion",
+  mediator_labels: [],
+  temporal_fit: "fits",
+  scope_fit: "compatible",
+  magnitude_fit: "partial",
+  relation_type: "mathematical",
+  edge_evidence_level: "deterministic",
+  all_mathematical: true,
+  evidence: [{ stance: "supporting", observation: "Da cuenta del 50% del movimiento." }],
+  ...over,
+});
+
+const entradaH = (paths: PathForHypothesis[]): HypothesisEngineInput => ({
+  caseId: "C-1",
+  targetMetric: "net_sales",
+  scope: "business_global",
+  paths,
+});
+
+test("una rama descartada sobrevive como hipotesis, con su motivo escrito", () => {
+  // Es la mitad del valor del bloque. Sin esto, dentro de un mes alguien vuelve
+  // a mirar los pedidos porque nadie guardo que ya se habian mirado.
+  const hs = generateHypotheses(
+    entradaH([
+      rutaH({
+        status: "contradicted",
+        evidence: [
+          {
+            stance: "contradicting",
+            observation: '"Ventas netas" empezo a moverse antes que "Pedidos".',
+          },
+        ],
+      }),
+    ]),
+  );
+
+  assert.equal(hs[0]?.status, "contradicted");
+  assert.match(hs[0]?.rejection_reason ?? "", /empezo a moverse antes/);
+  // Y no se le propone test: gastar en comprobar lo ya descartado es el gasto
+  // mas facil de evitar.
+  assert.equal(hs[0]?.test, null);
+});
+
+test("lo que nadie ha mirado no cuenta como evidencia en contra", () => {
+  // Guardrail 5, y el error que mas veces se cuela. `not_observed` con
+  // `inconclusive`: ni apoya ni contradice, porque nadie fue a ver.
+  const hs = generateHypotheses(
+    entradaH([
+      rutaH({
+        status: "untested",
+        origin_node_id: "N-aov",
+        origin_code: "average_order_value",
+        origin_label: "Ticket medio",
+        origin_measured: false,
+        magnitude_fit: "untested",
+        evidence: [],
+      }),
+    ]),
+  );
+
+  const hueco = hs[0]?.evidence.find((e) => e.observation_kind === "not_observed");
+  assert.ok(hueco, "el hueco se registra");
+  assert.equal(hueco?.relation, "inconclusive");
+  assert.ok(hs[0]?.evidence.every((e) => e.relation !== "contradicts"));
+  assert.equal(hs[0]?.status, "untested");
+  assert.equal(hs[0]?.confidence, "insufficient");
+});
+
+test("el prior sale de la arista, no de lo bien que encaje con el caso", () => {
+  // Guardrail 2: "esto suele pasar" y "esto esta pasando" son dos columnas.
+  assert.equal(priorFromEdge("deterministic"), "high");
+  assert.equal(priorFromEdge("common_mechanism"), "medium");
+  assert.equal(priorFromEdge("plausible"), "low");
+  assert.equal(priorFromEdge("speculative"), "unknown");
+
+  // Una ruta con prior alto y encaje flojo conserva las dos cosas separadas.
+  const hs = generateHypotheses(
+    entradaH([rutaH({ edge_evidence_level: "deterministic", magnitude_fit: "partial" })]),
+  );
+  assert.equal(hs[0]?.prior_plausibility, "high");
+  assert.equal(hs[0]?.confidence, "low");
+});
+
+test("ninguna explicacion llega a completa, y el residual se escribe", () => {
+  // Aunque el factor de cuenta del movimiento entero, por que se movio el factor
+  // sigue sin explicarse. El check `cobertura_vs_residual` no dejaria mentir.
+  assert.equal(coverageFromMagnitude("sufficient"), "partial");
+  assert.equal(coverageFromMagnitude("partial"), "minimal");
+  assert.equal(coverageFromMagnitude("untested"), "unknown");
+
+  const hs = generateHypotheses(entradaH([rutaH({ magnitude_fit: "sufficient" })]));
+  assert.notEqual(hs[0]?.explanatory_coverage, "full");
+  assert.equal(hs[0]?.unexplained_residual_material, true);
+  assert.match(hs[0]?.residual_note ?? "", /sigue sin explicarse/);
+});
+
+test("la hipotesis de que no haya pasado nada se escribe sola", () => {
+  // El challenger del guardrail 12, y la unica que puede tumbar a todas de
+  // golpe. Si dependiera de que alguien se acuerde, no estaria nunca.
+  const hs = generateHypotheses(
+    entradaH([
+      rutaH(),
+      rutaH({
+        path_id: "P2",
+        origin_node_id: "N-se",
+        origin_code: "sessions",
+        origin_label: "Sesiones",
+        origin_is_observed_metric: true,
+      }),
+    ]),
+  );
+
+  const challenger = hs.find((h) => h.hypothesis_type === "data_quality_explanation");
+  assert.ok(challenger, "tiene que existir");
+  assert.equal(challenger?.relative_role, "challenger");
+  assert.equal(challenger?.source_path_id, null);
+  assert.match(challenger?.statement ?? "", /Puede que no haya caido nada/);
+  // Y su test contrasta contra una fuente que no dependa del tracking.
+  assert.match(challenger?.test?.diagnostic_question ?? "", /no dependa del tracking/);
+});
+
+test("sin metricas de tracking no se inventa el challenger", () => {
+  // La otra mitad: una hipotesis que siempre esta deja de significar nada.
+  const hs = generateHypotheses(entradaH([rutaH()]));
+  assert.ok(hs.every((h) => h.hypothesis_type !== "data_quality_explanation"));
+});
+
+test("con varias en pie, la separacion es baja y se dice", () => {
+  // Que no sepamos distinguirlas es un hecho conocido, no una incognita.
+  // Ponerlo `unknown` seria suavizarlo.
+  const hs = generateHypotheses(
+    entradaH([rutaH(), rutaH({ path_id: "P2", origin_node_id: "N-aov", origin_label: "Ticket medio" })]),
+  );
+
+  assert.ok(hs.every((h) => h.separation === "low"));
+  assert.ok(hs.every((h) => h.relative_role != null));
+  // Y ninguna es primaria: elegir seria decidir, y decidir es D09.
+  assert.ok(hs.every((h) => h.relative_role !== "primary"));
+});
+
+test("ninguna se afirma, y ninguna es candidata a raiz", () => {
+  // Guardrail 43: un factor de la formula es donde se ve el problema, no de
+  // donde viene.
+  const hs = generateHypotheses(
+    entradaH([rutaH({ magnitude_fit: "sufficient" }), rutaH({ path_id: "P2", origin_node_id: "N-aov" })]),
+  );
+
+  for (const h of hs) {
+    assert.ok(!["supported", "most_likely", "confirmed"].includes(h.status), h.code);
+    assert.equal(h.root_cause_candidate, false);
+    assert.ok(h.falsification_condition, "toda hipotesis dice que la falsaria");
+  }
+});
+
+test("no se pide fuera un dato que la plataforma ya tiene", () => {
+  // Guardrails 46 y 47, y el check `no_preguntar_lo_que_ya_hay`: si esta
+  // disponible, el test es pasivo.
+  const conSerie = testFor(rutaH());
+  assert.equal(conSerie?.availability, "available");
+  assert.equal(conSerie?.mode, "passive");
+
+  // Y cuando falta la serie, no es que haya que preguntarle a nadie: falta
+  // conectar la fuente. Confundirlo manda al consultor a molestar al cliente.
+  const sinSerie = testFor(rutaH({ origin_measured: false }));
+  assert.equal(sinSerie?.availability, "needs_integration");
+  assert.equal(sinSerie?.mode, "passive");
+  assert.equal(sinSerie?.information_gain, "high");
+});
+
+test("todo test dice que se veria si es verdad y que si es mentira", () => {
+  // Un test cuyo resultado encaja con las dos cosas no discrimina nada, y el
+  // check exige diez caracteres en cada prediccion para que no se despache.
+  for (const ruta of [rutaH(), rutaH({ origin_measured: false })]) {
+    const t = testFor(ruta);
+    assert.ok((t?.expected_if_true.length ?? 0) >= 10);
+    assert.ok((t?.expected_if_false.length ?? 0) >= 10);
+    assert.notEqual(t?.expected_if_true, t?.expected_if_false);
+  }
+});
+
+test("una identidad aritmetica no tiene mecanismo que encaje", () => {
+  // Decir que "encaja" seria contar la formula como si explicara. El eje no
+  // aplica, y `unknown` no afirma nada.
+  const aritmetica = generateHypotheses(entradaH([rutaH({ all_mathematical: true })]));
+  assert.equal(aritmetica[0]?.mechanism_fit, "unknown");
+  assert.equal(aritmetica[0]?.hypothesis_type, "contributory_cause");
+
+  const conMecanismo = generateHypotheses(
+    entradaH([rutaH({ all_mathematical: false, relation_type: "economic" })]),
+  );
+  assert.equal(conMecanismo[0]?.mechanism_fit, "untested");
+  assert.equal(conMecanismo[0]?.hypothesis_type, "direct_cause");
+});
+
+test("lo que el motor escribe pasa los invariantes del propio bloque", () => {
+  // El circulo cerrado: si el motor produjera algo que checkHypothesisInvariants
+  // rechaza, el bloque se estaria saltando su contrato.
+  const hs = generateHypotheses(
+    entradaH([
+      rutaH(),
+      rutaH({
+        path_id: "P2",
+        origin_node_id: "N-se",
+        origin_code: "sessions",
+        origin_label: "Sesiones",
+        origin_is_observed_metric: true,
+      }),
+      rutaH({
+        path_id: "P3",
+        origin_node_id: "N-aov",
+        status: "contradicted",
+        evidence: [{ stance: "contradicting", observation: "No encaja en el tiempo." }],
+      }),
+    ]),
+  );
+
+  const violaciones = checkHypothesisInvariants({
+    hypotheses: hs.map((h, i) =>
+      engineHypothesisSchema.parse({
+        hypothesis_id: `H-${i}`,
+        code: h.code,
+        statement: h.statement,
+        hypothesis_type: h.hypothesis_type,
+        source_path_id: h.source_path_id ?? undefined,
+        target_node_id: h.target_node_id ?? undefined,
+        status: h.status,
+        rejection_reason: h.rejection_reason ?? undefined,
+        confidence: h.confidence,
+        prior_plausibility: h.prior_plausibility,
+        explanatory_coverage: h.explanatory_coverage,
+        unexplained_residual_material: h.unexplained_residual_material,
+        root_cause_candidate: h.root_cause_candidate,
+        relative_role: h.relative_role ?? undefined,
+        separation: h.separation,
+        uncertainty_kinds: h.uncertainty_kinds,
+        falsification_condition: h.falsification_condition ?? undefined,
+      }),
+    ),
+    evidence: hs.flatMap((h, i) =>
+      h.evidence.map((e, j) =>
+        hypothesisEvidenceSchema.parse({
+          evidence_id: `E-${i}-${j}`,
+          hypothesis_id: `H-${i}`,
+          relation: e.relation,
+          source_system: e.source_system,
+          observation_kind: e.observation_kind,
+          freshness: e.freshness,
+        }),
+      ),
+    ),
+    tests: hs.flatMap((h, i) =>
+      h.test
+        ? [
+            diagnosticTestSchema.parse({
+              test_id: `T-${i}`,
+              hypothesis_id: `H-${i}`,
+              diagnostic_question: h.test.diagnostic_question,
+              expected_if_true: h.test.expected_if_true,
+              expected_if_false: h.test.expected_if_false,
+              information_gain: h.test.information_gain,
+              cost: h.test.cost,
+              availability: h.test.availability,
+              mode: h.test.mode,
+            }),
+          ]
+        : [],
+    ),
+  });
+
+  assert.deepEqual(violaciones, []);
+});
+
+test("una cadena de dos saltos no se cuenta como una relacion directa", () => {
+  // Fallo real de la primera corrida: la frase decia que las sesiones entran en
+  // la formula de las ventas. Entran en la de los pedidos, y los pedidos en la
+  // de las ventas. Aplanarlo inventa una relacion que nadie declaro.
+  const directa = generateHypotheses(entradaH([rutaH()]));
+  assert.doesNotMatch(directa[0]?.statement ?? "", /a traves de/);
+
+  const encadenada = generateHypotheses(
+    entradaH([
+      rutaH({
+        origin_node_id: "N-se",
+        origin_label: "Sesiones",
+        mediator_labels: ["Pedidos"],
+      }),
+    ]),
+  );
+  assert.match(encadenada[0]?.statement ?? "", /"Sesiones", a traves de "Pedidos"/);
 });

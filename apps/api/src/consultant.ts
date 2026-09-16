@@ -1,9 +1,22 @@
-import { randomInt } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
-import { assignPartnersToOrganization } from "./consultant-partners.js";
+import {
+  assertCapacidadDeCartera,
+  loadCapacidad,
+  sinPlazasDisponibles,
+} from "./capacidad-cartera.js";
+import { quitarDescuentoDeStripe } from "./vinculacion.js";
+import { buildGrantFields, type GrantFields } from "./billing.js";
+import {
+  generateInviteCode,
+  hashInviteCode,
+  isInviteCodeShaped,
+  rejectInvite,
+  type InviteRejection,
+  type InviteRejectionReason,
+} from "./invite-codes.js";
 import { isErr } from "./result-guard.js";
 import { rankStores, type AgentSignal } from "./store-triage.js";
 import { rankMetaAccounts, type MetaSignalRow } from "./meta-triage.js";
@@ -39,6 +52,11 @@ type ApiEnv = {
   SMTP_BREVO?: string;
   SMTP_FROM_EMAIL?: string;
   SMTP_FROM_NAME?: string;
+  /** Clave del HMAC de los codigos de vinculacion (ver invite-codes.ts). */
+  INVITE_CODE_SECRET?: string;
+  /** Para retirar el descuento del cliente vinculado al desvincularlo. */
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_API_VERSION?: string;
 };
 
 function onboardingRedirectTo(env: ApiEnv): string {
@@ -3042,12 +3060,31 @@ export async function upsertConsultantAssignment(
     }
   }
 
+  // Los tramos de facturacion (§33) se cuentan por consultora, no por
+  // empleado: dos consultores de la misma empresa atendiendo al mismo cliente
+  // son un cliente, no dos.
+  const consultingOrganizationId = await findConsultingOrganizationId(
+    supabase,
+    consultantUserId,
+  );
+
+  // Asignar un cliente ocupa plaza igual que darlo de alta. Sin esto el tope
+  // se salta por la puerta de al lado: el admin asigna y la cartera crece
+  // igual, solo que sin pasar por el alta.
+  if (isActive && !previous?.is_active && consultingOrganizationId) {
+    const capacidad = await loadCapacidad(supabase, consultingOrganizationId);
+    if (capacidad.available <= 0) {
+      return sinPlazasDisponibles(capacidad);
+    }
+  }
+
   const { data: assignment, error } = await supabase
     .from("consultant_assignments")
     .upsert(
       {
         organization_id: organizationId,
         consultant_user_id: consultantUserId,
+        consulting_organization_id: consultingOrganizationId,
         is_primary: Boolean(isPrimary && isActive),
         is_active: isActive,
         assigned_by: context.user.id,
@@ -4158,6 +4195,39 @@ export async function unlinkConsultantClient(
   if (access.ok === false) return access;
 
   const supabase = createServiceClient(env);
+
+  // El 10% del cliente vinculado se deriva de la vinculacion (§30), asi que al
+  // romperla hay que quitarlo tambien donde de verdad se cobra. Si no, el
+  // cliente se queda con descuento indefinido y nadie lo ve hasta que cuadre
+  // las cuentas alguien a mano.
+  //
+  // Se hace ANTES de terminar la asignacion pero NO se aborta si falla: dejar
+  // al cliente atado a un consultor porque Stripe no responde es peor que
+  // cobrarle un 10% de menos un mes mas. Queda en el log y en la auditoria.
+  const { data: suscripcion } = await supabase
+    .from("service_subscriptions")
+    .select("external_subscription_id")
+    .eq("organization_id", organizationId)
+    .in("status", ["trial", "active"])
+    .not("external_subscription_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+
+  let descuentoRetirado: boolean | null = null;
+  if (suscripcion?.external_subscription_id) {
+    const resultado = await quitarDescuentoDeStripe(
+      env,
+      suscripcion.external_subscription_id as string,
+    );
+    descuentoRetirado = resultado.ok;
+    if (!resultado.ok) {
+      logger.error("unlink_descuento_no_retirado", {
+        organization_id: organizationId,
+        subscription_id: suscripcion.external_subscription_id,
+        detail: resultado.detail,
+      });
+    }
+  }
   const { data: org, error } = await supabase
     .from("organizations")
     .select("id, status")
@@ -4215,10 +4285,16 @@ export async function unlinkConsultantClient(
     organizationId,
     actorUserId: context.user.id,
     action: "consultant.unlink_client",
+    // Queda escrito si el descuento se pudo retirar: es lo unico de esta
+    // operacion que toca dinero y que puede haber fallado en silencio.
     entityType: "consultant_assignment",
     entityId: organizationId,
     oldData: { org_status: org.status },
-    newData: { org_status: nextStatus, assignment_ended: true },
+    newData: {
+      org_status: nextStatus,
+      assignment_ended: true,
+      descuento_retirado: descuentoRetirado,
+    },
   });
   return {
     ok: true as const,
@@ -4226,6 +4302,7 @@ export async function unlinkConsultantClient(
       organization_id: organizationId,
       unlinked: true,
       status: nextStatus,
+      descuento_retirado: descuentoRetirado,
     },
   };
 }
@@ -4509,6 +4586,148 @@ function slugify(input: string): string {
   );
 }
 
+/**
+ * La consultora de alguien: la organizacion de kind='consulting' de la que es
+ * miembro activo. Es donde vive su plan desde 20261018090000 -- antes era una
+ * fila de service_subscriptions con user_id.
+ */
+async function findConsultingOrganizationId(
+  supabase: ReturnType<typeof createServiceClient>,
+  userId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("organization_members")
+    .select("organization_id, organizations!inner(kind)")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .eq("organizations.kind", "consulting")
+    .limit(1)
+    .maybeSingle();
+
+  return (data?.organization_id as string | undefined) ?? null;
+}
+
+/**
+ * Da de alta la consultora de un consultor nuevo: la organizacion, el como
+ * owner, y el plan a nombre de la organizacion. Eso es lo que le hace
+ * consultor (private.is_consultant); sin esto la cuenta se crea y la persona
+ * entra como cliente.
+ *
+ * Si algo falla a mitad se deshace: una consultora sin plan o sin miembros es
+ * justo el estado que la asercion de la migracion prohibe.
+ */
+async function createConsultingOrganization(
+  supabase: ReturnType<typeof createServiceClient>,
+  input: {
+    userId: string;
+    fullName: string | null;
+    /**
+     * Que plan lleva la consultora al nacer:
+     *
+     * - `undefined`: el de siempre, plan `consultant` activo sin caducidad.
+     * - `GrantFields`: el que haya decidido el admin en el formulario de alta.
+     * - `null`: **ninguno**. La persona entra (una organizacion `consulting`
+     *   da acceso sin suscripcion, ver `private.accessible_org_ids`) pero NO
+     *   es consultora hasta que pague: el rol se deriva del plan (ADR-0023),
+     *   asi que hasta entonces ve la plataforma como un cliente mas y su
+     *   camino natural es /planes.
+     */
+    plan?: GrantFields | null;
+    grantedBy?: string;
+  },
+) {
+  const existing = await findConsultingOrganizationId(supabase, input.userId);
+  if (existing) return { ok: true as const, organizationId: existing };
+
+  const displayName = input.fullName?.trim() || "Consultora";
+  let slug = slugify(displayName);
+  const { data: clash } = await supabase
+    .from("organizations")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (clash) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
+
+  const now = new Date().toISOString();
+  const { data: organization, error: orgError } = await supabase
+    .from("organizations")
+    .insert({
+      display_name: displayName,
+      slug,
+      kind: "consulting",
+      status: "active",
+      created_by: input.userId,
+      activated_at: now,
+    })
+    .select("id")
+    .single();
+  if (orgError || !organization) {
+    return {
+      ok: false as const,
+      error: "consulting_organization_create_failed",
+      detail: orgError?.message,
+    };
+  }
+
+  const { error: memberError } = await supabase
+    .from("organization_members")
+    .insert({
+      organization_id: organization.id,
+      user_id: input.userId,
+      role: "owner",
+      is_active: true,
+      invited_at: now,
+      joined_at: now,
+    });
+  if (memberError) {
+    await supabase.from("organizations").delete().eq("id", organization.id);
+    return {
+      ok: false as const,
+      error: "consulting_member_create_failed",
+      detail: memberError.message,
+    };
+  }
+
+  const { error: planError } =
+    input.plan === null
+      ? { error: null }
+      : await supabase.from("service_subscriptions").insert(
+          input.plan
+            ? {
+                organization_id: organization.id,
+                plan_code: input.plan.plan_code,
+                status: input.plan.status,
+                store_limit: input.plan.store_limit,
+                starts_at: input.plan.starts_at,
+                ends_at: input.plan.ends_at,
+                metadata: {
+                  granted_by: input.grantedBy ?? input.userId,
+                  granted_at: input.plan.starts_at,
+                },
+              }
+            : {
+                organization_id: organization.id,
+                plan_code: CONSULTANT_ROLE,
+                status: "active",
+                starts_at: now,
+              },
+        );
+  if (planError) {
+    await supabase
+      .from("organization_members")
+      .delete()
+      .eq("organization_id", organization.id);
+    await supabase.from("organizations").delete().eq("id", organization.id);
+    return {
+      ok: false as const,
+      error: "consultant_plan_create_failed",
+      detail: planError.message,
+    };
+  }
+
+  return { ok: true as const, organizationId: organization.id as string };
+}
+
 function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
@@ -4537,7 +4756,13 @@ export function isAuthEmailRateLimit(
 export async function provisionConsultantAccount(
   env: ApiEnv,
   actor: { userId: string; name: string | null },
-  input: { email: string; fullName: string | null; intro: string },
+  input: {
+    email: string;
+    fullName: string | null;
+    intro: string;
+    /** Ver `createConsultingOrganization`: undefined = plan de siempre, null = que pague. */
+    plan?: GrantFields | null;
+  },
 ) {
   const { email, fullName } = input;
   const supabase = createServiceClient(env);
@@ -4585,23 +4810,21 @@ export async function provisionConsultantAccount(
     };
   }
 
-  // Lo que de verdad le hace consultor: su plan a nombre propio. Sin esta fila
-  // el alta creaba la cuenta y la persona entraba como cliente, porque el rol
-  // se deriva de aqui y no de la columna de arriba.
-  const { error: planError } = await supabase
-    .from("service_subscriptions")
-    .insert({
-      user_id: invitedUser.id,
-      plan_code: CONSULTANT_ROLE,
-      status: "active",
-      starts_at: new Date().toISOString(),
-    });
-  if (planError) {
+  // Lo que de verdad le hace consultor: su consultora con plan vigente. Sin
+  // esto el alta creaba la cuenta y la persona entraba como cliente, porque el
+  // rol se deriva de aqui y no de la columna de arriba.
+  const consulting = await createConsultingOrganization(supabase, {
+    userId: invitedUser.id,
+    fullName,
+    ...(input.plan !== undefined ? { plan: input.plan } : {}),
+    grantedBy: actor.userId,
+  });
+  if (consulting.ok === false) {
     return {
       ok: false as const,
       statusCode: 500,
-      error: "consultant_plan_create_failed",
-      detail: planError.message,
+      error: consulting.error,
+      ...(consulting.detail ? { detail: consulting.detail } : {}),
     };
   }
 
@@ -4631,12 +4854,32 @@ export async function provisionConsultantAccount(
   };
 }
 
-/** Invita a un consultor, asigna su rol y envía el enlace seguro por el SMTP
- * propio. No depende del límite de correo del proveedor Auth. */
+/**
+ * Invita a un consultor, asigna su rol y envía el enlace seguro por el SMTP
+ * propio. No depende del límite de correo del proveedor Auth.
+ *
+ * `grant_plan` decide quien paga, y es la razon de que esto exista aqui y no
+ * solo en /admin/facturacion: hasta ahora el alta concedia SIEMPRE un plan
+ * `consultant` activo y sin limite de tiendas, sin que nadie lo eligiera ni se
+ * viera en ninguna pantalla. Ahora:
+ *
+ * - objeto: se le concede ese plan. No pone tarjeta.
+ * - `null`: no se le concede nada. Entra, pero hasta que pague en /planes no
+ *   es consultor (el rol se deriva del plan, ADR-0023).
+ * - ausente: lo de siempre, para no romper a quien llame sin el campo.
+ */
 export async function inviteConsultant(
   env: ApiEnv,
   context: AuthContext,
-  body: { email?: string; full_name?: string },
+  body: {
+    email?: string;
+    full_name?: string;
+    grant_plan?: {
+      plan_code?: string;
+      store_limit?: number | string | null;
+      ends_at?: string | null;
+    } | null;
+  },
 ) {
   const access = requirePlatformAdmin(context);
   if (access.ok === false) return access;
@@ -4647,6 +4890,25 @@ export async function inviteConsultant(
     return { ok: false as const, statusCode: 400, error: "invalid_email" };
   }
 
+  // El plan se valida ANTES de crear la cuenta de Auth: si el limite de
+  // tiendas viene mal escrito, mejor un 400 limpio que un consultor a medio
+  // crear con un correo de invitacion ya enviado.
+  let plan: GrantFields | null | undefined;
+  if (body.grant_plan === null) {
+    plan = null;
+  } else if (body.grant_plan) {
+    const built = buildGrantFields(body.grant_plan);
+    if (built.ok === false) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: built.error,
+        message: built.message,
+      };
+    }
+    plan = built.fields;
+  }
+
   const result = await provisionConsultantAccount(
     env,
     { userId: context.user.id, name: context.profile.full_name },
@@ -4655,6 +4917,7 @@ export async function inviteConsultant(
       fullName,
       intro:
         "Te han invitado como consultor. Crea tu contraseña y completa tu nombre y el de tu agencia.",
+      ...(plan !== undefined ? { plan } : {}),
     },
   );
   if (result.ok === false) return result;
@@ -4670,6 +4933,7 @@ export async function inviteConsultant(
       full_name: fullName,
       platform_role: CONSULTANT_ROLE,
       delivery: result.data.delivery,
+      plan_concedido: plan === null ? null : (plan?.plan_code ?? CONSULTANT_ROLE),
     },
   });
   return result;
@@ -4856,6 +5120,19 @@ export async function createClientOrganization(
     owner_full_name?: string;
     timezone?: string;
     currency_code?: string;
+    /**
+     * Plan concedido al cliente desde el propio alta, para que no tenga que
+     * pasar por Stripe. Ausente = `trial`, como hasta ahora.
+     *
+     * Aqui no existe la opcion "sin nada": una organizacion cliente sin
+     * suscripcion viva deja a su dueño fuera por RLS
+     * (`private.can_access_org` exige plan), asi que el minimo es el trial.
+     */
+    grant_plan?: {
+      plan_code?: string;
+      store_limit?: number | string | null;
+      ends_at?: string | null;
+    } | null;
   },
 ) {
   const access = requirePlatformAdmin(context);
@@ -4885,6 +5162,22 @@ export async function createClientOrganization(
       statusCode: 400,
       error: "invalid_currency_code",
     };
+
+  // Igual que en el alta de consultor: el plan se valida antes de crear la
+  // organizacion y de mandar la invitacion.
+  let plan: GrantFields | null = null;
+  if (body.grant_plan) {
+    const built = buildGrantFields(body.grant_plan);
+    if (built.ok === false) {
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: built.error,
+        message: built.message,
+      };
+    }
+    plan = built.fields;
+  }
 
   const supabase = createServiceClient(env);
 
@@ -4954,16 +5247,32 @@ export async function createClientOrganization(
 
   // Sin una suscripción válida, `private.can_access_org` (RLS) deja fuera al
   // owner y `resolveAuthContext` responde 409 membership_missing -> no podría
-  // ni entrar a completar el onboarding y pagar. Se crea en 'trial' abierto;
-  // el cobro real la pasará a 'active' cuando exista la facturación.
+  // ni entrar a completar el onboarding y pagar. Sin plan concedido se crea en
+  // 'trial' abierto y paga el cliente; con plan concedido entra ya con el suyo
+  // y no ve el checkout.
   const { error: subError } = await supabase
     .from("service_subscriptions")
-    .insert({
-      organization_id: organization.id,
-      plan_code: "trial",
-      status: "trial",
-      starts_at: new Date().toISOString(),
-    });
+    .insert(
+      plan
+        ? {
+            organization_id: organization.id,
+            plan_code: plan.plan_code,
+            status: plan.status,
+            store_limit: plan.store_limit,
+            starts_at: plan.starts_at,
+            ends_at: plan.ends_at,
+            metadata: {
+              granted_by: context.user.id,
+              granted_at: plan.starts_at,
+            },
+          }
+        : {
+            organization_id: organization.id,
+            plan_code: "trial",
+            status: "trial",
+            starts_at: new Date().toISOString(),
+          },
+    );
   if (subError) {
     return {
       ok: false as const,
@@ -4995,31 +5304,126 @@ export async function createClientOrganization(
 // consultant_assignment, y se genera un código único y temporal que comparte
 // con el cliente. El cliente lo canjea en /acceso -> sesión -> onboarding.
 
-const INVITE_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // sin O/0/I/1/L
 const INVITE_TTL_DAYS = 7;
 
-function generateInviteCode(): string {
-  let code = "";
-  for (let i = 0; i < 8; i += 1) {
-    code += INVITE_CODE_ALPHABET[randomInt(INVITE_CODE_ALPHABET.length)];
+/**
+ * Emitir un codigo exige la clave del HMAC. Sin ella la alternativa seria
+ * guardarlo en claro -- justo lo que 20261023090000 viene a quitar -- asi que
+ * se para aqui, con un error que dice que falta configuracion, en vez de
+ * degradarse en silencio a algo que parece seguro y no lo es.
+ */
+function requireInviteSecret(env: ApiEnv) {
+  const secret = env.INVITE_CODE_SECRET;
+  if (!secret) {
+    return {
+      ok: false as const,
+      statusCode: 503,
+      error: "invite_codes_not_configured",
+      message:
+        "Los códigos de vinculación no están configurados en este entorno (falta INVITE_CODE_SECRET).",
+    };
   }
-  return code;
+  return { ok: true as const, secret };
+}
+
+type InviteRow = {
+  id: string;
+  email: string | null;
+  status: string;
+  expires_at: string;
+  organization_id: string | null;
+  invited_user_id: string | null;
+  consultant_user_id: string;
+  consulting_organization_id: string | null;
+};
+
+/**
+ * Busca la invitacion y decide si vale, en un solo sitio.
+ *
+ * Buscar y comprobar estaban repartidos entre canjear y previsualizar, que es
+ * como se acaba teniendo una puerta mas estricta que la otra. Y la respuesta
+ * de "no vale" es SIEMPRE la misma (ver `rejectInvite`): cuatro respuestas
+ * distintas eran un oraculo para ir probando codigos.
+ *
+ * La busqueda va por huella y, mientras queden codigos emitidos antes de
+ * 20261023090000, tambien por el codigo en claro. Esa segunda rama desaparece
+ * con la columna `code`, en cuanto caduquen (7 dias).
+ *
+ * El email es opcional: un codigo suelto (20261026090000) no lleva uno fijado
+ * de antemano, asi que no hay nada que comparar. Si el consultor SI lo puso al
+ * generarlo, se sigue exigiendo -- es la unica comprobacion de identidad que
+ * queda antes de que el propio login de Supabase se encargue del resto.
+ */
+export async function resolveInvite(
+  env: { INVITE_CODE_SECRET?: string | undefined },
+  supabase: SupabaseClient,
+  code: string,
+  email?: string,
+): Promise<{ ok: true; invite: InviteRow } | InviteRejection> {
+  const columns =
+    "id, email, status, expires_at, organization_id, invited_user_id, consultant_user_id, consulting_organization_id";
+  const secret = env.INVITE_CODE_SECRET;
+  let invite: InviteRow | null = null;
+
+  if (secret) {
+    const { data } = await supabase
+      .from("client_invites")
+      .select(columns)
+      .eq("code_hash", hashInviteCode(secret, code))
+      .maybeSingle();
+    invite = (data as InviteRow | null) ?? null;
+  }
+
+  if (!invite) {
+    const { data } = await supabase
+      .from("client_invites")
+      .select(columns)
+      .eq("code", code)
+      .maybeSingle();
+    invite = (data as InviteRow | null) ?? null;
+  }
+
+  const reason = ((): InviteRejectionReason | null => {
+    if (!invite) return "not_found";
+    if (invite.status !== "pending") return "already_used";
+    if (new Date(invite.expires_at).getTime() < Date.now()) return "expired";
+    if (invite.email && invite.email.toLowerCase() !== (email ?? ""))
+      return "email_mismatch";
+    return null;
+  })();
+
+  if (reason || !invite) {
+    // El motivo real se queda en el servidor: es lo que hace falta para dar
+    // soporte, y es justo lo que no puede viajar al cliente.
+    logger.info("client_invite_rejected", { reason: reason ?? "not_found" });
+    return rejectInvite(reason ?? "not_found");
+  }
+
+  return { ok: true as const, invite };
 }
 
 function accessPath(env: ApiEnv, code: string): string {
   return `${(env.WEB_ORIGIN ?? "http://localhost:3001").replace(/\/$/, "")}/acceso?code=${code}`;
 }
 
-export async function createClientForConsultant(
+/**
+ * Genera un codigo de vinculacion suelto (§16).
+ *
+ * No crea organizacion, ni usuario, ni suscripcion: eso lo hace el CLIENTE al
+ * registrarse por su cuenta en /registro y elegir plan en /planes. Lo unico
+ * que existe aqui es el codigo, reservando una plaza de cartera hasta que se
+ * consuma o caduque (`assertCapacidadDeCartera` cuenta tambien los pendientes,
+ * asi que la plaza no se puede regalar dos veces).
+ *
+ * El email es opcional: sin el, el codigo es un enlace suelto que el
+ * consultor reparte como quiera (WhatsApp, en persona). Con el, se manda por
+ * correo Y ademas se exige que coincida al canjearlo -- la unica comprobacion
+ * de identidad que queda una vez que Supabase Auth se encarga del resto.
+ */
+export async function generateClientInviteCode(
   env: ApiEnv,
   context: AuthContext,
-  body: {
-    display_name?: string;
-    owner_email?: string;
-    owner_full_name?: string;
-    timezone?: string;
-    currency_code?: string;
-  },
+  body: { email?: string },
 ) {
   if (
     !["consultant", "platform_admin"].includes(context.profile.platform_role)
@@ -5032,228 +5436,118 @@ export async function createClientForConsultant(
     };
   }
 
-  const displayName = body.display_name?.trim() ?? "";
-  const ownerEmail = body.owner_email?.trim().toLowerCase() ?? "";
-  const ownerFullName = body.owner_full_name?.trim() || null;
-  const timezone = body.timezone?.trim() || "Europe/Madrid";
-  const currencyCode = (body.currency_code?.trim() || "EUR").toUpperCase();
-
-  if (displayName.length === 0)
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "invalid_display_name",
-    };
-  if (!isEmail(ownerEmail))
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "invalid_owner_email",
-    };
-  if (!/^[A-Z]{3}$/.test(currencyCode))
-    return {
-      ok: false as const,
-      statusCode: 400,
-      error: "invalid_currency_code",
-    };
+  const email = body.email?.trim().toLowerCase() || null;
+  if (email && !isEmail(email)) {
+    return { ok: false as const, statusCode: 400, error: "invalid_email" };
+  }
 
   const supabase = createServiceClient(env);
 
-  let slug = slugify(displayName);
-  const { data: clash } = await supabase
-    .from("organizations")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (clash) slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
+  const inviteSecret = requireInviteSecret(env);
+  if (inviteSecret.ok === false) return inviteSecret;
 
-  const { data: organization, error: orgError } = await supabase
-    .from("organizations")
-    .insert({
-      display_name: displayName,
-      slug,
-      timezone,
-      currency_code: currencyCode,
-      status: "onboarding",
-      created_by: context.user.id,
-    })
-    .select("id, display_name, slug, status, timezone, currency_code")
-    .single();
-  if (orgError || !organization) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "organization_create_failed",
-      detail: orgError?.message,
-    };
-  }
-
-  // `generateLink` type 'invite' crea el usuario de Auth SIN enviar email: el
-  // reparto lo hace el consultor con el código. Si ya existe, se aborta.
-  const { data: link, error: linkError } =
-    await supabase.auth.admin.generateLink({
-      type: "invite",
-      email: ownerEmail,
-      options: {
-        redirectTo: onboardingRedirectTo(env),
-        ...(ownerFullName ? { data: { full_name: ownerFullName } } : {}),
-      },
-    });
-  if (linkError || !link?.user) {
-    await supabase.from("organizations").delete().eq("id", organization.id);
-    const already = /already|exist/i.test(linkError?.message ?? "");
-    return {
-      ok: false as const,
-      statusCode: already ? 409 : 502,
-      error: already ? "owner_email_already_registered" : "owner_invite_failed",
-      detail: linkError?.message,
-    };
-  }
-  const ownerUserId = link.user.id;
-
-  const { error: memberError } = await supabase
-    .from("organization_members")
-    .insert({
-      organization_id: organization.id,
-      user_id: ownerUserId,
-      role: "owner",
-      // La organizacion ya existe y esta asignada al consultor, pero el cliente
-      // no recibe acceso hasta confirmar expresamente la invitacion en /acceso.
-      is_active: false,
-      invited_by: context.user.id,
-      invited_at: new Date().toISOString(),
-    });
-  if (memberError) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "owner_member_create_failed",
-      detail: memberError.message,
-    };
-  }
-
-  const { error: subError } = await supabase
-    .from("service_subscriptions")
-    .insert({
-      organization_id: organization.id,
-      plan_code: "trial",
-      status: "trial",
-      starts_at: new Date().toISOString(),
-    });
-  if (subError) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "owner_subscription_create_failed",
-      detail: subError.message,
-    };
-  }
-
-  // La organización queda en la cartera del consultor que la crea.
-  const { error: assignError } = await supabase
-    .from("consultant_assignments")
-    .insert({
-      organization_id: organization.id,
-      consultant_user_id: context.user.id,
-      is_primary: true,
-      is_active: true,
-      assigned_by: context.user.id,
-    });
-  if (assignError) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "assignment_create_failed",
-      detail: assignError.message,
-    };
-  }
-
-  // Si este consultor comparte cartera con alguien, la tienda nace ya
-  // asignada a los dos. Sin esto habria que acordarse de añadir al socio en
-  // cada alta, y el dia que se olvide deja de ver una tienda sin aviso.
-  await assignPartnersToOrganization(
-    supabase,
-    context.user.id,
-    organization.id,
-  );
+  const capacidad = await assertCapacidadDeCartera(supabase, context);
+  if (capacidad) return capacidad;
 
   const code = generateInviteCode();
   const expiresAt = new Date(
     Date.now() + INVITE_TTL_DAYS * 86400_000,
   ).toISOString();
-  const { error: inviteError } = await supabase.from("client_invites").insert({
-    organization_id: organization.id,
-    invited_user_id: ownerUserId,
-    consultant_user_id: context.user.id,
-    email: ownerEmail,
-    code,
-    expires_at: expiresAt,
-  });
-  if (inviteError) {
+  const consultingOrganizationId = await findConsultingOrganizationId(
+    supabase,
+    context.user.id,
+  );
+  const { data: invite, error: inviteError } = await supabase
+    .from("client_invites")
+    .insert({
+      organization_id: null,
+      consultant_user_id: context.user.id,
+      // El codigo en claro solo existe en esta respuesta y en lo que el
+      // consultor le pase al cliente. En la base queda la huella.
+      code_hash: hashInviteCode(inviteSecret.secret, code),
+      // Quien capto queda fijado aqui: reasignar el cliente despues cambia quien
+      // lo atiende, no quien lo trajo.
+      captured_by_consultant_id: context.user.id,
+      // La plaza la reserva la consultora de HOY. Si el consultor cambia de
+      // empresa entre generar y canjear, la plaza sigue siendo de la que la puso.
+      consulting_organization_id: consultingOrganizationId,
+      email,
+      expires_at: expiresAt,
+    })
+    .select("id")
+    .single();
+  if (inviteError || !invite) {
     return {
       ok: false as const,
       statusCode: 500,
       error: "invite_create_failed",
-      detail: inviteError.message,
+      detail: inviteError?.message,
     };
   }
 
   await recordAuditLog(supabase, {
-    organizationId: organization.id,
+    organizationId: null,
     actorUserId: context.user.id,
-    action: "consultant.create_client",
-    entityType: "organization",
-    entityId: organization.id,
-    newData: { organization, owner_email: ownerEmail },
+    action: "consultant.generate_invite",
+    entityType: "client_invite",
+    entityId: invite.id,
+    newData: { email },
   });
 
   const clientAccessUrl = accessPath(env, code);
-  const sent = await sendInviteMail(env, {
-    to: ownerEmail,
-    recipientName: ownerFullName,
-    title: `Invitación a ${displayName} en EcomScaling`,
-    intro: `Tu consultor ha creado la organización ${displayName}. Verifica el código y confirma que quieres unirte.`,
-    actionLabel: "Revisar invitación",
-    actionUrl: clientAccessUrl,
-    senderName: context.profile.full_name,
-    expiresAt,
-  });
-  if (!sent.sent) {
-    logger.info("client_invite_smtp_fallback", { reason: sent.reason });
+  let delivery: "email" | "manual_link" = "manual_link";
+  if (email) {
+    const sent = await sendInviteMail(env, {
+      to: email,
+      recipientName: null,
+      title: "Invitación a EcomScaling",
+      intro:
+        "Tu consultor te ha invitado a EcomScaling. Verifica el código y crea tu cuenta.",
+      actionLabel: "Crear mi cuenta",
+      actionUrl: clientAccessUrl,
+      senderName: context.profile.full_name,
+      expiresAt,
+    });
+    if (sent.sent) {
+      delivery = "email";
+    } else {
+      logger.info("client_invite_smtp_fallback", { reason: sent.reason });
+    }
   }
 
   return {
     ok: true as const,
     data: {
-      organization,
-      owner: { user_id: ownerUserId, email: ownerEmail },
       invite: {
         code,
         expires_at: expiresAt,
         access_url: clientAccessUrl,
-        delivery: sent.sent ? "email" : "manual_link",
+        delivery,
       },
     },
   };
 }
 
-/** Genera un código nuevo para un cliente cuyo código caducó o se perdió.
- *  Solo el consultor asignado (o platform_admin). */
+/**
+ * Genera un código nuevo para un código suelto que caducó o se perdió.
+ *
+ * Ya no hace falta buscarlo por organización: un código suelto no tiene una
+ * (§16), así que se identifica por su propio id. Solo quien lo generó o un
+ * platform admin puede renovarlo.
+ */
 export async function regenerateClientInvite(
   env: ApiEnv,
   context: AuthContext,
-  organizationId: string,
+  inviteId: string,
 ) {
-  const access = requireStoreManager(context, organizationId);
-  if (access.ok === false) return access;
+  const inviteSecret = requireInviteSecret(env);
+  if (inviteSecret.ok === false) return inviteSecret;
 
   const supabase = createServiceClient(env);
   const { data: pending, error: loadError } = await supabase
     .from("client_invites")
-    .select("id, email, invited_user_id, status")
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .select("id, status, consultant_user_id")
+    .eq("id", inviteId)
     .maybeSingle();
   if (loadError)
     return {
@@ -5264,7 +5558,13 @@ export async function regenerateClientInvite(
     };
   if (!pending)
     return { ok: false as const, statusCode: 404, error: "invite_not_found" };
-  if (pending.status === "redeemed")
+  if (
+    pending.consultant_user_id !== context.user.id &&
+    context.profile.platform_role !== "platform_admin"
+  ) {
+    return { ok: false as const, statusCode: 403, error: "not_your_invite" };
+  }
+  if (pending.status !== "pending")
     return {
       ok: false as const,
       statusCode: 409,
@@ -5277,7 +5577,14 @@ export async function regenerateClientInvite(
   ).toISOString();
   const { error: updateError } = await supabase
     .from("client_invites")
-    .update({ code, expires_at: expiresAt, status: "pending" })
+    .update({
+      code_hash: hashInviteCode(inviteSecret.secret, code),
+      // Regenerar es la puerta por la que un codigo viejo en claro deja de
+      // existir: se sustituye por su huella y la columna se vacia.
+      code: null,
+      expires_at: expiresAt,
+      status: "pending",
+    })
     .eq("id", pending.id);
   if (updateError)
     return {
@@ -5293,8 +5600,84 @@ export async function regenerateClientInvite(
   };
 }
 
-/** Canje público del código por parte del cliente: valida código + email y
- *  devuelve un enlace de sesión (magic link) que lleva a /onboarding. */
+/**
+ * Vista previa pública del código. Cubre dos formas de invitación:
+ *
+ * - **Código suelto** (§16, `organization_id` nulo): todavía no hay
+ *   organización -- la crea el propio cliente en /planes. Se enseña quién
+ *   invita y `requires_signup: true`, para que /acceso mande a /registro en
+ *   vez de intentar activar una cuenta que no existe.
+ * - **Invitación a un cliente ya existente** (`inviteClientMember`): la
+ *   organización y el usuario de Auth ya están creados sin contraseña; se
+ *   enseña el nombre de la organización y `requires_signup: false`, como
+ *   antes de §16.
+ *
+ * No consume la invitación ni concede acceso.
+ */
+export async function previewClientInvite(
+  env: ApiEnv,
+  body: { code?: string; email?: string },
+) {
+  const code = body.code?.trim().toUpperCase() ?? "";
+  const email = body.email?.trim().toLowerCase() || undefined;
+  if (!isInviteCodeShaped(code)) {
+    return rejectInvite("malformed");
+  }
+
+  const supabase = createServiceClient(env);
+  const resolved = await resolveInvite(env, supabase, code, email);
+  if (resolved.ok === false) return resolved;
+  const invite = resolved.invite;
+
+  if (invite.organization_id) {
+    const { data: organization, error: organizationError } = await supabase
+      .from("organizations")
+      .select("id, display_name")
+      .eq("id", invite.organization_id)
+      .single();
+    if (organizationError || !organization) {
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "organization_load_failed",
+        detail: organizationError?.message,
+      };
+    }
+    return {
+      ok: true as const,
+      data: {
+        organization,
+        expires_at: invite.expires_at,
+        requires_signup: false,
+      },
+    };
+  }
+
+  const { data: consultantProfile } = await supabase
+    .from("profiles")
+    .select("business_name, full_name")
+    .eq("id", invite.consultant_user_id)
+    .maybeSingle();
+
+  return {
+    ok: true as const,
+    data: {
+      consultant: {
+        display_name:
+          consultantProfile?.business_name ||
+          consultantProfile?.full_name ||
+          "tu consultor",
+      },
+      expires_at: invite.expires_at,
+      requires_signup: true,
+    },
+  };
+}
+
+/** Canje público del código de un CLIENTE YA EXISTENTE (`inviteClientMember`):
+ *  valida código + email y devuelve un enlace de sesión (magic link) que
+ *  lleva a /onboarding. Un código suelto (§16) no pasa por aquí -- no tiene
+ *  organización que activar todavía -- se rechaza igual que uno inválido. */
 export async function redeemClientInvite(
   env: ApiEnv,
   body: { code?: string; email?: string },
@@ -5302,35 +5685,15 @@ export async function redeemClientInvite(
   const code = body.code?.trim().toUpperCase() ?? "";
   const email = body.email?.trim().toLowerCase() ?? "";
   if (code.length < 6 || !isEmail(email)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_input" };
+    return rejectInvite("malformed");
   }
 
   const supabase = createServiceClient(env);
-  const { data: invite, error } = await supabase
-    .from("client_invites")
-    .select("id, email, status, expires_at, organization_id, invited_user_id")
-    .eq("code", code)
-    .maybeSingle();
-  if (error)
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "invite_load_failed",
-      detail: error.message,
-    };
-  if (!invite)
-    return { ok: false as const, statusCode: 404, error: "invite_not_found" };
-  if (invite.status !== "pending")
-    return {
-      ok: false as const,
-      statusCode: 409,
-      error: "invite_already_used",
-    };
-  if (new Date(invite.expires_at).getTime() < Date.now()) {
-    return { ok: false as const, statusCode: 410, error: "invite_expired" };
-  }
-  if ((invite.email as string).toLowerCase() !== email) {
-    return { ok: false as const, statusCode: 403, error: "email_mismatch" };
+  const resolved = await resolveInvite(env, supabase, code, email);
+  if (resolved.ok === false) return resolved;
+  const invite = resolved.invite;
+  if (!invite.organization_id || !invite.invited_user_id) {
+    return rejectInvite("not_found");
   }
 
   const { data: link, error: linkError } =
@@ -5375,66 +5738,6 @@ export async function redeemClientInvite(
   }
 
   return { ok: true as const, data: { url: actionLink } };
-}
-
-/** Vista previa publica. Exige codigo + email para no revelar organizaciones
- * por enumeracion, pero no consume la invitacion ni concede acceso. */
-export async function previewClientInvite(
-  env: ApiEnv,
-  body: { code?: string; email?: string },
-) {
-  const code = body.code?.trim().toUpperCase() ?? "";
-  const email = body.email?.trim().toLowerCase() ?? "";
-  if (code.length < 6 || !isEmail(email)) {
-    return { ok: false as const, statusCode: 400, error: "invalid_input" };
-  }
-
-  const supabase = createServiceClient(env);
-  const { data: invite, error } = await supabase
-    .from("client_invites")
-    .select("id, email, status, expires_at, organization_id")
-    .eq("code", code)
-    .maybeSingle();
-  if (error)
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "invite_load_failed",
-      detail: error.message,
-    };
-  if (!invite)
-    return { ok: false as const, statusCode: 404, error: "invite_not_found" };
-  if (invite.status !== "pending")
-    return {
-      ok: false as const,
-      statusCode: 409,
-      error: "invite_already_used",
-    };
-  if (new Date(invite.expires_at).getTime() < Date.now()) {
-    return { ok: false as const, statusCode: 410, error: "invite_expired" };
-  }
-  if ((invite.email as string).toLowerCase() !== email) {
-    return { ok: false as const, statusCode: 403, error: "email_mismatch" };
-  }
-
-  const { data: organization, error: organizationError } = await supabase
-    .from("organizations")
-    .select("id, display_name")
-    .eq("id", invite.organization_id)
-    .single();
-  if (organizationError || !organization) {
-    return {
-      ok: false as const,
-      statusCode: 500,
-      error: "organization_load_failed",
-      detail: organizationError?.message,
-    };
-  }
-
-  return {
-    ok: true as const,
-    data: { organization, expires_at: invite.expires_at },
-  };
 }
 
 /**
@@ -6391,6 +6694,9 @@ export async function inviteClientMember(
     return { ok: false as const, statusCode: 400, error: "invalid_role" };
   }
 
+  const inviteSecret = requireInviteSecret(env);
+  if (inviteSecret.ok === false) return inviteSecret;
+
   const supabase = createServiceClient(env);
   const { data: inviteOrganization, error: inviteOrganizationError } =
     await supabase
@@ -6463,7 +6769,10 @@ export async function inviteClientMember(
     invited_user_id: link.user.id,
     consultant_user_id: context.user.id,
     email,
-    code,
+    // Huella, no el codigo en claro (20261023090000): este sitio se quedo
+    // guardando `code` sin migrar cuando el resto del fichero paso a
+    // `code_hash`.
+    code_hash: hashInviteCode(inviteSecret.secret, code),
     expires_at: expiresAt,
   });
 
@@ -6962,11 +7271,17 @@ export async function listConsultantHealthReferences(
   authorization: string,
   context: AuthContext,
 ) {
-  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
   if (orgsResult.ok === false) return orgsResult;
 
   const organizations = orgsResult.data.organizations;
-  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
   const ids = organizations.map((organization) => organization.id);
   const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 
@@ -6998,7 +7313,13 @@ export async function listConsultantHealthReferences(
 
   return {
     ok: true as const,
-    data: { references, organizations: organizations.map((o) => ({ id: o.id, display_name: o.display_name })) },
+    data: {
+      references,
+      organizations: organizations.map((o) => ({
+        id: o.id,
+        display_name: o.display_name,
+      })),
+    },
   };
 }
 
@@ -7020,7 +7341,11 @@ export async function createConsultantHealthReference(
   context: AuthContext,
   input: HealthReferenceInput,
 ) {
-  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
   if (orgsResult.ok === false) return orgsResult;
 
   // ADR-0006 punto 7: se escribe con la service role, asi que el permiso se
@@ -7105,7 +7430,11 @@ export async function retireConsultantHealthReference(
   context: AuthContext,
   referenceId: string,
 ) {
-  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
   if (orgsResult.ok === false) return orgsResult;
 
   const ids = orgsResult.data.organizations.map((o) => o.id);
@@ -7115,7 +7444,10 @@ export async function retireConsultantHealthReference(
     .from("health_references")
     .update({ effective_to: new Date().toISOString() })
     .eq("id", referenceId)
-    .in("organization_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"])
+    .in(
+      "organization_id",
+      ids.length ? ids : ["00000000-0000-0000-0000-000000000000"],
+    )
     .is("effective_to", null)
     .select("id")
     .maybeSingle();
@@ -7133,11 +7465,103 @@ export async function retireConsultantHealthReference(
       ok: false as const,
       statusCode: 404,
       error: "reference_not_found",
-      message: "Esa referencia no existe, ya estaba retirada o no es de tu cartera.",
+      message:
+        "Esa referencia no existe, ya estaba retirada o no es de tu cartera.",
     };
   }
 
   return { ok: true as const, data: { id: data.id as string } };
+}
+
+/**
+ * FASE 3 / D11 — cuanto se puede afirmar de cada cosa.
+ *
+ * Solo consultor. La matriz de audiencia dice que el cliente vera "el matiz de
+ * todo lo anterior" **cuando haya redaccion para ensenarlo**; una lista de
+ * "insuficiente / insuficiente / insuficiente" sin acompanamiento se lee como
+ * que el sistema no sirve, cuando lo que dice es que falta una pieza concreta.
+ *
+ * Lo que aporta en una linea: es lo unico que impide leer un caso descrito como
+ * un caso explicado. Con senal, sintoma e impacto medido, un caso **parece**
+ * cerrado; esta lectura pone al lado la frase "no puede determinarse por que" y
+ * lo que haria falta para contestarla.
+ */
+export async function listConsultantConfidence(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) return orgsResult;
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: capas, error } = await supabase
+    .from("claim_confidence")
+    .select(
+      "id, organization_id, case_id, claim_layer, claim, target_question, epistemic_state, confidence_level, alternative_separation, contradiction_level, completeness, explanatory_coverage, negative_claim_state, coverage_declared, capped_at, cap_reason, desired_level, missing_evidence, next_evidence_required, error_cost, limitations, assessed_at",
+    )
+    .in("organization_id", safeIds)
+    .order("assessed_at", { ascending: false })
+    .limit(400);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_confidence_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const claimIds = (capas ?? []).map((c) => c.id as string);
+  if (claimIds.length === 0) {
+    return { ok: true as const, data: { claims: [], uncertainties: [] } };
+  }
+
+  // Apartado 30: los insumos de la confianza tienen que verse. Sin las
+  // dimensiones, el nivel es una opinion con nombre tecnico.
+  const { data: dimensiones } = await supabase
+    .from("confidence_dimensions")
+    .select("claim_id, dimension, rating, reason")
+    .in("claim_id", claimIds);
+
+  const { data: techos } = await supabase
+    .from("confidence_caps")
+    .select("claim_id, cap_source, capped_level, reason")
+    .in("claim_id", claimIds);
+
+  const caseIds = [...new Set((capas ?? []).map((c) => c.case_id as string))];
+  const { data: incertidumbres } = await supabase
+    .from("diagnostic_uncertainties")
+    .select(
+      "id, case_id, claim_id, uncertainty_type, description, materiality, is_known_unknown, resolvability, required_evidence",
+    )
+    .in("case_id", caseIds);
+
+  const claims = (capas ?? []).map((capa) => ({
+    ...capa,
+    organization_name: nombrePorOrg.get(capa.organization_id as string) ?? null,
+    dimensions: (dimensiones ?? []).filter((d) => d.claim_id === capa.id),
+    caps: (techos ?? []).filter((t) => t.claim_id === capa.id),
+  }));
+
+  return {
+    ok: true as const,
+    data: { claims, uncertainties: incertidumbres ?? [] },
+  };
 }
 
 /**
@@ -7311,14 +7735,18 @@ export async function listConsultantCapabilityHealth(
 
   const { data: hallazgos } = await supabase
     .from("health_findings")
-    .select("capability_health_id, kind, description, severity, scope, impact, trajectory, confidence")
+    .select(
+      "capability_health_id, kind, description, severity, scope, impact, trajectory, confidence",
+    )
     .in("capability_health_id", vigentesIds);
 
   // Guardrails 26 y 27: la evidencia positiva cuenta y la que contradice no se
   // tira. Si esta lectura no la trajera, la pantalla no podria ensenarla.
   const { data: evidencias } = await supabase
     .from("health_evidence")
-    .select("capability_health_id, relation, metric, observation, indicator_type, window_start, window_end, source, confidence")
+    .select(
+      "capability_health_id, relation, metric, observation, indicator_type, window_start, window_end, source, confidence",
+    )
     .in("capability_health_id", vigentesIds);
 
   const assessments = [...vigentes.values()].map((lectura) => ({
@@ -7411,9 +7839,7 @@ export async function listConsultantSignals(
     .select("signal_id, symptom_id")
     .in("signal_id", signalIds);
 
-  const conSintoma = new Set(
-    (enlaces ?? []).map((l) => l.signal_id as string),
-  );
+  const conSintoma = new Set((enlaces ?? []).map((l) => l.signal_id as string));
 
   const signals = (senales ?? []).map((senal) => ({
     ...senal,
@@ -7448,13 +7874,19 @@ export async function listConsultantMaturity(
   authorization: string,
   context: AuthContext,
 ) {
-  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
   if (orgsResult.ok === false) {
     return orgsResult;
   }
 
   const organizations = orgsResult.data.organizations;
-  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
   const ids = organizations.map((organization) => organization.id);
   if (ids.length === 0) {
     return { ok: true as const, data: { profiles: [] } };
@@ -7495,7 +7927,9 @@ export async function listConsultantMaturity(
   const { data: evidencias } = capabilityIds.length
     ? await supabase
         .from("maturity_evidence")
-        .select("capability_maturity_id, evidence_type, description, source, observed_at")
+        .select(
+          "capability_maturity_id, evidence_type, description, source, observed_at",
+        )
         .in("capability_maturity_id", capabilityIds)
     : { data: [] };
 
@@ -7511,7 +7945,12 @@ export async function listConsultantMaturity(
     // Lo que el dato no puede ver, medido ahora. Es la mitad util de esta
     // pantalla: un hueco con su numero le dice al consultor que preguntar.
     let unobserved: { capability: string; reason: string }[] = [];
-    let complexity: { key: string; label: string; value: number; unit: string }[] = [];
+    let complexity: {
+      key: string;
+      label: string;
+      value: number;
+      unit: string;
+    }[] = [];
     if (perfil.store_id) {
       const hechos = await leerHechos(
         supabase as never,
@@ -7527,10 +7966,13 @@ export async function listConsultantMaturity(
 
     profiles.push({
       ...perfil,
-      organization_name: nombrePorOrg.get(perfil.organization_id as string) ?? null,
+      organization_name:
+        nombrePorOrg.get(perfil.organization_id as string) ?? null,
       capabilities: suyas.map((c) => ({
         ...c,
-        evidence: (evidencias ?? []).filter((e) => e.capability_maturity_id === c.id),
+        evidence: (evidencias ?? []).filter(
+          (e) => e.capability_maturity_id === c.id,
+        ),
       })),
       unobserved,
       complexity,
@@ -7539,4 +7981,440 @@ export async function listConsultantMaturity(
   }
 
   return { ok: true as const, data: { profiles } };
+}
+
+/**
+ * FASE 3 / D07 — las rutas causales candidatas de un caso.
+ *
+ * Solo consultor, y aqui el motivo es el mas fuerte de toda la fase: **esto son
+ * causas candidatas, no causas**. Ninguna ruta esta soportada hoy, todas llevan
+ * huecos escritos, y una lista de hipotesis causales delante de un cliente se
+ * lee como un diagnostico cerrado por mucho que ponga "parcial" al lado.
+ *
+ * SE DEVUELVEN LAS RIVALES, NO LA MEJOR (guardrail 49). Ordenar por confianza y
+ * quedarse con la primera es elegir la que cuadro antes; devolver solo esa es
+ * hacerlo ademas invisible. Van todas, incluidas las contradichas, que son las
+ * que mas informacion llevan: una rama podada dice donde **no** esta el
+ * problema, y eso es la mitad de un diagnostico.
+ */
+export async function listConsultantCausalPaths(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) return orgsResult;
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: rutas, error } = await supabase
+    .from("causal_paths")
+    .select(
+      "id, organization_id, case_id, symptom_id, target_node_id, status, path_confidence, missing_evidence, confounders_reviewed, measurement_validated, next_evidence, updated_at",
+    )
+    .in("organization_id", safeIds)
+    .order("updated_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_causal_paths_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const pathIds = (rutas ?? []).map((r) => r.id as string);
+  if (pathIds.length === 0) {
+    return { ok: true as const, data: { paths: [], nodes: [], edges: [] } };
+  }
+
+  const { data: pasos } = await supabase
+    .from("causal_path_steps")
+    .select(
+      "id, path_id, edge_id, step_order, case_support, cause_onset, effect_onset, observed_lag_days, temporal_fit, scope_fit, magnitude_fit, cause_role, contribution_note, is_mediator",
+    )
+    .in("path_id", pathIds)
+    .order("step_order", { ascending: true });
+
+  const { data: evidencia } = await supabase
+    .from("causal_case_evidence")
+    .select("id, path_id, step_id, evidence_level, stance, observation")
+    .in("path_id", pathIds);
+
+  // El vocabulario entero, no solo el que aparece en las rutas: la pantalla
+  // necesita poder nombrar el origen de una arista aunque su rama se podara.
+  const { data: nodos } = await supabase
+    .from("causal_nodes")
+    .select(
+      "id, code, label, node_type, capability, observability, measurement_layer, organization_id",
+    );
+
+  const { data: aristas } = await supabase
+    .from("causal_edges")
+    .select(
+      "id, from_node_id, to_node_id, edge_kind, relation_type, expected_sign, mechanism, diagnostic_rationale, conditions, expected_lag_days, strength, evidence_level, knowledge_source, organization_id",
+    );
+
+  const paths = (rutas ?? []).map((ruta) => ({
+    ...ruta,
+    organization_name: nombrePorOrg.get(ruta.organization_id as string) ?? null,
+    steps: (pasos ?? [])
+      .filter((p) => p.path_id === ruta.id)
+      .map((p) => ({
+        ...p,
+        evidence: (evidencia ?? []).filter((e) => e.step_id === p.id),
+      })),
+  }));
+
+  return {
+    ok: true as const,
+    data: { paths, nodes: nodos ?? [], edges: aristas ?? [] },
+  };
+}
+
+export type CausalEdgeInput = {
+  organization_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  relation_type: string;
+  expected_sign: string;
+  mechanism: string;
+  diagnostic_rationale: string;
+  conditions?: string | null | undefined;
+  expected_lag_days?: number | null | undefined;
+  strength?: string | null | undefined;
+};
+
+/**
+ * Declarar una relacion causal propia de una tienda.
+ *
+ * ESTO ES LO QUE DESBLOQUEA EL BLOQUE. El grafo global trae seis nodos y cinco
+ * aristas -- lo poco que se puede sostener con las metricas que la plataforma
+ * lee hoy. Todo lo demas que un consultor sabe de una tienda concreta ("cuando
+ * subimos el minimo de envio gratis, el ticket sube y los pedidos bajan") no
+ * cabia en ningun sitio, y por eso el motor no tenia casi nada que recorrer.
+ *
+ * TRES COSAS SON OBLIGATORIAS Y NINGUNA ES UN NUMERO: el mecanismo (guardrail
+ * 7: sin mecanismo no hay arista causal), para que sirve diagnosticando
+ * (guardrail 10: una relacion cierta e inutil ensucia el grafo) y el signo
+ * esperado. El esquema ya rechaza un mecanismo de menos de 20 caracteres, que es
+ * el guardrail 9 -- un eslogan no es un mecanismo.
+ *
+ * ENTRA COMO `expert_heuristic`, NO COMO CONOCIMIENTO ESTABLECIDO. El guardrail
+ * 45 le pone entonces techo de evidencia, y el 44 impide que lo aprendido en una
+ * tienda ascienda solo a arista global. Lo que sabe un consultor vale; vale como
+ * lo que es.
+ */
+export async function createConsultantCausalEdge(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  input: CausalEdgeInput,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) return orgsResult;
+
+  // ADR-0006 punto 7: escritura con service role, permiso comprobado a mano.
+  const permitida = orgsResult.data.organizations.some(
+    (o) => o.id === input.organization_id,
+  );
+  if (!permitida) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_not_assigned",
+      message: "Esa tienda no esta en tu cartera.",
+    };
+  }
+
+  if (input.from_node_id === input.to_node_id) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "edge_needs_two_nodes",
+      message: "Una relacion necesita dos cosas distintas.",
+    };
+  }
+
+  // Guardrails 7 y 9. Se comprueba aqui ademas de en el check para poder decir
+  // por que, en vez de devolver una violacion de constraint.
+  if ((input.mechanism ?? "").trim().length < 20) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "edge_needs_a_mechanism",
+      message:
+        "Escribe el mecanismo: por que lo uno mueve a lo otro. Sin mecanismo esto es una correlacion, no una causa.",
+    };
+  }
+
+  if (!(input.diagnostic_rationale ?? "").trim()) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "edge_needs_a_diagnostic_use",
+      message:
+        "Di para que sirve diagnosticando: una relacion cierta que no ayuda a distinguir nada solo ensucia el grafo.",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+
+  const { data, error } = await supabase
+    .from("causal_edges")
+    .insert({
+      organization_id: input.organization_id,
+      from_node_id: input.from_node_id,
+      to_node_id: input.to_node_id,
+      edge_kind: "causal",
+      relation_type: input.relation_type,
+      expected_sign: input.expected_sign,
+      mechanism: input.mechanism.trim(),
+      diagnostic_rationale: input.diagnostic_rationale.trim(),
+      conditions: input.conditions ?? null,
+      expected_lag_days: input.expected_lag_days ?? null,
+      // Guardrail 45: lo que sabe un experto entra como heuristica, y el esquema
+      // le pone entonces techo de evidencia. Vale; vale como lo que es.
+      strength: input.strength ?? "context_dependent",
+      evidence_level: "plausible",
+      knowledge_source: "expert_heuristic",
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_causal_edge_write_failed",
+      detail: error?.message,
+    };
+  }
+
+  return { ok: true as const, data: { id: data.id as string } };
+}
+
+/**
+ * FASE 3 / D08 — las explicaciones que se han barajado, y las que se cayeron.
+ *
+ * SE DEVUELVEN LAS DESCARTADAS. Es lo contrario de lo que haria una lista
+ * normal, y es medio bloque: una hipotesis descartada con su motivo escrito es
+ * lo que evita que dentro de un mes alguien vuelva a mirar los pedidos porque se
+ * le olvido que ya se habian mirado. Filtrarlas aqui tiraria justo eso.
+ *
+ * Y SE DEVUELVE EL TEST DE CADA UNA, que es la parte accionable: no "esto podria
+ * ser", sino **que dato despejaria esto**. El guardrail 47 pide ademas que se
+ * vea si el dato ya esta en el sistema o hay que ir a buscarlo fuera, porque
+ * mandar al consultor a molestar al cliente por algo que ya tenemos es el error
+ * mas caro y el mas facil de cometer.
+ *
+ * Solo consultor. Son hipotesis, y una lista de hipotesis delante de un cliente
+ * se lee como una lista de diagnosticos.
+ */
+export async function listConsultantHypotheses(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(
+    env,
+    authorization,
+    context,
+  );
+  if (orgsResult.ok === false) return orgsResult;
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(
+    organizations.map((o) => [o.id, o.display_name]),
+  );
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: hipotesis, error } = await supabase
+    .from("diagnostic_hypotheses")
+    .select(
+      "id, organization_id, case_id, code, statement, hypothesis_type, source_path_id, target_node_id, family, status, rejection_reason, confidence, prior_plausibility, explanatory_coverage, unexplained_residual_material, residual_note, root_cause_candidate, relative_role, separation, uncertainty_kinds, temporal_fit, scope_fit, magnitude_fit, mechanism_fit, falsification_condition, limitations, updated_at",
+    )
+    .in("organization_id", safeIds)
+    .order("updated_at", { ascending: false })
+    .limit(300);
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_hypotheses_load_failed",
+      detail: error.message,
+    };
+  }
+
+  const hypothesisIds = (hipotesis ?? []).map((h) => h.id as string);
+  if (hypothesisIds.length === 0) {
+    return { ok: true as const, data: { hypotheses: [] } };
+  }
+
+  const { data: tests } = await supabase
+    .from("hypothesis_tests")
+    .select(
+      "id, hypothesis_id, diagnostic_question, required_data, expected_if_true, expected_if_false, information_gain, cost, latency, availability, intrusiveness, mode, status",
+    )
+    .in("hypothesis_id", hypothesisIds);
+
+  const { data: enlaces } = await supabase
+    .from("diagnostic_hypothesis_evidence")
+    .select("hypothesis_id, evidence_id, relation")
+    .in("hypothesis_id", hypothesisIds);
+
+  const evidenceIds = [
+    ...new Set((enlaces ?? []).map((e) => e.evidence_id as string)),
+  ];
+  const { data: evidencias } = evidenceIds.length
+    ? await supabase
+        .from("diagnostic_evidence")
+        .select(
+          "id, observation, observation_kind, directness, specificity, freshness, source_system",
+        )
+        .in("id", evidenceIds)
+    : { data: [] };
+
+  const evidenciaPorId = new Map(
+    (evidencias ?? []).map((e) => [e.id as string, e]),
+  );
+
+  const hypotheses = (hipotesis ?? []).map((h) => ({
+    ...h,
+    organization_name: nombrePorOrg.get(h.organization_id as string) ?? null,
+    test: (tests ?? []).find((t) => t.hypothesis_id === h.id) ?? null,
+    evidence: (enlaces ?? [])
+      .filter((e) => e.hypothesis_id === h.id)
+      .map((e) => ({
+        relation: e.relation,
+        ...(evidenciaPorId.get(e.evidence_id as string) ?? {}),
+      })),
+  }));
+
+  return { ok: true as const, data: { hypotheses } };
+}
+
+/**
+ * FASE 3 / D09 — causa raiz y constraint, para el consultor.
+ *
+ * DOS COSAS INDEPENDIENTES EN LA MISMA RESPUESTA, porque en pantalla se leen
+ * juntas aunque el esquema no las ate (apartado 23): "por que paso" y "que
+ * limita" son preguntas distintas, y un caso puede tener respuesta a una sin
+ * tener respuesta a la otra.
+ *
+ * CASI TODO LLEGA `unresolved` O `latent`, Y ESO SE ENSENA TAL CUAL. Filtrarlo
+ * porque "no dice nada" seria justo el error que el bloque entero existe para
+ * impedir: no cerrar es la respuesta correcta cuando la evidencia es
+ * co-movimiento, y ocultarlo la disfrazaria de que nadie ha mirado.
+ *
+ * Solo consultor. Una causa candidata sin cerrar, delante de un cliente, se lee
+ * como una causa.
+ */
+export async function listConsultantRootCauses(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: causas, error: errorCausas } = await supabase
+    .from("root_causes")
+    .select(
+      "id, organization_id, case_id, code, statement, family, cause_type, role, scope, status, confidence, explanatory_coverage, residual_material, residual_note, controllability, reversibility, recurrence, affects_observability_only, limitations, updated_at",
+    )
+    .in("organization_id", safeIds)
+    .order("updated_at", { ascending: false })
+    .limit(300);
+
+  if (errorCausas) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_root_causes_load_failed",
+      detail: errorCausas.message,
+    };
+  }
+
+  const rootCauseIds = (causas ?? []).map((c) => c.id as string);
+  const { data: cadena } = rootCauseIds.length
+    ? await supabase
+        .from("root_cause_chain")
+        .select("root_cause_id, step_order, chain_role, statement, supported")
+        .in("root_cause_id", rootCauseIds)
+        .order("step_order", { ascending: true })
+    : { data: [] };
+
+  const rootCauses = (causas ?? []).map((c) => ({
+    ...c,
+    organization_name: nombrePorOrg.get(c.organization_id as string) ?? null,
+    chain: (cadena ?? []).filter((s) => s.root_cause_id === c.id),
+  }));
+
+  const { data: constraints, error: errorConstraints } = await supabase
+    .from("business_constraints")
+    .select(
+      "id, organization_id, case_id, code, statement, constraint_type, target, scope, binding_status, nature, timing, confidence, capacity, demand_on_capacity, falsifier, counterfactual_question, counterfactual_result, limits_target, exposure, status, updated_at",
+    )
+    .in("organization_id", safeIds)
+    .order("updated_at", { ascending: false })
+    .limit(300);
+
+  if (errorConstraints) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_constraints_load_failed",
+      detail: errorConstraints.message,
+    };
+  }
+
+  const constraintIds = (constraints ?? []).map((k) => k.id as string);
+  const { data: tests } = constraintIds.length
+    ? await supabase
+        .from("constraint_tests")
+        .select(
+          "id, constraint_id, counterfactual_question, expected_if_binding, expected_if_not_binding, result, interpretation",
+        )
+        .in("constraint_id", constraintIds)
+    : { data: [] };
+
+  const businessConstraints = (constraints ?? []).map((k) => ({
+    ...k,
+    organization_name: nombrePorOrg.get(k.organization_id as string) ?? null,
+    tests: (tests ?? []).filter((t) => t.constraint_id === k.id),
+  }));
+
+  return { ok: true as const, data: { rootCauses, businessConstraints } };
 }

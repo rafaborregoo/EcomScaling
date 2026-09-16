@@ -1,0 +1,74 @@
+name: Root Cause Engine
+
+# F3/D09. Dos pipelines independientes: causa raiz desde las hipotesis vivas de
+# D08 y su cadena en el grafo de D07; constraint desde la salud por capacidad de
+# D04. No hay clave ajena entre ellas (apartado 23): causa resuelta con
+# constraint activo, o al reves, tienen que poder coexistir.
+#
+# **Casi todo sale `unresolved` o `latent`, y no es un techo del motor.** La
+# evidencia de D07-D08 es siempre co-movimiento, y el guardrail 15 prohibe
+# cerrar una causa con eso. La plataforma no mide capacidad ni demanda de
+# ninguna capacidad, y los guardrails 29 y 31 prohiben declarar un cuello
+# vinculante sin las dos. Cerrar mas hoy seria mentir.
+#
+# Sin `schedule`, igual que los otros diez motores: decision de Rafa del
+# 2026-08-03. Para activarlo, descomentar el bloque de abajo.
+#
+# Va detras de la salud (06:47) y de las hipotesis (06:47b) y delante de la
+# confianza (07:07).
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "52 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: root-cause-engine
+  cancel-in-progress: false
+
+jobs:
+  root-cause:
+    name: Assess root cause and business constraints for all organizations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+      SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+      SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required runtime secrets
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY SUPABASE_JWT_SECRET; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required secret $key is not configured for the root cause engine." >&2
+              exit 1
+            fi
+          done
+
+      - name: Build API and worker
+        run: npm run build -w @ecomscaling/api && npm run build -w @ecomscaling/worker
+
+      - name: Assess root cause and constraints
+        run: npm run start:root-cause -w @ecomscaling/worker

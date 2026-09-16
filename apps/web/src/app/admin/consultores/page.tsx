@@ -7,6 +7,12 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue, organizationStatusTone } from "@/lib/display-labels";
 import {
+  ConcesionDePlan,
+  concesionInicial,
+  concesionValida,
+  grantPlanBody,
+} from "@/components/concesion-de-plan";
+import {
   AsyncState,
   Badge,
   Banner,
@@ -483,6 +489,7 @@ function ConsultantCreateForm({
 }) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
+  const [plan, setPlan] = useState(() => concesionInicial("consultant", true));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [manualInvite, setManualInvite] = useState<{ email: string; url: string } | null>(null);
@@ -500,6 +507,7 @@ function ConsultantCreateForm({
         body: JSON.stringify({
           email,
           full_name: fullName || undefined,
+          grant_plan: grantPlanBody(plan),
         }),
       });
       if (!response.ok) {
@@ -525,13 +533,14 @@ function ConsultantCreateForm({
     }
   }
 
-  const canSubmit = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const canSubmit =
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && concesionValida(plan);
 
   return (
     <Card
       kicker="Alta"
       title="Nuevo consultor"
-      description="Invita a un consultor por email. Entra con su cuenta y paga su cuota al acceder."
+      description="Invita a un consultor por email y decide si le concedes el plan o lo paga él."
     >
       <div className="grid gap-4">
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
@@ -575,6 +584,14 @@ function ConsultantCreateForm({
             />
           </Field>
         </div>
+
+        <ConcesionDePlan
+          value={plan}
+          onChange={setPlan}
+          etiquetaSinPlan="Lo paga él con tarjeta"
+          avisoSinPlan="Hasta que pague no será consultor: entrará, pero sin cartera de clientes. El rol sale del plan, así que lo verá en /planes al entrar."
+        />
+
         <div>
           <Button disabled={!canSubmit || busy} onClick={() => void submit()}>
             {busy ? "Invitando..." : "Invitar consultor"}

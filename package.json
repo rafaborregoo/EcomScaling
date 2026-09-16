@@ -25,6 +25,7 @@
     "seed:shopify-store": "dotenv -e .env.local -- tsx scripts/seed-shopify-store.ts",
     "seed:meta-history": "dotenv -e .env.local -- tsx scripts/seed-meta-history.ts",
     "seed:klaviyo-history": "dotenv -e .env.local -- tsx scripts/seed-klaviyo-history.ts",
+    "stripe:catalogo": "dotenv -e .env.local -- node scripts/stripe-catalogo.mjs",
     "db:types": "dotenv -e .env.local -- node scripts/db-types.mjs",
     "db:push": "dotenv -e .env.local -- node scripts/db-push.mjs",
     "db:push:dry": "dotenv -e .env.local -- node scripts/db-push.mjs --dry-run",
@@ -40,8 +41,7 @@
     "conocimiento:archiva": "dotenv -e .env.local -- node scripts/archiva-conocimiento-global.mjs",
     "conocimiento:ingest:prod": "dotenv -e .env.production.local -v API_URL=https://api.ecomscaling.es -- node scripts/ingest-conocimiento.mjs",
     "conocimiento:archiva:prod": "dotenv -e .env.production.local -- node scripts/archiva-conocimiento-global.mjs",
-    "api:contra-produccion": "dotenv -e .env.production.local -- tsx apps/api/src/server.ts",
-    "whop:planes": "dotenv -e .env.local -- node scripts/whop-planes.mjs"
+    "api:contra-produccion": "dotenv -e .env.production.local -- tsx apps/api/src/server.ts"
   },
   "devDependencies": {
     "concurrently": "^9.2.4",

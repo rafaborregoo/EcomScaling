@@ -1,5 +1,5 @@
-/**
- * FASE 3 / D11 — Confianza e incertidumbre.
+﻿/**
+ * FASE 3 / D11 â€” Confianza e incertidumbre.
  *
  * Fuentes: `02-contratos-IA/d11-requisitos-contrato-confianza-incertidumbre.md` (29 apartados),
  * `04-policies-guardrails/d11-guardrails-confianza-incertidumbre.md` (60 guardrails),
@@ -134,7 +134,7 @@ export const APPLICABILITY_LEVELS = ["high", "medium", "low", "not_applicable", 
  * guardrail queda cubierto solo a medias** y conviene saberlo.
  */
 export const CERTAINTY_LANGUAGE =
-  /\b(esta claro que|está claro que|es evidente|obviamente|con total seguridad|queda demostrado|no cabe duda)\b/i;
+  /\b(esta claro que|estÃ¡ claro que|es evidente|obviamente|con total seguridad|queda demostrado|no cabe duda)\b/i;
 
 // ---------------------------------------------------------------------------
 // El claim y su confianza
@@ -537,3 +537,649 @@ export function checkConfidenceInvariants(
 
   return violations;
 }
+
+// --- El motor ---------------------------------------------------------------
+
+/**
+ * EL MOTOR DE CONFIANZA. Es el bloque que pone en palabras lo que los otros
+ * seis saben y lo que no, **capa por capa**.
+ *
+ * LA IDEA QUE LO SOSTIENE, y es la de toda la fase: la confianza no es un
+ * numero del caso, es una propiedad de **cada afirmacion**. Se puede saber con
+ * certeza que las ventas cayeron (capa `what`, observado) y no tener ni idea de
+ * por que (capa `why`, desconocido), y las dos cosas a la vez son lo normal, no
+ * una contradiccion. Colapsarlas en "confianza media" borra justo la
+ * informacion que sirve: te dice cuanto fiarte, pero no de que.
+ *
+ * LO QUE HOY SALE, Y POR QUE. Las capas `why`, `root_cause` y `constraint`
+ * salen `unknown` / `insufficient_data` **en todos los casos**, porque D07, D08
+ * y D09 no tienen motor: no hay grafo causal que recorrer. No es un fallo del
+ * motor, es el estado real del sistema -- y escribirlo es la unica forma de que
+ * nadie lea un diagnostico incompleto como si estuviera cerrado.
+ *
+ * SIN FORMULA, COMO SIEMPRE EN ESTA FASE. No hay media ponderada de dimensiones
+ * ni de capas. Lo unico que se deriva es el techo (`capped_at`), y se deriva de
+ * una regla declarada, no de un umbral: la confianza de una capa **no puede
+ * superar la de aquello en lo que se apoya**.
+ *
+ * Y NINGUN PORCENTAJE. El guardrail lo pide y el esquema lo garantiza: no hay
+ * columna donde quepa un numero.
+ */
+
+/** Lo que D01 dice del dato que sostiene todo esto. */
+export type DataQualityForConfidence = {
+  reliability: string;
+  coverage?: string | null;
+};
+
+/** Lo que D05 emitio, en lo que le hace falta a D11. */
+export type SignalForConfidence = {
+  metric: string;
+  direction: string;
+  scope: string;
+  signal_confidence: string;
+  data_confidence: string;
+  low_sample: boolean;
+  window_start: string;
+  window_end: string;
+};
+
+/** Lo que D06 formo, si formo algo. */
+export type SymptomForConfidence = {
+  label: string;
+  confidence: string;
+  context_reviewed: boolean;
+  compatible_direction: boolean;
+  known_relationship: boolean;
+};
+
+/** Lo que D10 midio, si midio algo. */
+export type SeverityForConfidence = {
+  impact_confidence: string;
+  severity_confidence: string;
+  measurement_compromised: boolean;
+  has_measurement: boolean;
+};
+
+export type ConfidenceEngineInput = {
+  caseId: string;
+  targetMetric: string;
+  targetQuestion: string;
+  scope: string;
+  dataQuality?: DataQualityForConfidence | null;
+  signal?: SignalForConfidence | null;
+  symptom?: SymptomForConfidence | null;
+  severity?: SeverityForConfidence | null;
+};
+
+export type ClaimDraft = {
+  claim_layer: string;
+  claim: string;
+  target_question: string;
+  epistemic_state: string;
+  confidence_level: string;
+  alternative_separation: string;
+  contradiction_level: string;
+  completeness: string;
+  explanatory_coverage: string;
+  negative_claim_state: string | null;
+  coverage_declared: string | null;
+  capped_at: string | null;
+  cap_reason: string | null;
+  desired_level: string | null;
+  missing_evidence: string | null;
+  next_evidence_required: string | null;
+  error_cost: string;
+  limitations: string | null;
+  dimensions: { dimension: string; rating: string; reason: string }[];
+  caps: { cap_source: string; capped_level: string; reason: string }[];
+};
+
+export type ConfidenceEngineOutput = {
+  claims: ClaimDraft[];
+  uncertainties: {
+    uncertainty_type: string;
+    description: string;
+    materiality: string;
+    is_known_unknown: boolean;
+    resolvability: string;
+    required_evidence: string | null;
+    claim_layer: string | null;
+  }[];
+};
+
+const ORDEN_NIVEL: Record<string, number> = {
+  insufficient_data: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+};
+
+/**
+ * El techo que impone lo que hay debajo.
+ *
+ * Es la unica derivacion del motor, y no es un umbral: una afirmacion **no
+ * puede** ser mas firme que aquello en lo que se apoya. Si D01 no se fia del
+ * dato, ninguna lectura construida sobre ese dato se fia mas.
+ */
+export function capTo(level: string, ceiling: string | null): string {
+  if (ceiling == null) return level;
+  return (ORDEN_NIVEL[level] ?? 0) <= (ORDEN_NIVEL[ceiling] ?? 0) ? level : ceiling;
+}
+
+/**
+ * El techo que impone la calidad del dato (guardrails 16 a 20).
+ *
+ * Devuelve `null` cuando D01 no degrada nada: un techo que no baja el nivel no
+ * es un techo, y el esquema lo rechaza.
+ */
+export function dataQualityCap(
+  quality: DataQualityForConfidence | null | undefined,
+): { capped_level: string; reason: string } | null {
+  if (!quality) {
+    return {
+      capped_level: "low",
+      reason:
+        "D01 no ha evaluado la fuente que sostiene este caso, asi que no se puede afirmar nada por encima de bajo sobre lo que mide.",
+    };
+  }
+  if (["unusable"].includes(quality.reliability)) {
+    return {
+      capped_level: "insufficient_data",
+      reason:
+        "D01 da la fuente por inutilizable: lo que se lea de ella no sostiene ninguna afirmacion.",
+    };
+  }
+  if (["low", "degraded"].includes(quality.reliability)) {
+    return {
+      capped_level: "low",
+      reason:
+        "D01 da la fuente por degradada, asi que toda lectura construida sobre ella hereda ese techo.",
+    };
+  }
+  return null;
+}
+
+/**
+ * Como se dice cada nivel de confianza, con las palabras de los guardrails 43 a
+ * 46.
+ *
+ * **No son sinonimos elegantes**: cada nivel tiene su formula y cambiarla es
+ * descalibrar el lenguaje. "Es compatible con" no significa lo mismo que "la
+ * explicacion mas probable es", y esa diferencia es lo unico que separa una
+ * hipotesis de una conclusion.
+ */
+export function calibratedPhrase(level: string): string {
+  switch (level) {
+    case "high":
+      return "la evidencia sostiene con solidez que";
+    case "medium":
+      return "la explicacion mas probable es que";
+    case "low":
+      return "es compatible con que";
+    default:
+      return "no puede determinarse si";
+  }
+}
+
+/**
+ * Que afirmacion negativa se puede hacer cuando no hay senal.
+ *
+ * **Guardrail 8 y el corazon de toda la fase**: "no lo se" y "no lo hay" son
+ * tres estados, no dos. Sin cobertura declarada, lo unico honesto es
+ * `no_evidence`; decir `evidence_of_no_problem` sin haber mirado es afirmar una
+ * ausencia que nadie ha comprobado. Y `evidence_of_stability` exige ademas
+ * medicion completa y observada (guardrail 31): es la mas fuerte de las tres.
+ */
+export function negativeClaimFor(
+  hayMedicion: boolean,
+  cobertura: string | null,
+): { state: string; coverage_declared: string | null } {
+  if (!hayMedicion || !cobertura) {
+    return { state: "no_evidence", coverage_declared: null };
+  }
+  return { state: "evidence_of_no_problem", coverage_declared: cobertura };
+}
+
+function dimension(dimension: string, rating: string, reason: string) {
+  return { dimension, rating, reason };
+}
+
+/**
+ * La confianza de cada capa del caso.
+ *
+ * Una fila por capa **sobre la que hay algo que decir**, incluidas las que solo
+ * pueden decir "no se sabe": esas son las que impiden que el caso se lea como
+ * cerrado.
+ */
+export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngineOutput {
+  const { targetMetric, targetQuestion, scope, signal, symptom, severity } = input;
+
+  const capDato = dataQualityCap(input.dataQuality);
+  const techo = capDato?.capped_level ?? null;
+
+  const capsComunes = capDato
+    ? [
+        {
+          cap_source: input.dataQuality ? "data_quality" : "insufficient_coverage",
+          capped_level: capDato.capped_level,
+          reason: capDato.reason,
+        },
+      ]
+    : [];
+
+  const claims: ClaimDraft[] = [];
+
+  // --- Capa `measurement`: Â¿me puedo fiar de la cifra? ---------------------
+  claims.push({
+    claim_layer: "measurement",
+    claim: input.dataQuality
+      ? `La medicion de ${targetMetric} tiene fiabilidad ${input.dataQuality.reliability} segun D01.`
+      : `La medicion de ${targetMetric} no ha sido evaluada por D01.`,
+    target_question: "Â¿Me puedo fiar de la cifra sobre la que se construye todo lo demas?",
+    epistemic_state: input.dataQuality ? "observed" : "unknown",
+    confidence_level: input.dataQuality
+      ? capTo(input.dataQuality.reliability === "high" ? "high" : "medium", techo)
+      : "insufficient_data",
+    alternative_separation: "not_applicable",
+    contradiction_level: "none",
+    completeness: input.dataQuality ? "complete_enough" : "incomplete",
+    explanatory_coverage: "unknown",
+    negative_claim_state: null,
+    coverage_declared: null,
+    capped_at: techo,
+    cap_reason: capDato?.reason ?? null,
+    desired_level: input.dataQuality ? null : "medium",
+    missing_evidence: input.dataQuality
+      ? null
+      : "Una evaluacion de calidad de datos de D01 sobre la fuente de esta metrica.",
+    next_evidence_required: input.dataQuality ? null : "Ejecutar el motor de calidad de datos.",
+    error_cost: "high",
+    limitations: input.dataQuality
+      ? null
+      : "Sin evaluacion de D01 no se sabe si la cifra es fiable, asi que todo lo que se construya encima hereda esa duda.",
+    dimensions: [
+      dimension(
+        "data_reliability",
+        input.dataQuality
+          ? input.dataQuality.reliability === "high"
+            ? "strong"
+            : input.dataQuality.reliability === "medium"
+              ? "adequate"
+              : "weak"
+          : "unknown",
+        input.dataQuality
+          ? `D01 evaluo la fuente como ${input.dataQuality.reliability}.`
+          : "D01 no ha evaluado la fuente de esta metrica todavia.",
+      ),
+    ],
+    caps: capsComunes,
+  });
+
+  // --- Capa `what`: Â¿que se movio? -----------------------------------------
+  if (signal) {
+    const nivel = capTo(signal.low_sample ? "low" : "high", techo);
+    claims.push({
+      claim_layer: "what",
+      claim: `${targetMetric} se movio (${signal.direction}) fuera de su rango esperado en la ventana medida.`,
+      target_question: "Â¿Que ha cambiado?",
+      // Es lo unico de toda la cadena que se observa directamente: la serie
+      // esta ahi. Por eso es la capa que mas confianza admite.
+      epistemic_state: "observed",
+      confidence_level: nivel,
+      alternative_separation: "not_applicable",
+      contradiction_level: "none",
+      completeness: "complete_enough",
+      explanatory_coverage: "unknown",
+      negative_claim_state: null,
+      coverage_declared: null,
+      capped_at: signal.low_sample ? capTo("low", techo) : techo,
+      cap_reason: signal.low_sample
+        ? "La muestra de la ventana es corta, asi que la desviacion puede ser ruido."
+        : (capDato?.reason ?? null),
+      desired_level: null,
+      missing_evidence: null,
+      next_evidence_required: null,
+      error_cost: "moderate",
+      limitations: null,
+      dimensions: [
+        dimension(
+          "sample_sufficiency",
+          signal.low_sample ? "weak" : "adequate",
+          signal.low_sample
+            ? "D05 marco la senal como muestra corta en la ventana medida."
+            : "La ventana medida tiene puntos suficientes para el metodo robusto de D05.",
+        ),
+        dimension(
+          "temporal_fit",
+          "adequate",
+          "La ventana de la senal cae dentro del periodo de analisis del caso.",
+        ),
+      ],
+      caps: [
+        ...capsComunes,
+        ...(signal.low_sample
+          ? [
+              {
+                cap_source: "sample_too_small",
+                capped_level: "low",
+                reason:
+                  "La muestra de la ventana es corta: la desviacion medida puede ser ruido y no un cambio real.",
+              },
+            ]
+          : []),
+      ],
+    });
+  } else {
+    // Sin senal no se afirma que no pase nada: se afirma que no se ha mirado.
+    const negativa = negativeClaimFor(false, null);
+    claims.push({
+      claim_layer: "what",
+      claim: `No hay ninguna senal de ${targetMetric} en la ventana del caso.`,
+      target_question: "Â¿Que ha cambiado?",
+      epistemic_state: "unknown",
+      confidence_level: "insufficient_data",
+      alternative_separation: "unknown",
+      contradiction_level: "none",
+      completeness: "incomplete",
+      explanatory_coverage: "unknown",
+      negative_claim_state: negativa.state,
+      coverage_declared: negativa.coverage_declared,
+      capped_at: null,
+      cap_reason: null,
+      desired_level: "medium",
+      missing_evidence: "Una pasada del motor de senales sobre la ventana del caso.",
+      next_evidence_required: "Ejecutar el motor de senales.",
+      error_cost: "moderate",
+      limitations:
+        "Que no haya senal no significa que no haya pasado nada: significa que en esta ventana no se ha medido una desviacion.",
+      dimensions: [
+        dimension(
+          "data_coverage",
+          "unknown",
+          "No consta que se haya medido esta metrica en la ventana del caso.",
+        ),
+      ],
+      caps: capsComunes,
+    });
+  }
+
+  // --- Capa `where`: Â¿donde pasa? ------------------------------------------
+  claims.push({
+    claim_layer: "where",
+    claim: `El movimiento se observa en el alcance ${scope}.`,
+    target_question: "Â¿Sobre que parte del negocio pasa esto?",
+    epistemic_state: signal ? "observed" : "unknown",
+    confidence_level: signal ? capTo("medium", techo) : "insufficient_data",
+    alternative_separation: "not_applicable",
+    contradiction_level: "none",
+    completeness: "partial",
+    explanatory_coverage: "unknown",
+    negative_claim_state: null,
+    coverage_declared: null,
+    capped_at: capTo("medium", techo) === "medium" ? "medium" : techo,
+    cap_reason:
+      "El motor de senales no segmenta todavia por canal, mercado ni dispositivo, asi que el alcance fino no se puede afirmar.",
+    desired_level: "high",
+    missing_evidence:
+      "Series segmentadas por canal, mercado o dispositivo, que las funciones SQL actuales no devuelven.",
+    next_evidence_required: "Implementar los pasos 14 a 17 del runtime de D05.",
+    error_cost: "moderate",
+    limitations:
+      "Un problema local puede esconderse dentro de un agregado estable, y hoy solo se mira el agregado.",
+    dimensions: [
+      dimension(
+        "scope_fit",
+        "weak",
+        "Solo hay alcance de negocio: no hay drilldown por segmento que confirme donde pasa.",
+      ),
+    ],
+    caps: [
+      ...capsComunes,
+      {
+        cap_source: "scope_mismatch",
+        capped_level: "medium",
+        reason:
+          "El alcance declarado es el agregado del negocio; sin series segmentadas no se puede afirmar donde pasa exactamente.",
+      },
+    ],
+  });
+
+  // --- Capa `symptom`: Â¿que patron forman? ---------------------------------
+  if (symptom) {
+    claims.push({
+      claim_layer: "symptom",
+      claim: `Las senales forman el patron "${symptom.label}".`,
+      target_question: "Â¿Que patron forman los movimientos juntos?",
+      epistemic_state: "derived",
+      confidence_level: capTo(symptom.confidence === "high" ? "high" : symptom.confidence === "medium" ? "medium" : "low", techo),
+      // Guardrail 25: sin separacion frente a las alternativas no se llega a
+      // alta -- y D07 no existe, asi que no hay alternativas que separar.
+      alternative_separation: "unknown",
+      contradiction_level: symptom.compatible_direction ? "none" : "material",
+      completeness: "partial",
+      explanatory_coverage: "unknown",
+      negative_claim_state: null,
+      coverage_declared: null,
+      capped_at: capTo("medium", techo),
+      cap_reason:
+        "Sin grafo causal no hay rutas rivales que descartar, asi que un patron no puede pasar de probable.",
+      desired_level: "high",
+      missing_evidence: "Rutas causales rivales de D07 con las que contrastar este patron.",
+      next_evidence_required: "Escribir el grafo causal e implementar D07.",
+      error_cost: "moderate",
+      limitations:
+        "Un patron coherente no es una explicacion: que dos metricas se muevan juntas y esten relacionadas no dice cual mueve a cual.",
+      dimensions: [
+        dimension(
+          "evidence_consistency",
+          symptom.compatible_direction ? "adequate" : "weak",
+          symptom.compatible_direction
+            ? "Las senales del patron se mueven en sentidos compatibles."
+            : "Hay senales del patron moviendose en sentidos opuestos, y eso no se ha resuelto.",
+        ),
+        dimension(
+          "context_quality",
+          symptom.context_reviewed ? "adequate" : "weak",
+          symptom.context_reviewed
+            ? "D02 contextualizo el movimiento contra su baseline."
+            : "D02 no ha contextualizado este movimiento todavia.",
+        ),
+        dimension(
+          "mechanism_strength",
+          symptom.known_relationship ? "weak" : "absent",
+          symptom.known_relationship
+            ? "Hay una relacion declarada entre las metricas, pero declarar una relacion no es demostrar un mecanismo."
+            : "No hay ninguna relacion declarada entre estas metricas: coinciden en el tiempo y nada mas.",
+        ),
+      ],
+      caps: [
+        ...capsComunes,
+        {
+          cap_source: "external_cause_unobserved",
+          capped_level: "medium",
+          reason:
+            "No existe grafo causal, asi que ninguna causa externa se ha podido descartar para este patron.",
+        },
+      ],
+    });
+  }
+
+  // --- Capa `current_impact`: Â¿cuanto cuesta? ------------------------------
+  if (severity?.has_measurement) {
+    claims.push({
+      claim_layer: "current_impact",
+      claim: `El movimiento de ${targetMetric} tiene un impacto economico medido sobre la base declarada.`,
+      target_question: "Â¿Cuanto dinero se ha movido?",
+      // La cuenta es una resta contra un baseline, y un baseline es un modelo:
+      // derivado, no observado.
+      epistemic_state: "derived",
+      confidence_level: capTo(
+        severity.measurement_compromised ? "low" : severity.impact_confidence === "high" ? "high" : "medium",
+        techo,
+      ),
+      alternative_separation: "not_applicable",
+      contradiction_level: "none",
+      completeness: "partial",
+      explanatory_coverage: "unknown",
+      negative_claim_state: null,
+      coverage_declared: null,
+      capped_at: capTo("medium", techo),
+      cap_reason:
+        "La cifra es la diferencia contra un baseline que no se ajusta por estacionalidad ni calendario comercial.",
+      desired_level: "high",
+      missing_evidence:
+        "Ajuste por estacionalidad en D05 y coste por referencia para poder medir contribucion y no solo facturacion.",
+      next_evidence_required: "Rellenar el coste por variante en Shopify.",
+      error_cost: "high",
+      limitations:
+        "Se mide el efecto sobre la facturacion, no sobre el margen: sin coste por referencia, lo que el negocio deja de ganar de verdad no se sabe.",
+      dimensions: [
+        dimension(
+          "data_coverage",
+          "weak",
+          "No hay coste por referencia, asi que la dimension de contribucion queda sin medir.",
+        ),
+      ],
+      caps: capsComunes,
+    });
+  }
+
+  // --- Capas `why`, `root_cause` y `constraint`: lo que no se sabe ---------
+  //
+  // Estas tres son el motivo por el que existe este motor hoy. Sin ellas, un
+  // caso con senal, sintoma e impacto medido se leeria como un diagnostico
+  // cerrado -- y no lo es, porque nadie ha dicho por que pasa.
+  for (const capa of ["why", "root_cause", "constraint"] as const) {
+    claims.push({
+      claim_layer: capa,
+      claim:
+        capa === "why"
+          ? `No puede determinarse por que se movio ${targetMetric}.`
+          : capa === "root_cause"
+            ? "No puede determinarse cual es la causa raiz de este caso."
+            : "No puede determinarse que cuello de botella limita a este negocio.",
+      target_question:
+        capa === "why"
+          ? "Â¿Por que ha pasado esto?"
+          : capa === "root_cause"
+            ? "Â¿Cual es la causa de fondo?"
+            : "Â¿Que le esta limitando?",
+      epistemic_state: "unknown",
+      // Guardrail 22: no saber es no saber. UNKNOWN solo va con
+      // INSUFFICIENT_DATA, y el esquema lo rechaza de otra forma.
+      confidence_level: "insufficient_data",
+      alternative_separation: "none",
+      contradiction_level: "none",
+      completeness: "incomplete",
+      explanatory_coverage: "minimal",
+      negative_claim_state: "no_evidence",
+      coverage_declared: null,
+      capped_at: null,
+      cap_reason: null,
+      desired_level: "medium",
+      missing_evidence:
+        "Un grafo causal declarado (D07), hipotesis contrastadas (D08) y un motor de causa raiz (D09). Ninguno de los tres existe todavia.",
+      next_evidence_required:
+        "Escribir las relaciones causales del ecommerce, que es conocimiento de dominio y no codigo.",
+      error_cost: "severe",
+      limitations:
+        "Este caso no tiene causa. Lo que hay es un movimiento medido y un patron coherente, y ninguna de las dos cosas explica nada por si sola.",
+      dimensions: [
+        dimension(
+          "mechanism_strength",
+          "absent",
+          "No existe grafo causal en el sistema: no hay ningun mecanismo declarado que conecte estas metricas.",
+        ),
+        dimension(
+          "missing_evidence",
+          "absent",
+          "Faltan las tres capas causales enteras (D07, D08 y D09), no una pieza suelta.",
+        ),
+      ],
+      caps: capsComunes,
+    });
+  }
+
+  // --- Capa `overall`: Â¿se puede cerrar este caso? -------------------------
+  //
+  // NO es una media de las anteriores. La regla viene de D00: un diagnostico es
+  // una explicacion, y una explicacion sin causa no es un diagnostico. Por eso
+  // el techo de `overall` es el nivel de la capa `why`, que hoy es siempre
+  // insuficiente. No es un umbral inventado: es la definicion del bloque.
+  const nivelWhy = claims.find((c) => c.claim_layer === "why")?.confidence_level ?? "insufficient_data";
+  claims.push({
+    claim_layer: "overall",
+    claim: `El caso sobre ${targetMetric} no puede concluirse.`,
+    target_question: targetQuestion,
+    epistemic_state: "unknown",
+    confidence_level: nivelWhy,
+    alternative_separation: "none",
+    contradiction_level: "none",
+    completeness: "incomplete",
+    explanatory_coverage: "minimal",
+    negative_claim_state: "no_evidence",
+    coverage_declared: null,
+    capped_at: nivelWhy,
+    cap_reason:
+      "La confianza de un diagnostico no puede superar la que tiene en su causa: sin causa no hay explicacion, y sin explicacion no hay diagnostico (D00, apartado 2).",
+    desired_level: "medium",
+    missing_evidence: "La capa causal entera.",
+    next_evidence_required: "Cerrar D07, D08 y D09.",
+    error_cost: "severe",
+    limitations:
+      "Lo que este caso sabe es que algo se movio, que patron forma y cuanto costo. Presentarlo como un diagnostico seria dar por explicado lo que solo esta descrito.",
+    dimensions: [
+      dimension(
+        "missing_evidence",
+        "absent",
+        "El caso no tiene ninguna capa causal resuelta, que es lo que lo convertiria en un diagnostico.",
+      ),
+    ],
+    caps: capsComunes,
+  });
+
+  const uncertainties: ConfidenceEngineOutput["uncertainties"] = [
+    {
+      uncertainty_type: "causal",
+      description:
+        "No existe grafo causal declarado en el sistema, asi que ningun caso puede pasar de describir lo que ocurre a explicarlo. Afecta a todos los casos por igual.",
+      materiality: "critical_unknown",
+      is_known_unknown: true,
+      resolvability: "resolvable_now",
+      required_evidence:
+        "Las relaciones causales del ecommerce escritas a mano: que mueve a que, con que mecanismo y en que direccion.",
+      claim_layer: "why",
+    },
+  ];
+
+  if (!signal) {
+    uncertainties.push({
+      uncertainty_type: "data",
+      description:
+        "No hay ninguna senal en la ventana del caso, asi que no se sabe si la metrica se movio o si simplemente no se ha medido.",
+      materiality: "material",
+      is_known_unknown: true,
+      resolvability: "resolvable_now",
+      required_evidence: "Una pasada del motor de senales sobre esta ventana.",
+      claim_layer: "what",
+    });
+  }
+
+  if (severity?.has_measurement) {
+    uncertainties.push({
+      uncertainty_type: "impact",
+      description:
+        "El impacto se mide sobre facturacion y no sobre contribucion, porque no hay coste por referencia. El dano real sobre el margen puede ser muy distinto del medido.",
+      materiality: "material",
+      is_known_unknown: true,
+      resolvability: "with_new_data",
+      required_evidence: "Coste por variante en Shopify, o la fuente que lo tenga.",
+      claim_layer: "current_impact",
+    });
+  }
+
+  return { claims, uncertainties };
+}
+
+

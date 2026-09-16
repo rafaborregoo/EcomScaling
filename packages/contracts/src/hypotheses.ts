@@ -374,3 +374,423 @@ export function toCaseHypothesis(h: EngineHypothesis) {
     rejection_reason: h.rejection_reason ?? null,
   });
 }
+
+// ---------------------------------------------------------------------------
+// EL MOTOR (apartados 2 a 25)
+// ---------------------------------------------------------------------------
+//
+// Todo lo que sigue es puro: entran las rutas que dejo D07 y sale un conjunto de
+// hipotesis explicitas con su test siguiente. La parte sucia vive en
+// `apps/api/src/hypothesis-engine.ts`.
+//
+// LA DECISION QUE ORDENA EL RESTO: **D08 no elige, D08 enumera y descarta**. El
+// guardrail 1 dice que la primera causa plausible no es un diagnostico, y el 12
+// que mientras haya incertidumbre material el challenger sigue vivo. Un motor
+// que devolviera "la explicacion es X" estaria rompiendo los dos a la vez. Este
+// devuelve todas, con el estado de cada una y **por que** las descartadas lo
+// estan -- que es la parte que nadie guarda y la que evita repetir la misma
+// busqueda el mes que viene.
+//
+// Y LA SEGUNDA, QUE ES LA QUE APORTA DE VERDAD: **siempre que una ruta pase por
+// una metrica observada sin validar, se emite ademas la hipotesis de que no haya
+// pasado nada**. Un fallo de tracking mueve las sesiones sin mover el negocio.
+// Esa explicacion no sale de ninguna ruta causal --no la hay-- y es la unica que
+// puede tumbar a todas las demas de golpe. Es el challenger del guardrail 12, y
+// por eso lo escribe el motor y no se deja a que alguien se acuerde.
+
+/** Una ruta de D07, aplanada con lo que D08 necesita de ella. */
+export type PathForHypothesis = {
+  path_id: string;
+  target_node_id: string;
+  target_label: string;
+  status: "supported" | "contradicted" | "untested" | "partial";
+  missing_evidence: readonly string[];
+  next_evidence: string | null;
+  /**
+   * El nodo mas rio arriba de la cadena: **de quien habla la hipotesis**.
+   *
+   * Es este, y no el target del caso, el que va a `diagnostic_hypotheses.
+   * target_node_id`. Lo confirma el guardrail 43: la regla comprueba que una
+   * candidata a raiz no apunte a una metrica de resultado, y eso solo tiene
+   * sentido si la columna guarda la **causa propuesta** y no el sintoma. Poner
+   * ahi el target del caso hace ademas que todas las ramas parezcan la misma
+   * hipotesis contada N veces, y el invariante `doble_conteo` lo canta.
+   */
+  origin_node_id: string;
+  origin_code: string;
+  origin_label: string;
+  /** Si alguien vigila esa metrica. Ver la cabecera del motor de D07. */
+  origin_measured: boolean;
+  /** Si el origen sale del tracking y no del registro. */
+  origin_is_observed_metric: boolean;
+  capability: string | null;
+  /**
+   * Los nodos intermedios entre el origen y el target, en orden.
+   *
+   * Sin esto la frase miente cuando la cadena tiene mas de un paso: "las ventas
+   * estan en las sesiones, que entran en su formula" es falso -- las sesiones
+   * entran en la formula de los **pedidos**, y los pedidos en la de las ventas.
+   * Aplanar la cadena convierte una explicacion de dos saltos en una relacion
+   * directa que nadie ha declarado.
+   */
+  mediator_labels: readonly string[];
+  /** Los encajes del paso mas rio arriba. */
+  temporal_fit: string;
+  scope_fit: string;
+  magnitude_fit: string;
+  /** De la arista mas rio arriba. */
+  relation_type: string;
+  edge_evidence_level: string;
+  all_mathematical: boolean;
+  evidence: readonly { stance: string; observation: string }[];
+};
+
+export type HypothesisTestDraft = {
+  diagnostic_question: string;
+  required_data: string | null;
+  expected_if_true: string;
+  expected_if_false: string;
+  information_gain: "high" | "medium" | "low" | "unknown";
+  cost: "high" | "medium" | "low" | "unknown";
+  latency: "high" | "medium" | "low" | "unknown";
+  availability: "available" | "needs_user" | "needs_integration" | "unavailable" | "unknown";
+  intrusiveness: "none" | "low" | "medium" | "high" | "unknown";
+  mode: "passive" | "active";
+};
+
+export type HypothesisDraft = {
+  code: string;
+  statement: string;
+  hypothesis_type: (typeof HYPOTHESIS_TYPES)[number];
+  source_path_id: string | null;
+  target_node_id: string | null;
+  family: (typeof SYMPTOM_FAMILIES)[number] | null;
+  status: string;
+  rejection_reason: string | null;
+  confidence: (typeof HYPOTHESIS_CONFIDENCE)[number];
+  prior_plausibility: "high" | "medium" | "low" | "unknown";
+  explanatory_coverage: (typeof EXPLANATORY_COVERAGE)[number];
+  unexplained_residual_material: boolean;
+  residual_note: string | null;
+  root_cause_candidate: boolean;
+  relative_role: (typeof HYPOTHESIS_ROLES)[number] | null;
+  separation: "high" | "low" | "unknown";
+  uncertainty_kinds: (typeof UNCERTAINTY_KINDS)[number][];
+  temporal_fit: string;
+  scope_fit: string;
+  magnitude_fit: string;
+  mechanism_fit: string;
+  falsification_condition: string | null;
+  limitations: string | null;
+  evidence: {
+    relation: "supports" | "contradicts" | "discriminates" | "inconclusive";
+    observation: string;
+    observation_kind: (typeof OBSERVATION_KINDS)[number];
+    directness: "direct" | "indirect" | "proxy";
+    specificity: "specific" | "ambiguous" | "unknown";
+    freshness: (typeof EVIDENCE_FRESHNESS)[number];
+    source_system: string;
+  }[];
+  test: HypothesisTestDraft | null;
+};
+
+export type HypothesisEngineInput = {
+  caseId: string;
+  targetMetric: string;
+  scope: string;
+  paths: readonly PathForHypothesis[];
+};
+
+/**
+ * El prior de la hipotesis sale del **nivel de evidencia declarado en la
+ * arista**, no de lo bien que encaje con el caso.
+ *
+ * Guardrail 2: el prior no es la conclusion. Son dos columnas distintas justo
+ * para que "esto suele pasar" no se lea como "esto esta pasando". Mezclarlas es
+ * como se acaba afirmando que una tienda tiene un problema porque el libro dice
+ * que suele ocurrir.
+ */
+export function priorFromEdge(evidenceLevel: string): "high" | "medium" | "low" | "unknown" {
+  switch (evidenceLevel) {
+    case "deterministic":
+      return "high";
+    case "strongly_established":
+    case "common_mechanism":
+      return "medium";
+    case "plausible":
+      return "low";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * Cuanto explica, que **no** es cuanto nos fiamos (guardrail 6).
+ *
+ * Y nunca `full`: aunque el factor de cuenta del movimiento entero, por que se
+ * movio el factor sigue sin explicarse. El residual siempre es material aqui, y
+ * el check `cobertura_vs_residual` no dejaria decir otra cosa.
+ */
+export function coverageFromMagnitude(
+  magnitudeFit: string,
+): (typeof EXPLANATORY_COVERAGE)[number] {
+  if (magnitudeFit === "sufficient") return "partial";
+  if (magnitudeFit === "partial") return "minimal";
+  return "unknown";
+}
+
+/** El estado del caso, traducido al vocabulario de D00. */
+export function statusFromPath(status: PathForHypothesis["status"]): string {
+  switch (status) {
+    case "contradicted":
+      return "contradicted";
+    case "untested":
+      return "untested";
+    default:
+      return "under_test";
+  }
+}
+
+/**
+ * Que la falsaria, dicho como una comprobacion y no como una intencion.
+ *
+ * Es el campo mas util de la tabla y el que el esquema exige para cualquier
+ * candidata a raiz: una hipotesis que no dice que la tumbaria no se puede
+ * comprobar, y una que no se puede comprobar no se puede descartar nunca.
+ */
+export function falsificationFor(path: PathForHypothesis): string {
+  if (path.all_mathematical) {
+    return `Que "${path.origin_label}" no se haya movido en la ventana del caso: si la serie esta plana, este factor no explica nada de lo que paso con "${path.target_label}".`;
+  }
+  return `Que "${path.origin_label}" se haya movido sin que "${path.target_label}" le siguiera en algun periodo comparable: el mecanismo declarado dejaria de sostenerse.`;
+}
+
+function porDonde(path: PathForHypothesis): string {
+  return path.mediator_labels.length > 0
+    ? `, a traves de ${path.mediator_labels.map((m) => `"${m}"`).join(" y ")}`
+    : "";
+}
+
+function enunciado(path: PathForHypothesis): string {
+  const via = porDonde(path);
+  if (path.status === "untested") {
+    return `El movimiento de "${path.target_label}" podria venir de "${path.origin_label}"${via}, pero nadie lo mide: la rama no se puede ni confirmar ni descartar.`;
+  }
+  if (path.all_mathematical) {
+    return `El movimiento de "${path.target_label}" viene de "${path.origin_label}"${via}, por la cadena de formulas que los une. Por que se movio "${path.origin_label}" sigue sin explicarse.`;
+  }
+  return `"${path.origin_label}" movio a "${path.target_label}"${via} por el mecanismo declarado en el grafo.`;
+}
+
+function motivoDelDescarte(path: PathForHypothesis): string {
+  const enContra = path.evidence.find((e) => e.stance === "contradicting");
+  return (
+    enContra?.observation ??
+    `La ruta hacia "${path.target_label}" quedo contradicha al comprobarla contra el caso.`
+  );
+}
+
+/**
+ * El siguiente test de una hipotesis (apartados 21 a 25).
+ *
+ * DOS REGLAS DEL ESQUEMA MANDAN AQUI. La primera: no se le pregunta a nadie algo
+ * que ya esta guardado (guardrails 46 y 47), y el check
+ * `no_preguntar_lo_que_ya_hay` lo impone -- si el dato esta `available`, el test
+ * es `passive` y punto. La segunda: la prediccion tiene que ser util, asi que hay
+ * que decir **que se veria si es verdad y que si es mentira**. Un test cuyo
+ * resultado encaja con las dos cosas no discrimina nada.
+ */
+export function testFor(path: PathForHypothesis): HypothesisTestDraft | null {
+  if (path.status === "contradicted") return null;
+
+  if (!path.origin_measured) {
+    return {
+      diagnostic_question: `¿Como se ha movido "${path.origin_label}" en la ventana del caso?`,
+      required_data: `Una serie diaria de "${path.origin_label}" para el periodo analizado.`,
+      expected_if_true: `La serie se mueve en el mismo sentido que "${path.target_label}" y en una magnitud compatible con la relacion declarada.`,
+      expected_if_false: `La serie se mantiene plana o se mueve al reves, y entonces esta rama queda descartada como el resto.`,
+      information_gain: "high",
+      cost: "unknown",
+      latency: "unknown",
+      // No es que haya que preguntarle a nadie: es que falta conectar la fuente.
+      availability: "needs_integration",
+      intrusiveness: "none",
+      mode: "passive",
+    };
+  }
+
+  return {
+    diagnostic_question: `¿Que se movio antes o a la vez que "${path.origin_label}" y podria explicarlo?`,
+    required_data: `El contexto declarado del periodo y los confusores de D02 para la ventana del caso.`,
+    expected_if_true: `Aparece un cambio declarado --campana, precio, stock, temporada-- que precede al movimiento de "${path.origin_label}" y encaja con su magnitud.`,
+    expected_if_false: `No hay ningun cambio declarado en la ventana, y entonces el movimiento sigue sin explicacion aunque su localizacion sea correcta.`,
+    information_gain: "medium",
+    cost: "low",
+    latency: "low",
+    // El contexto de D02 ya esta guardado: preguntarlo fuera seria pedir algo
+    // que la plataforma tiene.
+    availability: "available",
+    intrusiveness: "none",
+    mode: "passive",
+  };
+}
+
+/**
+ * De las rutas de D07 a hipotesis explicitas.
+ *
+ * Una por ruta, mas la del tracking cuando toca. Ninguna sale afirmada: el
+ * maximo es `under_test`, porque ninguna ruta de D07 llega hoy a soportada y
+ * afirmar por encima de lo que sostiene la capa de abajo es justo lo que el
+ * techo de D11 impide.
+ */
+export function generateHypotheses(input: HypothesisEngineInput): HypothesisDraft[] {
+  const salida: HypothesisDraft[] = [];
+
+  const vivas = input.paths.filter((p) => p.status !== "contradicted").length;
+  // Guardrail 12 y apartado 10: con varias explicaciones en pie y ninguna
+  // separada de las demas, la separacion es baja. Decirlo `unknown` seria
+  // suavizar un hecho conocido.
+  const separacion: "high" | "low" | "unknown" = vivas > 1 ? "low" : "unknown";
+
+  input.paths.forEach((path, i) => {
+    const estado = statusFromPath(path.status);
+    const incertidumbres: (typeof UNCERTAINTY_KINDS)[number][] = ["causal"];
+    if (!path.origin_measured) incertidumbres.push("data");
+    if (path.origin_is_observed_metric) incertidumbres.push("data");
+
+    salida.push({
+      code: `H${i + 1}`,
+      statement: enunciado(path),
+      // Una descomposicion aritmetica da cuenta de una parte y nunca del todo:
+      // `contributory_cause` lo dice, y el check `parcial_sigue_parcial` impide
+      // que alguien le suba la cobertura despues.
+      hypothesis_type: path.all_mathematical ? "contributory_cause" : "direct_cause",
+      source_path_id: path.path_id,
+      target_node_id: path.origin_node_id,
+      family: (SYMPTOM_FAMILIES as readonly string[]).includes(path.capability ?? "")
+        ? (path.capability as (typeof SYMPTOM_FAMILIES)[number])
+        : null,
+      status: estado,
+      rejection_reason: estado === "contradicted" ? motivoDelDescarte(path) : null,
+      // Guardrail 35: `insufficient` no es un fracaso, es la respuesta cuando no
+      // hay con que. Y ninguna pasa de `low`: la evidencia disponible es
+      // co-movimiento.
+      confidence: path.status === "untested" ? "insufficient" : "low",
+      prior_plausibility: priorFromEdge(path.edge_evidence_level),
+      explanatory_coverage: coverageFromMagnitude(path.magnitude_fit),
+      unexplained_residual_material: true,
+      residual_note: `Aunque "${path.origin_label}" de cuenta del movimiento, por que se movio "${path.origin_label}" sigue sin explicarse. Eso es residual, y es material.`,
+      // Guardrail 43: un factor de la formula es donde se ve el problema, no de
+      // donde viene. Ninguna de estas es candidata a raiz.
+      root_cause_candidate: false,
+      relative_role: input.paths.length > 1 ? "alternative" : null,
+      separation: separacion,
+      uncertainty_kinds: [...new Set(incertidumbres)],
+      temporal_fit: path.temporal_fit,
+      scope_fit: path.scope_fit,
+      magnitude_fit: path.magnitude_fit,
+      // Una identidad aritmetica no tiene mecanismo que encaje: es una
+      // definicion. El eje no aplica, y `unknown` no afirma nada -- mismo
+      // criterio que D11 con `explanatory_coverage`. Decir que "encaja" seria
+      // contar la formula como si explicara.
+      mechanism_fit: path.all_mathematical ? "unknown" : "untested",
+      falsification_condition: falsificationFor(path),
+      limitations:
+        path.missing_evidence.length > 0 ? path.missing_evidence.join(" ") : null,
+      evidence: path.evidence.map((e) => ({
+        relation:
+          e.stance === "contradicting"
+            ? ("contradicts" as const)
+            : ("supports" as const),
+        observation: e.observation,
+        observation_kind: "observed_present" as const,
+        // Una co-ocurrencia de series es indirecta y ambigua, y decirlo aqui es
+        // lo que impide que cuente como si fuera una medicion del mecanismo.
+        directness: "indirect" as const,
+        specificity: "ambiguous" as const,
+        freshness: "fresh" as const,
+        source_system: "shopify",
+      })),
+      test: testFor(path),
+    });
+
+    // Guardrail 5, y el error que mas veces se cuela: lo que nadie ha mirado no
+    // contradice nada. La rama sin serie deja su hueco como `not_observed` e
+    // `inconclusive`, no como una contradiccion.
+    if (!path.origin_measured) {
+      salida[salida.length - 1]?.evidence.push({
+        relation: "inconclusive",
+        observation: `Nadie mide "${path.origin_label}" en la ventana del caso.`,
+        observation_kind: "not_observed",
+        directness: "indirect",
+        specificity: "unknown",
+        freshness: "unknown",
+        source_system: "plataforma",
+      });
+    }
+  });
+
+  // El challenger que tumba a todas: que no haya pasado nada y sea la medida.
+  const porTracking = input.paths.filter((p) => p.origin_is_observed_metric);
+  if (porTracking.length > 0) {
+    const nombres = [...new Set(porTracking.map((p) => p.origin_label))].join(", ");
+    salida.push({
+      code: `H${input.paths.length + 1}`,
+      statement: `Puede que no haya caido nada: ${nombres} salen del tracking de la tienda, y un fallo de medida las mueve sin que se mueva el negocio.`,
+      hypothesis_type: "data_quality_explanation",
+      // No es causal, asi que no necesita ruta -- y no la tiene, porque no hay
+      // ninguna. Esa es justamente la razon de escribirla a mano.
+      source_path_id: null,
+      target_node_id: null,
+      family: "data",
+      status: "untested",
+      confidence: "insufficient",
+      rejection_reason: null,
+      prior_plausibility: "unknown",
+      explanatory_coverage: "unknown",
+      unexplained_residual_material: true,
+      residual_note:
+        "Si la medida esta rota, no hay nada que explicar y todas las demas hipotesis sobran. Si no lo esta, esta no explica nada.",
+      root_cause_candidate: false,
+      // Guardrail 12: mientras haya incertidumbre material, esta sigue viva.
+      relative_role: "challenger",
+      separation: separacion,
+      uncertainty_kinds: ["data"],
+      temporal_fit: "untested",
+      scope_fit: "untested",
+      magnitude_fit: "untested",
+      mechanism_fit: "untested",
+      falsification_condition: `Que una fuente independiente --el registro de pedidos, la facturacion del anunciante-- confirme el mismo movimiento: si dos sistemas distintos lo ven, no es la medida.`,
+      limitations:
+        "Nadie ha validado la medicion de estas metricas contra una fuente independiente.",
+      evidence: [
+        {
+          relation: "inconclusive",
+          observation: `La medicion de ${nombres} no se ha validado contra ninguna fuente independiente.`,
+          observation_kind: "not_observed",
+          directness: "indirect",
+          specificity: "unknown",
+          freshness: "unknown",
+          source_system: "plataforma",
+        },
+      ],
+      test: {
+        diagnostic_question: `¿El movimiento de ${nombres} se ve tambien en una fuente que no dependa del tracking?`,
+        required_data:
+          "El mismo periodo medido desde el registro de pedidos y desde la facturacion del anunciante.",
+        expected_if_true:
+          "Las fuentes independientes NO ven el movimiento, y entonces lo que cambio fue la medida y no el negocio.",
+        expected_if_false:
+          "Las fuentes independientes ven el mismo movimiento, y entonces la medida esta bien y el problema es real.",
+        information_gain: "high",
+        cost: "low",
+        latency: "low",
+        availability: "available",
+        intrusiveness: "none",
+        mode: "passive",
+      },
+    });
+  }
+
+  return salida;
+}

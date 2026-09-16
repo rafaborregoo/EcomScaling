@@ -85,6 +85,8 @@ import {
   createUserScopedClient,
   requireOperationalOrganization,
 } from "./auth-context.js";
+import { loadCopilotBalance } from "./copilot-saldo.js";
+import { describeBalance, resolveCopilotModel } from "./copilot-tokens.js";
 import { executeGatewayQuery, SQL_GATEWAY_SCHEMA_DOC } from "./sql-gateway.js";
 import { recordAuditLog } from "./audit-log.js";
 import { recordProtectedDataAccess } from "./protected-data-access.js";
@@ -857,7 +859,16 @@ export function describeProviderRedundancy(env: {
 
 async function runAgentTurnWithFallbackCore<TOutput>(
   env: ApiEnv,
-  params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey">,
+  params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey"> & {
+    /**
+     * Modelo elegido para este turno concreto (copiloto, fase 5). Gana al
+     * routing por agente y a ANTHROPIC_MODEL: el routing configura el
+     * comportamiento por defecto de un agente, y esto es una decision del
+     * usuario sobre una pregunta suya. Si el routing ganara, el selector de la
+     * pantalla no haria nada y nadie se enteraria.
+     */
+    modelOverride?: string | undefined;
+  },
 ): Promise<Awaited<ReturnType<typeof runAgentTurn<TOutput>>>> {
   const routingConfig = parseAgentRoutingConfig(env.AI_MODEL_ROUTING_JSON);
   const agentCode = params.input.agent_code;
@@ -884,12 +895,14 @@ async function runAgentTurnWithFallbackCore<TOutput>(
     return await runAgentTurn<TOutput>({
       ...params,
       apiKey: env.ANTHROPIC_API_KEY,
-      model: resolveProviderModel(
-        agentCode,
-        "anthropic",
-        env.ANTHROPIC_MODEL ?? params.model,
-        routingConfig,
-      ),
+      model:
+        params.modelOverride ??
+        resolveProviderModel(
+          agentCode,
+          "anthropic",
+          env.ANTHROPIC_MODEL ?? params.model,
+          routingConfig,
+        ),
     });
   } catch (error) {
     const isJudgmentOnAnthropicResponse =
@@ -1052,7 +1065,9 @@ async function persistSecurityEvents(
 
 async function runAgentTurnWithFallback<TOutput>(
   env: ApiEnv,
-  params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey">,
+  params: Omit<Parameters<typeof runAgentTurn<TOutput>>[0], "apiKey"> & {
+    modelOverride?: string | undefined;
+  },
   /**
    * Eventos detectados ANTES del turno -- hoy las denegaciones de permiso de
    * `buildAgentTools`, que corre antes de que exista la fila de `agent_runs` y
@@ -9509,6 +9524,7 @@ export async function runConsultantChatTurn(
   message: string,
   conversationId: string | undefined,
   viewContext?: ConsultantChatViewContext,
+  requestedModel?: string | undefined,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -9706,6 +9722,21 @@ export async function runConsultantChatTurn(
     },
   );
 
+  // Fase 4: el saldo se lee ANTES del turno, no despues, porque decide con
+  // que modelo corre. A cero no se corta el copiloto: baja a Haiku hasta que
+  // el saldo se renueve. Un copiloto mudo es un motivo de baja; uno que
+  // responde peor es un motivo para subir de plan.
+  const saldoAntes = await loadCopilotBalance(
+    supabase,
+    context,
+    organizationId,
+  );
+  const modeloElegido = resolveCopilotModel({
+    requested: requestedModel,
+    tier: saldoAntes.tier,
+    remainingTokens: saldoAntes.remaining,
+  });
+
   const input: AgentInput = {
     run_id: runId,
     agent_code: "a09_copiloto_consultor",
@@ -9786,6 +9817,7 @@ export async function runConsultantChatTurn(
       env,
       {
         model: agentVersion.model,
+        modelOverride: modeloElegido.model.anthropicModel,
         systemPrompt,
         input,
         contextBlocks,
@@ -9863,6 +9895,20 @@ export async function runConsultantChatTurn(
           output_tokens: turn.outputTokens,
           estimated_cost_usd: turn.estimatedCostUsd,
           latency_ms: turn.latencyMs,
+        },
+        // El saldo viaja aqui y no en una peticion aparte: ya hay un viaje al
+        // servidor por mensaje, y el numero cambia justo en este momento. Se
+        // descuenta lo de este turno sin volver a consultar, que es lo mismo
+        // que dira la suma de agent_runs en la siguiente lectura.
+        saldo: describeBalance({
+          granted: saldoAntes.granted,
+          used: saldoAntes.used + turn.inputTokens + turn.outputTokens,
+          tier: saldoAntes.tier,
+        }),
+        model: {
+          id: modeloElegido.model.id,
+          label: modeloElegido.model.label,
+          degraded: modeloElegido.degraded,
         },
       },
     };

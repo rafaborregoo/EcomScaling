@@ -4,6 +4,12 @@ Como se convierten los 644 artefactos de especificacion de `conocimiento/fase-XX
 en producto. No es un plan de contenido: es el procedimiento de traduccion, la
 unidad de trabajo y el orden.
 
+**Si vas a implementar un bloque ahora mismo**, este documento te da el que y
+el orden; el **como** — el flujo paso a paso, los bugs ya encontrados y como no
+repetirlos — esta en
+[`conocimiento/Prompt maestro — Implementación de fases (contrato + motor + pixel).md`](../conocimiento/Prompt%20maestro%20%E2%80%94%20Implementaci%C3%B3n%20de%20fases%20(contrato%20%2B%20motor%20%2B%20pixel).md).
+Leelo antes de empezar.
+
 Estado del corpus al abrir este plan: 9 fases clasificadas en 8 capas,
 287 documentos en `01-rag-produccion` ya indexados (315 documentos globales /
 2559 chunks, identicos en test y produccion), 644 artefactos en las capas
@@ -245,18 +251,21 @@ casuales: tres bloquean la ola 1 y uno la ola 2.
 2. ~~`D00` contrato~~, ~~`D01` calidad de datos~~, ~~`D02`
    contextualizacion~~, ~~`D03` madurez~~, ~~`D04` salud~~, ~~`D05` senales~~ ~~`D06` sintomas~~ ~~`D07` grafo causal~~ ~~`D08` hipotesis~~ ~~`D09` causa raiz y constraints~~ ~~`D10` severidad e impacto~~ ~~`D11` confianza e incertidumbre~~ ~~`D12` confusores y falsos diagnosticos~~ ~~`D13` diagnostico temporal y regresion~~ y ~~`D14` salida diagnostica y validacion~~ — **los 15 contratos de la fase 3, en test y en produccion**. Contrato hecho; motor y pixel no. Ver
    [`conocimiento/fase-03/IMPLEMENTACION.md`](../conocimiento/fase-03/IMPLEMENTACION.md).
-3. **Cerrando la fase 3.** ~~`D01` calidad de datos~~, ~~`D02`
-   contextualizacion~~, ~~`D03` madurez~~ y ~~`D06` motor de sintomas~~ —
-   **hechos de verdad**: contrato, motor y pantalla. Cinco motores corriendo, y
-   cuatro de ellos encadenados: `D01` dice si el dato aguanta, `D05` que se
-   movio, `D02` si fue rendimiento o composicion, y `D06` que patron forman
-   juntos, heredando cada uno el limite del anterior. `D03` va aparte porque
-   mide de que es capaz el negocio, no que se ha movido.
-   Queda: (a) **4 flujos escritos sin implementar** (`d07`, `d09`, `d10`,
-   `d11`) — esos no hay que inventarlos, hay que escribirlos;
-   (b) **5 bloques que necesitan motor y no tienen flujo escrito** (`D04`,
-   `D08`, `D12`, `D13`, `D14`); (c) **pantalla en 11 de los 15 bloques**.
-   **F4 no se abre hasta que esto cierre.**
+3. **Cerrando la fase 3 — actualizado 2026-09-16.** ~~`D01`~~ ~~`D02`~~ ~~`D03`~~
+   ~~`D04`~~ ~~`D05`~~ ~~`D06`~~ ~~`D07`~~ ~~`D08`~~ ~~`D09`~~ ~~`D10`~~ y
+   ~~`D11`~~ — **11 de 15 bloques hechos de verdad**: contrato, motor y
+   pantalla, verificados contra datos reales en el proyecto de test.
+   `D00` se queda en `contrato` a proposito (no diagnostica nada, solo define
+   la forma comun — apartado correspondiente en la bitacora).
+   Queda: **`D12`, `D13` y `D14`** — confusores y falsos diagnosticos,
+   diagnostico temporal y regresion, y salida diagnostica con trazabilidad y
+   validacion. Los tres estan en `contrato` puro: tienen esquema e invariantes
+   pero **su capa `03-runtime` no tiene flujo escrito**, igual que le pasaba a
+   `D04` y `D08` antes de implementarlos — hay que disenar el flujo leyendo su
+   artefacto, no solo transcribirlo. Ademas falta la pantalla de esos tres.
+   **F4 no se abre hasta que estos tres cierren** (contrato + motor + pixel,
+   como los otros 11). Sigue el metodo de
+   [`conocimiento/Prompt maestro — Implementación de fases (contrato + motor + pixel).md`](../conocimiento/Prompt%20maestro%20%E2%80%94%20Implementaci%C3%B3n%20de%20fases%20(contrato%20%2B%20motor%20%2B%20pixel).md).
 4. **Patron confirmado en cuatro bloques** (`D04` no tiene capa de runtime, asi
    que no cuenta): la capa `03-runtime` describe un motor
    y se recorta sistematicamente, porque no hay senales que procesar hasta

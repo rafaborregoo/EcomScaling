@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 /**
  * Standard Webhooks (standardwebhooks.com): la firma va en tres cabeceras y el
  * HMAC se calcula sobre `id.timestamp.body` con el secreto en base64 detras de
- * `whsec_`. Lo hablan Fathom y Whop -- y lo habla media industria -- asi que el
+ * `whsec_`. Lo habla Fathom -- y media industria -- asi que el
  * verificador vive aqui y no dentro del modulo de un proveedor: duplicar
  * criptografia es como se acaba teniendo una copia que no compara en tiempo
  * constante o que se olvida de la ventana de tiempo.

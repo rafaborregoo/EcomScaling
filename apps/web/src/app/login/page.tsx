@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import {
@@ -143,6 +144,18 @@ function LoginPageContent() {
               {isSubmitting ? "Entrando..." : "Entrar"}
             </Button>
           </form>
+
+          <p className="mt-4 text-center text-sm text-muted">
+            <Link className="underline" href="/recuperar">
+              He olvidado mi contraseña
+            </Link>
+          </p>
+          <p className="mt-2 text-center text-sm text-muted">
+            ¿No tienes cuenta?{" "}
+            <Link className="underline" href="/registro">
+              Crea la tuya
+            </Link>
+          </p>
         </Card>
       </div>
     </main>

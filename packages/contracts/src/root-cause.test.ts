@@ -18,9 +18,20 @@ import {
   constraintTestSchema,
   chainStepSchema,
   CHAIN_ROLES,
+  DEFINITIVE_LANGUAGE,
+  BLAME_LANGUAGE,
+  generateRootCauses,
+  familyFromCapability,
+  weakestLink,
+  generateConstraintCandidates,
+  constraintTypeFromCapability,
   type RootCause,
   type BusinessConstraint,
   type RootCauseCheckInput,
+  type ChainNodeInput,
+  type RootCauseCandidateInput,
+  type RootCauseEngineInput,
+  type ConstraintCandidateInput,
 } from "./root-cause.js";
 
 function causa(over: Partial<RootCause> = {}): RootCause {
@@ -298,4 +309,294 @@ test("§1 a §3: los eslabones de la cadena son roles distintos y hay que elegir
       root_cause_id: "RC-1", step_order: 1, chain_role: "la_culpa_de_todo", statement: "x",
     }),
   );
+});
+
+// ---------------------------------------------------------------------------
+// EL MOTOR
+// ---------------------------------------------------------------------------
+//
+// Lo que estos tests persiguen: que "co-movimiento" no se convierta en "causa
+// cerrada", y que "capacidad con mala salud" no se convierta en "cuello
+// vinculante" sin haber medido capacidad y demanda.
+
+const nodo = (over: Partial<ChainNodeInput> = {}): ChainNodeInput => ({
+  node_id: "N-oc",
+  label: "Pedidos",
+  case_support: "partial",
+  ...over,
+});
+
+const candidata = (over: Partial<RootCauseCandidateInput> = {}): RootCauseCandidateInput => ({
+  hypothesis_id: "H-1",
+  source_path_id: "P-1",
+  hypothesis_type: "contributory_cause",
+  relative_role: "alternative",
+  confidence: "low",
+  explanatory_coverage: "partial",
+  capability: "conversion",
+  limitations: null,
+  chain: [nodo()],
+  ...over,
+});
+
+const entradaRC = (candidates: RootCauseCandidateInput[]): RootCauseEngineInput => ({
+  targetNodeId: "N-ns",
+  targetLabel: "Ventas netas",
+  scope: "business",
+  scopeDetail: {},
+  candidates,
+});
+
+test("con evidencia de correlacion, nunca se cierra la causa", () => {
+  // Guardrail 15. Es la conclusion mas importante del bloque: co-movimiento no
+  // es prueba, y `probable`/`confirmed` quedan fuera de alcance siempre.
+  const [rc] = generateRootCauses(entradaRC([candidata()]));
+
+  assert.notEqual(rc?.status, "probable");
+  assert.notEqual(rc?.status, "confirmed");
+  assert.equal(rc?.status, "partial_root_cause");
+});
+
+test("un tramo sin medir tumba la cadena entera, por fuerte que sea el resto", () => {
+  // La regla del eslabon mas debil, literal: una cadena no es mas fuerte que su
+  // tramo mas flojo.
+  const [rc] = generateRootCauses(
+    entradaRC([
+      candidata({
+        chain: [
+          nodo({ node_id: "N-se", label: "Sesiones", case_support: "partial" }),
+          nodo({ node_id: "N-oc", label: "Pedidos", case_support: "untested" }),
+        ],
+      }),
+    ]),
+  );
+
+  assert.equal(rc?.status, "unresolved");
+  assert.equal(rc?.confidence, "insufficient");
+  assert.match(rc?.statement ?? "", /tramo sin medir/);
+});
+
+test("el origen es siempre causa inmediata, nunca raiz", () => {
+  // Guardrail 9: llegar a "root_cause" exige profundidad y evidencia que hoy no
+  // hay. Etiquetarlo asi seria afirmar una busqueda que no se hizo.
+  const [rc] = generateRootCauses(entradaRC([candidata()]));
+  const chain = rc?.chain ?? [];
+
+  assert.equal(chain[0]?.chain_role, "immediate_cause");
+  assert.equal(chain.at(-1)?.chain_role, "outcome");
+  assert.ok(chain.every((s) => s.chain_role !== "root_cause"));
+  assert.ok(chain.every((s) => s.chain_role !== "structural_driver"));
+});
+
+test("una cadena de varios pasos marca los intermedios como tal", () => {
+  const [rc] = generateRootCauses(
+    entradaRC([
+      candidata({
+        chain: [
+          nodo({ node_id: "N-se", label: "Sesiones", case_support: "partial" }),
+          nodo({ node_id: "N-oc", label: "Pedidos", case_support: "partial" }),
+        ],
+      }),
+    ]),
+  );
+  const roles = (rc?.chain ?? []).map((s) => s.chain_role);
+  assert.deepEqual(roles, ["immediate_cause", "intermediate_cause", "outcome"]);
+});
+
+test("con varias candidatas, ninguna es 'primary': todas contribuyen", () => {
+  // D08 ya establecio que la separacion es baja. Elegir una aqui seria fingir
+  // un criterio que no existe.
+  const rcs = generateRootCauses(
+    entradaRC([
+      candidata({ hypothesis_id: "H-1" }),
+      candidata({ hypothesis_id: "H-2", capability: "unit_economics" }),
+    ]),
+  );
+
+  assert.ok(rcs.every((r) => r.role === "contributing"));
+});
+
+test("con una sola candidata, es 'primary' sin dejar de estar sin cerrar", () => {
+  const [rc] = generateRootCauses(entradaRC([candidata()]));
+  assert.equal(rc?.role, "primary");
+  assert.notEqual(rc?.status, "confirmed");
+});
+
+test("el desafiante de la medicion se marca como tal, no como una causa mas", () => {
+  const [rc] = generateRootCauses(
+    entradaRC([
+      candidata({
+        hypothesis_id: "H-4",
+        hypothesis_type: "data_quality_explanation",
+        relative_role: "challenger",
+        source_path_id: null,
+        chain: [],
+        explanatory_coverage: "unknown",
+      }),
+    ]),
+  );
+
+  assert.equal(rc?.affects_observability_only, true);
+  assert.equal(rc?.explanatory_coverage, "unknown");
+  assert.equal(rc?.cause_type, "quality");
+  assert.equal(rc?.family, "data");
+});
+
+test("la familia traduce la capacidad del grafo, no la inventa", () => {
+  // `unit_economics` (grafo) y `economics` (D09) son la misma cosa con dos
+  // nombres.
+  assert.equal(familyFromCapability("unit_economics"), "economics");
+  assert.equal(familyFromCapability("conversion"), "conversion");
+  assert.equal(familyFromCapability(null), "data");
+});
+
+test("ninguna afirmacion suena a certeza ni senala a una persona", () => {
+  const rcs = generateRootCauses(
+    entradaRC([
+      candidata(),
+      candidata({
+        hypothesis_id: "H-4",
+        hypothesis_type: "data_quality_explanation",
+        relative_role: "challenger",
+        source_path_id: null,
+        chain: [],
+      }),
+    ]),
+  );
+
+  for (const rc of rcs) {
+    assert.doesNotMatch(rc.statement, DEFINITIVE_LANGUAGE);
+    assert.doesNotMatch(rc.statement, BLAME_LANGUAGE);
+  }
+});
+
+test("lo que el motor escribe pasa los invariantes del propio bloque", () => {
+  const rcs = generateRootCauses(
+    entradaRC([
+      candidata({ hypothesis_id: "H-1" }),
+      candidata({
+        hypothesis_id: "H-4",
+        hypothesis_type: "data_quality_explanation",
+        relative_role: "challenger",
+        source_path_id: null,
+        chain: [],
+        explanatory_coverage: "unknown",
+      }),
+    ]),
+  );
+
+  const parsed = rcs.map((rc, i) =>
+    rootCauseSchema.parse({
+      root_cause_id: `RC-${i}`,
+      code: rc.code,
+      statement: rc.statement,
+      family: rc.family,
+      cause_type: rc.cause_type,
+      role: rc.role,
+      scope: rc.scope,
+      status: rc.status,
+      confidence: rc.confidence,
+      explanatory_coverage: rc.explanatory_coverage,
+      residual_material: rc.residual_material,
+      causal_path_id: rc.causal_path_id ?? undefined,
+      hypothesis_id: rc.hypothesis_id,
+      controllability: rc.controllability,
+      reversibility: rc.reversibility,
+      affects_observability_only: rc.affects_observability_only,
+      limitations: rc.limitations ?? undefined,
+    }),
+  );
+
+  const chain = rcs.flatMap((rc, i) =>
+    rc.chain.map((s) =>
+      chainStepSchema.parse({
+        root_cause_id: `RC-${i}`,
+        step_order: s.step_order,
+        chain_role: s.chain_role,
+        statement: s.statement,
+        supported: s.supported,
+      }),
+    ),
+  );
+
+  const violaciones = checkRootCauseInvariants({ rootCauses: parsed, chain });
+  assert.deepEqual(violaciones, []);
+});
+
+// ---------------------------------------------------------------------------
+// EL MOTOR (constraint)
+// ---------------------------------------------------------------------------
+
+const candidataK = (over: Partial<ConstraintCandidateInput> = {}): ConstraintCandidateInput => ({
+  capability: "inventory",
+  health_state: "bad",
+  confidence: "medium",
+  ...over,
+});
+
+test("una capacidad con mala salud nunca sale 'binding' sin capacidad y demanda medidas", () => {
+  // Guardrails 29 y 31: declararlo vinculante exige capacidad, demanda y un
+  // test contrafactual resuelto, y nada de eso existe todavia.
+  const [k] = generateConstraintCandidates({
+    targetMetric: "net_sales",
+    scope: "business",
+    scopeDetail: {},
+    candidates: [candidataK()],
+  });
+
+  assert.equal(k?.binding_status, "latent");
+  assert.equal(k?.limits_target, false);
+});
+
+test("cada candidata trae el test que haria falta correr", () => {
+  const [k] = generateConstraintCandidates({
+    targetMetric: "net_sales",
+    scope: "business",
+    scopeDetail: {},
+    candidates: [candidataK()],
+  });
+
+  assert.ok(k?.counterfactual_question.length ?? 0 > 10);
+  assert.notEqual(k?.test.expected_if_binding, k?.test.expected_if_not_binding);
+  assert.ok((k?.test.expected_if_binding.length ?? 0) >= 10);
+  assert.ok((k?.test.expected_if_not_binding.length ?? 0) >= 10);
+});
+
+test("lo que el motor de constraint escribe pasa los invariantes del propio bloque", () => {
+  const drafts = generateConstraintCandidates({
+    targetMetric: "net_sales",
+    scope: "business",
+    scopeDetail: {},
+    candidates: [candidataK(), candidataK({ capability: "unit_economics", health_state: "critical" })],
+  });
+
+  const parsed = drafts.map((k, i) =>
+    businessConstraintSchema.parse({
+      constraint_id: `K-${i}`,
+      code: k.code,
+      statement: k.statement,
+      constraint_type: k.constraint_type,
+      target: k.target,
+      scope: k.scope,
+      binding_status: k.binding_status,
+      nature: k.nature,
+      confidence: k.confidence,
+      limits_target: k.limits_target,
+      exposure: k.exposure,
+    }),
+  );
+
+  const tests = drafts.map((k, i) =>
+    constraintTestSchema.parse({
+      test_id: `T-${i}`,
+      constraint_id: `K-${i}`,
+      target: k.target,
+      counterfactual_question: k.counterfactual_question,
+      expected_if_binding: k.test.expected_if_binding,
+      expected_if_not_binding: k.test.expected_if_not_binding,
+    }),
+  );
+
+  const violaciones = checkRootCauseInvariants({ rootCauses: [], constraints: parsed, tests });
+  assert.deepEqual(violaciones, []);
 });

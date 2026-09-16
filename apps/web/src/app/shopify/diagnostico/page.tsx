@@ -6,6 +6,10 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { ContextReadingsPanel } from "./context-readings";
 import { CapabilityHealthPanel } from "./capability-health";
+import { CausalPathsPanel } from "./causal-paths";
+import { HypothesesPanel } from "./hypotheses";
+import { RootCausePanel } from "./root-cause";
+import { ConfidencePanel } from "./confidence-panel";
 import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
 import { SeverityPanel } from "./severity-panel";
@@ -471,11 +475,12 @@ function ShopifyDiagnosticoView({
 
       {tab === "resumen" ? (
         <div className="space-y-6">
-          {/* F3/D03, D05, D06, D04, D10 y D02, en el orden en que se leen: de
-              que es capaz el negocio, que ha cambiado, que patron forman esos
-              cambios juntos, como deja eso a cada capacidad, cuanto dano hay
-              medido y contra que se compara cada movimiento. Cada uno lee al
-              anterior, asi que leerlo al reves es empezar por la conclusion. */}
+          {/* F3/D03, D05, D06, D04, D10, D11 y D02, en el orden en que se
+              leen: de que es capaz el negocio, que ha cambiado, que patron
+              forman esos cambios juntos, como deja eso a cada capacidad, cuanto
+              dano hay medido, de cuanto de todo eso nos podemos fiar y contra
+              que se compara cada movimiento. Cada uno lee al anterior, asi que
+              leerlo al reves es empezar por la conclusion. */}
           <MaturityPanel />
           <SignalListPanel />
           <SymptomMapPanel />
@@ -486,6 +491,21 @@ function ShopifyDiagnosticoView({
           <HealthReferencesPanel />
           <CapabilityHealthPanel />
           <SeverityPanel />
+          {/* D07 va detras de la severidad y delante de la confianza: primero
+              cuanto duele, luego por donde puede ir la cosa, y al final de
+              cuanto de todo eso nos podemos fiar. */}
+          <CausalPathsPanel />
+          {/* D08 va justo detras: las rutas de arriba, convertidas en
+              explicaciones con nombre, y con las descartadas conservadas. */}
+          <HypothesesPanel />
+          {/* D09 va justo detras: de las hipotesis vivas a una conclusion
+              calibrada, casi siempre sin cerrar -- y el limite candidato,
+              por separado, sin ninguna clave que los ate. */}
+          <RootCausePanel />
+          {/* D11 va el ultimo a proposito: le pone freno a todo lo de arriba.
+              Con senal, patron e impacto medido, un caso parece cerrado hasta
+              que se lee la fila que dice que nadie sabe por que pasa. */}
+          <ConfidencePanel />
           <ContextReadingsPanel />
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">

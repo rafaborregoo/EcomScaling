@@ -232,20 +232,51 @@ export async function createMetaConnectionAuthUrl(
   const state = createMetaState();
   const supabase = createServiceClient(env);
 
-  // El registro pendiente necesita una clave para el upsert, pero no debe
-  // simular una cuenta real. El callback la sustituye por el ID devuelto por
-  // Meta antes de marcar la conexión como connected.
-  const { error } = await supabase.from("integration_connections").upsert(
-    {
-      organization_id: organizationId,
-      provider: PROVIDER,
-      provider_account_id: `pending:${state}`,
-      provider_account_name: "Meta Ads",
-      status: "pending",
-      metadata: { state, source: "oauth_start" },
-    },
-    { onConflict: "organization_id,provider,provider_account_id" },
-  );
+  // Reconectar reutiliza la fila existente de la organizacion (si hay una) en
+  // vez de sembrar una nueva con un placeholder aleatorio. La fila vieja
+  // suele estar en status "error" porque el token de 60 dias caduco: si se
+  // crea una fila nueva, el UPDATE final del callback -- que le escribe el ID
+  // real de Meta -- choca contra la unique constraint
+  // (organization_id, provider, provider_account_id) de esa fila vieja y la
+  // reconexion entera revienta con meta_connection_update_failed.
+  const { data: existingConnection, error: existingError } = await supabase
+    .from("integration_connections")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("provider", PROVIDER)
+    .order("connected_at", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "meta_connection_seed_failed",
+      detail: existingError.message,
+    };
+  }
+
+  const { error } = existingConnection
+    ? await supabase
+        .from("integration_connections")
+        .update({
+          status: "pending",
+          metadata: { state, source: "oauth_start" },
+        })
+        .eq("id", existingConnection.id)
+    : // El registro pendiente necesita una clave para el insert, pero no debe
+      // simular una cuenta real. El callback la sustituye por el ID devuelto
+      // por Meta antes de marcar la conexión como connected.
+      await supabase.from("integration_connections").insert({
+        organization_id: organizationId,
+        provider: PROVIDER,
+        provider_account_id: `pending:${state}`,
+        provider_account_name: "Meta Ads",
+        status: "pending",
+        metadata: { state, source: "oauth_start" },
+      });
 
   if (error) {
     return {

@@ -1,6 +1,10 @@
 # Modelo multitienda y dimensiones de pricing (borrador de trabajo)
 
-- **Estado:** borrador, alimenta un futuro ADR. No implementar todavia.
+- **Estado:** SUPERADO por [MODELO_PLANES_Y_VINCULACION.md](MODELO_PLANES_Y_VINCULACION.md)
+  (2026-09-16), que fija las cifras y el modelo de organizacion consultora. Se
+  conserva por el inventario de la seccion 1 (donde se mide cada cosa hoy) y
+  porque las preguntas de la seccion 5 explican por que se decidio lo que se
+  decidio. **Los precios de este documento ya no son validos.**
 - **Fecha:** 2026-08-31
 - **Relacionado:** [ADR-0010](decisions/ADR-0010-global-client-store-context.md) (contexto cliente/tienda),
   [ADR-0012](decisions/ADR-0012-memberships-virtuales.md) (acceso de consultor), `service_subscriptions`.

@@ -43,6 +43,15 @@ const METRICAS = [
   { metric: "orders_count", capability: "conversion" as const, columna: "orders_count" },
 ];
 
+/**
+ * Las metricas que alguien vigila de verdad, para quien necesite distinguir
+ * "se miro y no se movio" de "nadie lo mira".
+ *
+ * D07 la necesita: sin ella, una rama sin senal se poda igual la mire alguien o
+ * no, y eso convierte "no lo se" en "no lo hay".
+ */
+export const METRICAS_VIGILADAS = METRICAS.map((m) => m.metric);
+
 function createServiceClient(env: LoadedApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
     auth: { persistSession: false, autoRefreshToken: false },

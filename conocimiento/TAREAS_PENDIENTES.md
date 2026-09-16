@@ -152,14 +152,27 @@ siendo buena idea dejarla.
 
 ### De la fase 3 entera
 
-- [ ] **4 flujos escritos y sin implementar**: `d07`, `d09`, `d10` y `d11`. No
-      hay que inventarlos — estan escritos en
-      `conocimiento/fase-03/03-runtime/`.
-- [ ] **5 bloques que necesitan motor y no tienen flujo escrito**: `D04`, `D08`,
-      `D12`, `D13`, `D14`. Ahi si hay diseno que hacer.
-- [ ] **Pantalla en 11 de los 15 bloques.** La matriz de audiencia de
+- [x] ~~**4 flujos escritos y sin implementar**: `d07`, `d09`, `d10` y
+      `d11`.~~ **Hechos los cuatro** (2026-10-06, `d07` y `d09` los ultimos).
+- [ ] **3 bloques que necesitan motor y no tienen flujo escrito**: `D12`,
+      `D13`, `D14`. Ahi si hay diseno que hacer. (`D04` y `D08` ya tienen motor
+      propio, escrito sin flujo formal.)
+- [ ] **Pantalla en 3 de los 15 bloques** (`D12`, `D13`, `D14`; `D00` no
+      necesita). La matriz de audiencia de
       [`fase-03/IMPLEMENTACION.md`](fase-03/IMPLEMENTACION.md) ya dice que lleva
       cada una.
+- [ ] **`D09` cierra la cadena causal, y `D11` no se ha vuelto a mirar desde
+      entonces.** Las capas `why`, `root_cause` y `constraint` de
+      `packages/contracts/src/confidence.ts` siguen escribiendo "no puede
+      determinarse... D07, D08 y D09 no tienen motor" **codigo por codigo**, y
+      eso ya no es cierto: los tres tienen motor desde el 2026-10-06. Es la
+      razon de ser de D11 -- reflejar lo que los demas bloques han
+      determinado -- y hoy no lo hace. Hace falta leer `causal_paths`,
+      `diagnostic_hypotheses` y `root_causes` del caso y traducir su estado
+      real a esas tres capas, en vez del texto fijo actual. No es un bug (el
+      texto sigue siendo honesto: **sigue** sin haber una causa cerrada), pero
+      la pantalla ya no explica **por que** — el motivo real hoy es "la
+      evidencia es correlacion", no "no existe el motor".
 - [ ] **Ningun agente lee todavia una tabla de fase 3.** Conectarlos es anadir
       una tool y subir una version de `agent_versions`, no tocar el runtime
       (apartado 10 del plan).

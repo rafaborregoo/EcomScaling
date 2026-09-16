@@ -7,6 +7,12 @@ import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue, organizationStatusTone } from "@/lib/display-labels";
 import {
+  ConcesionDePlan,
+  concesionInicial,
+  concesionValida,
+  grantPlanBody,
+} from "@/components/concesion-de-plan";
+import {
   AsyncState,
   Badge,
   Banner,
@@ -255,6 +261,7 @@ function CreateClientForm({
   const [ownerFullName, setOwnerFullName] = useState("");
   const [currencyCode, setCurrencyCode] = useState("EUR");
   const [timezone, setTimezone] = useState("Europe/Madrid");
+  const [plan, setPlan] = useState(() => concesionInicial("starter", false));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -271,6 +278,7 @@ function CreateClientForm({
           owner_full_name: ownerFullName || undefined,
           currency_code: currencyCode,
           timezone,
+          grant_plan: grantPlanBody(plan),
         }),
       });
       if (!response.ok) {
@@ -291,13 +299,15 @@ function CreateClientForm({
   }
 
   const canSubmit =
-    displayName.trim().length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail);
+    displayName.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail) &&
+    concesionValida(plan);
 
   return (
     <Card
       kicker="Alta"
       title="Nuevo cliente"
-      description="Crea la organización e invita a su usuario owner por email. La suscripción se paga al entrar."
+      description="Crea la organización e invita a su owner por email, y decide si le concedes el plan o lo paga él."
     >
       <div className="grid gap-4">
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
@@ -340,6 +350,14 @@ function CreateClientForm({
             />
           </Field>
         </div>
+
+        <ConcesionDePlan
+          value={plan}
+          onChange={setPlan}
+          etiquetaSinPlan="Empieza en trial y lo paga él"
+          avisoSinPlan="Entra en trial abierto y elige plan en /planes. Un cliente sin ninguna suscripción no podría ni acceder a su organización."
+        />
+
         <div>
           <Button disabled={!canSubmit || busy} onClick={() => void submit()}>
             {busy ? "Creando..." : "Crear cliente"}

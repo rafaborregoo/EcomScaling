@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { AvatarPicker } from "@/components/avatar-picker";
+import { PasswordRequirements } from "@/components/password-requirements";
+import {
+  getPasswordErrorMessage,
+  isPasswordValid,
+  PASSWORD_MIN_LENGTH,
+} from "@/lib/password-policy";
 import {
   Button,
   Card,
@@ -19,9 +25,19 @@ import {
 // desde /integraciones: OAuth saca al usuario de la pagina hacia el proveedor y
 // el callback vuelve siempre a /integraciones, asi que meterlas aqui rompia el
 // recorrido a mitad (se abandonaba en el paso 3 y nunca se veian el 4 y el 5).
+//
+// Hay dos maneras de llegar y no piden lo mismo:
+//
+//  - **Invitado.** Su cuenta la creo otra persona y entra por un enlace, sin
+//    contraseña. El paso 1 es ponersela.
+//  - **Registrado por su cuenta** (`/registro`). Ya eligio contraseña y nombre
+//    al registrarse; repetirselo aqui es preguntarle lo que acaba de escribir.
+//    Se salta el paso 1 y al terminar va a elegir plan, no al panel: todavia
+//    no tiene ninguno.
+//
+// La marca la pone `/registro` en el metadata del usuario. Preferido a
+// adivinarlo por si tiene contraseña, que Supabase no expone de forma fiable.
 type Step = 1 | 2;
-
-const TOTAL_STEPS = 2;
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -29,7 +45,10 @@ export default function OnboardingPage() {
 
   const [checkingSession, setCheckingSession] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [selfSignup, setSelfSignup] = useState(false);
   const [step, setStep] = useState<Step>(1);
+  const totalSteps = selfSignup ? 1 : 2;
+  const stepShown = selfSignup ? 1 : step;
 
   useEffect(() => {
     document.title = "EcomScaling";
@@ -42,7 +61,10 @@ export default function OnboardingPage() {
         data: { session },
       } = await supabase.auth.getSession();
       if (cancelled) return;
+      const propio = session?.user.user_metadata?.self_signup === true;
       setUserId(session?.user.id ?? null);
+      setSelfSignup(propio);
+      if (propio) setStep(2);
       setCheckingSession(false);
     }
     void check();
@@ -65,7 +87,7 @@ export default function OnboardingPage() {
         {!userId ? (
           <Card
             title="Enlace no válido"
-            description="Tu invitación ha caducado o ya se usó. Pide una nueva o inicia sesión."
+            description="Tu enlace ha caducado o ya se usó. Pide uno nuevo o inicia sesión."
           >
             <Button className="mt-4" onClick={() => router.push("/login")}>
               Ir a iniciar sesión
@@ -74,18 +96,18 @@ export default function OnboardingPage() {
         ) : (
           <>
             <div className="flex items-center gap-2">
-              {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((n) => (
+              {Array.from({ length: totalSteps }, (_, i) => i + 1).map((n) => (
                 <span
                   key={n}
                   className={cn(
                     "h-1.5 flex-1 rounded-full",
-                    n <= step ? "bg-accent" : "bg-separator",
+                    n <= stepShown ? "bg-accent" : "bg-separator",
                   )}
                 />
               ))}
             </div>
             <p className={EYEBROW}>
-              Paso {step} de {TOTAL_STEPS}
+              Paso {stepShown} de {totalSteps}
             </p>
 
             {step === 1 ? (
@@ -98,9 +120,13 @@ export default function OnboardingPage() {
                 userId={userId}
                 onDone={(role) =>
                   router.replace(
-                    role === "consultant"
-                      ? "/consultor?welcome=1"
-                      : "/dashboard",
+                    // Quien se registro solo no tiene plan todavia: llevarle al
+                    // panel seria enseñarle una tienda que no puede conectar.
+                    selfSignup
+                      ? "/planes"
+                      : role === "consultant"
+                        ? "/consultor?welcome=1"
+                        : "/dashboard",
                   )
                 }
               />
@@ -124,9 +150,9 @@ function PasswordStep({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const tooShort = password.length > 0 && password.length < 8;
+  const tooShort = password.length > 0 && password.length < PASSWORD_MIN_LENGTH;
   const mismatch = confirm.length > 0 && confirm !== password;
-  const canSubmit = password.length >= 8 && confirm === password && !busy;
+  const canSubmit = isPasswordValid(password) && confirm === password && !busy;
 
   async function submit() {
     setBusy(true);
@@ -134,7 +160,7 @@ function PasswordStep({
     const { error: updateError } = await supabase.auth.updateUser({ password });
     setBusy(false);
     if (updateError) {
-      setError(updateError.message);
+      setError(getPasswordErrorMessage(updateError));
       return;
     }
     onDone();
@@ -152,8 +178,10 @@ function PasswordStep({
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            minLength={PASSWORD_MIN_LENGTH}
           />
         </Field>
+        <PasswordRequirements password={password} />
         {tooShort ? (
           <p className="text-xs text-danger">Mínimo 8 caracteres.</p>
         ) : null}
@@ -235,8 +263,8 @@ function ProfileStep({
       .eq("id", userId)
       .select("full_name, avatar_url, business_name, onboarding_completed_at")
       .single();
-    setBusy(false);
     if (profileError) {
+      setBusy(false);
       setError(profileError.message);
       return;
     }
@@ -246,11 +274,25 @@ function ProfileStep({
       savedProfile.avatar_url !== avatarUrl ||
       (isConsultant && savedProfile.business_name !== agencyName)
     ) {
+      setBusy(false);
       setError(
         "No se pudieron verificar todos los datos guardados. Inténtalo de nuevo.",
       );
       return;
     }
+
+    // Token nuevo ANTES de salir de aqui, o el onboarding se repite.
+    //
+    // La API cachea el contexto de autenticacion 30 s con el token como clave
+    // (`AUTH_CONTEXT_TTL_MS`), y el perfil va dentro. Este `update` lo ha
+    // escrito el navegador contra Postgres, asi que la API no se entera: al
+    // llegar al portal, `/v1/bootstrap` devuelve el contexto de hace un
+    // momento -- con `onboarding_completed_at` todavia nulo -- y el gate de
+    // `portal-shell` rebota al usuario a /onboarding justo despues de
+    // terminarlo. Con un token nuevo la clave de cache cambia y el contexto
+    // se resuelve otra vez contra la base de datos.
+    await supabase.auth.refreshSession();
+    setBusy(false);
     onDone(platformRole);
   }
 

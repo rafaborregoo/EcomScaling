@@ -11,6 +11,13 @@ import assert from "node:assert/strict";
 import { z } from "zod";
 
 import {
+  assessConfidence,
+  calibratedPhrase,
+  capTo,
+  negativeClaimFor,
+  CERTAINTY_LANGUAGE,
+  type ConfidenceEngineInput,
+  type ConfidenceEngineOutput,
   checkConfidenceInvariants,
   claimConfidenceFields,
   claimConfidenceSchema,
@@ -485,4 +492,223 @@ test("§8 del contrato: no se modela el unknown unknown, y es deliberado", () =>
   });
   assert.equal(u.is_known_unknown, true);
   assert.ok(!Object.keys(u).includes("is_unknown_unknown"));
+});
+
+// --- El motor ---------------------------------------------------------------
+
+function entradaConfianza(
+  overrides: Partial<ConfidenceEngineInput> = {},
+): ConfidenceEngineInput {
+  return {
+    caseId: "c1",
+    targetMetric: "net_sales",
+    targetQuestion: "Que explica el movimiento de net_sales en la ultima semana?",
+    scope: "business_global",
+    dataQuality: { reliability: "high", coverage: "complete" },
+    signal: {
+      metric: "net_sales",
+      direction: "down",
+      scope: "business",
+      signal_confidence: "medium",
+      data_confidence: "high",
+      low_sample: false,
+      window_start: "2026-09-01T00:00:00.000Z",
+      window_end: "2026-09-08T00:00:00.000Z",
+    },
+    symptom: {
+      label: "Caida de ventas netas",
+      confidence: "medium",
+      context_reviewed: true,
+      compatible_direction: true,
+      known_relationship: true,
+    },
+    severity: {
+      impact_confidence: "medium",
+      severity_confidence: "insufficient",
+      measurement_compromised: false,
+      has_measurement: true,
+    },
+    ...overrides,
+  };
+}
+
+function capa(salida: ConfidenceEngineOutput, nombre: string) {
+  return salida.claims.find((c) => c.claim_layer === nombre);
+}
+
+test("D11: el porque sale desconocido siempre, y dice que falta", () => {
+  // Es el motivo por el que existe este motor hoy. Sin estas tres capas, un caso
+  // con senal, sintoma e impacto medido se leeria como un diagnostico cerrado --
+  // y no lo es, porque nadie ha dicho por que pasa.
+  const salida = assessConfidence(entradaConfianza());
+
+  for (const nombre of ["why", "root_cause", "constraint"]) {
+    const c = capa(salida, nombre);
+    assert.equal(c?.epistemic_state, "unknown", nombre);
+    assert.equal(c?.confidence_level, "insufficient_data", nombre);
+    assert.match(c?.missing_evidence ?? "", /D07/);
+  }
+});
+
+test("D11: saber QUE se movio y no saber POR QUE conviven", () => {
+  // Guardrail 13 de D10 y apartado 16 de aqui. Colapsar las dos en "confianza
+  // media" borra justo la informacion que sirve.
+  const salida = assessConfidence(entradaConfianza());
+
+  assert.equal(capa(salida, "what")?.confidence_level, "high");
+  assert.equal(capa(salida, "what")?.epistemic_state, "observed");
+  assert.equal(capa(salida, "why")?.confidence_level, "insufficient_data");
+});
+
+test("D11: la global no puede superar a la causa", () => {
+  // No es una media ni un umbral: viene de D00. Un diagnostico es una
+  // explicacion, y una explicacion sin causa no es un diagnostico.
+  const salida = assessConfidence(entradaConfianza());
+  const global = capa(salida, "overall");
+
+  assert.equal(global?.confidence_level, "insufficient_data");
+  assert.equal(global?.capped_at, "insufficient_data");
+  assert.match(global?.cap_reason ?? "", /sin causa no hay explicacion/);
+});
+
+test("D11: un dato degradado baja el techo de todo lo que se apoya en el", () => {
+  // Guardrails 16 a 20: una afirmacion no puede ser mas firme que aquello en lo
+  // que se apoya.
+  const salida = assessConfidence(
+    entradaConfianza({ dataQuality: { reliability: "low", coverage: "partial" } }),
+  );
+
+  assert.equal(capa(salida, "what")?.confidence_level, "low");
+  assert.equal(capa(salida, "what")?.capped_at, "low");
+  assert.ok(
+    capa(salida, "what")?.caps.some((c) => c.cap_source === "data_quality"),
+  );
+
+  // Y una fuente inutilizable no deja afirmar nada.
+  const inutil = assessConfidence(
+    entradaConfianza({ dataQuality: { reliability: "unusable" } }),
+  );
+  assert.equal(capa(inutil, "what")?.confidence_level, "insufficient_data");
+});
+
+test("D11: sin evaluacion de D01 tampoco se da por bueno el dato", () => {
+  // No haber mirado no es haber mirado y estar bien. El techo se pone igual.
+  const salida = assessConfidence(entradaConfianza({ dataQuality: null }));
+
+  assert.equal(capa(salida, "measurement")?.confidence_level, "insufficient_data");
+  assert.equal(capa(salida, "what")?.confidence_level, "low");
+});
+
+test("D11: sin senal se dice 'no lo hemos mirado', no 'no pasa nada'", () => {
+  // Guardrail 8 y el corazon de la fase: tres estados, no dos.
+  const salida = assessConfidence(entradaConfianza({ signal: null, symptom: null }));
+  const what = capa(salida, "what");
+
+  assert.equal(what?.negative_claim_state, "no_evidence");
+  assert.equal(what?.coverage_declared, null);
+  assert.match(what?.limitations ?? "", /no significa que no haya pasado nada/);
+
+  // Afirmar que no hay problema exige declarar con que cobertura se miro.
+  assert.deepEqual(negativeClaimFor(false, null), {
+    state: "no_evidence",
+    coverage_declared: null,
+  });
+  assert.deepEqual(negativeClaimFor(true, null), {
+    state: "no_evidence",
+    coverage_declared: null,
+  });
+  assert.equal(negativeClaimFor(true, "toda la serie diaria del trimestre").state, "evidence_of_no_problem");
+});
+
+test("D11: una muestra corta baja la capa que sostiene", () => {
+  const salida = assessConfidence(
+    entradaConfianza({
+      signal: { ...entradaConfianza().signal!, low_sample: true },
+    }),
+  );
+  const what = capa(salida, "what");
+
+  assert.equal(what?.confidence_level, "low");
+  assert.ok(what?.caps.some((c) => c.cap_source === "sample_too_small"));
+  assert.ok(
+    what?.dimensions.some((d) => d.dimension === "sample_sufficiency" && d.rating === "weak"),
+  );
+});
+
+test("D11: un patron no pasa de probable mientras no haya rutas rivales", () => {
+  // Guardrail 25: sin separacion frente a las alternativas no se llega a alta.
+  // Y no hay alternativas porque no hay grafo causal.
+  const salida = assessConfidence(entradaConfianza());
+  const sintoma = capa(salida, "symptom");
+
+  assert.equal(sintoma?.capped_at, "medium");
+  assert.equal(sintoma?.alternative_separation, "unknown");
+  assert.match(sintoma?.limitations ?? "", /no dice cual mueve a cual/);
+});
+
+test("D11: sin relacion declarada, el mecanismo es 'ausente' y no 'debil'", () => {
+  // Coincidir en el tiempo no es un mecanismo a medias: es ningun mecanismo.
+  const salida = assessConfidence(
+    entradaConfianza({
+      symptom: { ...entradaConfianza().symptom!, known_relationship: false },
+    }),
+  );
+
+  const mecanismo = capa(salida, "symptom")?.dimensions.find(
+    (d) => d.dimension === "mechanism_strength",
+  );
+  assert.equal(mecanismo?.rating, "absent");
+  assert.match(mecanismo?.reason ?? "", /coinciden en el tiempo/);
+});
+
+test("D11: el lenguaje de cada nivel es su formula, no un sinonimo", () => {
+  // Guardrails 43 a 46. "Es compatible con" no significa lo mismo que "la
+  // explicacion mas probable es", y esa diferencia separa una hipotesis de una
+  // conclusion.
+  assert.equal(calibratedPhrase("insufficient_data"), "no puede determinarse si");
+  assert.equal(calibratedPhrase("low"), "es compatible con que");
+  assert.equal(calibratedPhrase("medium"), "la explicacion mas probable es que");
+  assert.match(calibratedPhrase("high"), /sostiene con solidez/);
+
+  // Y ninguna de las cuatro suena a certeza absoluta (guardrail 47).
+  for (const nivel of ["insufficient_data", "low", "medium", "high"]) {
+    assert.ok(
+      !CERTAINTY_LANGUAGE.test(calibratedPhrase(nivel)),
+      `"${calibratedPhrase(nivel)}" suena mas seguro de lo que es`,
+    );
+  }
+});
+
+test("D11: el techo nunca sube un nivel, solo lo baja", () => {
+  assert.equal(capTo("high", "low"), "low");
+  assert.equal(capTo("low", "high"), "low", "un techo alto no asciende una confianza baja");
+  assert.equal(capTo("medium", null), "medium");
+  assert.equal(capTo("insufficient_data", "high"), "insufficient_data");
+});
+
+test("D11: la falta de grafo causal se registra como critical unknown", () => {
+  // Guardrail 33: un critical unknown no se deja caer sin decir a que afecta y
+  // que lo resolveria.
+  const salida = assessConfidence(entradaConfianza());
+  const critica = salida.uncertainties.find((u) => u.materiality === "critical_unknown");
+
+  assert.equal(critica?.uncertainty_type, "causal");
+  assert.equal(critica?.claim_layer, "why");
+  assert.ok((critica?.required_evidence ?? "").length > 0);
+  assert.equal(critica?.resolvability, "resolvable_now");
+});
+
+test("D11: ninguna afirmacion lleva un porcentaje", () => {
+  // El guardrail lo pide y el esquema lo garantiza. Esto lo fija tambien para la
+  // salida del motor, que es donde se escribiria el numero.
+  const salida = assessConfidence(entradaConfianza());
+
+  for (const c of salida.claims) {
+    const texto = [c.claim, c.cap_reason, c.limitations, c.missing_evidence]
+      .filter(Boolean)
+      .join(" ");
+    assert.ok(!/\d+\s?%/.test(texto), `hay un porcentaje en la capa ${c.claim_layer}`);
+    assert.ok(!("probability" in c), "no cabe una probabilidad");
+    assert.ok(!("score" in c), "no cabe una nota");
+  }
 });

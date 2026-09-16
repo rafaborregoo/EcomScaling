@@ -2,12 +2,28 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { apiFetch } from "@/lib/bootstrap";
-import { AiEvidence, Alert, Badge, Button, Card, Drawer, Field, Input, Select } from "@/components/ui";
+import {
+  AiEvidence,
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Drawer,
+  Field,
+  Input,
+  Select,
+} from "@/components/ui";
 import type { ModuleSummaryData } from "@/components/module-summary";
 import type { CopilotAsk } from "@/components/copilot-ask";
+import { CopilotSaldo, type CopilotBalance } from "@/components/copilot-saldo";
 
 type ChatSource = { kind: string; reference: string; period: string | null };
-type ChatMessage = { role: "user" | "assistant"; content: string; sources?: ChatSource[]; warnings?: string[] };
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  sources?: ChatSource[];
+  warnings?: string[];
+};
 type ChatError = { message: string; status: "warning" | "danger" };
 
 /**
@@ -25,30 +41,113 @@ export type CopilotView = {
 };
 
 const ERROR_MESSAGES: Record<string, ChatError> = {
-  ai_runtime_not_configured: { message: "El asistente de IA no está disponible ahora mismo. Vuelve a intentarlo más tarde.", status: "warning" },
-  organization_daily_budget_exceeded: { message: "Esta organización alcanzó su límite diario de uso de IA. El Consultor IA se reactiva al empezar el día siguiente.", status: "warning" },
-  organization_daily_budget_unavailable: { message: "No se pudo comprobar el presupuesto diario de IA. El Consultor IA queda pausado temporalmente para proteger la cuenta.", status: "warning" },
-  conversation_not_found: { message: "No se encontró esta conversación. Cierra el panel y ábrelo de nuevo para empezar una nueva.", status: "danger" },
-  organization_access_denied: { message: "No tienes acceso a esta organización.", status: "danger" },
+  ai_runtime_not_configured: {
+    message:
+      "El asistente de IA no está disponible ahora mismo. Vuelve a intentarlo más tarde.",
+    status: "warning",
+  },
+  organization_daily_budget_exceeded: {
+    message:
+      "Esta organización alcanzó su límite diario de uso de IA. El Consultor IA se reactiva al empezar el día siguiente.",
+    status: "warning",
+  },
+  organization_daily_budget_unavailable: {
+    message:
+      "No se pudo comprobar el presupuesto diario de IA. El Consultor IA queda pausado temporalmente para proteger la cuenta.",
+    status: "warning",
+  },
+  conversation_not_found: {
+    message:
+      "No se encontró esta conversación. Cierra el panel y ábrelo de nuevo para empezar una nueva.",
+    status: "danger",
+  },
+  organization_access_denied: {
+    message: "No tienes acceso a esta organización.",
+    status: "danger",
+  },
 };
 const CHAT_TURN_STATUS_MESSAGES: Record<string, ChatError> = {
-  budget_exceeded: { message: "Esta pregunta superó el presupuesto máximo por turno. Prueba con una pregunta más concreta.", status: "warning" },
-  rejected_output: { message: "La respuesta generada no pasó los controles de calidad. Intenta reformular la pregunta.", status: "danger" },
+  budget_exceeded: {
+    message:
+      "Esta pregunta superó el presupuesto máximo por turno. Prueba con una pregunta más concreta.",
+    status: "warning",
+  },
+  rejected_output: {
+    message:
+      "La respuesta generada no pasó los controles de calidad. Intenta reformular la pregunta.",
+    status: "danger",
+  },
 };
 
 // Preguntas de arranque por módulo: son las que un consultor hace de verdad
 // al abrir esa pantalla, no ejemplos genéricos. La ruta más específica gana.
 const VIEW_PROMPTS: Array<{ prefix: string; prompts: string[] }> = [
-  { prefix: "/planificacion", prompts: ["¿Qué debería entrar en el plan de las próximas 2 semanas y por qué?", "¿Qué acción del calendario tiene menos sentido con los datos de ahora?"] },
-  { prefix: "/marketing", prompts: ["¿Qué campaña de email tiene mejor retorno y cuál habría que rehacer?", "¿Sobre qué producto conviene construir la próxima campaña?"] },
-  { prefix: "/tareas", prompts: ["De las tareas abiertas, ¿cuál mueve más la aguja esta semana?", "¿Hay tareas abiertas que ya no tengan sentido con los datos actuales?"] },
-  { prefix: "/llamadas", prompts: ["¿Qué debería llevar preparado a la próxima llamada con este cliente?", "¿Qué se comprometió en las últimas llamadas y sigue sin hacerse?"] },
-  { prefix: "/camino", prompts: ["¿Qué bloquea el hito actual del plan?", "¿El siguiente hito es el correcto con los datos de ahora?"] },
-  { prefix: "/shopify", prompts: ["¿Qué productos concentran la caída de ventas?", "¿Dónde se está perdiendo margen en esta tienda?"] },
-  { prefix: "/meta", prompts: ["¿Qué creatividad hay que retirar y cuál escalar?", "¿Algún cambio reciente en la cuenta explica la caída?"] },
-  { prefix: "/integraciones", prompts: ["¿Qué datos me faltan para poder asesorar bien a este cliente?"] },
-  { prefix: "/conocimiento", prompts: ["¿Qué dice la metodología sobre la fase en la que está este cliente?"] },
-  { prefix: "/dashboard", prompts: ["¿Qué ha pasado con las ventas en este periodo y por qué?", "Si solo pudiera hacer una cosa esta semana con este cliente, ¿cuál sería?"] },
+  {
+    prefix: "/planificacion",
+    prompts: [
+      "¿Qué debería entrar en el plan de las próximas 2 semanas y por qué?",
+      "¿Qué acción del calendario tiene menos sentido con los datos de ahora?",
+    ],
+  },
+  {
+    prefix: "/marketing",
+    prompts: [
+      "¿Qué campaña de email tiene mejor retorno y cuál habría que rehacer?",
+      "¿Sobre qué producto conviene construir la próxima campaña?",
+    ],
+  },
+  {
+    prefix: "/tareas",
+    prompts: [
+      "De las tareas abiertas, ¿cuál mueve más la aguja esta semana?",
+      "¿Hay tareas abiertas que ya no tengan sentido con los datos actuales?",
+    ],
+  },
+  {
+    prefix: "/llamadas",
+    prompts: [
+      "¿Qué debería llevar preparado a la próxima llamada con este cliente?",
+      "¿Qué se comprometió en las últimas llamadas y sigue sin hacerse?",
+    ],
+  },
+  {
+    prefix: "/camino",
+    prompts: [
+      "¿Qué bloquea el hito actual del plan?",
+      "¿El siguiente hito es el correcto con los datos de ahora?",
+    ],
+  },
+  {
+    prefix: "/shopify",
+    prompts: [
+      "¿Qué productos concentran la caída de ventas?",
+      "¿Dónde se está perdiendo margen en esta tienda?",
+    ],
+  },
+  {
+    prefix: "/meta",
+    prompts: [
+      "¿Qué creatividad hay que retirar y cuál escalar?",
+      "¿Algún cambio reciente en la cuenta explica la caída?",
+    ],
+  },
+  {
+    prefix: "/integraciones",
+    prompts: ["¿Qué datos me faltan para poder asesorar bien a este cliente?"],
+  },
+  {
+    prefix: "/conocimiento",
+    prompts: [
+      "¿Qué dice la metodología sobre la fase en la que está este cliente?",
+    ],
+  },
+  {
+    prefix: "/dashboard",
+    prompts: [
+      "¿Qué ha pasado con las ventas en este periodo y por qué?",
+      "Si solo pudiera hacer una cosa esta semana con este cliente, ¿cuál sería?",
+    ],
+  },
 ];
 
 const DEFAULT_PROMPTS = [
@@ -58,9 +157,9 @@ const DEFAULT_PROMPTS = [
 
 function promptsForView(view: CopilotView | undefined) {
   if (!view) return DEFAULT_PROMPTS;
-  const match = VIEW_PROMPTS.filter((entry) => view.route.startsWith(entry.prefix)).sort(
-    (a, b) => b.prefix.length - a.prefix.length,
-  )[0];
+  const match = VIEW_PROMPTS.filter((entry) =>
+    view.route.startsWith(entry.prefix),
+  ).sort((a, b) => b.prefix.length - a.prefix.length)[0];
   return match?.prompts ?? DEFAULT_PROMPTS;
 }
 
@@ -82,10 +181,30 @@ function toViewContext(view: CopilotView | undefined) {
 }
 
 async function readError(response: Response): Promise<ChatError> {
-  const body = (await response.json().catch(() => null)) as { error?: string; message?: string; detail?: string; status?: string } | null;
-  if (body?.error === "chat_turn_failed" && body.status && CHAT_TURN_STATUS_MESSAGES[body.status]) return CHAT_TURN_STATUS_MESSAGES[body.status];
-  if (body?.error && ERROR_MESSAGES[body.error]) return ERROR_MESSAGES[body.error];
-  return { message: [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - "), status: "danger" };
+  const body = (await response.json().catch(() => null)) as {
+    error?: string;
+    message?: string;
+    detail?: string;
+    status?: string;
+  } | null;
+  if (
+    body?.error === "chat_turn_failed" &&
+    body.status &&
+    CHAT_TURN_STATUS_MESSAGES[body.status]
+  )
+    return CHAT_TURN_STATUS_MESSAGES[body.status];
+  if (body?.error && ERROR_MESSAGES[body.error])
+    return ERROR_MESSAGES[body.error];
+  return {
+    message: [
+      body?.error ?? `HTTP ${response.status}`,
+      body?.message,
+      body?.detail,
+    ]
+      .filter(Boolean)
+      .join(" - "),
+    status: "danger",
+  };
 }
 
 export function CopilotPanel({
@@ -113,6 +232,13 @@ export function CopilotPanel({
   // No cambia el cliente activo del portal: se pregunta sin salir de donde
   // estás. Con cliente activo manda ese y este estado no se usa.
   const [pickedOrganizationId, setPickedOrganizationId] = useState("");
+  // Saldo de tokens del mes. Se lee UNA vez al abrir el panel; a partir de ahi
+  // viaja en la respuesta de cada mensaje, que es justo cuando cambia. Pedirlo
+  // aparte despues de cada turno seria un viaje al servidor para enterarse de
+  // algo que el turno ya sabia.
+  const [balance, setBalance] = useState<CopilotBalance | null>(null);
+  const [model, setModel] = useState("sonnet");
+  const [degraded, setDegraded] = useState(false);
   const targetOrganizationId = organizationId || pickedOrganizationId;
   const targetOrganizationName = organizations.find(
     (organization) => organization.id === targetOrganizationId,
@@ -132,9 +258,40 @@ export function CopilotPanel({
     setConversationId(null);
     setError(null);
     setSavedIndexes([]);
+    setDegraded(false);
+  }, [targetOrganizationId]);
+
+  useEffect(() => {
+    if (!targetOrganizationId) {
+      setBalance(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await apiFetch(
+          `/v1/organizations/${targetOrganizationId}/copilot/saldo`,
+        );
+        if (!response.ok || cancelled) return;
+        const payload = (await response.json()) as CopilotBalance;
+        if (cancelled) return;
+        setBalance(payload);
+        // El modelo por defecto es el primero que el plan ofrezca: Sonnet.
+        setModel(payload.models?.[0]?.id ?? "sonnet");
+      } catch {
+        // El saldo es informativo: si no se puede leer, el copiloto funciona
+        // igual y simplemente no se pinta la barra. Un error aqui no puede
+        // impedir preguntar.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [targetOrganizationId]);
   useEffect(() => {
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: reduceMotion ? "auto" : "smooth",
@@ -148,20 +305,54 @@ export function CopilotPanel({
     setIsSending(true);
     setError(null);
     try {
-    const response = await apiFetch(`/v1/organizations/${targetOrganizationId}/consultant-chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: question, conversation_id: conversationId ?? undefined, view_context: toViewContext(view) }),
-    });
-    if (!response.ok) {
-      setError(await readError(response));
-      return;
-    }
-    const payload = (await response.json()) as { conversation_id: string; output: { answer: string; sources?: ChatSource[]; warnings?: string[] } };
-    setConversationId(payload.conversation_id);
-    setMessages((prev) => [...prev, { role: "assistant", content: payload.output.answer, sources: payload.output.sources ?? [], warnings: payload.output.warnings ?? [] }]);
+      const response = await apiFetch(
+        `/v1/organizations/${targetOrganizationId}/consultant-chat`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: question,
+            conversation_id: conversationId ?? undefined,
+            view_context: toViewContext(view),
+            model,
+          }),
+        },
+      );
+      if (!response.ok) {
+        setError(await readError(response));
+        return;
+      }
+      const payload = (await response.json()) as {
+        conversation_id: string;
+        output: { answer: string; sources?: ChatSource[]; warnings?: string[] };
+        saldo?: CopilotBalance;
+        model?: { id: string; label: string; degraded: boolean };
+      };
+      setConversationId(payload.conversation_id);
+      if (payload.saldo) {
+        // Se conservan los modelos del plan: el turno devuelve el saldo, no el
+        // catalogo, y perderlos vaciaria el selector tras la primera pregunta.
+        setBalance((prev) => ({
+          ...payload.saldo!,
+          models: prev?.models ?? [],
+        }));
+      }
+      setDegraded(Boolean(payload.model?.degraded));
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: payload.output.answer,
+          sources: payload.output.sources ?? [],
+          warnings: payload.output.warnings ?? [],
+        },
+      ]);
     } catch {
-      setError({ message: "No se pudo completar la consulta. Revisa la conexión e inténtalo de nuevo.", status: "danger" });
+      setError({
+        message:
+          "No se pudo completar la consulta. Revisa la conexión e inténtalo de nuevo.",
+        status: "danger",
+      });
     } finally {
       setIsSending(false);
     }
@@ -207,18 +398,28 @@ export function CopilotPanel({
         <Drawer.Content placement="right" className="w-full max-w-md">
           <Drawer.Dialog id="copilot-panel">
             <Drawer.Header>
-              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-accent">Consultor IA</p>
+              <p className="font-mono text-[0.65rem] uppercase tracking-[0.14em] text-accent">
+                Consultor IA
+              </p>
               <Drawer.Heading>Pregunta sobre este negocio</Drawer.Heading>
               <Drawer.CloseTrigger aria-label="Cerrar Consultor IA" />
               {/* Qué está viendo el agente: si el consultor no sabe que la
                   pantalla viaja con la pregunta, no la usa. */}
               {view ? (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {targetOrganizationName ? <Badge tone="brand">{targetOrganizationName}</Badge> : null}
+                  {targetOrganizationName ? (
+                    <Badge tone="brand">{targetOrganizationName}</Badge>
+                  ) : null}
                   <Badge tone="neutral">{view.title}</Badge>
-                  {view.storeLabel ? <Badge tone="neutral">{view.storeLabel}</Badge> : null}
-                  {view.summary?.period ? <Badge tone="neutral">{view.summary.period}</Badge> : null}
-                  {pending?.focusLabel ? <Badge tone="brand">{pending.focusLabel}</Badge> : null}
+                  {view.storeLabel ? (
+                    <Badge tone="neutral">{view.storeLabel}</Badge>
+                  ) : null}
+                  {view.summary?.period ? (
+                    <Badge tone="neutral">{view.summary.period}</Badge>
+                  ) : null}
+                  {pending?.focusLabel ? (
+                    <Badge tone="brand">{pending.focusLabel}</Badge>
+                  ) : null}
                 </div>
               ) : null}
             </Drawer.Header>
@@ -238,7 +439,8 @@ export function CopilotPanel({
                   // del portal y perder la pantalla en la que estaba.
                   <div className="space-y-3">
                     <p className="text-sm text-muted">
-                      El Consultor IA analiza un cliente cada vez. Elige sobre cuál quieres preguntar.
+                      El Consultor IA analiza un cliente cada vez. Elige sobre
+                      cuál quieres preguntar.
                     </p>
                     <Field label="Cliente">
                       <Select
@@ -259,55 +461,112 @@ export function CopilotPanel({
                 ) : messages.length === 0 ? (
                   <div className="space-y-3">
                     <p className="text-sm text-muted">
-                      Analiza los datos reales de este cliente y la metodología de Conocimiento. Responde con cifras citadas y la siguiente acción; no escribe nada en la cuenta.
+                      Analiza los datos reales de este cliente y la metodología
+                      de Conocimiento. Responde con cifras citadas y la
+                      siguiente acción; no escribe nada en la cuenta.
                     </p>
                     <div className="flex flex-col items-start gap-2">
                       {suggestions.map((suggestion) => (
-                        <Button key={suggestion} variant="secondary" size="sm" className="text-left" onClick={() => void ask(suggestion)}>
+                        <Button
+                          key={suggestion}
+                          variant="secondary"
+                          size="sm"
+                          className="text-left"
+                          onClick={() => void ask(suggestion)}
+                        >
                           {suggestion}
                         </Button>
                       ))}
                     </div>
                   </div>
                 ) : (
-                  messages.map((message, index) => message.role === "assistant" ? (
-                    <Card key={index} kicker="Consultor IA">
-                      <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                      <AiEvidence sources={message.sources ?? []} warnings={message.warnings ?? []} />
-                      {/* El análisis se queda en la conversación de la pieza,
+                  messages.map((message, index) =>
+                    message.role === "assistant" ? (
+                      <Card key={index} kicker="Consultor IA">
+                        <p className="whitespace-pre-wrap text-sm leading-6">
+                          {message.content}
+                        </p>
+                        <AiEvidence
+                          sources={message.sources ?? []}
+                          warnings={message.warnings ?? []}
+                        />
+                        {/* El análisis se queda en la conversación de la pieza,
                           firmado como IA, para que lo vea también el otro lado
                           en vez de morir al cerrar el panel. */}
-                      {pending?.saveAnswer ? (
-                        savedIndexes.includes(index) ? (
-                          <p className="mt-3 text-xs text-muted">Guardado en el hilo de la pieza.</p>
-                        ) : (
-                          <Button
-                            className="mt-3"
-                            size="sm"
-                            variant="secondary"
-                            disabled={savingIndex !== null}
-                            onClick={() => void saveAnswer(index, message.content)}
-                          >
-                            {savingIndex === index ? "Guardando…" : "Dejar en el hilo de la pieza"}
-                          </Button>
-                        )
-                      ) : null}
-                    </Card>
-                  ) : (
-                    <Card key={index} kicker="Tú" className="bg-surface">
-                      <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                    </Card>
-                  ))
+                        {pending?.saveAnswer ? (
+                          savedIndexes.includes(index) ? (
+                            <p className="mt-3 text-xs text-muted">
+                              Guardado en el hilo de la pieza.
+                            </p>
+                          ) : (
+                            <Button
+                              className="mt-3"
+                              size="sm"
+                              variant="secondary"
+                              disabled={savingIndex !== null}
+                              onClick={() =>
+                                void saveAnswer(index, message.content)
+                              }
+                            >
+                              {savingIndex === index
+                                ? "Guardando…"
+                                : "Dejar en el hilo de la pieza"}
+                            </Button>
+                          )
+                        ) : null}
+                      </Card>
+                    ) : (
+                      <Card key={index} kicker="Tú" className="bg-surface">
+                        <p className="whitespace-pre-wrap text-sm leading-6">
+                          {message.content}
+                        </p>
+                      </Card>
+                    ),
+                  )
                 )}
-                {isSending ? <p className="text-sm text-muted">Analizando...</p> : null}
-                {error ? <Alert status={error.status} role="alert"><Alert.Indicator /><Alert.Content><Alert.Description>{error.message}</Alert.Description></Alert.Content></Alert> : null}
+                {isSending ? (
+                  <p className="text-sm text-muted">Analizando...</p>
+                ) : null}
+                {error ? (
+                  <Alert status={error.status} role="alert">
+                    <Alert.Indicator />
+                    <Alert.Content>
+                      <Alert.Description>{error.message}</Alert.Description>
+                    </Alert.Content>
+                  </Alert>
+                ) : null}
               </div>
             </Drawer.Body>
-            <Drawer.Footer className="pb-[calc(1rem+env(safe-area-inset-bottom))]">
-              <form className="flex w-full items-center gap-2" onSubmit={submit}>
-                <Input className="w-full" aria-label="Pregunta para el Consultor IA" value={input} onChange={(event) => setInput(event.target.value)} placeholder={targetOrganizationId ? "Ej: ¿por qué han bajado los pedidos?" : "Elige un cliente para empezar"} disabled={isSending || !targetOrganizationId} />
-                <Button type="submit" disabled={isSending || !input.trim() || !targetOrganizationId}>Enviar</Button>
+            <Drawer.Footer className="flex-col items-stretch gap-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+              <form
+                className="flex w-full items-center gap-2"
+                onSubmit={submit}
+              >
+                <Input
+                  className="w-full"
+                  aria-label="Pregunta para el Consultor IA"
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder={
+                    targetOrganizationId
+                      ? "Ej: ¿por qué han bajado los pedidos?"
+                      : "Elige un cliente para empezar"
+                  }
+                  disabled={isSending || !targetOrganizationId}
+                />
+                <Button
+                  type="submit"
+                  disabled={isSending || !input.trim() || !targetOrganizationId}
+                >
+                  Enviar
+                </Button>
               </form>
+              <CopilotSaldo
+                balance={balance}
+                model={model}
+                onModelChange={setModel}
+                degraded={degraded}
+              />
             </Drawer.Footer>
           </Drawer.Dialog>
         </Drawer.Content>

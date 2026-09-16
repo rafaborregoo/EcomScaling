@@ -130,7 +130,10 @@ const consultantNavGroups: NavGroup[] = [
 
 // Configuración vive al fondo del nav, junto a la cuenta (convención de
 // paneles minimalistas), no dentro de un grupo.
-const settingsNavItem: NavItem = { href: "/configuracion", label: "Configuración" };
+const settingsNavItem: NavItem = {
+  href: "/configuracion",
+  label: "Configuración",
+};
 
 // Vista platform_admin: operacion de plataforma, no de clientes. Solo Rafa la
 // usa. Conocimiento / dashboard / integraciones etc. son del consultor, no de
@@ -147,6 +150,7 @@ const platformAdminNavGroups: NavGroup[] = [
       { href: "/admin/conocimiento", label: "Metodología" },
       { href: "/admin/observabilidad", label: "Observabilidad" },
       { href: "/admin/logs", label: "Auditoría y errores" },
+      { href: "/admin/finanzas", label: "Finanzas" },
       { href: "/admin/facturacion", label: "Facturación" },
     ],
   },
@@ -411,9 +415,9 @@ function PortalShellContent({
   const [messagesUnread, setMessagesUnread] = useState(0);
   // null = todavía no se sabe. Importa tanto como el valor: apagar Chats y
   // volver a encenderlo un segundo después es peor que esperar un ciclo.
-  const [hasConsultantThread, setHasConsultantThread] = useState<boolean | null>(
-    null,
-  );
+  const [hasConsultantThread, setHasConsultantThread] = useState<
+    boolean | null
+  >(null);
   // Tareas nuevas que le ha aprobado el consultor -> numerito en "Tareas".
   const [tasksUnread, setTasksUnread] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -702,7 +706,10 @@ function PortalShellContent({
         // AbortError ("The user aborted a request.") sin ser un fallo real
         // -- el segundo montaje ya la reintenta. Ignorarla evita pintar ese
         // mensaje crudo del navegador como si la cuenta no hubiera cargado.
-        if (cancelled || (loadError instanceof DOMException && loadError.name === "AbortError")) {
+        if (
+          cancelled ||
+          (loadError instanceof DOMException && loadError.name === "AbortError")
+        ) {
           return;
         }
         setError(
@@ -799,9 +806,7 @@ function PortalShellContent({
   const navRowClass = (active: boolean) =>
     [
       "flex items-center px-2 py-1.5 text-[0.8125rem] no-underline transition-colors hover:no-underline active:no-underline",
-      active
-        ? "font-medium text-accent"
-        : "text-muted hover:text-foreground",
+      active ? "font-medium text-accent" : "text-muted hover:text-foreground",
     ].join(" ");
 
   const navGroupLabelClass =
@@ -950,7 +955,9 @@ function PortalShellContent({
   );
 
   // Barra inferior movil: las 4 primeras rutas del nav del rol + "Mas".
-  const bottomNavItems = visibleGroups.flatMap((group) => group.items).slice(0, 4);
+  const bottomNavItems = visibleGroups
+    .flatMap((group) => group.items)
+    .slice(0, 4);
 
   // Selector de cliente / tienda: se muestra en la barra superior en desktop y
   // en una fila propia en movil. Mismo contenido en ambos sitios.
@@ -977,7 +984,8 @@ function PortalShellContent({
       : []),
     ...bootstrap.memberships.map((membership) => ({
       value: membership.organization_id,
-      label: membership.organization?.display_name ?? membership.organization_id,
+      label:
+        membership.organization?.display_name ?? membership.organization_id,
       ...(groupClientSelect
         ? {
             section:
@@ -994,7 +1002,9 @@ function PortalShellContent({
       className="max-w-[16rem]"
       aria-label="Cliente activo"
       value={
-        isConsultant ? activeOrganizationId || GENERAL_VIEW_KEY : activeOrganizationId
+        isConsultant
+          ? activeOrganizationId || GENERAL_VIEW_KEY
+          : activeOrganizationId
       }
       onChange={(value) =>
         selectOrganization(value === GENERAL_VIEW_KEY ? "" : value)
@@ -1182,12 +1192,12 @@ function PortalShellContent({
               <div className="ml-auto flex items-center gap-3">
                 {ownStoreSelectNode}
                 <InsightsMenu
-                scope={{
-                  organizationId: activeOrganizationId,
-                  connectionId: activeConnectionId,
-                  isConsultant,
-                }}
-              />
+                  scope={{
+                    organizationId: activeOrganizationId,
+                    connectionId: activeConnectionId,
+                    isConsultant,
+                  }}
+                />
                 <NotificationsBell token={token} />
               </div>
             </div>

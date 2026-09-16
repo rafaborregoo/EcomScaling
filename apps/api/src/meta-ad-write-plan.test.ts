@@ -25,6 +25,7 @@ function context(role: string, platformRole = "user"): AuthContext {
           status: "active",
           timezone: "Europe/Madrid",
           currency_code: "EUR",
+          kind: "client",
         },
       },
     ],

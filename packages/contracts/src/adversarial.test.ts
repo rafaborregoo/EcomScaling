@@ -25,6 +25,9 @@ import {
   type DiagnosticRobustness,
   type DiagnosticConfounder,
   type AdversarialCheckInput,
+  getDiagnosticRobustness,
+  runRedTeam,
+  type AdversarialRuntimeInput,
 } from "./adversarial.js";
 import { confounderSchema } from "./context.js";
 
@@ -465,4 +468,116 @@ test("D02 sigue sin poder promover un confusor, y por eso D12 es otra tabla", ()
   }
   // Y el linaje entre las dos si existe, para no teclear la candidata dos veces.
   assert.ok(Object.keys(diagnosticConfounderFields.shape).includes("source_confounder_id"));
+});
+
+// --- El motor puro ---------------------------------------------------------
+
+function runtime(overrides: Partial<AdversarialRuntimeInput> = {}): AdversarialRuntimeInput {
+  return {
+    robustnessId: "RB-1",
+    caseId: "C-1",
+    family: "revenue",
+    metric: "net_sales",
+    analysisPeriod: { start: "2026-08-01T00:00:00.000Z", end: "2026-08-08T00:00:00.000Z" },
+    comparisonPeriod: { start: "2026-07-25T00:00:00.000Z", end: "2026-08-01T00:00:00.000Z" },
+    currentConfidence: "high",
+    comparabilityFacts: {
+      sameDefinition: "yes",
+      sameScope: "yes",
+      sameCurrency: "yes",
+      sameStatusFilter: "yes",
+    },
+    signals: [],
+    events: [],
+    comparabilityBreaks: [],
+    mixSegments: [],
+    orderCounts: { analysis: 120, comparison: 110 },
+    ...overrides,
+  };
+}
+
+test("el motor declara comparable solo cuando las cinco preguntas son yes", () => {
+  const result = getDiagnosticRobustness(runtime());
+  assert.deepEqual(result.gates[0], {
+    case_id: "C-1",
+    metric: "net_sales",
+    same_definition: "yes",
+    same_scope: "yes",
+    same_time_logic: "yes",
+    same_currency: "yes",
+    same_status_filter: "yes",
+    comparability: "comparable",
+  });
+  assert.equal(result.checks.find((check) => check.check_key === "period_comparability")?.status, "executed");
+  assert.equal(result.robustness.survival_status, "survives");
+});
+
+test("un periodo parcial degrada la puerta y no deja sobrevivir intacto el diagnostico", () => {
+  const result = getDiagnosticRobustness(runtime({
+    analysisPeriod: { start: "2026-08-01T00:00:00.000Z", end: "2026-08-05T00:00:00.000Z" },
+  }));
+  assert.equal(result.gates[0]?.same_time_logic, "no");
+  assert.equal(result.gates[0]?.comparability, "not_comparable");
+  assert.equal(result.robustness.survival_status, "weakened");
+  assert.ok(result.confounders.some((confounder) => confounder.confounder_type === "partial_period"));
+});
+
+test("un tracking distorsionado es material, baja la confianza y abre la revision", () => {
+  const result = getDiagnosticRobustness(runtime({
+    signals: [{
+      metric: "net_sales",
+      dataConfidence: "insufficient_data",
+      lowSample: false,
+      baselineConflict: true,
+    }],
+    comparabilityFacts: {
+      sameDefinition: "yes",
+      sameScope: "yes",
+      sameCurrency: "yes",
+      sameStatusFilter: "yes",
+    },
+    comparabilityBreaks: [{
+      breakType: "tracking_change",
+      description: "El deploy del pixel dejo de enviar eventos de compra a GA",
+      affectedMetrics: ["net_sales"],
+      effectiveFrom: "2026-08-03T00:00:00.000Z",
+    }],
+  }));
+  const tracking = result.confounders.find((confounder) => confounder.confounder_type === "tracking_change");
+  assert.equal(tracking?.status, "material");
+  assert.equal(tracking?.strength, "decisive");
+  assert.equal(result.robustness.survival_status, "requires_revision");
+  assert.equal(result.robustness.confidence_after, "low");
+  assert.deepEqual(result.robustness.reopened_blocks, ["D06", "D07", "D08", "D09"]);
+});
+
+test("el cambio de mix crea una prueba within-segment y conserva el lado del falso negativo", () => {
+  const result = getDiagnosticRobustness(runtime({
+    signals: [{ metric: "net_sales", dataConfidence: "high", lowSample: false, baselineConflict: false }],
+    mixSegments: [
+      { dimension: "channel", segment: "paid", weightBefore: 0.2, weightAfter: 0.6, performanceBefore: 100, performanceAfter: 100 },
+      { dimension: "channel", segment: "organic", weightBefore: 0.8, weightAfter: 0.4, performanceBefore: 120, performanceAfter: 120 },
+    ],
+  }));
+  const mix = result.confounders.find((confounder) => confounder.confounder_type === "traffic_mix");
+  assert.equal(mix?.status, "supported");
+  assert.equal(mix?.masking_effect, true);
+  assert.ok(result.tests.some((test) => test.confounder_id === mix?.confounder_id && test.control_kind === "within_segment"));
+  assert.equal(result.robustness.survival_status, "survives_with_limitations");
+  assert.ok(result.robustness.remaining_limitations);
+});
+
+test("la biblioteca red team devuelve la contraexplicacion y la evidencia necesaria, sin inventar un hecho externo", () => {
+  const result = runRedTeam(runtime({ family: "conversion", metric: "conversion_rate" }));
+  assert.match(result.strongest_counter_explanation, /podr[ií]a|posible/i);
+  assert.ok(result.required_evidence.length > 0);
+  assert.equal(result.diagnosis_effect, "requires_review_if_supported");
+});
+
+test("la familia retention deja trazado el check de cohortes cuando no hay madurez observable", () => {
+  const result = getDiagnosticRobustness(runtime({ family: "retention", metric: "repeat_rate" }));
+  const check = result.checks.find((item) => item.check_key === "cohort_maturity");
+  assert.equal(check?.status, "not_possible");
+  assert.match(check?.reason ?? "", /madurez|cohort/i);
+  assert.ok(result.robustness.remaining_limitations);
 });

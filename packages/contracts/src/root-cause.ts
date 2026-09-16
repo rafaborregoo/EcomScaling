@@ -386,3 +386,368 @@ export function checkRootCauseInvariants(
 
   return violations;
 }
+
+// ---------------------------------------------------------------------------
+// EL MOTOR (root cause)
+// ---------------------------------------------------------------------------
+//
+// Entra lo que D07 y D08 dejaron -- rutas y sus hipotesis -- y sale una
+// conclusion causal calibrada: casi siempre `unresolved` o `partial_root_cause`,
+// **nunca `probable` ni `confirmed`**, porque la evidencia disponible hoy es
+// co-movimiento (`correlation_only`) y el guardrail 15 prohibe cerrar una causa
+// con solo eso. Que el motor no cierre nada no es un defecto: es la regla del
+// eslabon mas debil (paso 4 del runtime) funcionando tal como se pidio.
+//
+// LA REGLA DEL ESLABON MAS DEBIL, hecha literal: si algun paso de la cadena
+// tiene `case_support = 'untested'` --nadie mide esa metrica-- la cadena entera
+// se queda en `unresolved` con confianza `insufficient`, por fuerte que sea el
+// resto. Una cadena no es mas fuerte que su tramo mas flojo.
+//
+// D09 NO ELIGE, IGUAL QUE D07 Y D08: se emite una fila por candidata viva, no
+// una "ganadora". El rol `primary` solo se usa cuando hay una sola candidata
+// sobre la mesa; con varias, todas quedan `contributing` porque la separacion
+// es baja (D08 ya lo dijo) y nombrar una "primaria" seria fingir un criterio que
+// no existe.
+
+/** Un nodo de la cadena, del origen hacia el target, sin incluir el target. */
+export type ChainNodeInput = {
+  node_id: string;
+  label: string;
+  case_support: "supported" | "contradicted" | "untested" | "partial";
+};
+
+/** Una hipotesis viva de D08, con su cadena ya resuelta. */
+export type RootCauseCandidateInput = {
+  hypothesis_id: string;
+  source_path_id: string | null;
+  hypothesis_type: string;
+  relative_role: string | null;
+  confidence: "high" | "medium" | "low" | "insufficient";
+  explanatory_coverage: (typeof EXPLANATORY_COVERAGE)[number];
+  /** La capacidad del nodo origen, tal cual la declara el grafo (D07). */
+  capability: string | null;
+  limitations: string | null;
+  chain: readonly ChainNodeInput[];
+};
+
+export type RootCauseEngineInput = {
+  targetNodeId: string;
+  targetLabel: string;
+  scope: string;
+  scopeDetail: Record<string, string>;
+  candidates: readonly RootCauseCandidateInput[];
+};
+
+export type ChainStepDraft = {
+  step_order: number;
+  chain_role: (typeof CHAIN_ROLES)[number];
+  statement: string;
+  supported: boolean;
+  node_id: string | null;
+};
+
+export type RootCauseDraft = {
+  code: string;
+  statement: string;
+  family: (typeof ROOT_CAUSE_FAMILIES)[number];
+  cause_type: (typeof ROOT_CAUSE_TYPES)[number];
+  role: (typeof ROOT_CAUSE_ROLES)[number];
+  scope: string;
+  scope_detail: Record<string, string>;
+  status: (typeof ROOT_CAUSE_STATUSES)[number];
+  confidence: "high" | "medium" | "low" | "insufficient";
+  explanatory_coverage: (typeof EXPLANATORY_COVERAGE)[number];
+  residual_material: boolean;
+  residual_note: string;
+  causal_path_id: string | null;
+  hypothesis_id: string;
+  controllability: (typeof CONTROLLABILITY)[number];
+  reversibility: (typeof REVERSIBILITY)[number];
+  affects_observability_only: boolean;
+  limitations: string | null;
+  chain: ChainStepDraft[];
+};
+
+/**
+ * De la capacidad del grafo a la familia de D09.
+ *
+ * Las dos listas son casi la misma con dos nombres distintos para lo mismo
+ * (`unit_economics` aqui, `economics` alli) -- el mismo tipo de desajuste que ya
+ * aparecio entre D00/D05/D07 con el alcance del negocio entero. Se traduce en un
+ * sitio con nombre, no se descubre en un check.
+ *
+ * Sin capacidad conocida (el challenger no tiene nodo origen), cae en `data`:
+ * es la familia mas honesta para "no sabemos que es, sabemos que podria ser la
+ * medicion".
+ */
+const CAPACIDAD_A_FAMILIA: Partial<Record<string, (typeof ROOT_CAUSE_FAMILIES)[number]>> = {
+  unit_economics: "economics",
+  market: "market",
+  product: "product",
+  offer: "offer",
+  acquisition: "acquisition",
+  creative: "creative",
+  conversion: "conversion",
+  retention: "retention",
+  inventory: "inventory",
+  operations: "operations",
+  finance: "finance",
+  data: "data",
+  technology: "technology",
+  team: "team",
+  strategy: "strategy",
+};
+
+export function familyFromCapability(
+  capability: string | null,
+): (typeof ROOT_CAUSE_FAMILIES)[number] {
+  if (capability && capability in CAPACIDAD_A_FAMILIA) {
+    return CAPACIDAD_A_FAMILIA[capability]!;
+  }
+  return "data";
+}
+
+/**
+ * El eslabon mas debil de la cadena (paso 4 del runtime).
+ *
+ * `allMeasured` es lo unico que hoy decide el status: una cadena con un tramo
+ * `untested` no se puede ni confirmar ni descartar, asi que no se cierra nada.
+ */
+export function weakestLink(chain: readonly ChainNodeInput[]): {
+  allMeasured: boolean;
+  anyContradicted: boolean;
+} {
+  return {
+    allMeasured: chain.every((s) => s.case_support !== "untested"),
+    anyContradicted: chain.some((s) => s.case_support === "contradicted"),
+  };
+}
+
+function esDesafiante(candidate: RootCauseCandidateInput): boolean {
+  return candidate.hypothesis_type === "data_quality_explanation";
+}
+
+/**
+ * Estado y confianza de la conclusion (guardrails 15 y 16).
+ *
+ * Nunca `probable` ni `confirmed`: la evidencia de D07-D08 es siempre
+ * `correlation_only`, y el guardrail 15 prohibe cerrar una causa con solo eso.
+ * `partial_root_cause` es la conclusion mas fuerte que hoy se puede sostener, y
+ * solo cuando la cadena entera se ha medido.
+ */
+export function statusAndConfidence(
+  candidate: RootCauseCandidateInput,
+): { status: (typeof ROOT_CAUSE_STATUSES)[number]; confidence: RootCauseDraft["confidence"] } {
+  if (esDesafiante(candidate)) {
+    return { status: "unresolved", confidence: candidate.confidence };
+  }
+  const { allMeasured } = weakestLink(candidate.chain);
+  if (!allMeasured) {
+    return { status: "unresolved", confidence: "insufficient" };
+  }
+  if (["partial", "minimal"].includes(candidate.explanatory_coverage)) {
+    return { status: "partial_root_cause", confidence: candidate.confidence };
+  }
+  return { status: "unresolved", confidence: candidate.confidence };
+}
+
+/**
+ * La cadena: origen -> mediadores -> target (paso 2 del runtime).
+ *
+ * El origen es siempre `immediate_cause`, nunca `root_cause`. No es prudencia
+ * de mas: el guardrail 9 exige evidencia y profundidad para llegar a raiz, y
+ * hoy nunca hay mas alla de una serie que se movio a la vez. Etiquetarlo
+ * `root_cause` seria afirmar una profundidad que no se ha buscado.
+ */
+export function buildChain(
+  candidate: RootCauseCandidateInput,
+  targetNodeId: string,
+  targetLabel: string,
+): ChainStepDraft[] {
+  const pasos: ChainStepDraft[] = candidate.chain.map((nodo, i) => ({
+    step_order: i + 1,
+    chain_role: i === 0 ? "immediate_cause" : "intermediate_cause",
+    statement:
+      nodo.case_support === "untested"
+        ? `Nadie mide "${nodo.label}": no se sabe si se movio.`
+        : `"${nodo.label}" se movio en la ventana del caso.`,
+    supported: nodo.case_support === "supported" || nodo.case_support === "partial",
+    node_id: nodo.node_id,
+  }));
+  pasos.push({
+    step_order: pasos.length + 1,
+    chain_role: "outcome",
+    statement: `"${targetLabel}" es lo que este caso trata de explicar.`,
+    supported: true,
+    node_id: targetNodeId,
+  });
+  return pasos;
+}
+
+function enunciadoRaiz(candidate: RootCauseCandidateInput, targetLabel: string): string {
+  if (esDesafiante(candidate)) {
+    return `Puede que "${targetLabel}" no se haya movido de verdad: la medida podria estar rota.`;
+  }
+  const origen = candidate.chain[0];
+  if (!origen) return `Sin candidata identificable para "${targetLabel}".`;
+  const { allMeasured } = weakestLink(candidate.chain);
+  if (!allMeasured) {
+    return `"${targetLabel}" podria venir de "${origen.label}", pero la cadena tiene un tramo sin medir: no se puede ni confirmar ni descartar.`;
+  }
+  return `"${origen.label}" mueve a "${targetLabel}". Por que se movio "${origen.label}" sigue sin explicarse.`;
+}
+
+/**
+ * De las hipotesis vivas de D08 a conclusiones causales.
+ *
+ * Una fila por candidata, no una "ganadora". Con una sola candidata sobre la
+ * mesa, su rol es `primary`; con varias, todas `contributing` -- porque D08 ya
+ * establecio que la separacion es baja, y elegir una seria fingir un criterio
+ * que no existe.
+ */
+export function generateRootCauses(input: RootCauseEngineInput): RootCauseDraft[] {
+  const noDesafiantes = input.candidates.filter((c) => !esDesafiante(c));
+  const soloUna = noDesafiantes.length === 1;
+
+  return input.candidates.map((candidate, i) => {
+    const { status, confidence } = statusAndConfidence(candidate);
+    const chain = buildChain(candidate, input.targetNodeId, input.targetLabel);
+    const desafiante = esDesafiante(candidate);
+
+    return {
+      code: `RC${i + 1}`,
+      statement: enunciadoRaiz(candidate, input.targetLabel),
+      family: desafiante ? "data" : familyFromCapability(candidate.capability),
+      // Ninguna cadena de hoy tiene mecanismo mas alla de la aritmetica o una
+      // co-ocurrencia: `process` es la clasificacion neutra que no inventa una
+      // profundidad que no se ha comprobado. El status, no el tipo, es lo que
+      // dice cuanto se sabe.
+      cause_type: desafiante ? "quality" : "process",
+      role: desafiante ? "primary" : soloUna ? "primary" : "contributing",
+      scope: input.scope,
+      scope_detail: input.scopeDetail,
+      status,
+      confidence,
+      explanatory_coverage: desafiante ? "unknown" : candidate.explanatory_coverage,
+      residual_material: true,
+      residual_note: desafiante
+        ? "Si la medida esta rota, no hay negocio real que explicar. Si no lo esta, esto no explica nada."
+        : "Por que se movio la causa candidata sigue sin explicarse: eso es residual, y es material.",
+      causal_path_id: candidate.source_path_id,
+      hypothesis_id: candidate.hypothesis_id,
+      controllability: "unknown",
+      reversibility: "unknown",
+      affects_observability_only: desafiante,
+      limitations: candidate.limitations,
+      chain,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// EL MOTOR (business constraint)
+// ---------------------------------------------------------------------------
+//
+// La otra mitad, independiente de la primera (apartado 23): responde "que nos
+// limita", no "por que paso". Hoy la respuesta honesta es **siempre `latent`**:
+// declarar `binding` exige capacidad y demanda medidas y un test contrafactual
+// resuelto (guardrails 29 y 31), y la plataforma no tiene ninguna de las dos
+// cosas todavia. Lo que el motor si aporta es **la lista de candidatas y el
+// test que haria falta correr**, que es lo que hasta hoy no existia en ningun
+// sitio.
+
+export type ConstraintCandidateInput = {
+  capability: string;
+  health_state: string;
+  confidence: string;
+};
+
+export type ConstraintEngineInput = {
+  targetMetric: string;
+  scope: string;
+  scopeDetail: Record<string, string>;
+  candidates: readonly ConstraintCandidateInput[];
+};
+
+export type ConstraintDraft = {
+  code: string;
+  statement: string;
+  constraint_type: (typeof CONSTRAINT_TYPES)[number];
+  target: string;
+  scope: string;
+  scope_detail: Record<string, string>;
+  binding_status: (typeof BINDING_STATUSES)[number];
+  nature: (typeof CONSTRAINT_NATURES)[number];
+  timing: "acute" | "structural";
+  arrangement: "serial" | "parallel" | "unknown";
+  confidence: string;
+  limits_target: boolean;
+  exposure: "minimal" | "moderate" | "high" | "existential" | "unknown";
+  counterfactual_question: string;
+  test: {
+    expected_if_binding: string;
+    expected_if_not_binding: string;
+  };
+};
+
+const CAPACIDAD_A_CONSTRAINT_TYPE: Partial<Record<string, (typeof CONSTRAINT_TYPES)[number]>> = {
+  unit_economics: "financial",
+  finance: "financial",
+  acquisition: "acquisition",
+  creative: "creative",
+  conversion: "conversion",
+  offer: "offer",
+  retention: "retention",
+  inventory: "inventory",
+  operations: "operations",
+  data: "data",
+  technology: "technology",
+  team: "team",
+  strategy: "strategy",
+  product: "product",
+};
+
+export function constraintTypeFromCapability(
+  capability: string,
+): (typeof CONSTRAINT_TYPES)[number] {
+  return CAPACIDAD_A_CONSTRAINT_TYPE[capability] ?? "operations";
+}
+
+/**
+ * De una capacidad con salud mala a una candidata a cuello, sin declararla
+ * vinculante.
+ *
+ * `binding_status: "latent"` en todas, siempre: es la unica respuesta que el
+ * esquema deja dar sin capacidad ni demanda medidas. Lo que si se escribe es el
+ * test que las despejaria -- el contrafactual del paso 5 del runtime -- para
+ * que declarar la capacidad y la demanda el dia de manana sea rellenar un
+ * hueco, no empezar de cero.
+ */
+export function generateConstraintCandidates(input: ConstraintEngineInput): ConstraintDraft[] {
+  return input.candidates.map((c, i) => {
+    const tipo = constraintTypeFromCapability(c.capability);
+    const gravedad = c.health_state === "critical" ? "critica" : "mala";
+    return {
+      code: `K${i + 1}`,
+      statement: `"${c.capability}" tiene salud ${gravedad} y podria estar limitando "${input.targetMetric}". No se ha comprobado si lo hace: falta capacidad y demanda medidas.`,
+      constraint_type: tipo,
+      target: input.targetMetric,
+      scope: input.scope,
+      scope_detail: input.scopeDetail,
+      binding_status: "latent",
+      nature: "soft",
+      // Una salud mala es una condicion que persiste, no un evento puntual: es
+      // el default mas defendible sin datos que digan lo contrario.
+      timing: "structural",
+      arrangement: "unknown",
+      confidence: c.confidence,
+      limits_target: false,
+      exposure: "unknown",
+      counterfactual_question: `Si "${c.capability}" tuviera la capacidad que necesita, ¿mejoraria "${input.targetMetric}"?`,
+      test: {
+        expected_if_binding: `"${input.targetMetric}" mejora en cuanto se resuelve la limitacion de "${c.capability}", sin que cambie nada mas alrededor.`,
+        expected_if_not_binding: `"${input.targetMetric}" no mejora al resolver "${c.capability}": el limite real esta en otro sitio.`,
+      },
+    };
+  });
+}

@@ -1,5 +1,6 @@
 /**
- * El rol ya no se lee de una columna: se deriva (migracion 20261006090000).
+ * El rol ya no se lee de una columna: se deriva (20261006090000, y desde
+ * 20261018090000 de pertenecer a una consultora con plan vigente).
  * Esta regla decide, para cada peticion de la plataforma, si alguien entra como
  * staff, como consultor o como cliente -- asi que lo que se prueba aqui no es
  * una funcion mas, es el gate de todo.
@@ -14,27 +15,27 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { derivePlatformRole } from "./auth-context.js";
 
-test("sin suscripcion propia se entra como cliente", () => {
+test("sin consultora detras se entra como cliente", () => {
   assert.equal(
-    derivePlatformRole({ isPlatformStaff: false, hasOwnSubscription: false }),
+    derivePlatformRole({ isPlatformStaff: false, isConsultant: false }),
     "user",
   );
 });
 
-test("con suscripcion propia vigente se es consultor", () => {
+test("siendo miembro de una consultora con plan vigente se es consultor", () => {
   assert.equal(
-    derivePlatformRole({ isPlatformStaff: false, hasOwnSubscription: true }),
+    derivePlatformRole({ isPlatformStaff: false, isConsultant: true }),
     "consultant",
   );
 });
 
 test("el staff no depende de tener plan: cancelarlo no quita la plataforma", () => {
   assert.equal(
-    derivePlatformRole({ isPlatformStaff: true, hasOwnSubscription: false }),
+    derivePlatformRole({ isPlatformStaff: true, isConsultant: false }),
     "platform_admin",
   );
   assert.equal(
-    derivePlatformRole({ isPlatformStaff: true, hasOwnSubscription: true }),
+    derivePlatformRole({ isPlatformStaff: true, isConsultant: true }),
     "platform_admin",
   );
 });

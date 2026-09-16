@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans } from "next/font/google";
 import { AriaRouterProvider } from "@/components/aria-router-provider";
-import { WhopPixel } from "@/components/whop-pixel";
 import { Toast } from "@/components/ui";
 import "./globals.css";
 
@@ -53,7 +52,6 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        <WhopPixel />
         <AriaRouterProvider>
           {children}
           {/* Arriba y flotando sobre el contenido, justo bajo el nav: un aviso

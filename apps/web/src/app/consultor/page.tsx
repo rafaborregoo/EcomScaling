@@ -974,38 +974,12 @@ function ClientActionsMenu({
     }
   }
 
-  async function regenerateCode() {
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organization.id}/invite/regenerate`,
-        { method: "POST" },
-      );
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      const data = (await response.json()) as {
-        code: string;
-        access_url: string;
-      };
-      await navigator.clipboard.writeText(data.access_url).catch(() => {});
-      toast.success(`Código ${data.code} · enlace copiado`);
-    } catch {
-      setError("No se pudo generar el código.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function onAction(key: string) {
     if (key === "edit") onEdit();
     else if (key === "pause")
       void post("pause", onChanged, "No se pudo pausar el cliente.");
     else if (key === "resume")
       void post("resume", onChanged, "No se pudo reanudar el cliente.");
-    else if (key === "invite-code") void regenerateCode();
     else if (key === "unlink") setConfirm("unlink");
     else if (key === "delete") setConfirm("delete");
   }
@@ -1028,12 +1002,6 @@ function ClientActionsMenu({
               <PencilIcon aria-hidden />
               <Label>Editar</Label>
             </Dropdown.Item>
-            {organization.status === "onboarding" ? (
-              <Dropdown.Item id="invite-code" textValue="Código de acceso">
-                <RetryIcon aria-hidden />
-                <Label>Nuevo código de acceso</Label>
-              </Dropdown.Item>
-            ) : null}
             {!pendingDeletion ? (
               suspended ? (
                 <Dropdown.Item id="resume" textValue="Reanudar">
@@ -1111,7 +1079,6 @@ function ClientActionsMenu({
 }
 
 type CreatedInvite = {
-  organization: { display_name: string };
   invite: { code: string; access_url: string; expires_at: string };
 };
 
@@ -1127,22 +1094,16 @@ function OwnStoreShortcut() {
   );
 }
 
-// Alta de cliente por el consultor: crea la organización (queda en su cartera)
-// y genera un código único y temporal. El consultor comparte el código o el
-// enlace; el cliente lo canjea en /acceso y hace su onboarding.
+// Alta de cliente por el consultor (§16): genera un código suelto, sin
+// organización todavía. El cliente crea la suya por su cuenta en /registro →
+// /planes, y el código es lo que la vincula a esta cartera en ese momento.
 function NewClientForm({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
-  const [displayName, setDisplayName] = useState("");
-  const [ownerEmail, setOwnerEmail] = useState("");
-  const [ownerFullName, setOwnerFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedInvite | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const canSubmit =
-    displayName.trim().length > 0 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail);
 
   async function submit() {
     setBusy(true);
@@ -1151,24 +1112,18 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
       const response = await apiFetch("/v1/consultant/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          display_name: displayName.trim(),
-          owner_email: ownerEmail.trim(),
-          owner_full_name: ownerFullName.trim() || undefined,
-        }),
+        body: JSON.stringify(email.trim() ? { email: email.trim() } : {}),
       });
       if (!response.ok) {
         setError(await readApiError(response));
         return;
       }
       setCreated((await response.json()) as CreatedInvite);
-      setDisplayName("");
-      setOwnerEmail("");
-      setOwnerFullName("");
+      setEmail("");
       onCreated();
     } catch {
       setError(
-        "No se pudo crear el cliente. Revisa la conexión e inténtalo de nuevo.",
+        "No se pudo generar el código. Revisa la conexión e inténtalo de nuevo.",
       );
     } finally {
       setBusy(false);
@@ -1178,17 +1133,11 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
   if (created) {
     return (
       <Card
-        kicker="Cliente creado"
-        title={created.organization.display_name}
-        description="Comparte este código o enlace con tu cliente. Lo introduce en la página de acceso y hace su onboarding."
+        kicker="Código generado"
+        title={created.invite.code}
+        description="Compártelo con tu cliente. Lo introduce en /acceso, crea su cuenta y su organización queda en tu cartera."
       >
         <div className="grid gap-4">
-          <div>
-            <p className={EYEBROW}>Código</p>
-            <p className="mt-1 font-mono text-2xl font-semibold tracking-[0.2em]">
-              {created.invite.code}
-            </p>
-          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
@@ -1216,7 +1165,7 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
               setOpen(false);
             }}
           >
-            Crear otro
+            Generar otro
           </Button>
         </div>
       </Card>
@@ -1228,7 +1177,7 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
       <Card
         kicker="Alta"
         title="Invitar cliente"
-        description="Crea una organización separada para el cliente y genera su código de acceso."
+        description="Genera un código para que tu cliente cree su cuenta y quede en tu cartera."
       >
         <Button size="sm" onClick={() => setOpen(true)}>
           Invitar cliente
@@ -1241,37 +1190,21 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
     <Card
       kicker="Alta"
       title="Invitar cliente"
-      description="Se crea su organización en tu cartera y el cliente decide si quiere unirse antes de obtener acceso."
+      description="El código no caduca hasta que se use o pasen 7 días. Tu cliente crea su cuenta y su organización queda vinculada a tu cartera."
     >
       <div className="grid gap-4">
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nombre del cliente">
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Acme Store"
-            />
-          </Field>
-          <Field label="Email del cliente">
-            <Input
-              type="email"
-              value={ownerEmail}
-              onChange={(e) => setOwnerEmail(e.target.value)}
-              placeholder="owner@acme.com"
-            />
-          </Field>
-          <Field label="Nombre de contacto (opcional)">
-            <Input
-              value={ownerFullName}
-              onChange={(e) => setOwnerFullName(e.target.value)}
-              placeholder="Nombre Apellido"
-            />
-          </Field>
-        </div>
+        <Field label="Email del cliente (opcional, para enviárselo por correo)">
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="owner@acme.com"
+          />
+        </Field>
         <div className="flex gap-3">
-          <Button disabled={!canSubmit || busy} onClick={() => void submit()}>
-            {busy ? "Creando..." : "Crear invitación"}
+          <Button disabled={busy} onClick={() => void submit()}>
+            {busy ? "Generando..." : "Generar código"}
           </Button>
           <Button variant="ghost" onClick={() => setOpen(false)}>
             Cancelar
