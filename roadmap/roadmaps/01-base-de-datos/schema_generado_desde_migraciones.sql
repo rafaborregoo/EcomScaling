@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (215 archivos).
+-- Regenerado desde supabase/migrations (227 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -30750,3 +30750,1406 @@ comment on function public.shopify_funnel_summary(uuid, timestamptz, timestamptz
   'son visitas que compraron, NO el numero de pedidos: los pedidos incluyen '
   'otros canales. funnel_data_since dice desde cuando el embudo esta completo, '
   'para no confundir "nadie llego ahi" con "todavia no lo sincronizabamos".';
+
+-- =============================================================================
+-- Migracion: 20261016090000_facturacion_verifactu.sql
+-- =============================================================================
+-- Facturacion propia de la plataforma y registros SIF/VERI*FACTU.
+-- Los datos fiscales y los registros son internos: se sirven solo a traves
+-- del API, nunca directamente desde el Data API de Supabase.
+
+create table if not exists private.platform_billing_settings (
+  singleton_id boolean primary key default true check (singleton_id),
+  legal_name text not null,
+  tax_id varchar(40) not null,
+  address_line1 text not null,
+  address_line2 text,
+  postal_code varchar(20) not null,
+  city varchar(120) not null,
+  region varchar(120),
+  country_code varchar(2) not null default 'ES',
+  email varchar(255),
+  phone varchar(40),
+  invoice_series varchar(20) not null default 'F',
+  default_vat_rate numeric(5,2) not null default 21,
+  prices_include_vat boolean not null default true,
+  vat_regime_code varchar(2) not null default '01',
+  system_name varchar(120) not null default 'EcomScaling Facturacion',
+  system_id varchar(20) not null default 'ECOMSCALING',
+  system_version varchar(30) not null default '1.0.0',
+  installation_number varchar(100) not null default '1',
+  verifactu_enabled boolean not null default false,
+  verifactu_environment varchar(12) not null default 'test'
+    check (verifactu_environment in ('test', 'production')),
+  updated_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists private.invoice_number_sequences (
+  invoice_series varchar(20) not null,
+  invoice_year integer not null,
+  next_number bigint not null default 1 check (next_number > 0),
+  last_verifactu_hash varchar(64),
+  last_invoice_code varchar(80),
+  last_issue_date date,
+  updated_at timestamptz not null default now(),
+  primary key (invoice_series, invoice_year)
+);
+
+create table if not exists private.billing_invoices (
+  id uuid primary key default gen_random_uuid(),
+  invoice_series varchar(20) not null,
+  invoice_year integer not null,
+  invoice_number bigint not null,
+  invoice_code varchar(80) not null unique,
+  invoice_type varchar(20) not null default 'F1'
+    check (invoice_type in ('F1', 'R1', 'R2', 'R3', 'R4', 'R5')),
+  status varchar(30) not null default 'needs_customer_data'
+    check (status in ('draft', 'needs_customer_data', 'issued', 'paid', 'refunded', 'void', 'rectified', 'error')),
+  issue_date date not null,
+  operation_date date not null,
+  issuer_name text not null,
+  issuer_tax_id varchar(40) not null,
+  issuer_address jsonb not null default '{}'::jsonb,
+  customer_name text,
+  customer_tax_id varchar(40),
+  customer_email varchar(255),
+  customer_address jsonb not null default '{}'::jsonb,
+  currency_code varchar(3) not null default 'EUR',
+  subtotal numeric(14,2) not null,
+  tax_amount numeric(14,2) not null,
+  total numeric(14,2) not null,
+  tax_regime_code varchar(2) not null default '01',
+  operation_description text not null,
+  payment_method varchar(40) not null default 'whop',
+  whop_payment_id varchar(200) unique,
+  whop_membership_id varchar(200),
+  whop_event_id varchar(200),
+  verifactu_status varchar(30) not null default 'pending'
+    check (verifactu_status in ('pending', 'submitted', 'accepted', 'accepted_with_errors', 'rejected', 'not_configured', 'error')),
+  verifactu_hash varchar(64),
+  verifactu_previous_hash varchar(64),
+  verifactu_previous_invoice_code varchar(80),
+  verifactu_previous_issue_date date,
+  verifactu_qr_url text,
+  verifactu_xml text,
+  verifactu_response jsonb,
+  verifactu_submitted_at timestamptz,
+  pdf_storage_path text,
+  rectifies_invoice_id uuid references private.billing_invoices (id) on delete restrict,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint billing_invoices_number_positive check (invoice_number > 0),
+  constraint billing_invoices_year_valid check (invoice_year between 2020 and 2200)
+);
+
+create unique index if not exists billing_invoices_series_year_number_idx
+  on private.billing_invoices (invoice_series, invoice_year, invoice_number);
+create index if not exists billing_invoices_status_idx
+  on private.billing_invoices (status, issue_date desc);
+create index if not exists billing_invoices_verifactu_status_idx
+  on private.billing_invoices (verifactu_status, created_at);
+create index if not exists billing_invoices_customer_email_idx
+  on private.billing_invoices (customer_email);
+
+create table if not exists private.billing_invoice_lines (
+  id uuid primary key default gen_random_uuid(),
+  invoice_id uuid not null references private.billing_invoices (id) on delete cascade,
+  position integer not null,
+  description text not null,
+  quantity numeric(12,3) not null default 1 check (quantity > 0),
+  unit_price numeric(14,2) not null,
+  vat_rate numeric(5,2) not null default 21 check (vat_rate >= 0 and vat_rate <= 100),
+  base_amount numeric(14,2) not null,
+  tax_amount numeric(14,2) not null,
+  total_amount numeric(14,2) not null,
+  verifactu_classification varchar(2) not null default 'S1',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique (invoice_id, position)
+);
+
+create table if not exists private.billing_invoice_events (
+  id uuid primary key default gen_random_uuid(),
+  provider varchar(40) not null,
+  external_event_id varchar(255) not null,
+  event_type varchar(120) not null,
+  invoice_id uuid references private.billing_invoices (id) on delete set null,
+  status varchar(30) not null default 'received'
+    check (status in ('received', 'processed', 'failed', 'duplicate')),
+  payload jsonb not null default '{}'::jsonb,
+  error_message text,
+  processed_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (provider, external_event_id)
+);
+
+create index if not exists billing_invoice_events_invoice_idx
+  on private.billing_invoice_events (invoice_id, created_at desc);
+create index if not exists billing_invoice_events_status_idx
+  on private.billing_invoice_events (status, created_at);
+
+drop trigger if exists set_platform_billing_settings_updated_at on private.platform_billing_settings;
+create trigger set_platform_billing_settings_updated_at
+before update on private.platform_billing_settings
+for each row execute function private.set_updated_at();
+
+drop trigger if exists set_billing_invoices_updated_at on private.billing_invoices;
+create trigger set_billing_invoices_updated_at
+before update on private.billing_invoices
+for each row execute function private.set_updated_at();
+
+-- Una funcion que devuelve TABLE no se puede `create or replace` si una
+-- migracion futura le cambia las columnas: Postgres responde "cannot change
+-- return type of existing function". El drop previo es lo que deja reaplicar
+-- esta migracion sin dano si el esquema se toco por fuera de db:push.
+drop function if exists private.allocate_billing_invoice_number(varchar, integer);
+
+create or replace function private.allocate_billing_invoice_number(
+  target_series varchar,
+  target_year integer
+)
+returns table (invoice_number bigint, previous_verifactu_hash varchar, previous_invoice_code varchar, previous_issue_date date)
+language plpgsql
+security definer
+set search_path = private
+as $$
+begin
+  if target_series is null or length(trim(target_series)) = 0 then
+    raise exception 'invoice_series_required';
+  end if;
+  if target_year < 2020 or target_year > 2200 then
+    raise exception 'invoice_year_invalid';
+  end if;
+
+  insert into private.invoice_number_sequences (invoice_series, invoice_year)
+  values (trim(target_series), target_year)
+  on conflict (invoice_series, invoice_year) do nothing;
+
+  return query
+  update private.invoice_number_sequences
+     set next_number = next_number + 1,
+         updated_at = now()
+   where invoice_series = trim(target_series)
+     and invoice_year = target_year
+  returning next_number - 1, last_verifactu_hash, last_invoice_code, last_issue_date;
+end;
+$$;
+
+create or replace function private.set_billing_verifactu_hash(
+  target_series varchar,
+  target_year integer,
+  target_hash varchar,
+  target_invoice_code varchar,
+  target_issue_date date
+)
+returns void
+language sql
+security definer
+set search_path = private
+as $$
+  update private.invoice_number_sequences
+     set last_verifactu_hash = target_hash,
+         last_invoice_code = target_invoice_code,
+         last_issue_date = target_issue_date,
+         updated_at = now()
+   where invoice_series = trim(target_series)
+     and invoice_year = target_year;
+$$;
+
+alter table private.platform_billing_settings enable row level security;
+alter table private.invoice_number_sequences enable row level security;
+alter table private.billing_invoices enable row level security;
+alter table private.billing_invoice_lines enable row level security;
+alter table private.billing_invoice_events enable row level security;
+
+revoke all on table private.platform_billing_settings from anon, authenticated;
+revoke all on table private.invoice_number_sequences from anon, authenticated;
+revoke all on table private.billing_invoices from anon, authenticated;
+revoke all on table private.billing_invoice_lines from anon, authenticated;
+revoke all on table private.billing_invoice_events from anon, authenticated;
+grant select, insert, update, delete on table private.platform_billing_settings to service_role;
+grant select, insert, update, delete on table private.invoice_number_sequences to service_role;
+grant select, insert, update, delete on table private.billing_invoices to service_role;
+grant select, insert, update, delete on table private.billing_invoice_lines to service_role;
+grant select, insert, update, delete on table private.billing_invoice_events to service_role;
+revoke all on function private.allocate_billing_invoice_number(varchar, integer) from public;
+revoke all on function private.set_billing_verifactu_hash(varchar, integer, varchar, varchar, date) from public;
+grant execute on function private.allocate_billing_invoice_number(varchar, integer) to service_role;
+grant execute on function private.set_billing_verifactu_hash(varchar, integer, varchar, varchar, date) to service_role;
+
+comment on table private.billing_invoices is 'Facturas fiscales propias de la plataforma, con snapshot de emisor y cliente.';
+comment on table private.billing_invoice_events is 'Idempotencia y trazabilidad de pagos/refunds de Whop y envios VERI*FACTU.';
+
+-- =============================================================================
+-- Migracion: 20261016091000_platform_finances.sql
+-- =============================================================================
+-- Gastos propios de EcomScaling. No pertenecen a una organización cliente y
+-- solo se sirven a platform_admin a través del API con service_role.
+
+create table if not exists private.platform_expenses (
+  id uuid primary key default gen_random_uuid(),
+  name varchar(160) not null,
+  vendor varchar(160),
+  category varchar(40) not null default 'other'
+    check (category in (
+      'software', 'hosting', 'ai', 'accounting', 'marketing', 'banking',
+      'contractors', 'insurance', 'taxes', 'office', 'travel', 'other'
+    )),
+  amount numeric(14,2) not null check (amount > 0),
+  tax_amount numeric(14,2) not null default 0
+    check (tax_amount >= 0 and tax_amount <= amount),
+  currency_code varchar(3) not null default 'EUR',
+  billing_period varchar(20) not null default 'one_time'
+    check (billing_period in ('one_time', 'monthly', 'yearly')),
+  starts_on date not null default current_date,
+  ends_on date,
+  deductible boolean not null default true,
+  notes text,
+  document_url text,
+  status varchar(20) not null default 'active'
+    check (status in ('active', 'archived')),
+  created_by uuid references public.profiles (id) on delete set null,
+  updated_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint platform_expenses_dates_valid
+    check (ends_on is null or ends_on >= starts_on)
+);
+
+create index if not exists platform_expenses_status_dates_idx
+  on private.platform_expenses (status, starts_on, ends_on);
+create index if not exists platform_expenses_category_idx
+  on private.platform_expenses (category, currency_code);
+
+drop trigger if exists set_platform_expenses_updated_at
+  on private.platform_expenses;
+create trigger set_platform_expenses_updated_at
+before update on private.platform_expenses
+for each row execute function private.set_updated_at();
+
+alter table private.platform_expenses enable row level security;
+revoke all on table private.platform_expenses from anon, authenticated;
+grant select, insert, update, delete on table private.platform_expenses
+  to service_role;
+
+comment on table private.platform_expenses is
+  'Gastos de la plataforma EcomScaling: puntuales o recurrentes. Acceso exclusivo por API de platform_admin.';
+
+-- =============================================================================
+-- Migracion: 20261017090000_f3_d07_grafo_causal_semilla.sql
+-- =============================================================================
+-- FASE 3 / D07 -- La semilla del grafo causal global.
+--
+-- La migracion `20260918090000` dejo las cinco tablas del grafo y **ninguna
+-- fila**. Un grafo vacio no se recorre: `causal_paths` no podia escribirse
+-- porque no habia aristas que seguir, y por eso D07 llevaba tres semanas en
+-- `contrato`.
+--
+-- Esto es lo mismo que hizo D06 con `metric_dependencies` el 2026-09-28:
+-- **declarar el conocimiento en una migracion**, sin organizacion, porque no es
+-- una particularidad de nadie. Las ventas netas son pedidos por ticket medio en
+-- cualquier tienda.
+--
+-- LA REGLA QUE DECIDE QUE ENTRA AQUI Y QUE NO: solo se declara lo que se puede
+-- sostener con un mecanismo escrito y una metrica que la plataforma sabe leer
+-- hoy. Seis nodos y cinco aristas es poco para un grafo causal del ecommerce, y
+-- es exactamente lo que tenemos. El resto lo declara quien sepa, desde la
+-- pantalla de D07, y queda con `knowledge_source = 'expert_heuristic'` y su
+-- techo de evidencia puesto por el esquema (guardrail 45).
+--
+-- CUATRO DE LAS CINCO ARISTAS SON ARITMETICA, Y ESO NO ES UN DEFECTO OCULTO.
+-- `relation_type = 'mathematical'` existe justo para esto: el guardrail 4 dice
+-- que el linaje no es el grafo causal, y `checkCausalInvariants` impide que una
+-- ruta hecha solo de aritmetica se presente como explicacion. Declararlas sirve
+-- para **acotar la busqueda** --si las ventas cayeron, o cayeron los pedidos o
+-- cayo el ticket, no hay tercera opcion-- no para explicar nada.
+--
+-- `sessions` Y `conversion_rate` SON `observed_metric` A PROPOSITO. Salen del
+-- tracking de la tienda, y un fallo de tracking las mueve sin que se mueva el
+-- negocio. Esa etiqueta es lo que hace saltar los guardrails 37-39 en cuanto una
+-- ruta pase por ellas sin validar la medicion. `net_sales`, `orders_count` y
+-- `ad_spend` no: salen del registro de pedidos y del de facturacion del
+-- anunciante, que son el sistema de registro, no una medida indirecta.
+
+-- ---------------------------------------------------------------------------
+-- 1. Los nodos: el vocabulario que la plataforma sabe leer
+-- ---------------------------------------------------------------------------
+
+insert into public.causal_nodes
+  (organization_id, code, label, node_type, capability, observability, measurement_layer, scope, provenance, notes)
+select v.organization_id, v.code, v.label, v.node_type, v.capability,
+       v.observability, v.measurement_layer, v.scope, v.provenance, v.notes
+from (values
+  (null::uuid, 'net_sales', 'Ventas netas', 'metric', 'unit_economics',
+   'derived', 'real_world', 'business', 'system_logic',
+   null::text),
+  (null::uuid, 'orders_count', 'Pedidos', 'metric', 'conversion',
+   'directly_observed', 'real_world', 'business', 'system_logic',
+   null::text),
+  (null::uuid, 'average_order_value', 'Ticket medio', 'metric', 'unit_economics',
+   'derived', 'real_world', 'business', 'system_logic',
+   null::text),
+  (null::uuid, 'sessions', 'Sesiones', 'metric', 'acquisition',
+   'directly_observed', 'observed_metric', 'business', 'system_logic',
+   null::text),
+  (null::uuid, 'conversion_rate', 'Tasa de conversion', 'metric', 'conversion',
+   'derived', 'observed_metric', 'business', 'system_logic',
+   null::text),
+  (null::uuid, 'ad_spend', 'Inversion publicitaria', 'metric', 'acquisition',
+   'directly_observed', 'real_world', 'business', 'system_logic',
+   null::text)
+) as v(organization_id, code, label, node_type, capability, observability, measurement_layer, scope, provenance, notes)
+where not exists (
+  select 1 from public.causal_nodes n
+  where n.organization_id is null
+    and n.code = v.code
+    and n.scope = v.scope
+    and n.scope_detail = '{}'::jsonb
+);
+
+-- ---------------------------------------------------------------------------
+-- 2. Las aristas: cuatro de aritmetica y una de mecanismo
+-- ---------------------------------------------------------------------------
+--
+-- El `mechanism` de una arista aritmetica es la identidad misma, y tiene que
+-- decirla entera: el check exige 20 caracteres porque el guardrail 9 dice que un
+-- eslogan no es un mecanismo. El `diagnostic_rationale` dice para que sirve
+-- **diagnosticando**, que es lo que el guardrail 10 pide y lo que impide que el
+-- grafo se llene de relaciones ciertas e inutiles.
+
+insert into public.causal_edges
+  (organization_id, from_node_id, to_node_id, edge_kind, relation_type, expected_sign,
+   mechanism, diagnostic_rationale, conditions, expected_lag_days,
+   strength, evidence_level, knowledge_source)
+select null, origen.id, destino.id, v.edge_kind, v.relation_type, v.expected_sign,
+       v.mechanism, v.diagnostic_rationale, v.conditions, v.expected_lag_days,
+       v.strength, v.evidence_level, v.knowledge_source
+from (values
+  ('orders_count', 'net_sales', 'causal', 'mathematical', 'positive',
+   'Las ventas netas son la suma del importe de los pedidos: un pedido mas suma su importe al total, y uno menos lo resta. No hay tercera via.',
+   'Separa una caida de ventas por menos pedidos de una caida por ticket mas bajo. Son problemas distintos y se arreglan en sitios distintos.',
+   null::text, 0, 'strong', 'deterministic', 'system_logic'),
+
+  ('average_order_value', 'net_sales', 'causal', 'mathematical', 'positive',
+   'Las ventas netas son el numero de pedidos por el importe medio de cada uno: con los mismos pedidos, un ticket mas bajo baja las ventas.',
+   'Es la otra mitad de la descomposicion. Si los pedidos aguantan y las ventas caen, lo que se hundio es el ticket.',
+   null::text, 0, 'strong', 'deterministic', 'system_logic'),
+
+  ('sessions', 'orders_count', 'causal', 'mathematical', 'positive',
+   'Los pedidos son las sesiones por la tasa de conversion: sin visita no hay pedido, asi que menos sesiones son menos pedidos a igualdad de conversion.',
+   'Separa un problema de trafico de uno de conversion, que es la primera bifurcacion de cualquier caida de pedidos.',
+   null::text, 0, 'strong', 'deterministic', 'system_logic'),
+
+  ('conversion_rate', 'orders_count', 'causal', 'mathematical', 'positive',
+   'Los pedidos son las sesiones por la tasa de conversion: con el mismo trafico, una conversion mas baja son menos pedidos.',
+   'La otra rama de la misma bifurcacion. Si el trafico aguanta y los pedidos caen, el problema esta en la tienda, no en traerlos.',
+   null::text, 0, 'strong', 'deterministic', 'system_logic'),
+
+  -- La unica que explica algo, y por eso es la unica que no es determinista.
+  ('ad_spend', 'sessions', 'causal', 'economic', 'positive',
+   'La inversion en anuncios compra impresiones que se convierten en clics hacia la tienda: a igualdad de coste por clic, mas inversion trae mas sesiones pagadas, y recortarla las quita.',
+   'Distingue una caida de sesiones por recorte de inversion --que es una decision, no una averia-- de una caida con la inversion intacta, que si lo es.',
+   'Se sostiene mientras el coste por clic y la mezcla de campanas no cambien a la vez. Si cambian, la relacion sigue existiendo pero ya no explica la magnitud.',
+   1, 'moderate', 'common_mechanism', 'system_logic')
+) as v(from_code, to_code, edge_kind, relation_type, expected_sign,
+       mechanism, diagnostic_rationale, conditions, expected_lag_days,
+       strength, evidence_level, knowledge_source)
+join public.causal_nodes origen
+  on origen.organization_id is null and origen.code = v.from_code and origen.scope = 'business'
+join public.causal_nodes destino
+  on destino.organization_id is null and destino.code = v.to_code and destino.scope = 'business'
+where not exists (
+  select 1 from public.causal_edges e
+  where e.organization_id is null
+    and e.from_node_id = origen.id
+    and e.to_node_id = destino.id
+    and e.relation_type = v.relation_type
+);
+
+-- ---------------------------------------------------------------------------
+-- 3. Escritura: el consultor declara aristas propias de su tienda
+-- ---------------------------------------------------------------------------
+--
+-- La migracion original solo dio politicas de `select`. Sin `insert`, la unica
+-- forma de anadir conocimiento causal era una migracion, y eso deja el grafo
+-- congelado en lo que supiera quien escribio el SQL.
+--
+-- Solo para lo del tenant: `organization_id` no puede ser nulo en una fila
+-- escrita desde la pantalla. Una arista global es conocimiento de ecommerce y se
+-- revisa antes de entrar; una arista de tenant es lo que este consultor ha visto
+-- en esta tienda, y el guardrail 44 ya impide que ascienda sola.
+
+drop policy if exists "causal_nodes_insert_consultor" on public.causal_nodes;
+create policy "causal_nodes_insert_consultor" on public.causal_nodes
+  for insert to authenticated
+  with check (
+    organization_id is not null
+    and (private.is_platform_admin() or private.is_assigned_consultant(organization_id))
+  );
+
+drop policy if exists "causal_edges_insert_consultor" on public.causal_edges;
+create policy "causal_edges_insert_consultor" on public.causal_edges
+  for insert to authenticated
+  with check (
+    organization_id is not null
+    and (private.is_platform_admin() or private.is_assigned_consultant(organization_id))
+  );
+
+drop policy if exists "causal_edges_update_consultor" on public.causal_edges;
+create policy "causal_edges_update_consultor" on public.causal_edges
+  for update to authenticated
+  using (
+    organization_id is not null
+    and (private.is_platform_admin() or private.is_assigned_consultant(organization_id))
+  )
+  with check (organization_id is not null);
+
+-- =============================================================================
+-- Migracion: 20261018090000_organizacion_consultora.sql
+-- =============================================================================
+-- Fase 1 de PLAN_ORGANIZACION_CONSULTORA_Y_SALDO_COPILOTO.md
+--
+-- La consultora deja de ser una persona y pasa a ser una organizacion.
+--
+-- ADR-0023 dejo el rol derivado de la suscripcion, pero colgada del USUARIO
+-- (`service_subscriptions.user_id`). El modelo de planes dice otra cosa: quien
+-- contrata es la consultora, y los consultores son miembros suyos. Mientras el
+-- rol dependa de una fila por persona no hay a que colgar la capacidad de
+-- cartera (§11), ni los codigos de vinculacion (§21), ni la facturacion por
+-- tramos (§33) -- todo eso son propiedades de la consultora, no de cada
+-- empleado.
+--
+-- Lo que hace barato el cambio es que `private.is_consultant` solo lo llaman
+-- las otras cuatro funciones de `private`. Ninguna policy lo menciona.
+-- Cambiar quien es consultor es cambiar el cuerpo de una funcion.
+--
+-- Una consultora NO necesita tablas nuevas: una fila de `organizations` ya
+-- tiene miembros con roles, suscripcion, auditoria y ciclo de vida. Lo unico
+-- que falta es decir de que tipo es -- de ahi `kind`.
+--
+-- Las tiendas propias del consultor (createOwnStore) se quedan donde estan:
+-- una organizacion de kind='client' por tienda. Colgarlas de la consultora
+-- obligaria a fusionar dos tiendas en una organizacion, y todo el producto
+-- (dashboards, integraciones, rollups) esta indexado por organization_id: un
+-- panel por tienda dejaria de existir. La consultora no tiene tiendas; tiene
+-- el plan y la gente.
+
+-- 1. De que tipo es cada organizacion ----------------------------------------
+
+alter table public.organizations
+  add column if not exists kind text not null default 'client';
+
+alter table public.organizations
+  drop constraint if exists organizations_kind_check;
+alter table public.organizations
+  add constraint organizations_kind_check
+  check (kind in ('client', 'consulting'));
+
+create index if not exists organizations_consulting_idx
+  on public.organizations (id)
+  where kind = 'consulting';
+
+-- Que consultora capto y atiende al cliente. Hoy la atribucion es por persona
+-- (`consultant_user_id`); para facturar tramos hace falta saber la empresa,
+-- porque un cliente atendido por dos empleados de la misma consultora se
+-- cuenta una vez.
+alter table public.consultant_assignments
+  add column if not exists consulting_organization_id uuid
+  references public.organizations (id) on delete set null;
+
+create index if not exists consultant_assignments_consulting_org_idx
+  on public.consultant_assignments (consulting_organization_id)
+  where consulting_organization_id is not null;
+
+-- 2. Quien era consultor ANTES de tocar nada ---------------------------------
+-- La asercion del final compara contra esto. Se captura con la funcion viva,
+-- sea la version vieja (primera pasada) o la nueva (reaplicacion), asi que la
+-- comprobacion sigue siendo valida si la migracion se repite.
+
+create temporary table _consultores_antes on commit drop as
+select p.id
+from public.profiles p
+where private.is_consultant(p.id);
+
+-- 3. Backfill ----------------------------------------------------------------
+-- Por cada consultor de hoy: su consultora, el como owner, y su suscripcion
+-- movida de `user_id` a `organization_id`.
+
+do $$
+declare
+  fila record;
+  nueva_org uuid;
+  base_slug text;
+  slug_libre text;
+  sufijo integer;
+begin
+  for fila in
+    select ss.id as subscription_id, ss.user_id, p.full_name
+    from public.service_subscriptions ss
+    join public.profiles p on p.id = ss.user_id
+    where ss.user_id is not null
+      and ss.status in ('trial', 'active')
+      -- Si ya es miembro de una consultora, esta migracion ya corrio para el.
+      and not exists (
+        select 1
+        from public.organization_members om
+        join public.organizations o on o.id = om.organization_id
+        where om.user_id = ss.user_id
+          and om.is_active
+          and o.kind = 'consulting'
+      )
+  loop
+    base_slug := regexp_replace(
+      lower(coalesce(nullif(trim(fila.full_name), ''), 'consultora')),
+      '[^a-z0-9]+', '-', 'g'
+    );
+    base_slug := trim(both '-' from base_slug);
+    if base_slug = '' then
+      base_slug := 'consultora';
+    end if;
+
+    slug_libre := base_slug;
+    sufijo := 1;
+    while exists (select 1 from public.organizations where slug = slug_libre) loop
+      sufijo := sufijo + 1;
+      slug_libre := base_slug || '-' || sufijo::text;
+    end loop;
+
+    insert into public.organizations (display_name, slug, kind, status, created_by, activated_at)
+    values (
+      coalesce(nullif(trim(fila.full_name), ''), 'Consultora'),
+      slug_libre,
+      'consulting',
+      'active',
+      fila.user_id,
+      now()
+    )
+    returning id into nueva_org;
+
+    insert into public.organization_members (organization_id, user_id, role, is_active, invited_at, joined_at)
+    values (nueva_org, fila.user_id, 'owner', true, now(), now());
+
+    -- El sujeto de la suscripcion cambia de persona a empresa. El check
+    -- `service_subscriptions_sujeto_unico` exige exactamente uno de los dos,
+    -- asi que las dos columnas se escriben en el mismo update.
+    update public.service_subscriptions
+    set organization_id = nueva_org,
+        user_id = null
+    where id = fila.subscription_id;
+
+    -- Las asignaciones que ya tenia pasan a atribuirse a su consultora.
+    update public.consultant_assignments
+    set consulting_organization_id = nueva_org
+    where consultant_user_id = fila.user_id
+      and consulting_organization_id is null;
+  end loop;
+end;
+$$;
+
+-- 4. La regla nueva ----------------------------------------------------------
+
+create or replace function private.is_consultant(target_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.organization_members om
+    join public.organizations o
+      on o.id = om.organization_id and o.kind = 'consulting'
+    join public.service_subscriptions ss
+      on ss.organization_id = o.id
+    join public.profiles p on p.id = om.user_id
+    where om.user_id = target_user_id
+      and om.is_active
+      and p.is_active
+      and o.status in ('onboarding', 'active')
+      and ss.status in ('trial', 'active')
+      and (ss.starts_at is null or ss.starts_at <= now())
+      and (ss.ends_at is null or ss.ends_at > now())
+  )
+  or exists (
+    select 1
+    from public.profiles p
+    where p.id = target_user_id
+      and p.is_platform_staff
+      and p.is_active
+  );
+$$;
+
+revoke all on function private.is_consultant(uuid) from public;
+grant execute on function private.is_consultant(uuid) to authenticated;
+
+-- La consultora es de sus miembros, no un cliente mas: no debe aparecer en
+-- `accessible_org_ids` por la rama de "membership con plan activo", o el
+-- selector del portal la pintaria como una tienda. Se accede a ella, pero por
+-- ser consultor, no por ser cliente.
+create or replace function private.accessible_org_ids()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path to ''
+as $fn$
+  select o.id
+  from public.organizations o
+  where (select private.is_platform_admin())
+  union
+  select ca.organization_id
+  from public.consultant_assignments ca
+  join public.profiles p on p.id = ca.consultant_user_id
+  join public.organizations o on o.id = ca.organization_id
+  where ca.consultant_user_id = auth.uid()
+    and ca.is_active
+    and p.is_active
+    and private.is_consultant(ca.consultant_user_id)
+    and o.status in ('onboarding', 'active')
+  union
+  select om.organization_id
+  from public.organization_members om
+  join public.organizations o on o.id = om.organization_id
+  where om.user_id = auth.uid()
+    and om.is_active
+    and o.status in ('onboarding', 'active')
+    and (
+      o.kind = 'consulting'
+      or exists (
+        select 1
+        from public.service_subscriptions ss
+        where ss.organization_id = om.organization_id
+          and ss.status in ('trial', 'active')
+          and (ss.starts_at is null or ss.starts_at <= now())
+          and (ss.ends_at is null or ss.ends_at > now())
+      )
+    );
+$fn$;
+
+-- 5. Asercion: la misma gente sigue siendo consultora ------------------------
+-- No se comprueba "el backfill corrio" (eso solo repetiria su propia
+-- condicion), sino la propiedad que de verdad decide quien ve que: el conjunto
+-- de consultores, y el conjunto de pares (usuario, organizacion cliente)
+-- accesibles. Si alguien gana o pierde uno, la migracion aborta entera.
+
+do $$
+declare
+  divergentes integer;
+  detalle text;
+begin
+  with ahora as (
+    select p.id from public.profiles p where private.is_consultant(p.id)
+  ),
+  diff as (
+    select 'pierde' as lado, id from (select id from _consultores_antes except select id from ahora) a
+    union all
+    select 'gana', id from (select id from ahora except select id from _consultores_antes) b
+  )
+  select count(*), coalesce(string_agg(lado || ' ' || id::text, ', '), '')
+  into divergentes, detalle
+  from diff;
+
+  if divergentes > 0 then
+    raise exception 'el conjunto de consultores cambia en % personas: %',
+      divergentes, detalle;
+  end if;
+
+  -- Ninguna suscripcion puede quedar colgando de una persona: a partir de
+  -- aqui el plan de consultor es de la consultora.
+  select count(*) into divergentes
+  from public.service_subscriptions
+  where user_id is not null
+    and status in ('trial', 'active');
+
+  if divergentes > 0 then
+    raise exception '% suscripciones vivas siguen a nombre de una persona', divergentes;
+  end if;
+
+  -- Cada consultora tiene exactamente un plan vivo y al menos un miembro.
+  select count(*) into divergentes
+  from public.organizations o
+  where o.kind = 'consulting'
+    and (
+      not exists (
+        select 1 from public.service_subscriptions ss
+        where ss.organization_id = o.id and ss.status in ('trial', 'active')
+      )
+      or not exists (
+        select 1 from public.organization_members om
+        where om.organization_id = o.id and om.is_active
+      )
+    );
+
+  if divergentes > 0 then
+    raise exception '% consultoras sin plan vivo o sin miembros', divergentes;
+  end if;
+end;
+$$;
+
+-- 6. Una sola fuente para Node -----------------------------------------------
+-- `auth-context.ts` derivaba el rol repitiendo en TypeScript la condicion de
+-- `private.is_consultant`. Con la condicion vieja (una fila con `user_id`) eso
+-- era una consulta trivial; con la nueva son tres tablas y la vigencia del
+-- plan, y dos copias de esa regla acaban discrepando sobre quien es consultor
+-- -- con la API diciendo una cosa y la RLS otra. Se expone la funcion tal cual.
+create or replace function public.es_consultor()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.is_consultant(auth.uid());
+$$;
+
+revoke all on function public.es_consultor() from public;
+grant execute on function public.es_consultor() to authenticated;
+
+-- =============================================================================
+-- Migracion: 20261019090000_saldo_de_tokens_del_copiloto.sql
+-- =============================================================================
+-- Fase 4 y 5 de PLAN_ORGANIZACION_CONSULTORA_Y_SALDO_COPILOTO.md
+--
+-- Saldo de tokens del copiloto, y que modelos puede elegir cada plan.
+--
+-- El copiloto es la unica superficie de IA sin tope por uso: el resto de
+-- agentes corren N veces al dia y su coste esta acotado por diseño. Aqui es el
+-- usuario quien decide cuantas veces pregunta, asi que el coste lo decide el.
+-- El saldo es lo que lo hace visible antes de que llegue la factura.
+--
+-- NO hay tabla de concesiones. El saldo de un mes es
+--
+--     copilot_monthly_tokens  -  consumido en el mes en curso
+--
+-- y el consumo ya esta escrito en `agent_runs`. Una tabla paralela de saldos
+-- seria un segundo contador que hay que mantener sincronizado con el primero,
+-- y en cuanto un run falle a medias los dos numeros dejan de cuadrar. Cuando
+-- haga falta regalar tokens sueltos se añade la tabla; hoy no hace falta.
+--
+-- Se cuentan tokens de entrada y salida, NO los de cache. La media real de
+-- `cache_read_tokens` en produccion (6.286 por mensaje) es mayor que la de
+-- entrada, y cuestan una decima parte: contarlos le partiria la cuota por la
+-- mitad al usuario a cambio de nada.
+
+-- 1. Cuanto trae el plan -----------------------------------------------------
+
+-- 1M tokens ~ 190 mensajes con el consumo real medido en produccion
+-- (3.358 entrada + 1.940 salida por mensaje), ~12 USD/mes de coste sobre 216 EUR
+-- de ingreso en el plan Starter. Es el tope por defecto, no el definitivo:
+-- cada suscripcion lo lleva escrito para poder subirlo por plan sin tocar codigo.
+alter table public.service_subscriptions
+  add column if not exists copilot_monthly_tokens bigint not null default 1000000;
+
+alter table public.service_subscriptions
+  drop constraint if exists service_subscriptions_copilot_tokens_check;
+alter table public.service_subscriptions
+  add constraint service_subscriptions_copilot_tokens_check
+  check (copilot_monthly_tokens >= 0);
+
+-- Que modelos puede elegir el usuario. 'sonnet' = solo Sonnet 5. 'opus' =
+-- ademas Opus 5. Atado al plan y no al capricho: un token es un token en el
+-- contador, pero en Opus cuesta varias veces mas, asi que sin esto el mismo
+-- numero en pantalla significa margenes distintos.
+alter table public.service_subscriptions
+  add column if not exists copilot_model_tier text not null default 'sonnet';
+
+alter table public.service_subscriptions
+  drop constraint if exists service_subscriptions_copilot_tier_check;
+alter table public.service_subscriptions
+  add constraint service_subscriptions_copilot_tier_check
+  check (copilot_model_tier in ('sonnet', 'opus'));
+
+-- El plan de consultor si trae Opus: es quien mas lo va a usar y quien lo paga.
+update public.service_subscriptions
+set copilot_model_tier = 'opus'
+where plan_code = 'consultant'
+  and copilot_model_tier = 'sonnet';
+
+-- 2. De quien es el saldo ----------------------------------------------------
+--
+-- La pregunta que decide todo: un consultor abre el copiloto dentro de la
+-- tienda de un cliente, ¿a quien se le descuenta? Al consultor. El cliente
+-- paga su plan para preguntar el, no para financiar el trabajo de su agencia.
+--
+-- La regla, en una linea: el banco es el de quien pregunta. Si quien pregunta
+-- pertenece a una consultora, se le descuenta a la consultora; si no, a la
+-- organizacion donde corre.
+create or replace function public.copilot_bank_organization(
+  actor_user_id uuid,
+  run_organization_id uuid
+)
+returns uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    (
+      select om.organization_id
+      from public.organization_members om
+      join public.organizations o
+        on o.id = om.organization_id and o.kind = 'consulting'
+      where om.user_id = actor_user_id
+        and om.is_active
+      limit 1
+    ),
+    run_organization_id
+  );
+$$;
+
+-- 3. Cuanto se ha gastado ----------------------------------------------------
+--
+-- ponytail: recorre `agent_runs` y resuelve el banco fila a fila. Con 231 runs
+-- historicos sobra. Cuando la tabla crezca, la salida es materializar el banco
+-- como columna en `agent_runs` al insertar el run -- la firma de aqui no
+-- cambia.
+create or replace function public.copilot_tokens_consumidos(
+  bank_organization_id uuid,
+  desde timestamptz,
+  hasta timestamptz
+)
+returns bigint
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(sum(r.input_tokens + r.output_tokens), 0)::bigint
+  from public.agent_runs r
+  where r.trigger_type = 'chat'
+    and r.started_at >= desde
+    and r.started_at < hasta
+    and r.actor_user_id is not null
+    and public.copilot_bank_organization(r.actor_user_id, r.organization_id)
+        = bank_organization_id;
+$$;
+
+create index if not exists agent_runs_chat_actor_idx
+  on public.agent_runs (started_at)
+  where trigger_type = 'chat' and actor_user_id is not null;
+
+revoke all on function public.copilot_bank_organization(uuid, uuid) from public;
+revoke all on function public.copilot_tokens_consumidos(uuid, timestamptz, timestamptz) from public;
+grant execute on function public.copilot_bank_organization(uuid, uuid) to authenticated, service_role;
+grant execute on function public.copilot_tokens_consumidos(uuid, timestamptz, timestamptz) to authenticated, service_role;
+
+-- =============================================================================
+-- Migracion: 20261020090000_capacidad_de_cartera.sql
+-- =============================================================================
+-- Fase 2 (capacidad) de PLAN_ORGANIZACION_CONSULTORA_Y_SALDO_COPILOTO.md
+--
+-- Un consultor no puede tener mas clientes de los que ha contratado (§11, §12,
+-- §15 del modelo de planes). Hoy no hay tope: `createClientForConsultant` crea
+-- tantos clientes como se le pidan, y la factura se entera despues.
+--
+-- La plaza se cuenta contra la CONSULTORA, no contra la persona: dos empleados
+-- de la misma empresa comparten cartera, y contarlo por persona duplicaria las
+-- plazas el dia que entre el segundo.
+--
+-- Una plaza esta ocupada si hay un cliente asignado y activo, o si hay un
+-- codigo de invitacion pendiente. Sin contar los pendientes, un consultor
+-- genera diez codigos con tres plazas y el tope no sirve de nada.
+
+alter table public.service_subscriptions
+  add column if not exists contracted_client_slots integer;
+
+-- Se rellena antes de poner el `not null`, y nunca por debajo de los clientes
+-- que ya tiene: subir el tope a alguien es una decision de negocio, pero
+-- bajarselo por una migracion le quitaria clientes que ya atiende.
+update public.service_subscriptions ss
+set contracted_client_slots = greatest(
+  3,
+  (
+    select count(*)
+    from public.consultant_assignments ca
+    where ca.consulting_organization_id = ss.organization_id
+      and ca.is_active
+  )
+)
+where ss.contracted_client_slots is null
+  and ss.organization_id in (
+    select id from public.organizations where kind = 'consulting'
+  );
+
+-- Un cliente no lleva cartera: su plan no contrata plazas.
+update public.service_subscriptions
+set contracted_client_slots = 0
+where contracted_client_slots is null;
+
+alter table public.service_subscriptions
+  alter column contracted_client_slots set default 0;
+alter table public.service_subscriptions
+  alter column contracted_client_slots set not null;
+
+alter table public.service_subscriptions
+  drop constraint if exists service_subscriptions_client_slots_check;
+alter table public.service_subscriptions
+  add constraint service_subscriptions_client_slots_check
+  check (contracted_client_slots >= 0);
+
+-- Quien capto al cliente, separado de quien lo atiende hoy (§26). Reasignar un
+-- cliente a otro consultor de la misma consultora no cambia quien lo trajo, y
+-- mezclarlo en una sola columna hace imposible reconstruirlo despues.
+alter table public.client_invites
+  add column if not exists captured_by_consultant_id uuid
+  references public.profiles (id) on delete set null;
+
+update public.client_invites
+set captured_by_consultant_id = consultant_user_id
+where captured_by_consultant_id is null;
+
+-- La consultora a la que se le descuenta la plaza. Se guarda en el codigo y no
+-- se deduce al canjearlo: entre que se genera y se canjea el consultor puede
+-- haber cambiado de empresa, y la plaza la reservo la de entonces.
+alter table public.client_invites
+  add column if not exists consulting_organization_id uuid
+  references public.organizations (id) on delete set null;
+
+update public.client_invites ci
+set consulting_organization_id = (
+  select om.organization_id
+  from public.organization_members om
+  join public.organizations o
+    on o.id = om.organization_id and o.kind = 'consulting'
+  where om.user_id = ci.consultant_user_id
+    and om.is_active
+  limit 1
+)
+where ci.consulting_organization_id is null;
+
+create index if not exists client_invites_consulting_org_pendientes_idx
+  on public.client_invites (consulting_organization_id)
+  where status = 'pending';
+
+-- Plazas ocupadas ahora mismo por una consultora: clientes activos mas codigos
+-- pendientes sin caducar. Una sola definicion para el tope, la factura y lo
+-- que ve el consultor en pantalla -- si cada uno cuenta a su manera, el aviso
+-- de "te queda 1 plaza" y el cobro discrepan.
+create or replace function public.plazas_de_cartera_ocupadas(
+  consulting_organization_id uuid
+)
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select (
+    (
+      select count(distinct ca.organization_id)
+      from public.consultant_assignments ca
+      join public.organizations o on o.id = ca.organization_id
+      where ca.consulting_organization_id = plazas_de_cartera_ocupadas.consulting_organization_id
+        and ca.is_active
+        and o.kind = 'client'
+        and o.status in ('onboarding', 'active')
+    )
+    +
+    (
+      select count(*)
+      from public.client_invites ci
+      where ci.consulting_organization_id = plazas_de_cartera_ocupadas.consulting_organization_id
+        and ci.status = 'pending'
+        and ci.expires_at > now()
+        -- Un codigo para una organizacion que ya cuenta como cliente activo no
+        -- ocupa una segunda plaza.
+        and not exists (
+          select 1
+          from public.consultant_assignments ca
+          where ca.organization_id = ci.organization_id
+            and ca.consulting_organization_id = ci.consulting_organization_id
+            and ca.is_active
+        )
+    )
+  )::integer;
+$$;
+
+revoke all on function public.plazas_de_cartera_ocupadas(uuid) from public;
+grant execute on function public.plazas_de_cartera_ocupadas(uuid) to authenticated, service_role;
+
+-- =============================================================================
+-- Migracion: 20261021090000_f3_d08_hipotesis_siguen_a_su_ruta.sql
+-- =============================================================================
+-- FASE 3 / D08 -- Una hipotesis causal no sobrevive a su ruta.
+--
+-- EL ESQUEMA SE CONTRADECIA CONSIGO MISMO, y no se vio hasta correr los dos
+-- motores seguidos. `diagnostic_hypotheses.source_path_id` se creo en D07
+-- (`20260918090000`) con `on delete set null`. Un ano de esquema despues, D08
+-- (`20260919090000`) anadio el check `diagnostic_hypotheses_causal_exige_ruta`:
+-- una hipotesis de tipo causal **no puede** tener `source_path_id` nulo.
+--
+-- Juntas significan que borrar una ruta causal es imposible en cuanto alguna
+-- hipotesis se apoye en ella: Postgres intenta poner el nulo, el check lo
+-- rechaza, y la transaccion entera se cae. El motor de D07 se reescribe cada
+-- pasada, asi que el sintoma fue que **las rutas se acumulaban en silencio** --
+-- tres por pasada, y nadie se enteraba porque el motor devolvia "3 rutas" cada
+-- vez y eso es justo lo que uno espera leer.
+--
+-- LA CORRECCION ES `CASCADE`, NO RELAJAR EL CHECK. El check tiene razon: una
+-- hipotesis causal sin ruta no es una hipotesis a la que le falta un campo, es
+-- una afirmacion causal sin nada detras -- exactamente lo que el guardrail 19
+-- existe para impedir. Lo que estaba mal era el `set null`, que suponia que la
+-- hipotesis puede seguir viva cuando el razonamiento que la produjo ya no
+-- existe. Si la ruta desaparece, la hipotesis desaparece con ella; D08 la vuelve
+-- a escribir en su siguiente pasada si la ruta vuelve a salir.
+--
+-- LA MISMA TRAMPA ESTA PUESTA EN `root_causes.causal_path_id`, y todavia no ha
+-- saltado solo porque D09 no tiene motor. `set null` mas el check
+-- `root_causes_exige_cadena` --que exige la ruta en cuanto la causa sea
+-- `probable` o `confirmed`-- vuelven a hacer imposible borrar la ruta. Se
+-- arregla aqui, antes de que alguien lo descubra otra vez desde el otro lado.
+
+alter table public.diagnostic_hypotheses
+  drop constraint if exists diagnostic_hypotheses_source_path_id_fkey;
+
+alter table public.diagnostic_hypotheses
+  add constraint diagnostic_hypotheses_source_path_id_fkey
+  foreign key (source_path_id) references public.causal_paths (id) on delete cascade;
+
+comment on column public.diagnostic_hypotheses.source_path_id is
+  'F3/D07-D08. La ruta causal de la que nacio esta hipotesis. `on delete cascade` desde el '
+  '2026-10-06: con `set null` la ruta no se podia borrar nunca, porque el check '
+  '`causal_exige_ruta` rechaza el nulo. Una hipotesis causal sin ruta no es una hipotesis '
+  'incompleta, es una afirmacion sin nada detras.';
+
+alter table public.root_causes
+  drop constraint if exists root_causes_causal_path_id_fkey;
+
+alter table public.root_causes
+  add constraint root_causes_causal_path_id_fkey
+  foreign key (causal_path_id) references public.causal_paths (id) on delete cascade;
+
+comment on column public.root_causes.causal_path_id is
+  'F3/D07-D09. La ruta causal que sostiene esta causa raiz. `on delete cascade` desde el '
+  '2026-10-06, por el mismo motivo que en diagnostic_hypotheses: con `set null` la ruta no '
+  'se podia borrar en cuanto una causa probable se apoyara en ella.';
+
+-- =============================================================================
+-- Migracion: 20261022090000_compatibilidad_rol_consultor.sql
+-- =============================================================================
+-- Compatibilidad hacia atras para 20261018090000 (organizacion consultora).
+--
+-- EL PROBLEMA QUE ARREGLA
+--
+-- 20261018090000 movio el plan del consultor de la persona
+-- (`service_subscriptions.user_id`) a su consultora (`organization_id`), y
+-- dejo `user_id` a null. La RLS quedo bien: `private.is_consultant` ya mira la
+-- consultora. Pero el API DESPLEGADO todavia deriva el rol leyendo una fila
+-- con `user_id` -- ese cambio esta en el working tree, sin desplegar. Resultado
+-- inmediato: los consultores que no son staff entran como cliente y pierden el
+-- panel, aunque la base de datos diga que son consultores.
+--
+-- Aplicar el esquema antes que el codigo es correcto (el esquema nuevo tiene
+-- que estar cuando llegue el codigo nuevo); lo que no vale es que el paso
+-- intermedio rompa. Se resuelve como ya se resolvio `platform_role` en
+-- 20261006090000: expandir primero, contraer despues. Durante la ventana, las
+-- DOS fuentes dicen lo mismo.
+--
+-- QUE HACE
+--
+-- Devuelve la fila con `user_id` a cada miembro de una consultora con plan
+-- vigente. No sustituye a la de la consultora: convive con ella. El codigo
+-- viejo lee la suya y sigue funcionando; el codigo nuevo lee la de la
+-- organizacion y tambien.
+--
+-- CUANDO SE BORRA
+--
+-- En cuanto el API nuevo este en produccion, una migracion de contraccion
+-- borra estas filas (`plan_code = 'consultant_legacy'`, que es justo para poder
+-- reconocerlas sin adivinar) y con ellas la columna `user_id` deja de tener
+-- sentido. Hasta entonces, borrarlas deja fuera a quien las necesita.
+--
+-- OJO AL REAPLICAR: despues de esta migracion, la asercion de 20261018090000
+-- ("ninguna suscripcion viva a nombre de una persona") ya no se cumple. Si
+-- hubiera que reaplicar aquella, primero hay que borrar estas filas.
+
+insert into public.service_subscriptions (user_id, plan_code, status, starts_at)
+select distinct om.user_id, 'consultant_legacy', 'active'::public.subscription_status, now()
+from public.organization_members om
+join public.organizations o
+  on o.id = om.organization_id and o.kind = 'consulting'
+join public.service_subscriptions ss
+  on ss.organization_id = o.id
+where om.is_active
+  and o.status in ('onboarding', 'active')
+  and ss.status in ('trial', 'active')
+  and (ss.starts_at is null or ss.starts_at <= now())
+  and (ss.ends_at is null or ss.ends_at > now())
+  -- `service_subscriptions_one_current_per_user` solo admite una fila viva por
+  -- persona: si ya la tiene, no se toca.
+  and not exists (
+    select 1
+    from public.service_subscriptions previa
+    where previa.user_id = om.user_id
+      and previa.status in ('trial', 'active')
+  );
+
+-- Estas filas no llevan cartera ni saldo: la plaza y los tokens son de la
+-- consultora. Dejarlas con el default (3 plazas, 1M tokens) haria que el mismo
+-- consultor contara dos veces el dia que alguien sume por `user_id`.
+update public.service_subscriptions
+set contracted_client_slots = 0,
+    copilot_monthly_tokens = 0
+where plan_code = 'consultant_legacy';
+
+-- Asercion: nadie que sea consultor segun la regla nueva se queda sin la
+-- fila que el codigo viejo necesita. Es la unica propiedad que hace util a
+-- esta migracion; si no se cumple, no arregla nada y mejor que falle.
+do $$
+declare
+  sin_compat integer;
+begin
+  select count(*) into sin_compat
+  from public.profiles p
+  where p.is_active
+    and private.is_consultant(p.id)
+    and not p.is_platform_staff
+    and not exists (
+      select 1
+      from public.service_subscriptions ss
+      where ss.user_id = p.id
+        and ss.status in ('trial', 'active')
+    );
+
+  if sin_compat > 0 then
+    raise exception '% consultores siguen sin la fila de compatibilidad', sin_compat;
+  end if;
+end;
+$$;
+
+-- =============================================================================
+-- Migracion: 20261023090000_codigos_de_invitacion_con_huella.sql
+-- =============================================================================
+-- Fase 2 (codigos) de PLAN_ORGANIZACION_CONSULTORA_Y_SALDO_COPILOTO.md
+--
+-- El codigo de vinculacion deja de guardarse en claro (§21, §51).
+--
+-- Un codigo da acceso de owner a la organizacion de un cliente. Hoy vive en
+-- `client_invites.code` tal cual, al lado del email que hace falta para
+-- canjearlo: quien lea esa tabla se lleva las dos mitades de la cerradura.
+--
+-- Se guarda una huella HMAC-SHA256 con una clave que NO esta en la base de
+-- datos (`INVITE_CODE_SECRET`). No un hash a secas: el codigo tiene ~40 bits
+-- de entropia y un SHA-256 pelado se revienta por fuerza bruta en un minuto.
+--
+-- ROTACION, no corte. La columna `code` se queda y se deja de escribir; los
+-- codigos vivos emitidos antes siguen canjeandose por su valor en claro
+-- mientras no caduquen (7 dias). Pasada esa ventana, una migracion de limpieza
+-- borra la columna. Cortar de golpe invalidaria los codigos que un consultor
+-- ya ha repartido, que es justo lo que no puede pasar.
+
+alter table public.client_invites
+  add column if not exists code_hash text;
+
+-- `code` deja de ser obligatoria: los codigos nuevos solo llevan huella.
+alter table public.client_invites
+  alter column code drop not null;
+
+-- La busqueda al canjear pasa a ser por huella, y dos codigos no pueden
+-- compartirla. El indice es unico por el mismo motivo por el que lo era el
+-- codigo: una colision es dos clientes con la misma llave.
+create unique index if not exists client_invites_code_hash_unique
+  on public.client_invites (code_hash)
+  where code_hash is not null;
+
+-- Los codigos que ya existen NO se rellenan aqui: la clave vive en el API, no
+-- en la base de datos, asi que esta migracion no puede calcular su huella.
+-- Se canjean por `code` mientras duren, que es exactamente para lo que se deja
+-- la columna.
+
+-- Asercion: o huella, o codigo en claro, pero nunca una fila viva sin ninguna
+-- de las dos -- eso seria un codigo repartido que ya no se puede canjear.
+do $$
+declare
+  rotas integer;
+begin
+  select count(*) into rotas
+  from public.client_invites
+  where status = 'pending'
+    and expires_at > now()
+    and code is null
+    and code_hash is null;
+
+  if rotas > 0 then
+    raise exception '% invitaciones vivas se quedan sin forma de canjearse', rotas;
+  end if;
+end;
+$$;
+
+-- =============================================================================
+-- Migracion: 20261024090000_stripe_como_pasarela.sql
+-- =============================================================================
+-- Stripe sustituye a Whop como pasarela de cobro.
+--
+-- El cambio es de borde, no de modelo: `service_subscriptions` sigue siendo la
+-- fuente de la que ADR-0023 deriva el rol, el limite de tiendas, la capacidad
+-- de cartera y el saldo del copiloto. Ninguna de esas nueve lecturas sabe quien
+-- cobra, que es justo lo que hace barato el cambio.
+--
+-- Whop se deja en el check mientras existan filas suyas en `webhook_events`
+-- (hoy: cero en produccion). Quitarlo a la vez que se anade Stripe romperia el
+-- historico si en algun entorno quedara alguna, y no gana nada.
+
+alter table private.webhook_events
+  drop constraint if exists webhook_events_provider_check;
+
+alter table private.webhook_events
+  add constraint webhook_events_provider_check check (
+    provider in (
+      'shopify',
+      'meta_ads',
+      'klaviyo',
+      'instagram',
+      'fathom',
+      'loom',
+      'whop',
+      'stripe'
+    )
+  );
+
+-- Asercion: nadie se queda con un proveedor que el check ya no admite.
+do $$
+declare
+  huerfanos integer;
+begin
+  select count(*) into huerfanos
+  from private.webhook_events
+  where provider not in (
+    'shopify', 'meta_ads', 'klaviyo', 'instagram', 'fathom', 'loom', 'whop', 'stripe'
+  );
+
+  if huerfanos > 0 then
+    raise exception '% eventos con un proveedor fuera del check', huerfanos;
+  end if;
+end;
+$$;
+
+-- =============================================================================
+-- Migracion: 20261025090000_facturas_sin_nombre_de_pasarela.sql
+-- =============================================================================
+-- Las facturas dejan de llamar "whop" a la pasarela.
+--
+-- `private.billing_invoices` nacio con tres columnas con el nombre del
+-- proveedor dentro (`whop_payment_id`, `whop_membership_id`, `whop_event_id`).
+-- Al cambiar a Stripe eso obliga a elegir entre mentir (guardar un `sub_...`
+-- en una columna que se llama `whop_`) o volver a migrar en la siguiente.
+-- Se renombran a neutro: lo que importa de una factura es contra que cobro se
+-- emitio, no quien lo cobro -- y quien lo cobro cabe en una columna propia.
+--
+-- Se renombra en vez de anadir y copiar porque no hay ninguna factura emitida
+-- todavia (cero filas en produccion): una migracion de convivencia aqui seria
+-- ceremonia para nadie.
+
+alter table private.billing_invoices
+  rename column whop_payment_id to external_payment_id;
+
+alter table private.billing_invoices
+  rename column whop_membership_id to external_subscription_id;
+
+alter table private.billing_invoices
+  rename column whop_event_id to external_event_id;
+
+-- Quien cobro. Por defecto 'stripe' porque es la pasarela desde ahora; las
+-- filas historicas (si alguna vez las hubiera) se marcarian a mano.
+alter table private.billing_invoices
+  add column if not exists payment_provider text not null default 'stripe';
+
+alter table private.billing_invoices
+  drop constraint if exists billing_invoices_payment_provider_check;
+alter table private.billing_invoices
+  add constraint billing_invoices_payment_provider_check
+  check (payment_provider in ('stripe', 'whop', 'manual'));
+
+-- Asercion: el renombrado no puede dejar una factura sin su referencia al
+-- cobro, que es lo que la hace rastreable ante una inspeccion.
+do $$
+declare
+  rotas integer;
+begin
+  select count(*) into rotas
+  from private.billing_invoices
+  where invoice_type = 'F1'
+    and external_payment_id is null;
+
+  if rotas > 0 then
+    raise exception '% facturas ordinarias se quedan sin referencia de cobro', rotas;
+  end if;
+end;
+$$;
+
+-- =============================================================================
+-- Migracion: 20261026090000_codigo_de_invitacion_suelto.sql
+-- =============================================================================
+-- §16 del plan de organizacion consultora: se invierte quien crea que.
+--
+-- Hasta ahora el consultor creaba la organizacion del cliente ANTES de que el
+-- cliente hiciera nada (usuario de Auth sin contraseña vía generateLink,
+-- organizacion, suscripcion trial, asignacion... todo de golpe). El cliente
+-- solo confirmaba en /acceso.
+--
+-- Desde aqui el consultor solo genera un codigo SUELTO -- sin organizacion,
+-- a veces sin email siquiera. El cliente se registra por su cuenta en
+-- /registro, con su propia contraseña, y es AL CREAR SU ORGANIZACION (en
+-- /planes) cuando el codigo la vincula a la consultora. El codigo deja de ser
+-- una llave para entrar a un sitio que otro construyo, y pasa a ser lo que
+-- decide a que cartera se apunta lo que el cliente construye el mismo.
+--
+-- Por eso `organization_id` y `email` dejan de ser obligatorios: al generar el
+-- codigo todavia no existe ninguna de las dos cosas.
+
+alter table public.client_invites alter column organization_id drop not null;
+alter table public.client_invites alter column email drop not null;
+
+-- Reclama un codigo suelto para la organizacion que el propio cliente acaba
+-- de crear, y dentro de la MISMA transaccion crea la asignacion a la
+-- consultora. Las dos cosas van juntas a proposito: una organizacion
+-- vinculada sin fila en `consultant_assignments` no la ve su consultor, y una
+-- fila de asignacion sin el codigo consumido dejaria un cliente vinculado dos
+-- veces si el alta se reintenta.
+create or replace function public.link_client_invite(
+  p_invite_id uuid,
+  p_organization_id uuid,
+  p_user_id uuid,
+  p_consultant_user_id uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.client_invites
+  set organization_id = p_organization_id,
+      invited_user_id = p_user_id,
+      status = 'redeemed',
+      redeemed_at = now()
+  where id = p_invite_id
+    and status = 'pending'
+    and organization_id is null;
+
+  if not found then
+    return false;
+  end if;
+
+  insert into public.consultant_assignments (
+    organization_id, consultant_user_id, is_primary, is_active, assigned_by
+  ) values (
+    p_organization_id, p_consultant_user_id, true, true, p_consultant_user_id
+  );
+
+  return true;
+end;
+$$;
+
+revoke all on function public.link_client_invite(uuid, uuid, uuid, uuid) from public;
+revoke all on function public.link_client_invite(uuid, uuid, uuid, uuid) from anon;
+revoke all on function public.link_client_invite(uuid, uuid, uuid, uuid) from authenticated;
+grant execute on function public.link_client_invite(uuid, uuid, uuid, uuid) to service_role;
+
+comment on function public.link_client_invite(uuid, uuid, uuid, uuid) is
+  'Vincula atomicamente una organizacion recien creada por su cliente al codigo suelto que la trajo. Solo service_role.';
