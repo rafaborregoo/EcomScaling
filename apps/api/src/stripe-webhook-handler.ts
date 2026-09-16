@@ -17,6 +17,7 @@ import {
 import {
   createInvoiceForStripePayment,
   createRectifyingInvoiceForStripeRefund,
+  retryInvoiceEmailForStripePayment,
 } from "./invoicing.js";
 
 function createServiceClient(env: LoadedApiEnv) {
@@ -244,6 +245,16 @@ export async function handleStripeWebhookRequest(
       .eq("external_event_id", envelope.id)
       .maybeSingle();
     if (duplicate) {
+      if (envelope.type === "invoice.paid") {
+        const email = await retryInvoiceEmailForStripePayment(
+          env,
+          typeof envelope.object.id === "string" ? envelope.object.id : "",
+        );
+        return {
+          statusCode: 200,
+          body: { status: "duplicate", event_id: duplicate.id, email },
+        };
+      }
       return {
         statusCode: 200,
         body: { status: "duplicate", event_id: duplicate.id },

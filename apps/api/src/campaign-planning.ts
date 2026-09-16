@@ -27,6 +27,16 @@ function requireMembership(context: AuthContext, organizationId: string) {
   return requireOperationalOrganization(context, organizationId);
 }
 
+function taskStatusFromCampaignStatus(status: string) {
+  return status === "in_progress"
+    ? "in_progress"
+    : status === "completed"
+      ? "completed"
+      : status === "cancelled"
+        ? "cancelled"
+        : "pending";
+}
+
 async function validateStore(
   env: ApiEnv,
   organizationId: string,
@@ -600,6 +610,35 @@ export async function updateCampaignCalendarItem(
       statusCode: 404,
       error: "campaign_calendar_item_not_found",
     };
+  if (data.task_id) {
+    const taskPayload: Record<string, unknown> = {};
+    if (input.title !== undefined && input.title.trim())
+      taskPayload.title = input.title.trim().slice(0, 255);
+    if (input.endsAt !== undefined || input.startsAt !== undefined) {
+      const dueAt = input.endsAt || input.startsAt;
+      taskPayload.due_at = dueAt ? new Date(Date.parse(dueAt)).toISOString() : null;
+    }
+    if (Object.keys(taskPayload).length > 0) {
+      await supabase
+        .from("tasks")
+        .update(taskPayload)
+        .eq("id", data.task_id)
+        .eq("organization_id", organizationId);
+    }
+  }
+  if (data.task_id && input.status) {
+    const taskStatus = taskStatusFromCampaignStatus(input.status);
+    await supabase
+      .from("tasks")
+      .update({
+        status: taskStatus,
+        ...(taskStatus === "completed"
+          ? { completed_at: new Date().toISOString() }
+          : {}),
+      })
+      .eq("id", data.task_id)
+      .eq("organization_id", organizationId);
+  }
   return { ok: true as const, data };
 }
 
@@ -661,7 +700,7 @@ export async function updateCampaignCalendarExecution(
     .eq("organization_id", organizationId)
     .is("deleted_at", null)
     .select(
-      "id, status, owner_user_id, executed_at, executed_by, execution_notes, blocked_reason, result_data, updated_at",
+      "id, task_id, status, owner_user_id, executed_at, executed_by, execution_notes, blocked_reason, result_data, updated_at",
     )
     .maybeSingle();
   if (error)
@@ -677,6 +716,19 @@ export async function updateCampaignCalendarExecution(
       statusCode: 404,
       error: "campaign_calendar_item_not_found",
     };
+  if (data.task_id && input.status) {
+    const taskStatus = taskStatusFromCampaignStatus(input.status);
+    await createServiceClient(env)
+      .from("tasks")
+      .update({
+        status: taskStatus,
+        ...(taskStatus === "completed"
+          ? { completed_at: new Date().toISOString() }
+          : {}),
+      })
+      .eq("id", data.task_id)
+      .eq("organization_id", organizationId);
+  }
   return { ok: true as const, data };
 }
 

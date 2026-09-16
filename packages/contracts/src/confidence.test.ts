@@ -698,6 +698,65 @@ test("D11: la falta de grafo causal se registra como critical unknown", () => {
   assert.equal(critica?.resolvability, "resolvable_now");
 });
 
+test("D11: lee la evidencia causal real y no conserva el texto fijo", () => {
+  const salida = assessConfidence(
+    entradaConfianza({
+      causal: {
+        paths: [
+          {
+            status: "supported",
+            path_confidence: "medium",
+            confounders_reviewed: true,
+            measurement_validated: true,
+            evidence: [{ stance: "supporting", observation: "La capacidad precede al efecto" }],
+          },
+        ],
+        hypotheses: [
+          {
+            status: "most_likely",
+            confidence: "medium",
+            explanatory_coverage: "partial",
+            separation: "low",
+          },
+        ],
+        rootCauses: [
+          {
+            status: "partial_root_cause",
+            confidence: "medium",
+            statement: '"Acquisition" mueve a "net_sales".',
+            explanatory_coverage: "partial",
+            residual_material: true,
+          },
+        ],
+        constraints: [
+          {
+            binding_status: "latent",
+            confidence: "low",
+            statement: "Acquisition podria estar limitando el resultado.",
+            limits_target: true,
+          },
+        ],
+      },
+    }),
+  );
+
+  const why = capa(salida, "why");
+  const root = capa(salida, "root_cause");
+  const constraint = capa(salida, "constraint");
+
+  assert.notEqual(why?.confidence_level, "insufficient_data");
+  assert.match(why?.claim ?? "", /Acquisition/);
+  assert.match(root?.claim ?? "", /Acquisition/);
+  assert.equal(root?.explanatory_coverage, "partial");
+  assert.match(constraint?.claim ?? "", /Acquisition/);
+  assert.ok(!why?.missing_evidence?.includes("D07"));
+  assert.ok(
+    salida.uncertainties.some(
+      (u) => u.uncertainty_type === "causal" && u.materiality !== "critical_unknown",
+    ),
+  );
+});
+
 test("D11: ninguna afirmacion lleva un porcentaje", () => {
   // El guardrail lo pide y el esquema lo garantiza. Esto lo fija tambien para la
   // salida del motor, que es donde se escribiria el numero.

@@ -12,6 +12,7 @@ import {
   caminoPlanOutputSchema,
   type CaminoPlanOutput,
 } from "@ecomscaling/ai";
+import { parseStrategicPlanMarkdown } from "./strategic-plan-markdown.js";
 
 type ApiEnv = {
   SUPABASE_URL: string;
@@ -117,7 +118,7 @@ function requireMembership(context: AuthContext, organizationId: string) {
   return requireOperationalOrganization(context, organizationId);
 }
 
-function assertCanManagePlan(context: AuthContext, organizationId: string) {
+export function assertCanManagePlan(context: AuthContext, organizationId: string) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
     return access;
@@ -270,6 +271,12 @@ type PlanInput = {
       name?: string;
       description?: string | null;
       targetDate?: string | null;
+      tasks?: Array<{
+        title?: string;
+        description?: string | null;
+        dueAt?: string | null;
+        priority?: string;
+      }>;
     }>;
   }>;
 };
@@ -346,6 +353,25 @@ export async function createStrategicPlan(
     };
   }
 
+  // The Supabase client does not wrap this nested write in a transaction. Keep
+  // the import safe from leaving a visible half-built plan if a later insert
+  // fails; the plan delete cascades through phases, milestones and links.
+  const createdTaskIds: string[] = [];
+  const rollback = async () => {
+    if (createdTaskIds.length > 0) {
+      await supabase
+        .from("tasks")
+        .delete()
+        .eq("organization_id", organizationId)
+        .in("id", createdTaskIds);
+    }
+    await supabase
+      .from("strategic_plans")
+      .delete()
+      .eq("organization_id", organizationId)
+      .eq("id", plan.id);
+  };
+
   for (const [phaseIndex, phase] of phases.entries()) {
     const { data: phaseRow, error: phaseError } = await supabase
       .from("strategic_plan_phases")
@@ -361,6 +387,7 @@ export async function createStrategicPlan(
       .single();
 
     if (phaseError || !phaseRow) {
+      await rollback();
       return {
         ok: false as const,
         statusCode: 500,
@@ -374,7 +401,7 @@ export async function createStrategicPlan(
     );
 
     for (const [milestoneIndex, milestone] of milestones.entries()) {
-      const { error: milestoneError } = await supabase
+      const { data: milestoneRow, error: milestoneError } = await supabase
         .from("strategic_plan_milestones")
         .insert({
           organization_id: organizationId,
@@ -384,15 +411,71 @@ export async function createStrategicPlan(
           position: milestoneIndex + 1,
           target_date: milestone.targetDate ?? null,
           created_by: context.user.id,
-        });
+        })
+        .select("id")
+        .single();
 
-      if (milestoneError) {
+      if (milestoneError || !milestoneRow) {
+        await rollback();
         return {
           ok: false as const,
           statusCode: 500,
           error: "plan_milestone_create_failed",
           detail: milestoneError.message,
         };
+      }
+
+      for (const task of (milestone.tasks ?? []).filter(
+        (item) => item.title && item.title.trim().length > 0,
+      )) {
+        const priority = MILESTONE_TASK_PRIORITIES.includes(
+          task.priority ?? "",
+        )
+          ? task.priority
+          : "medium";
+        const { data: taskRow, error: taskError } = await supabase
+          .from("tasks")
+          .insert({
+            organization_id: organizationId,
+            source: "strategic_plan",
+            priority,
+            categories: ["general"],
+            title: task.title!.trim().slice(0, 255),
+            description: task.description ?? null,
+            due_at: task.dueAt ?? null,
+            created_by: context.user.id,
+            assigned_to: context.user.id,
+          })
+          .select("id")
+          .single();
+
+        if (taskError || !taskRow) {
+          await rollback();
+          return {
+            ok: false as const,
+            statusCode: 500,
+            error: "plan_task_create_failed",
+            detail: taskError?.message,
+          };
+        }
+        createdTaskIds.push(taskRow.id);
+
+        const { error: linkError } = await supabase
+          .from("milestone_task_links")
+          .insert({
+            organization_id: organizationId,
+            milestone_id: milestoneRow.id,
+            task_id: taskRow.id,
+          });
+        if (linkError) {
+          await rollback();
+          return {
+            ok: false as const,
+            statusCode: 500,
+            error: "plan_task_link_failed",
+            detail: linkError.message,
+          };
+        }
       }
     }
   }
@@ -410,6 +493,54 @@ export async function createStrategicPlan(
     },
   );
   return { ok: true as const, data: { id: plan.id } };
+}
+
+export function previewStrategicPlanMarkdown(markdown: string) {
+  return parseStrategicPlanMarkdown(markdown);
+}
+
+export async function createStrategicPlanFromMarkdown(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  markdown: string,
+) {
+  const parsed = parseStrategicPlanMarkdown(markdown);
+  if (!parsed.ok || !parsed.data) {
+    return {
+      ok: false as const,
+      statusCode: 422,
+      error: "invalid_strategic_plan_markdown",
+      issues: parsed.errors,
+      warnings: parsed.warnings,
+      counts: parsed.counts,
+    };
+  }
+
+  const created = await createStrategicPlan(env, context, organizationId, {
+    name: parsed.data.name,
+    description: parsed.data.description ?? null,
+    phases: parsed.data.phases.map((phase) => ({
+      name: phase.name,
+      description: phase.description ?? null,
+      milestones: phase.milestones.map((milestone) => ({
+        name: milestone.name,
+        description: milestone.description ?? null,
+        targetDate: milestone.targetDate ?? null,
+        tasks: milestone.tasks.map((task) => ({
+          title: task.title,
+          description: task.description ?? null,
+          dueAt: task.dueAt ?? null,
+          ...(task.priority ? { priority: task.priority } : {}),
+        })),
+      })),
+    })),
+  });
+  if (created.ok === false) return created;
+  return {
+    ok: true as const,
+    data: { ...created.data, counts: parsed.counts, warnings: parsed.warnings },
+  };
 }
 
 export async function activateStrategicPlan(

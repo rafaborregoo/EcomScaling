@@ -11,7 +11,9 @@ import {
   concesionInicial,
   concesionValida,
   grantPlanBody,
+  PlanEditor,
 } from "@/components/concesion-de-plan";
+import { VerComoButton } from "@/components/ver-como-button";
 import {
   AsyncState,
   Badge,
@@ -19,6 +21,7 @@ import {
   BarChart,
   Button,
   Card,
+  ConfirmDialog,
   ErrorBlock,
   EYEBROW,
   Field,
@@ -42,12 +45,21 @@ type AssignedOrg = {
   status: string;
 };
 
+type Plan = {
+  plan_code: string;
+  store_limit: number | null;
+  status: string;
+  ends_at: string | null;
+};
+
 type Consultant = {
   id: string;
   full_name: string | null;
   is_active: boolean;
   assignments: AssignedOrg[];
   ai: AiStats;
+  consulting_organization_id: string | null;
+  plan: Plan | null;
 };
 
 type OrganizationOption = {
@@ -86,6 +98,28 @@ function ConsultantsPanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function deleteConsultant(consultant: Consultant) {
+    setBusyId(consultant.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await apiFetch(`/v1/admin/consultants/${consultant.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setNotice("Consultor eliminado.");
+      if (expandedId === consultant.id) setExpandedId(null);
+      load();
+    } catch {
+      setError("No se pudo eliminar. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function toggleActive(consultant: Consultant) {
     setBusyId(consultant.id);
@@ -214,8 +248,19 @@ function ConsultantsPanel() {
               setExpandedId((current) => (current === row.id ? null : row.id))
             }
           >
-            {expandedId === row.id ? "Cerrar" : "Ver clientes"}
+            {expandedId === row.id ? "Cerrar" : "Ver ficha"}
           </Button>
+          <ConfirmDialog
+            trigger={
+              <Button size="sm" variant="ghost" disabled={busyId === row.id}>
+                Eliminar
+              </Button>
+            }
+            title={`Eliminar a ${row.full_name ?? row.id} para siempre`}
+            description="Borra su cuenta y su organización consultora (con su plan). Sus clientes se quedan sin consultor, no se borran -- se reasignan desde aquí. No hay vuelta atrás."
+            confirmLabel="Eliminar definitivamente"
+            onConfirm={() => void deleteConsultant(row)}
+          />
         </div>
       ),
     },
@@ -410,14 +455,20 @@ function AssignmentEditor({
       key: "actions",
       label: "",
       render: (row) => (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={busyOrgId === row.organization_id}
-          onClick={() => void setAssignment(row.organization_id, false)}
-        >
-          {busyOrgId === row.organization_id ? "Quitando..." : "Quitar"}
-        </Button>
+        <div className="flex justify-end gap-2">
+          <VerComoButton
+            organizationId={row.organization_id}
+            displayName={row.display_name}
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busyOrgId === row.organization_id}
+            onClick={() => void setAssignment(row.organization_id, false)}
+          >
+            {busyOrgId === row.organization_id ? "Quitando..." : "Quitar"}
+          </Button>
+        </div>
       ),
     },
   ];
@@ -446,6 +497,15 @@ function AssignmentEditor({
             {savingName ? "Guardando..." : "Guardar nombre"}
           </Button>
         </div>
+
+        {consultant.consulting_organization_id ? (
+          <PlanEditor
+            subjectType="organization"
+            subjectId={consultant.consulting_organization_id}
+            plan={consultant.plan}
+            onSaved={onChanged}
+          />
+        ) : null}
 
         <Table
           ariaLabel={`Clientes de ${consultant.full_name ?? consultant.id}`}

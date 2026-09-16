@@ -2,17 +2,15 @@
  * FASE 3 / D11 — El motor de confianza, conectado a datos reales.
  *
  * `assessConfidence` (en `@ecomscaling/contracts`) es puro. Este fichero es su
- * unica parte sucia, como los de `D01` a `D06` y `D10`.
+ * unica parte sucia, como los de `D01` a `D10`.
  *
- * QUE HACE, en una frase: recorre lo que los otros seis motores han escrito
+ * QUE HACE, en una frase: recorre lo que los otros nueve motores han escrito
  * sobre un caso y dice, **capa por capa**, cuanto se puede afirmar de cada cosa
  * y que falta para afirmar mas.
  *
- * POR QUE IMPORTA MAS DE LO QUE PARECE. Hoy un caso puede tener senal, sintoma
- * e impacto medido, y leerse como un diagnostico cerrado. No lo es: nadie ha
- * dicho por que pasa. Este motor escribe esa frase --"no puede determinarse por
- * que"-- en su propia fila, con lo que haria falta para contestarla. Sin ella, la
- * cadena entera se lee como si estuviera terminada.
+ * POR QUE IMPORTA MAS DE LO QUE PARECE. Hoy un caso puede tener senal, sintoma,
+ * ruta causal e impacto medido, y leerse como un diagnostico cerrado. Este
+ * motor escribe la confianza de cada capa y conserva el residuo que aun falta.
  *
  * LO QUE NO HACE. No promedia. No hay media ponderada de dimensiones ni de
  * capas, porque la fuente no da formula. La unica derivacion es el techo
@@ -146,6 +144,43 @@ export async function runConfidenceEngine(env: LoadedApiEnv, organizationId: str
       };
     }
 
+    // D07-D09 son dependencias reales de D11: la confianza causal se calcula
+    // sobre la fotografia vigente del caso, no sobre el texto de plantilla.
+    const { data: rutas } = await supabase
+      .from("causal_paths")
+      .select("id, status, path_confidence, confounders_reviewed, measurement_validated")
+      .eq("organization_id", organizationId)
+      .eq("case_id", caso.id as string);
+    const pathIds = (rutas ?? []).map((ruta) => ruta.id as string);
+    const { data: evidenciasCausales } = pathIds.length > 0
+      ? await supabase
+          .from("causal_case_evidence")
+          .select("path_id, stance, observation")
+          .eq("organization_id", organizationId)
+          .in("path_id", pathIds)
+      : { data: [] as { path_id: string; stance: string; observation: string }[] };
+
+    const { data: hipotesis } = await supabase
+      .from("diagnostic_hypotheses")
+      .select("status, confidence, explanatory_coverage, separation")
+      .eq("organization_id", organizationId)
+      .eq("case_id", caso.id as string)
+      .neq("status", "contradicted");
+
+    const { data: causasRaiz } = await supabase
+      .from("root_causes")
+      .select("status, confidence, statement, explanatory_coverage, residual_material, limitations")
+      .eq("organization_id", organizationId)
+      .eq("case_id", caso.id as string)
+      .not("status", "in", "(resolved,superseded)");
+
+    const { data: constraints } = await supabase
+      .from("business_constraints")
+      .select("binding_status, confidence, statement, limits_target")
+      .eq("organization_id", organizationId)
+      .eq("case_id", caso.id as string)
+      .eq("status", "active");
+
     const entrada: ConfidenceEngineInput = {
       caseId: caso.id as string,
       targetMetric: caso.target_metric as string,
@@ -166,6 +201,40 @@ export async function runConfidenceEngine(env: LoadedApiEnv, organizationId: str
         : null,
       symptom: sintoma,
       severity,
+      causal: {
+        paths: (rutas ?? []).map((ruta) => ({
+          status: ruta.status as "supported" | "contradicted" | "untested" | "partial",
+          path_confidence: ruta.path_confidence as "insufficient_data" | "low" | "medium" | "high",
+          confounders_reviewed: Boolean(ruta.confounders_reviewed),
+          measurement_validated: Boolean(ruta.measurement_validated),
+          evidence: (evidenciasCausales ?? [])
+            .filter((evidence) => evidence.path_id === ruta.id)
+            .map((evidence) => ({
+              stance: evidence.stance as "supporting" | "contradicting" | "inconclusive",
+              observation: evidence.observation as string,
+            })),
+        })),
+        hypotheses: (hipotesis ?? []).map((hypothesis) => ({
+          status: hypothesis.status as string,
+          confidence: hypothesis.confidence as "high" | "medium" | "low" | "insufficient",
+          explanatory_coverage: hypothesis.explanatory_coverage as "full" | "partial" | "minimal" | "unknown",
+          separation: hypothesis.separation as "high" | "low" | "unknown",
+        })),
+        rootCauses: (causasRaiz ?? []).map((rootCause) => ({
+          status: rootCause.status as string,
+          confidence: rootCause.confidence as "high" | "medium" | "low" | "insufficient",
+          statement: rootCause.statement as string,
+          explanatory_coverage: rootCause.explanatory_coverage as "full" | "partial" | "minimal" | "unknown",
+          residual_material: Boolean(rootCause.residual_material),
+          limitations: (rootCause.limitations as string | null) ?? null,
+        })),
+        constraints: (constraints ?? []).map((constraint) => ({
+          binding_status: constraint.binding_status as "binding" | "secondary" | "latent" | "none",
+          confidence: constraint.confidence as string,
+          statement: constraint.statement as string,
+          limits_target: Boolean(constraint.limits_target),
+        })),
+      },
     };
 
     const salida = assessConfidence(entrada);
@@ -302,9 +371,9 @@ export async function runConfidenceEngine(env: LoadedApiEnv, organizationId: str
 /**
  * Pasada global (cron).
  *
- * **El ultimo de la cadena**: lee lo que escribieron D01, D05, D06 y D10. Si
- * corre antes que ellos, califica un caso vacio -- cierto en ese instante, pero
- * inutil.
+ * **El ultimo de la cadena**: lee lo que escribieron D01, D05, D06, D07, D08,
+ * D09 y D10. Si corre antes que ellos, califica un caso vacio -- cierto en ese
+ * instante, pero inutil.
  */
 export async function runConfidenceEngineForAllOrganizations(env: LoadedApiEnv) {
   const supabase = createServiceClient(env);

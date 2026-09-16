@@ -491,3 +491,143 @@ export function checkOutputInvariants(
 
   return violations;
 }
+
+// ---------------------------------------------------------------------------
+// Motor puro D14. Recibe las salidas de D00-D13 ya persistidas y solo arma,
+// valida y calibra el registro final. La escritura, versionado y aislamiento
+// de tenant viven en `apps/api/src/diagnostic-output-engine.ts`.
+// ---------------------------------------------------------------------------
+
+export type DiagnosticOutputEvidenceInput = {
+  claim: string;
+  claimLayer: (typeof CLAIM_LAYERS)[number];
+  source: string;
+  sourceRef: string;
+  metric?: string;
+  reliability?: "high" | "medium" | "low" | "unreliable" | "unknown";
+  transformations?: string;
+  stance?: "supporting" | "contradicting" | "inconclusive";
+};
+
+export type DiagnosticOutputRuntimeInput = {
+  outputId: string;
+  caseId: string;
+  organizationId: string;
+  target: string;
+  status?: (typeof OUTPUT_STATUSES)[number];
+  confidence?: (typeof DIAGNOSTIC_CONFIDENCES)[number];
+  snapshotId?: string;
+  rootCause: { id: string; statement: string; status?: string } | null;
+  constraint: { id: string; statement?: string; status?: string } | null;
+  severity: { id: string; overall_severity?: string; summary?: string } | null;
+  robustness: { id: string; false_diagnosis_risk?: string; robustness?: string } | null;
+  temporal: { id: string; trajectory?: string; onset?: string } | null;
+  hypotheses: { id: string; status?: string }[];
+  evidence: DiagnosticOutputEvidenceInput[];
+  dataQualityValid: boolean;
+  contextValid: boolean;
+  stageValid?: boolean;
+  temporalReviewCompleted?: boolean;
+  confounderReviewCompleted?: boolean;
+  modelVersion?: string;
+  promptVersion?: string;
+  rulesVersion?: string;
+  contractVersion?: string;
+  traceId?: string;
+};
+
+export type DiagnosticOutputRuntimeResult = {
+  output: DiagnosticOutputRecord;
+  evidence: OutputEvidence[];
+  validations: OutputValidation[];
+  snapshot: DiagnosticSnapshot;
+};
+
+function validation(
+  outputId: string,
+  validator: (typeof VALIDATORS)[number],
+  result: (typeof VALIDATION_RESULTS)[number],
+  message?: string,
+  blocking = false,
+): OutputValidation {
+  return outputValidationSchema.parse({ output_id: outputId, validator, result, message, blocking });
+}
+
+export function finalizeDiagnosticOutput(input: DiagnosticOutputRuntimeInput): DiagnosticOutputRuntimeResult {
+  const confidence = input.confidence ?? "insufficient_data";
+  const evidence = input.evidence.map((item) => outputEvidenceSchema.parse({
+    output_id: input.outputId, claim: item.claim, claim_layer: item.claimLayer,
+    source: item.source, source_ref: item.sourceRef, metric: item.metric,
+    reliability: item.reliability ?? "unknown", transformations: item.transformations,
+    stance: item.stance ?? "supporting",
+  }));
+  const hasRootEvidence = evidence.some((item) => item.claim_layer === "root_cause");
+  const rootCauseConditionSatisfied = input.rootCause != null && hasRootEvidence;
+  const traceabilityComplete = evidence.length > 0 && hasRootEvidence;
+  const temporalReviewCompleted = input.temporalReviewCompleted ?? input.temporal != null;
+  const confounderReviewCompleted = input.confounderReviewCompleted ?? input.robustness != null;
+  const gate: Record<(typeof FINALIZATION_GATE)[number], boolean> = {
+    data_gate_valid: input.dataQualityValid,
+    context_valid: input.contextValid,
+    stage_valid: input.stageValid ?? input.hypotheses.length > 0,
+    hypothesis_review_completed: input.hypotheses.length > 0,
+    root_cause_condition_satisfied: rootCauseConditionSatisfied,
+    confounder_review_completed: confounderReviewCompleted,
+    severity_computed: input.severity != null,
+    confidence_calibrated: confidence !== "insufficient_data",
+    temporal_review_completed: temporalReviewCompleted,
+    traceability_complete: traceabilityComplete,
+    validation_passed: false,
+    phase_boundary_respected: true,
+  };
+  const validations: OutputValidation[] = [
+    validation(input.outputId, "structural", "valid"),
+    validation(input.outputId, "semantic", input.rootCause || input.temporal ? "valid" : "pass_with_warnings", input.rootCause || input.temporal ? undefined : "Todavía no hay una explicación estructurada completa."),
+    validation(input.outputId, "causal", rootCauseConditionSatisfied ? "valid" : "invalid", rootCauseConditionSatisfied ? undefined : "No hay causa raíz anclada a evidencia del caso.", !rootCauseConditionSatisfied),
+    validation(input.outputId, "evidence", traceabilityComplete ? "valid" : "invalid", traceabilityComplete ? undefined : "Falta evidencia trazable para la salida.", !traceabilityComplete),
+    validation(input.outputId, "confidence", gate.confidence_calibrated ? "valid" : "pass_with_warnings", gate.confidence_calibrated ? undefined : "La confianza permanece en datos insuficientes."),
+    validation(input.outputId, "severity", input.severity ? "valid" : "pass_with_warnings", input.severity ? undefined : "La severidad aún no ha sido calculada."),
+    validation(input.outputId, "temporal", temporalReviewCompleted ? "valid" : "pass_with_warnings", temporalReviewCompleted ? undefined : "La revisión temporal aún no está disponible."),
+    validation(input.outputId, "confounder", confounderReviewCompleted ? "valid" : "pass_with_warnings", confounderReviewCompleted ? undefined : "La revisión de confusores aún no está disponible."),
+    validation(input.outputId, "scope", input.contextValid ? "valid" : "pass_with_warnings", input.contextValid ? undefined : "El alcance contextual aún no está validado."),
+    validation(input.outputId, "contradiction", evidence.some((item) => item.stance === "contradicting") ? "valid" : "pass_with_warnings", evidence.some((item) => item.stance === "contradicting") ? undefined : "No se registró evidencia contradictoria; revisar antes de elevar la confianza."),
+    validation(input.outputId, "output_integrity", "valid"),
+  ];
+  gate.validation_passed = validations.every((item) => item.result !== "invalid");
+  const allGate = FINALIZATION_GATE.every((key) => gate[key]);
+  const snapshotReproducible = input.snapshotId != null && input.evidence.length > 0 && input.rulesVersion != null && input.modelVersion != null;
+  const finalizationStatus = allGate && snapshotReproducible ? "finalized_valid" : "invalid_output";
+  const finalStatus = input.status ?? (rootCauseConditionSatisfied ? "partially_confirmed" : "investigating");
+  const missing: string[] = FINALIZATION_GATE.filter((key) => !gate[key]);
+  if (finalizationStatus === "invalid_output" && input.snapshotId == null) missing.push("snapshot_available");
+  const limitations = missing.length ? `La salida no está finalizada porque faltan: ${missing.join(", ")}.` : undefined;
+  const body = input.rootCause?.statement ?? "faltan datos suficientes para sostener una explicación diagnóstica";
+  const userSummary = userSummaryForOutput(confidence, body);
+  const output = diagnosticOutputRecordSchema.parse({
+    output_id: input.outputId, case_id: input.caseId, version: 1,
+    status: finalStatus, completeness_status: finalizationStatus === "finalized_valid" ? "complete" : missing.length ? "incomplete" : "complete_with_limitations",
+    missing_components: missing, blocking_components: validations.filter((item) => item.blocking).map((item) => item.validator),
+    ...gate, finalization_status: finalizationStatus, root_cause_id: input.rootCause?.id,
+    snapshot_id: input.snapshotId, diagnostic_summary: `${confidenceLeadIn(confidence)} ${body}.`,
+    limitation_summary: limitations, confidence_summary: `Confianza ${confidence}; se conserva separada de completitud y validación.`,
+    data_gap_summary: missing.length ? `Evidencia pendiente: ${missing.join(", ")}.` : undefined,
+    confidence, confidence_language: confidence, user_summary: userSummary, visibility: "admin",
+    degraded: finalizationStatus !== "finalized_valid", manual_review_required: finalizationStatus !== "finalized_valid",
+    manual_review_reason: finalizationStatus !== "finalized_valid" ? "La puerta de finalización aún no reúne todos sus componentes." : undefined,
+    handoff_ready: finalizationStatus === "finalized_valid", model_version: input.modelVersion,
+    prompt_version: input.promptVersion, rules_version: input.rulesVersion, contract_version: input.contractVersion,
+    trace_id: input.traceId,
+  });
+  const snapshot = diagnosticSnapshotSchema.parse({
+    case_id: input.caseId, as_of: new Date().toISOString(), reproducible: snapshotReproducible,
+    snapshot_available: input.snapshotId != null, sources_resolvable: input.evidence.length > 0,
+    rules_version_available: input.rulesVersion != null, knowledge_refs_resolvable: true,
+    model_metadata_available: input.modelVersion != null,
+    reproducibility_limitations: snapshotReproducible ? undefined : "El snapshot todavía no reúne evidencia y metadatos suficientes para reproducirse.",
+  });
+  return { output, evidence, validations, snapshot };
+}
+
+function userSummaryForOutput(level: ConfidenceLevel, body: string): string {
+  return userSummary(level, body);
+}

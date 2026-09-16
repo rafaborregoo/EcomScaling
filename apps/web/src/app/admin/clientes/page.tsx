@@ -11,7 +11,9 @@ import {
   concesionInicial,
   concesionValida,
   grantPlanBody,
+  PlanEditor,
 } from "@/components/concesion-de-plan";
+import { VerComoButton } from "@/components/ver-como-button";
 import {
   AsyncState,
   Badge,
@@ -34,6 +36,13 @@ type AssignedConsultant = {
   is_primary: boolean;
 };
 
+type Plan = {
+  plan_code: string;
+  store_limit: number | null;
+  status: string;
+  ends_at: string | null;
+};
+
 type Client = {
   id: string;
   display_name: string;
@@ -44,6 +53,7 @@ type Client = {
   created_at: string;
   member_count: number;
   consultants: AssignedConsultant[];
+  plan: Plan | null;
 };
 
 const STATUS_OPTIONS = [
@@ -139,6 +149,7 @@ function ClientsPanel() {
       label: "",
       render: (row) => (
         <div className="flex justify-end gap-2">
+          <VerComoButton organizationId={row.id} displayName={row.display_name} />
           <Button
             size="sm"
             variant="ghost"
@@ -146,7 +157,7 @@ function ClientsPanel() {
               setEditingId((current) => (current === row.id ? null : row.id))
             }
           >
-            {editingId === row.id ? "Cerrar" : "Editar"}
+            {editingId === row.id ? "Cerrar" : "Ver ficha"}
           </Button>
           {row.status === "pending_deletion" ? (
             <Button
@@ -449,6 +460,13 @@ function EditClientForm({
             {busy ? "Guardando..." : "Guardar cambios"}
           </Button>
         </div>
+
+        <PlanEditor
+          subjectType="organization"
+          subjectId={client.id}
+          plan={client.plan}
+          onSaved={onSaved}
+        />
       </div>
     </Card>
   );

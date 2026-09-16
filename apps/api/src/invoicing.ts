@@ -4,9 +4,14 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { AuthContext } from "./auth-context.js";
 import { normalizeStripeInvoice } from "./billing.js";
+import {
+  sendInvoiceMail,
+  type InvoiceEmailData,
+  type InvoiceMailerEnv,
+} from "./invoice-mailer.js";
 import { createStripeClient, stripeErrorDetail } from "./stripe-client.js";
 
-type InvoicingEnv = {
+export type InvoicingEnv = InvoiceMailerEnv & {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   VERIFACTU_CERT_PFX_BASE64?: string;
@@ -64,6 +69,12 @@ export type BillingInvoice = {
   verifactu_status: string;
   verifactu_qr_url: string | null;
   verifactu_submitted_at: string | null;
+  invoice_email_status: string;
+  invoice_email_attempts: number;
+  invoice_email_sent_at: string | null;
+  invoice_email_last_attempt_at: string | null;
+  invoice_email_message_id: string | null;
+  invoice_email_error: string | null;
   created_at: string;
 };
 
@@ -675,8 +686,15 @@ export async function createInvoiceForStripePayment(
       error: "invoice_lookup_failed",
       detail: existingError.message,
     };
-  if (existing)
-    return { ok: true as const, duplicate: true as const, invoice: existing };
+  if (existing) {
+    const email = await sendInvoiceEmailForInvoice(env, existing.id);
+    return {
+      ok: true as const,
+      duplicate: true as const,
+      invoice: existing,
+      email,
+    };
+  }
 
   const customer = stripeInvoiceCustomer(rawPayment);
   const paidTotal = roundMoney(normalized.gross_amount);
@@ -792,7 +810,193 @@ export async function createInvoiceForStripePayment(
       target_issue_date: issuedDate,
     });
   }
-  return { ok: true as const, invoice };
+  const email = await sendInvoiceEmailForInvoice(env, invoice.id);
+  return { ok: true as const, invoice, email };
+}
+
+type InvoiceEmailDeliveryResult =
+  | { ok: true; sent: true; message_id: string | null }
+  | {
+      ok: true;
+      sent: false;
+      reason: string;
+      skipped?: boolean;
+    }
+  | { ok: false; statusCode: number; error: string; detail?: string };
+
+/**
+ * Envía una factura ya persistida. Se llama desde `invoice.paid` y también
+ * desde el botón de reintento del panel: el estado en la propia factura evita
+ * reenviar dos veces cuando Stripe repite el evento.
+ */
+export async function sendInvoiceEmailForInvoice(
+  env: InvoicingEnv,
+  invoiceId: string,
+): Promise<InvoiceEmailDeliveryResult> {
+  const supabase = createServiceClient(env);
+  const [{ data: invoice, error }, { data: lines, error: linesError }] =
+    await Promise.all([
+      supabase
+        .schema("private")
+        .from("billing_invoices")
+        .select("*")
+        .eq("id", invoiceId)
+        .maybeSingle(),
+      supabase
+        .schema("private")
+        .from("billing_invoice_lines")
+        .select(
+          "description, quantity, unit_price, vat_rate, base_amount, tax_amount, total_amount",
+        )
+        .eq("invoice_id", invoiceId)
+        .order("position"),
+  ]);
+  if (error || linesError || !invoice) {
+    if (error?.message) {
+      return {
+        ok: false,
+        statusCode: 404,
+        error: "invoice_email_data_not_found",
+        detail: error.message,
+      };
+    }
+    if (linesError?.message) {
+      return {
+        ok: false,
+        statusCode: 404,
+        error: "invoice_email_data_not_found",
+        detail: linesError.message,
+      };
+    }
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "invoice_email_data_not_found",
+    };
+  }
+  if (invoice.invoice_email_status === "sent") {
+    return { ok: true, sent: false, skipped: true, reason: "already_sent" };
+  }
+  const recipient =
+    typeof invoice.customer_email === "string"
+      ? invoice.customer_email.trim().toLowerCase()
+      : "";
+  if (!recipient) {
+    await supabase
+      .schema("private")
+      .from("billing_invoices")
+      .update({
+        invoice_email_status: "not_sent",
+        invoice_email_error: "customer_email_missing",
+      })
+      .eq("id", invoiceId);
+    return { ok: true, sent: false, reason: "customer_email_missing" };
+  }
+
+  // La actualizacion condicional hace de claim sencillo: dos reintentos
+  // simultaneos no deben entregar dos facturas al mismo destinatario.
+  const attempts = Number(invoice.invoice_email_attempts ?? 0) + 1;
+  const now = new Date().toISOString();
+  const { data: claimed, error: claimError } = await supabase
+    .schema("private")
+    .from("billing_invoices")
+    .update({
+      invoice_email_status: "sending",
+      invoice_email_attempts: attempts,
+      invoice_email_last_attempt_at: now,
+      invoice_email_error: null,
+    })
+    .eq("id", invoiceId)
+    .in("invoice_email_status", ["pending", "failed", "not_sent"])
+    .select("id")
+    .maybeSingle();
+  if (claimError) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: "invoice_email_claim_failed",
+      detail: claimError.message,
+    };
+  }
+  if (!claimed) {
+    return { ok: true, sent: false, skipped: true, reason: "send_in_progress" };
+  }
+
+  const data: InvoiceEmailData = {
+    invoice: {
+      invoice_code: invoice.invoice_code,
+      issue_date: invoice.issue_date,
+      issuer_name: invoice.issuer_name,
+      issuer_tax_id: invoice.issuer_tax_id,
+      issuer_address: invoice.issuer_address,
+      customer_name: invoice.customer_name,
+      customer_tax_id: invoice.customer_tax_id,
+      customer_email: recipient,
+      currency_code: invoice.currency_code,
+      subtotal: Number(invoice.subtotal),
+      tax_amount: Number(invoice.tax_amount),
+      total: Number(invoice.total),
+      operation_description: invoice.operation_description,
+      verifactu_status: invoice.verifactu_status,
+      verifactu_qr_url: invoice.verifactu_qr_url,
+    },
+    lines: (lines ?? []) as InvoiceEmailData["lines"],
+  };
+  const result = await sendInvoiceMail(env, data);
+  if (result.sent) {
+    const { error: sentError } = await supabase
+      .schema("private")
+      .from("billing_invoices")
+      .update({
+        invoice_email_status: "sent",
+        invoice_email_sent_at: new Date().toISOString(),
+        invoice_email_message_id: result.messageId,
+        invoice_email_error: null,
+      })
+      .eq("id", invoiceId);
+    if (sentError) {
+      return {
+        ok: false,
+        statusCode: 500,
+        error: "invoice_email_status_update_failed",
+        detail: sentError.message,
+      };
+    }
+    return { ok: true, sent: true, message_id: result.messageId };
+  }
+
+  await supabase
+    .schema("private")
+    .from("billing_invoices")
+    .update({
+      invoice_email_status: "failed",
+      invoice_email_error: result.reason.slice(0, 500),
+    })
+    .eq("id", invoiceId);
+  return { ok: true, sent: false, reason: result.reason };
+}
+
+export async function retryInvoiceEmailForStripePayment(
+  env: InvoicingEnv,
+  externalPaymentId: string,
+) {
+  if (!externalPaymentId) return { ok: true as const, skipped: true as const };
+  const supabase = createServiceClient(env);
+  const { data: invoice, error } = await supabase
+    .schema("private")
+    .from("billing_invoices")
+    .select("id")
+    .eq("external_payment_id", externalPaymentId)
+    .maybeSingle();
+  if (error)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "invoice_email_lookup_failed",
+      detail: error.message,
+    };
+  if (!invoice) return { ok: true as const, skipped: true as const };
+  return sendInvoiceEmailForInvoice(env, invoice.id);
 }
 
 /**
@@ -1152,7 +1356,7 @@ export async function listPlatformInvoices(
     .schema("private")
     .from("billing_invoices")
     .select(
-      "id, invoice_series, invoice_year, invoice_number, invoice_code, invoice_type, status, issue_date, operation_date, customer_name, customer_tax_id, customer_email, currency_code, subtotal, tax_amount, total, operation_description, external_payment_id, verifactu_status, verifactu_qr_url, verifactu_submitted_at, created_at",
+      "id, invoice_series, invoice_year, invoice_number, invoice_code, invoice_type, status, issue_date, operation_date, customer_name, customer_tax_id, customer_email, currency_code, subtotal, tax_amount, total, operation_description, external_payment_id, verifactu_status, verifactu_qr_url, verifactu_submitted_at, invoice_email_status, invoice_email_attempts, invoice_email_sent_at, invoice_email_last_attempt_at, invoice_email_message_id, invoice_email_error, created_at",
     )
     .order("issue_date", { ascending: false })
     .order("invoice_number", { ascending: false })

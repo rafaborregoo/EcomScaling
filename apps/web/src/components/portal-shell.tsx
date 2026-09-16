@@ -12,6 +12,7 @@ import {
 } from "@/lib/bootstrap";
 import { getSupabaseClient } from "@/lib/supabase";
 import { invalidateCachedQueries } from "@/lib/use-cached-query";
+import { clearViewAs, getViewAs, setViewAs, type ViewAs } from "@/lib/view-as";
 import {
   Alert,
   Avatar,
@@ -402,6 +403,29 @@ function PortalShellContent({
     });
   }
 
+  // "Ver como" (view-as.ts): entra con ?organizationId=<id>&verComo=<nombre>
+  // desde /admin. Un solo flanco de entrada -- en cuanto se detecta se
+  // persiste en sessionStorage y se limpia de la URL, para que recargar la
+  // misma pagina no lo reactive con un nombre desactualizado.
+  const [viewAs, setViewAsState] = useState<ViewAs | null>(() => getViewAs());
+  const verComoParam = searchParams.get("verComo");
+  useEffect(() => {
+    if (verComoParam && organizationIdFromUrl) {
+      const next = { organizationId: organizationIdFromUrl, displayName: verComoParam };
+      setViewAs(next);
+      setViewAsState(next);
+      updateUrlParams({ verComo: undefined });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo en el flanco de entrada, no en cada cambio de URL.
+  }, [verComoParam, organizationIdFromUrl]);
+
+  function exitViewAs() {
+    clearViewAs();
+    setViewAsState(null);
+    invalidateCachedQueries();
+    router.push("/admin/clientes");
+  }
+
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(
     bootstrapCache?.bootstrap ?? null,
   );
@@ -784,10 +808,16 @@ function PortalShellContent({
     ? actions.filter((action) => !action.cta_href.startsWith("/integraciones"))
     : actions;
   const visibleActions = pageActions.slice(0, 3);
-  const isConsultant = ["platform_admin", "consultant"].includes(
-    bootstrap.profile.platform_role,
-  );
-  const isPlatformAdmin = bootstrap.profile.platform_role === "platform_admin";
+  // "Ver como" fuerza el nav y los permisos de un cliente normal aunque el
+  // rol real sea platform_admin: es lo que hace que la vista sea la misma
+  // que ve el dueño de la organizacion, no la del admin mirandola por encima.
+  // La escritura de verdad la bloquea `apiFetch` (bootstrap.ts) para
+  // cualquier pantalla, esto es solo lo que se ve.
+  const isConsultant =
+    !viewAs &&
+    ["platform_admin", "consultant"].includes(bootstrap.profile.platform_role);
+  const isPlatformAdmin =
+    !viewAs && bootstrap.profile.platform_role === "platform_admin";
   // Consultor en vista general (sin cliente activo) sobre una ruta que necesita
   // un cliente concreto: se muestra un aviso en vez del contenido de la pagina.
   const needsClientForRoute =
@@ -962,6 +992,7 @@ function PortalShellContent({
   // Selector de cliente / tienda: se muestra en la barra superior en desktop y
   // en una fila propia en movil. Mismo contenido en ambos sitios.
   const showClientSelect =
+    !viewAs &&
     !isPlatformAdmin &&
     (isConsultant
       ? bootstrap.memberships.length >= 1
@@ -1081,6 +1112,20 @@ function PortalShellContent({
         <a className="skip-link" href="#portal-content">
           Saltar al contenido principal
         </a>
+        {viewAs ? (
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-foreground px-4 py-2 text-center text-xs text-white">
+            <span>
+              Viendo como <strong>{viewAs.displayName}</strong> · Solo lectura
+            </span>
+            <button
+              type="button"
+              className="underline underline-offset-2"
+              onClick={exitViewAs}
+            >
+              Salir
+            </button>
+          </div>
+        ) : null}
         {/* App móvil (estilo Claude): barra superior aireada -- avatar/menú
           circular a la izquierda, título + eyebrow centrados, notificaciones a
           la derecha. La navegación vive en la barra inferior fija. */}

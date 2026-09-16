@@ -1,90 +1,59 @@
 "use client";
 
-import { Banner, Field, Input, Select } from "@/components/ui";
+import { useState } from "react";
+import { apiFetch } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
+import { Banner, Button, ErrorBlock, Field, Input, Select } from "@/components/ui";
+import {
+  concesionDesde,
+  concesionInicial,
+  concesionValida,
+  grantPlanBody,
+  type ConcesionDePlanValue,
+} from "./concesion-de-plan-model";
 
-/**
- * Quien paga, decidido en el mismo formulario que da de alta.
- *
- * Hasta ahora el alta desde /admin no preguntaba: al consultor se le concedia
- * SIEMPRE un plan activo sin limite de tiendas, y al cliente un trial. Ninguna
- * de las dos cosas se veia en pantalla ni se podia cambiar, asi que no habia
- * forma de decir "a este le doy el plan yo" ni "a este que lo pague".
- *
- * Se comparte entre el alta de consultor y la de cliente porque es la misma
- * decision y los mismos limites del backend (`buildGrantFields`): tenerlo dos
- * veces es como acaban divergiendo en cual pide el limite de tiendas.
- */
-
-export type ConcesionDePlanValue = {
-  conceder: boolean;
-  planCode: string;
-  storeLimit: string;
-  sinLimite: boolean;
-  endsAt: string;
+// La logica pura vive en concesion-de-plan-model.ts; se reexporta para que
+// nadie tenga que saber que esta partida en dos ficheros.
+export {
+  concesionDesde,
+  concesionInicial,
+  concesionValida,
+  grantPlanBody,
+  type ConcesionDePlanValue,
 };
-
-/**
- * `conceder` arranca en lo que ya hacia cada alta antes de existir este
- * bloque: el consultor nacia con plan concedido y el cliente en trial. Abrir
- * la puerta no es motivo para mover el valor por defecto de nadie.
- */
-export function concesionInicial(
-  planCode: string,
-  conceder: boolean,
-): ConcesionDePlanValue {
-  return {
-    conceder,
-    planCode,
-    storeLimit: "1",
-    sinLimite: false,
-    endsAt: "",
-  };
-}
-
-/** Lo que va en el cuerpo de la peticion. `null` = no se concede nada. */
-export function grantPlanBody(valor: ConcesionDePlanValue) {
-  if (!valor.conceder) return null;
-  return {
-    plan_code: valor.planCode.trim(),
-    // Explicito a proposito, igual que en el backend: `null` es "sin limite",
-    // no "no me he acordado".
-    store_limit: valor.sinLimite ? null : Number.parseInt(valor.storeLimit, 10),
-    ...(valor.endsAt ? { ends_at: new Date(valor.endsAt).toISOString() } : {}),
-  };
-}
-
-export function concesionValida(valor: ConcesionDePlanValue) {
-  if (!valor.conceder) return true;
-  return (
-    valor.planCode.trim() !== "" &&
-    (valor.sinLimite || /^[1-9]\d*$/.test(valor.storeLimit))
-  );
-}
 
 export function ConcesionDePlan({
   value,
   onChange,
   etiquetaSinPlan,
   avisoSinPlan,
+  soloEdicion = false,
 }: {
   value: ConcesionDePlanValue;
   onChange: (valor: ConcesionDePlanValue) => void;
   /** Que significa no conceder aqui: "paga con tarjeta" o "empieza en trial". */
-  etiquetaSinPlan: string;
-  avisoSinPlan: string;
+  etiquetaSinPlan?: string;
+  avisoSinPlan?: string;
+  /** Editando un plan que ya existe: sin el selector de "concedo o no", los
+   *  campos van directos -- aqui siempre hay un plan que ajustar. */
+  soloEdicion?: boolean;
 }) {
   return (
     <div className="grid gap-4">
-      <Field label="Plan">
-        <Select
-          value={value.conceder ? "conceder" : "sin-plan"}
-          onChange={(modo) => onChange({ ...value, conceder: modo === "conceder" })}
-          options={[
-            { value: "conceder", label: "Se lo concedo yo (no paga)" },
-            { value: "sin-plan", label: etiquetaSinPlan },
-          ]}
-        />
-      </Field>
+      {!soloEdicion ? (
+        <Field label="Plan">
+          <Select
+            value={value.conceder ? "conceder" : "sin-plan"}
+            onChange={(modo) =>
+              onChange({ ...value, conceder: modo === "conceder" })
+            }
+            options={[
+              { value: "conceder", label: "Se lo concedo yo (no paga)" },
+              { value: "sin-plan", label: etiquetaSinPlan ?? "No" },
+            ]}
+          />
+        </Field>
+      ) : null}
 
       {value.conceder ? (
         <>
@@ -134,6 +103,79 @@ export function ConcesionDePlan({
       ) : (
         <Banner tone="warn">{avisoSinPlan}</Banner>
       )}
+    </div>
+  );
+}
+
+/**
+ * La ficha de un consultor o un cliente ya dado de alta: mostrar su plan de
+ * hoy y ajustarlo, sin salir a /admin/facturacion.
+ *
+ * Reusa `/v1/admin/subscriptions` (`grantSubscription`) tal cual -- es la
+ * misma operacion que conceder un plan al dar de alta, solo que el sujeto ya
+ * existe. Ojo con `subjectId` para un consultor: tiene que ser el id de su
+ * organizacion consultora (`subjectType: "organization"`), no el suyo propio
+ * -- desde Fase 1 el plan que de verdad cuenta para el rol y la capacidad
+ * vive ahi, no en una fila a nombre del usuario.
+ */
+export function PlanEditor({
+  subjectType,
+  subjectId,
+  plan,
+  onSaved,
+}: {
+  subjectType: "user" | "organization";
+  subjectId: string;
+  plan: { plan_code: string; store_limit: number | null; ends_at: string | null } | null;
+  onSaved: (message: string) => void;
+}) {
+  const [value, setValue] = useState(() =>
+    plan ? concesionDesde(plan) : concesionInicial("", true),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await apiFetch("/v1/admin/subscriptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_type: subjectType,
+          subject_id: subjectId,
+          ...grantPlanBody(value),
+        }),
+      });
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      onSaved("Plan actualizado.");
+    } catch {
+      setError("No se pudo guardar el plan. Revisa la conexión e inténtalo de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3 border-t border-separator pt-4">
+      <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
+        Plan {plan ? `actual: ${plan.plan_code}` : "(sin plan concedido todavía)"}
+      </p>
+      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      <ConcesionDePlan value={value} onChange={setValue} soloEdicion />
+      <div>
+        <Button
+          size="sm"
+          disabled={busy || !concesionValida(value)}
+          onClick={() => void guardar()}
+        >
+          {busy ? "Guardando..." : "Guardar plan"}
+        </Button>
+      </div>
     </div>
   );
 }

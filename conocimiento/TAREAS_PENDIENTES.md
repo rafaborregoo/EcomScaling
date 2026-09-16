@@ -1,4 +1,4 @@
-# Tareas pendientes — conocimiento a software
+# Tareas pendientes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â conocimiento a software
 
 Lo que queda abierto de `docs/PLAN_MAESTRO_CONOCIMIENTO_A_SOFTWARE.md`, separado
 por **quien puede cerrarlo**. Se actualiza en el mismo turno en que aparece la
@@ -10,13 +10,13 @@ que es el checklist canonico del piloto. Aqui solo lo de esta linea de trabajo.
 
 ---
 
-## Para Rafa — nadie mas puede hacerlo
+## Para Rafa ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â nadie mas puede hacerlo
 
 - [ ] **Reautorizar Shopify en `ecomscaling-dev.myshopify.com`.** La credencial
       caduco el 2026-09-14 y la conexion esta en `syncing` sin traer dato. El
       motor de `D01` ya lo detecta solo y lo marca como
       `credential_expired` / `blocked`, asi que mientras no se reconecte
-      **ninguna senal de esa tienda sostiene un diagnostico** — que es el
+      **ninguna senal de esa tienda sostiene un diagnostico** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â que es el
       comportamiento correcto, pero deja la tienda a ciegas.
 - [ ] **Decidir que pasa con las cuatro conexiones de Meta Ads en `pending`.**
       Nunca han sincronizado. El motor no las marca como rotas a proposito
@@ -44,7 +44,7 @@ que es el checklist canonico del piloto. Aqui solo lo de esta linea de trabajo.
 
 ---
 
-## Deuda anotada — la cierro yo cuando toque
+## Deuda anotada ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â la cierro yo cuando toque
 
 Cada una lleva **por que se dejo**, que es lo que permite decidir si sigue
 siendo buena idea dejarla.
@@ -152,13 +152,20 @@ siendo buena idea dejarla.
 
 ### De la fase 3 entera
 
+**Estado canÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³nico 2026-09-16:** D13 y D14 estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n hechos; F3 estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ cerrada y F4
+queda habilitada. Las casillas histÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ricas de esta secciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n se conservan como
+bitÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡cora, pero no representan trabajo abierto.
+
 - [x] ~~**4 flujos escritos y sin implementar**: `d07`, `d09`, `d10` y
       `d11`.~~ **Hechos los cuatro** (2026-10-06, `d07` y `d09` los ultimos).
-- [ ] **3 bloques que necesitan motor y no tienen flujo escrito**: `D12`,
-      `D13`, `D14`. Ahi si hay diseno que hacer. (`D04` y `D08` ya tienen motor
+- [x] ~~**D12: verificar el motor y flujo runtime en staging.**~~ **Hecho el
+      2026-09-16** usando `env.local`: dos pasadas, revisiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n vigente e
+      histÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rica, conteo de confusores/checks y limpieza verificada a cero.
+- [ ] **2 bloques que necesitan motor y no tienen flujo escrito**: `D13`,
+      `D14`. Ahi si hay diseno que hacer. (`D04` y `D08` ya tienen motor
       propio, escrito sin flujo formal.)
-- [ ] **Pantalla en 3 de los 15 bloques** (`D12`, `D13`, `D14`; `D00` no
-      necesita). La matriz de audiencia de
+- [ ] **Pantalla en 2 de los 15 bloques** (`D13`, `D14`; `D00` no necesita).
+      La matriz de audiencia de
       [`fase-03/IMPLEMENTACION.md`](fase-03/IMPLEMENTACION.md) ya dice que lleva
       cada una.
 - [ ] **`D09` cierra la cadena causal, y `D11` no se ha vuelto a mirar desde
@@ -171,11 +178,20 @@ siendo buena idea dejarla.
       `diagnostic_hypotheses` y `root_causes` del caso y traducir su estado
       real a esas tres capas, en vez del texto fijo actual. No es un bug (el
       texto sigue siendo honesto: **sigue** sin haber una causa cerrada), pero
-      la pantalla ya no explica **por que** — el motivo real hoy es "la
+      la pantalla ya no explica **por que** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â el motivo real hoy es "la
       evidencia es correlacion", no "no existe el motor".
 - [ ] **Ningun agente lee todavia una tabla de fase 3.** Conectarlos es anadir
       una tool y subir una version de `agent_versions`, no tocar el runtime
       (apartado 10 del plan).
+- [ ] **Retirar o corregir `.env.tests` obsoleto.** `env.local` ya apunta al
+      staging documentado `kopcblejsxpkxoykldyh`; `.env.tests` sigue
+      referenciando un proyecto sin DNS y puede provocar una verificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n en el
+      entorno equivocado. No reutilizar una clave entre proyectos ni apuntar a
+      producciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n.
+- [ ] **D12: decidir el presupuesto de recursiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n y su efecto en D11.** El motor
+      deja la reapertura explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­cita (`revision_triggered`, `reopened_blocks`),
+      pero no reabre ni consume presupuesto automÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ticamente hasta que esa
+      polÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­tica estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© decidida.
 
 ### Anteriores, aun abiertas
 
@@ -184,3 +200,97 @@ siendo buena idea dejarla.
 - [ ] **`fase-06/02-contratos-IA` tiene 17 ficheros legacy** a granel, sin el
       renombrado que tienen las demas capas.
 - [ ] **El bypass del guardrail de `pending_deletion` sigue sin explicacion.**
+
+### Apertura F4/P00 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-09-16
+
+- [x] ~~**Aplicar y verificar `4.00/P00` en `.env.local`.**~~ El contrato,
+      runtime, worker, workflow y panel se probaron con una ejecuciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n real
+      `INPUT_INCOMPLETE` por ausencia de contexto P1 y limpieza confirmada.
+- [x] ~~**Implementar `4.01` despuÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©s de cerrar P00.**~~ Contrato, tests,
+      snapshots, runtime, worker, API, panel y verificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n real con
+      `.env.local`; se probÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ `COMPLETE` con declaraciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n temporal e
+      `INCOMPLETE` sin objetivo, y se confirmÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ cleanup.
+
+### Cierre de integracion D11 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-09-16
+
+- [x] ~~Integrar D11 con D07, D08 y D09.~~ El motor ahora consume rutas,
+      hipotesis, causas raiz y constraints del caso, con aislamiento por
+      organizacion y degradacion explicita cuando faltan.
+- [x] ~~Verificar D11 con datos reales.~~ `.env.local` sobre
+      `kopcblejsxpkxoykldyh`: D07 -> D08 -> D09 -> D11, dos pasadas identicas,
+      tres claims causales no genericos y limpieza a cero.
+- [x] ~~D11 completo.~~ La deuda de integracion queda cerrada; F4 puede comenzar.
+### Cierre F3 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-09-16
+
+- [x] ~~D13: flujo runtime, motor temporal, worker, workflow, panel y verificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n real.~~ Hecho con `env.local`; la prueba sembrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ y eliminÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ una serie temporal y confirmÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ la limpieza.
+- [x] ~~D14: flujo runtime, motor de salida, 11 validadores, snapshot/ledger, worker, workflow, panel y verificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n real.~~ Hecho con `env.local`; la salida insuficiente quedÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ correctamente `invalid_output`, con 11 validadores y cleanup a cero.
+- [x] ~~F3 cerrada.~~ D13 y D14 estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡n en `hecho`; F4 deja de estar bloqueada.
+
+### Avance F4/P01 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-09-16
+
+- [x] ~~**Implementar `4.01` contexto de decisiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n y objetivos.**~~ Contrato,
+      tests, migraciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n, snapshots, runtime, worker, API, panel y verificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n
+      real con `.env.local`; se probÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ `COMPLETE` con declaraciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n temporal y
+      `INCOMPLETE` sin objetivo, y se confirmÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ cleanup.
+- [x] ~~**Implementar `4.03` urgencia y sensibilidad temporal.**~~ Contrato,
+      tests, migraciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n, runtime, worker, workflow, API y panel verificados con
+      `.env.local`; la prueba real confirmÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ `TIME_CRITICAL`, ejecutÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ las cinco
+      organizaciones sin fallos y limpiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ la fila temporal.
+- [x] ~~**Implementar `4.04` impacto decisional y valor en juego.**~~ Contrato,
+      tests, migraciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n, runtime, worker, workflow, API y panel verificados con
+      `.env.local`; perfil `HIGH`, cinco organizaciones sin fallos y cleanup.
+- [x] ~~**Implementar `4.05` constraints y dependencias.**~~ Contrato, tests,
+      migraciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n, runtime, worker, workflow, API y panel verificados con
+      `.env.local`; cinco organizaciones sin fallos y cleanup confirmado.
+- [x] ~~**Implementar `4.06` esfuerzo, recursos y factibilidad.**~~ Contrato, tests, migraciÃƒÆ’Ã‚Â³n, runtime, worker, API, panel y verificaciÃƒÆ’Ã‚Â³n real en `.env.local`; cinco organizaciones sin fallos y cleanup confirmado.
+      y repetir contrato, motor, pixel, verificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n real y documentaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n.
+
+### Avance F4/P03 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-09-16
+
+- [x] ~~**P03 urgencia y sensibilidad temporal.**~~ No mezcla urgencia con
+      severidad o prioridad; mantiene `UNKNOWN` cuando no existen ventanas,
+      deadlines o lead times observables. El artefacto de tenant-context
+      referenciado por el manifiesto falta en el corpus y queda como recorte
+      explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­cito.
+- [x] ~~**Abrir e implementar `4.04`.**~~ P04 conserva el valor en juego sin
+      mezclarlo con urgencia, severidad o ranking; la falta de economics y
+      counterfactual queda como unknown explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­cito.
+- [x] ~~**Abrir e implementar `4.05`.**~~ P05 separa mapa de constraints y
+      grafo de dependencias, y mantiene objetivo/evidencia/falsifier explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­citos.
+- [x] ~~**Abrir `4.06`.**~~ P06 queda hecho tras revisar el artefacto y sus guardrails; F4 continÃƒÆ’Ã‚Âºa con P07.
+      F4 sigue abierta.
+
+
+### Cierre F4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-09-16
+
+- [x] ~~**Implementar 4.06 factibilidad.**~~ Cinco organizaciones procesadas
+      sin fallos y cleanup confirmado en .env.local.
+- [x] ~~**Implementar 4.07 riesgo y reversibilidad.**~~ Contrato, motor, worker,
+      API, panel y migraciÃƒÆ’Ã‚Â³n verificados; cleanup confirmado.
+- [x] ~~**Implementar 4.08 asignaciÃƒÆ’Ã‚Â³n y expected value.**~~ El motor solo calcula
+      EV con inputs declarados; verificaciÃƒÆ’Ã‚Â³n y cleanup confirmados.
+- [x] ~~**Implementar 4.09 strategic fit.**~~ La falta de declaraciÃƒÆ’Ã‚Â³n del tenant
+      permanece explÃƒÆ’Ã‚Â­citamente como UNKNOWN; verificaciÃƒÆ’Ã‚Â³n y cleanup confirmados.
+- [x] ~~**Implementar 4.10 ranking.**~~ Sin polÃƒÆ’Ã‚Â­tica de pesos del tenant el
+      resultado es ABSTAIN; no se inventa ranking.
+- [x] ~~**Implementar 4.11 portfolio.**~~ Capacidad desconocida permanece
+      UNKNOWN; verificaciÃƒÆ’Ã‚Â³n y cleanup confirmados.
+- [x] ~~**Implementar 4.12 salida decisional.**~~ La evidencia insuficiente exige
+      ABSTAIN/VALIDATION_REQUIRED; verificaciÃƒÆ’Ã‚Â³n y cleanup confirmados.
+- [x] ~~**Cerrar F4.**~~ P00, P01, P03, P04, P05 y P06ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“P12 estÃƒÆ’Ã‚Â¡n en hecho.
+      F4 queda cerrada; F5 es la siguiente fase del ÃƒÆ’Ã‚Â­ndice.
+### Apertura F5/P00 â€” 2026-09-17
+
+- [x] ~~Implementar 5.00, framework universal de playbooks.~~ Contrato, tests,
+      migraciÃ³n, runtime, worker, API, panel y workflow verificados con
+      .env.local. El catÃ¡logo vacÃ­o devuelve NO_APPLICABLE_PLAYBOOK y cleanup
+      queda confirmado.
+- [x] ~~Abrir F5.~~ F4 estÃ¡ cerrada y 5.00 es el contrato raÃ­z de la fase.
+### Cierre F5/P01 — 2026-09-17
+
+- [x] ~~Implementar 5.01, adquisiciÃ³n y generaciÃ³n de demanda.~~ ExtensiÃ³n
+      del contrato universal con `domain_extension.acquisition`, validator
+      determinista, runtime filtrado por dominio, columna de persistencia
+      compartida, worker, workflow, endpoint y panel. Verificado con
+      `.env.local`: cinco organizaciones sin fallos y cleanup confirmado.
+- [ ] Implementar 5.02, paid media y eficiencia de trÃ¡fico.

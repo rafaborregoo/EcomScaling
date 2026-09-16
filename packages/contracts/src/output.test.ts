@@ -29,6 +29,7 @@ import {
   VALIDATORS,
   type DiagnosticOutputRecord,
   type OutputCheckInput,
+  finalizeDiagnosticOutput,
 } from "./output.js";
 import { DIAGNOSTIC_CONFIDENCES } from "./diagnostics.js";
 
@@ -376,4 +377,55 @@ test("§9 y §41: el actor de una transicion es un rol, no una persona", () => {
 test("§16: los once validadores, sin repetir", () => {
   assert.equal(VALIDATORS.length, 11);
   assert.equal(new Set(VALIDATORS).size, 11);
+});
+test("runtime: una salida incompleta no se presenta como final", () => {
+  const result = finalizeDiagnosticOutput({
+    outputId: "OUT-1", caseId: "CASE-1", organizationId: "ORG-1",
+    target: "net_sales", status: "investigating", confidence: "insufficient_data",
+    rootCause: null, constraint: null, severity: null, robustness: null,
+    temporal: null, hypotheses: [], evidence: [],
+    dataQualityValid: false, contextValid: false,
+  });
+  assert.equal(result.output.finalization_status, "invalid_output");
+  assert.equal(result.output.handoff_ready, false);
+  assert.equal(result.validations.length, VALIDATORS.length);
+  assert.ok(result.output.missing_components.length > 0);
+});
+
+test("runtime: compone lenguaje desde confianza y conserva evidencia contraria", () => {
+  const result = finalizeDiagnosticOutput({
+    outputId: "OUT-2", caseId: "CASE-2", organizationId: "ORG-1",
+    target: "net_sales", status: "partially_confirmed", confidence: "medium",
+    rootCause: { id: "RC-1", statement: "Un fallo de pagos reduce la conversión", status: "supported" },
+    constraint: null, severity: { id: "SEV-1", overall_severity: "high", summary: "Impacto alto" },
+    robustness: { id: "ROB-1", false_diagnosis_risk: "medium", robustness: "fragile" },
+    temporal: { id: "TEMP-1", trajectory: "deteriorating" },
+    hypotheses: [{ id: "H-1", status: "tested" }],
+    evidence: [
+      { claim: "El fallo explica la caída", claimLayer: "root_cause", source: "payments", sourceRef: "payments:2026-09", stance: "supporting" },
+      { claim: "El tráfico también cambió", claimLayer: "root_cause", source: "analytics", sourceRef: "analytics:2026-09", stance: "contradicting" },
+    ], dataQualityValid: true, contextValid: true,
+  });
+  assert.equal(result.output.confidence_language, "medium");
+  assert.ok(result.output.user_summary?.startsWith("La explicación más probable es"));
+  assert.ok(result.evidence.some((item) => item.stance === "contradicting"));
+  assert.equal(result.validations.length, 11);
+});
+
+test("runtime: las doce condiciones y el snapshot permiten finalizar", () => {
+  const result = finalizeDiagnosticOutput({
+    outputId: "OUT-FINAL", caseId: "CASE-FINAL", organizationId: "ORG-1",
+    target: "net_sales", status: "partially_confirmed", confidence: "medium", snapshotId: "SNAP-1",
+    rootCause: { id: "RC-1", statement: "Un fallo de pagos reduce la conversión", status: "supported" },
+    constraint: { id: "K-1", statement: "Capacidad de pago limitada" },
+    severity: { id: "SEV-1", overall_severity: "high" },
+    robustness: { id: "ROB-1", false_diagnosis_risk: "low" },
+    temporal: { id: "TEMP-1", trajectory: "deteriorating" },
+    hypotheses: [{ id: "H-1", status: "tested" }],
+    evidence: [{ claim: "El fallo explica la caída", claimLayer: "root_cause", source: "payments", sourceRef: "payments:2026-09", stance: "supporting" }],
+    dataQualityValid: true, contextValid: true, modelVersion: "model-1", rulesVersion: "rules-1",
+  });
+  assert.equal(result.output.finalization_status, "finalized_valid");
+  assert.equal(result.output.handoff_ready, true);
+  assert.equal(result.snapshot.reproducible, true);
 });

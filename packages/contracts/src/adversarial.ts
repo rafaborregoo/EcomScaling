@@ -559,3 +559,673 @@ export function checkAdversarialInvariants(
 
   return violations;
 }
+
+// ---------------------------------------------------------------------------
+// Motor puro de D12
+// ---------------------------------------------------------------------------
+
+export type AdversarialTriState = (typeof SI_NO)[number];
+
+export type AdversarialRuntimeSignal = {
+  metric: string;
+  dataConfidence: "high" | "medium" | "low" | "insufficient_data";
+  lowSample: boolean;
+  baselineConflict: boolean;
+  sampleSize?: number | null;
+};
+
+export type AdversarialRuntimeEvent = {
+  eventType: string;
+  description: string;
+  occurredAt: string;
+  source?: string | null;
+};
+
+export type AdversarialRuntimeBreak = {
+  breakType: string;
+  subtype?: string | null;
+  description: string;
+  affectedMetrics: string[];
+  effectiveFrom: string;
+};
+
+export type AdversarialRuntimeMixSegment = {
+  dimension: string;
+  segment: string;
+  weightBefore: number;
+  weightAfter: number;
+  performanceBefore: number | null;
+  performanceAfter: number | null;
+};
+
+export type AdversarialRuntimeInput = {
+  robustnessId: string;
+  caseId: string;
+  family: (typeof DIAGNOSTIC_FAMILIES)[number];
+  metric: string;
+  analysisPeriod: { start: string; end: string };
+  comparisonPeriod: { start: string; end: string } | null;
+  currentConfidence?: (typeof CONFIANZA)[number] | null;
+  comparabilityFacts?: {
+    sameDefinition?: AdversarialTriState;
+    sameScope?: AdversarialTriState;
+    sameCurrency?: AdversarialTriState;
+    sameStatusFilter?: AdversarialTriState;
+  };
+  /** Linaje opcional de candidatas D02, por tipo de confusor. */
+  sourceConfounderIds?: Readonly<Record<string, string>>;
+  signals: readonly AdversarialRuntimeSignal[];
+  events: readonly AdversarialRuntimeEvent[];
+  comparabilityBreaks: readonly AdversarialRuntimeBreak[];
+  mixSegments: readonly AdversarialRuntimeMixSegment[];
+  orderCounts: { analysis: number | null; comparison: number | null };
+  matureCohortsObservable?: boolean;
+};
+
+export type RedTeamResult = {
+  strongest_counter_explanation: string;
+  supporting_evidence: string | null;
+  required_evidence: string;
+  diagnosis_effect: "no_material_change" | "survives_with_limitations" | "requires_review_if_supported";
+};
+
+export type AdversarialReview = {
+  robustness: DiagnosticRobustness;
+  confounders: DiagnosticConfounder[];
+  tests: ConfounderTest[];
+  gates: ComparabilityGate[];
+  checks: MandatoryCheck[];
+  sensitivity: SensitivityAnalysis[];
+  redTeam: RedTeamResult;
+};
+
+type ConfounderBlueprint = {
+  type: (typeof CONFOUNDER_TYPES)[number];
+  category: (typeof CONFOUNDER_CATEGORIES)[number];
+  description: string;
+  requiredData: string;
+};
+
+const BLUEPRINTS: Record<string, ConfounderBlueprint> = {
+  period_comparability: {
+    type: "partial_period", category: "temporal",
+    description: "La ventana de analisis puede tener una duracion distinta de la ventana comparada",
+    requiredData: "Fechas de inicio y fin de ambas ventanas",
+  },
+  seasonality: {
+    type: "seasonality", category: "temporal",
+    description: "La estacionalidad habitual puede hacer que este periodo no sea comparable con el baseline",
+    requiredData: "Historico comparable por semana o por temporada",
+  },
+  promotions: {
+    type: "promotion", category: "context",
+    description: "Una promocion o evento comercial puede explicar el movimiento de la metrica",
+    requiredData: "Calendario de promociones y su alcance durante ambas ventanas",
+  },
+  tracking: {
+    type: "tracking_change", category: "measurement",
+    description: "Un cambio de tracking puede haber movido la medicion sin mover el fenomeno real",
+    requiredData: "Series de la fuente primaria y del sistema de medicion antes y despues del cambio",
+  },
+  traffic: {
+    type: "traffic_mix", category: "composition",
+    description: "El reparto de trafico entre canales puede cambiar la lectura agregada de la metrica",
+    requiredData: "Desglose de trafico y rendimiento within-channel en las dos ventanas",
+  },
+  cvr: {
+    type: "traffic_mix", category: "composition",
+    description: "Una variacion de conversion puede venir de un cambio en la mezcla de trafico",
+    requiredData: "Conversion y denominador por canal, dispositivo y mercado",
+  },
+  aov: {
+    type: "product_mix", category: "composition",
+    description: "Un cambio en la mezcla de productos puede mover el ticket agregado",
+    requiredData: "Ticket y peso por producto o SKU en ambas ventanas",
+  },
+  product_availability: {
+    type: "inventory_change", category: "operational",
+    description: "La disponibilidad de producto puede cambiar las ventas observadas",
+    requiredData: "Historico de disponibilidad y ventas por producto",
+  },
+  cpm: {
+    type: "channel_mix", category: "composition",
+    description: "El coste medio puede cambiar por la mezcla de canales comprados",
+    requiredData: "Coste e impresiones por canal en ambas ventanas",
+  },
+  ctr: {
+    type: "channel_mix", category: "composition",
+    description: "El click-through agregado puede cambiar por la mezcla de campañas",
+    requiredData: "Clicks e impresiones por canal y campaña",
+  },
+  traffic_channel_mix: {
+    type: "traffic_mix", category: "composition",
+    description: "La mezcla de canales puede explicar un cambio agregado sin cambio within-channel",
+    requiredData: "Peso y rendimiento por canal en ambas ventanas",
+  },
+  new_customer_definition: {
+    type: "metric_definition_change", category: "measurement",
+    description: "La definicion de cliente nuevo puede haber cambiado entre ventanas",
+    requiredData: "Version de la definicion y conteo bajo la misma regla",
+  },
+  attribution: {
+    type: "attribution_change", category: "measurement",
+    description: "Un cambio de ventana o metodologia de atribucion puede mover el resultado",
+    requiredData: "Ventana y metodologia de atribucion de ambas ventanas",
+  },
+  scale_level: {
+    type: "sample_size", category: "selection",
+    description: "El nivel de escala puede hacer que un porcentaje represente muestras distintas",
+    requiredData: "Denominador y tamaño de muestra de las dos ventanas",
+  },
+  device_mix: {
+    type: "device_mix", category: "composition",
+    description: "La mezcla de dispositivos puede cambiar la conversion agregada",
+    requiredData: "Rendimiento within-device y peso por dispositivo",
+  },
+  market_mix: {
+    type: "market_mix", category: "composition",
+    description: "La mezcla de mercados puede cambiar la conversion o el CAC agregado",
+    requiredData: "Rendimiento within-market y peso por mercado",
+  },
+  product_mix: {
+    type: "product_mix", category: "composition",
+    description: "La mezcla de productos puede cambiar el agregado aunque el producto no empeore",
+    requiredData: "Rendimiento within-product y peso por producto",
+  },
+  inventory: {
+    type: "inventory_change", category: "operational",
+    description: "Un cambio de inventario puede explicar el movimiento de la conversion",
+    requiredData: "Disponibilidad y demanda por producto durante ambas ventanas",
+  },
+  price: {
+    type: "price_change", category: "operational",
+    description: "Un cambio de precio puede coincidir con el movimiento observado",
+    requiredData: "Historico de precios y fecha efectiva por producto",
+  },
+  promotion: {
+    type: "promotion", category: "context",
+    description: "Una promocion puede mover el resultado sin representar el regimen normal",
+    requiredData: "Calendario, descuento y segmentos expuestos",
+  },
+  cohort_maturity: {
+    type: "customer_mix", category: "selection",
+    description: "Las cohortes inmaduras pueden hacer caer la retencion global de forma aparente",
+    requiredData: "Edad y resultado de cada cohorte hasta su ventana de madurez",
+  },
+  customer_mix: {
+    type: "customer_mix", category: "composition",
+    description: "La mezcla de clientes nuevos y recurrentes puede mover la retencion agregada",
+    requiredData: "Retencion y peso por tipo de cliente",
+  },
+  promotion_cohorts: {
+    type: "promotion", category: "context",
+    description: "Las cohortes adquiridas en promocion pueden tener una trayectoria distinta",
+    requiredData: "Cohortes expuestas y no expuestas a la promocion",
+  },
+  identity_resolution: {
+    type: "metric_definition_change", category: "measurement",
+    description: "La resolucion de identidad puede cambiar quien aparece como cliente recurrente",
+    requiredData: "Regla de identidad y tasa de resolucion por ventana",
+  },
+  accounting_timing: {
+    type: "partial_period", category: "temporal",
+    description: "El momento contable puede desplazar ingresos o costes entre periodos",
+    requiredData: "Calendario contable y fechas de reconocimiento",
+  },
+  one_offs: {
+    type: "external_event", category: "external",
+    description: "Un evento financiero puntual puede mover el resultado sin cambiar la operacion",
+    requiredData: "Libro de one-offs y su fecha de reconocimiento",
+  },
+  cash_vs_accrual: {
+    type: "metric_definition_change", category: "measurement",
+    description: "Mezclar caja y devengo puede fabricar una variacion entre periodos",
+    requiredData: "Base contable aplicada de forma identica en ambas ventanas",
+  },
+  cost_completeness: {
+    type: "metric_definition_change", category: "measurement",
+    description: "La falta de costes completos puede hacer que el margen aparente cambie",
+    requiredData: "Costes completos por pedido y por ventana",
+  },
+  demand_spike: {
+    type: "external_event", category: "external",
+    description: "Un pico de demanda puede explicar el movimiento de inventario observado",
+    requiredData: "Demanda, evento externo y horizonte de suministro",
+  },
+  lead_time: {
+    type: "shipping_change", category: "operational",
+    description: "Un cambio en el plazo de suministro puede afectar la disponibilidad",
+    requiredData: "Plazos de proveedor y fechas de entrada de stock",
+  },
+  inbound_stock: {
+    type: "inventory_change", category: "operational",
+    description: "La entrada de stock puede cambiar el nivel observado sin cambiar la demanda",
+    requiredData: "Recepciones de stock y demanda por SKU",
+  },
+  sku_mix: {
+    type: "product_mix", category: "composition",
+    description: "La mezcla de SKU puede mover el inventario o margen agregado",
+    requiredData: "Peso y rendimiento within-SKU",
+  },
+  forecast_horizon: {
+    type: "seasonality", category: "temporal",
+    description: "El horizonte de previsión puede dejar fuera una parte del patrón esperado",
+    requiredData: "Horizonte, demanda observada y estacionalidad histórica",
+  },
+  schema: {
+    type: "metric_definition_change", category: "measurement",
+    description: "Un cambio de esquema puede alterar qué eventos llegan a la métrica",
+    requiredData: "Version de esquema y reconciliacion de registros",
+  },
+  definitions: {
+    type: "metric_definition_change", category: "measurement",
+    description: "Una definicion distinta impide comparar la métrica entre ventanas",
+    requiredData: "Definicion versionada de la métrica",
+  },
+  sync: {
+    type: "technology_change", category: "operational",
+    description: "Una sincronizacion incompleta puede hacer parecer que cambió el negocio",
+    requiredData: "Rango ingerido y estado de sincronizacion de ambas ventanas",
+  },
+  permissions: {
+    type: "technology_change", category: "operational",
+    description: "Un permiso perdido puede reducir la cobertura sin reducir el fenómeno real",
+    requiredData: "Scopes concedidos y cobertura por fuente",
+  },
+  timezone: {
+    type: "day_of_week", category: "temporal",
+    description: "Un cambio de zona horaria puede mover eventos entre dias y periodos",
+    requiredData: "Zona horaria y regla de cierre aplicadas en ambas ventanas",
+  },
+  deployment: {
+    type: "technology_change", category: "operational",
+    description: "Un despliegue puede coincidir con el cambio observado en la métrica",
+    requiredData: "Registro de despliegues y comparación antes/después",
+  },
+  traffic_load: {
+    type: "technology_change", category: "operational",
+    description: "La carga de tráfico puede afectar el comportamiento técnico observado",
+    requiredData: "Carga, errores y latencia por ventana",
+  },
+  third_party_outage: {
+    type: "external_event", category: "external",
+    description: "Una caída de un tercero puede explicar el cambio de tecnología observado",
+    requiredData: "Estado del tercero y ventana de impacto",
+  },
+  browser_device: {
+    type: "device_mix", category: "composition",
+    description: "Un cambio de navegador o dispositivo puede concentrar el deterioro",
+    requiredData: "Error y conversión within-device",
+  },
+};
+
+const EVENT_TO_TYPE: Record<string, ConfounderBlueprint["type"]> = {
+  promotion: "promotion", sale_event: "promotion", free_shipping: "shipping_change",
+  bundle_change: "product_mix", discount_policy_change: "promotion",
+  launch: "launch", market_launch: "launch", channel_launch: "launch",
+  price_change: "price_change", tracking_change: "tracking_change",
+  deployment: "technology_change", theme_change: "technology_change",
+  checkout_change: "technology_change", platform_change: "technology_change",
+  product_mix_change: "product_mix", inventory_event: "inventory_change",
+  warehouse_change: "inventory_change", shipping_change: "shipping_change",
+  supplier_change: "operational_change", external_event: "external_event",
+  campaign_change: "channel_mix", creative_change: "channel_mix", budget_change: "channel_mix",
+};
+
+const CATEGORY_BY_TYPE: Record<ConfounderBlueprint["type"], ConfounderBlueprint["category"]> = {
+  seasonality: "temporal", promotion: "context", launch: "context", traffic_mix: "composition",
+  customer_mix: "composition", product_mix: "composition", market_mix: "composition", device_mix: "composition",
+  channel_mix: "composition", price_change: "operational", inventory_change: "operational",
+  attribution_change: "measurement", tracking_change: "measurement", metric_definition_change: "measurement",
+  partial_period: "temporal", day_of_week: "temporal", holiday: "temporal", sample_size: "selection",
+  outlier: "selection", external_event: "external", operational_change: "operational",
+  technology_change: "operational", currency_change: "measurement", shipping_change: "operational",
+  payment_change: "operational",
+};
+
+const TIPO_POR_DIMENSION: Record<string, ConfounderBlueprint["type"]> = {
+  channel: "traffic_mix", traffic: "traffic_mix", customer_type: "customer_mix",
+  customer: "customer_mix", product: "product_mix", sku: "product_mix", market: "market_mix", device: "device_mix",
+};
+
+function durationMs(period: { start: string; end: string }): number | null {
+  const start = Date.parse(period.start);
+  const end = Date.parse(period.end);
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? end - start : null;
+}
+
+function periodComparable(input: AdversarialRuntimeInput): AdversarialTriState {
+  if (!input.comparisonPeriod) return "unknown";
+  const analysis = durationMs(input.analysisPeriod);
+  const comparison = durationMs(input.comparisonPeriod);
+  return analysis != null && comparison != null && analysis === comparison ? "yes" : "no";
+}
+
+function confidenceAfter(
+  before: (typeof CONFIANZA)[number] | null | undefined,
+  lower: boolean,
+): (typeof CONFIANZA)[number] | undefined {
+  if (!before) return undefined;
+  if (!lower) return before;
+  if (before === "high") return "low";
+  if (before === "medium") return "low";
+  return "insufficient_data";
+}
+
+function addOrReplaceConfounder(
+  confounders: Map<string, DiagnosticConfounder>,
+  candidate: DiagnosticConfounder,
+) {
+  const previous = confounders.get(candidate.confounder_type);
+  const rank = (status: DiagnosticConfounder["status"]): number => ({
+    candidate: 0,
+    plausible: 1,
+    supported: 2,
+    rejected: 2,
+    material: 3,
+    resolved: 4,
+  })[status];
+  if (!previous || rank(candidate.status) > rank(previous.status)) {
+    confounders.set(candidate.confounder_type, candidate);
+  }
+}
+
+function makeConfounder(
+  input: AdversarialRuntimeInput,
+  blueprint: ConfounderBlueprint,
+  overrides: Partial<DiagnosticConfounder> = {},
+): DiagnosticConfounder {
+  return diagnosticConfounderSchema.parse({
+    confounder_id: `CF-${blueprint.type}`,
+    case_id: input.caseId,
+    confounder_type: blueprint.type,
+    category: blueprint.category,
+    description: blueprint.description,
+    affected_metrics: [input.metric],
+    scope: "global",
+    ...(input.sourceConfounderIds?.[blueprint.type]
+      ? { source_confounder_id: input.sourceConfounderIds[blueprint.type] }
+      : {}),
+    ...overrides,
+  });
+}
+
+function blueprintForCheck(checkKey: string): ConfounderBlueprint {
+  return BLUEPRINTS[checkKey] ?? {
+    type: "outlier", category: "selection",
+    description: "Un valor atipico puede distorsionar el movimiento agregado de la métrica",
+    requiredData: "Serie completa y criterio de atipicidad",
+  };
+}
+
+function familyCheckOutcome(
+  input: AdversarialRuntimeInput,
+  checkKey: string,
+  confounders: readonly DiagnosticConfounder[],
+  gate: ComparabilityGate,
+): MandatoryCheck {
+  if (checkKey === "period_comparability") {
+    return mandatoryCheckSchema.parse({
+      case_id: input.caseId, diagnostic_family: input.family, check_key: checkKey,
+      status: "executed", outcome: `Comparabilidad temporal: ${gate.comparability}.`,
+    });
+  }
+  if (checkKey === "cohort_maturity" && input.matureCohortsObservable !== true) {
+    return mandatoryCheckSchema.parse({
+      case_id: input.caseId, diagnostic_family: input.family, check_key: checkKey,
+      status: "not_possible", reason: "No existe una serie de cohortes con edad suficiente para comprobar su madurez.",
+    });
+  }
+  const blueprint = blueprintForCheck(checkKey);
+  const found = confounders.find((c) => c.confounder_type === blueprint.type);
+  return mandatoryCheckSchema.parse({
+    case_id: input.caseId, diagnostic_family: input.family, check_key: checkKey,
+    status: "executed",
+    outcome: found
+      ? `Se revisó: ${found.evidence ?? found.description}.`
+      : "No hay evidencia observable en las fuentes disponibles; esto no demuestra ausencia.",
+  });
+}
+
+/**
+ * Red team determinista. La salida es una biblioteca acotada por familia: el
+ * LLM puede explicarla después, pero no puede inventar un factor externo ni
+ * sobrescribir los checks que ya se calcularon aquí.
+ */
+export function runRedTeam(input: AdversarialRuntimeInput): RedTeamResult {
+  const signal = input.signals.find((item) => item.metric === input.metric);
+  const breakForMetric = input.comparabilityBreaks.find((item) =>
+    item.affectedMetrics.length === 0 || item.affectedMetrics.includes(input.metric),
+  );
+  if (signal?.dataConfidence === "insufficient_data" || signal?.baselineConflict || breakForMetric) {
+    return {
+      strongest_counter_explanation: "Podría ser una distorsión de medición: el cambio observado puede no representar el fenómeno real.",
+      supporting_evidence: breakForMetric?.description ?? "La fuente de la señal declara datos insuficientes o conflicto con su baseline.",
+      required_evidence: "Serie de la fuente primaria reconciliada con la fuente de medición y registro del cambio.",
+      diagnosis_effect: "requires_review_if_supported",
+    };
+  }
+  const changedMix = input.mixSegments.find((segment) =>
+    Math.abs(segment.weightAfter - segment.weightBefore) > Number.EPSILON,
+  );
+  if (changedMix) {
+    return {
+      strongest_counter_explanation: "Podría ser un cambio de composición: el agregado puede moverse aunque el rendimiento within-segment sea estable.",
+      supporting_evidence: `Cambió el peso del segmento ${changedMix.segment} en ${changedMix.dimension}.`,
+      required_evidence: "Comparación within-segment con pesos y rendimiento de las dos ventanas.",
+      diagnosis_effect: "survives_with_limitations",
+    };
+  }
+  const event = input.events[0];
+  if (event) {
+    return {
+      strongest_counter_explanation: `Podría ser el evento declarado «${event.description}», coincidente con la ventana del diagnóstico.`,
+      supporting_evidence: `Evento ${event.eventType} registrado el ${event.occurredAt}.`,
+      required_evidence: "Comparación tratada/no tratada o una serie anterior que separe el efecto del evento.",
+      diagnosis_effect: "survives_with_limitations",
+    };
+  }
+  const blueprint = blueprintForCheck(MANDATORY_CHECKS_BY_FAMILY[input.family]?.[0] ?? "seasonality");
+  return {
+    strongest_counter_explanation: `Podría existir ${blueprint.description.toLowerCase()}.`,
+    supporting_evidence: null,
+    required_evidence: blueprint.requiredData,
+    diagnosis_effect: "requires_review_if_supported",
+  };
+}
+
+/** Evalúa una revisión D12 sin IO. Todas las decisiones son trazables a inputs. */
+export function getDiagnosticRobustness(input: AdversarialRuntimeInput): AdversarialReview {
+  const sameTime = periodComparable(input);
+  const facts = input.comparabilityFacts ?? {};
+  const sameDefinition = facts.sameDefinition ?? "unknown";
+  const sameScope = facts.sameScope ?? "unknown";
+  const sameCurrency = facts.sameCurrency ?? "unknown";
+  const sameStatusFilter = facts.sameStatusFilter ?? "unknown";
+  const comparabilityValues = [sameDefinition, sameScope, sameTime, sameCurrency, sameStatusFilter];
+  const comparability = comparabilityValues.some((value) => value === "no")
+    ? "not_comparable"
+    : comparabilityValues.every((value) => value === "yes")
+      ? "comparable"
+      : comparabilityValues.some((value) => value === "yes")
+        ? "partially_comparable"
+        : "unknown";
+  const gate = comparabilityGateSchema.parse({
+    case_id: input.caseId,
+    metric: input.metric,
+    same_definition: sameDefinition,
+    same_scope: sameScope,
+    same_time_logic: sameTime,
+    same_currency: sameCurrency,
+    same_status_filter: sameStatusFilter,
+    comparability,
+    ...(comparability === "not_comparable"
+      ? { note: "Al menos una de las cinco dimensiones de comparabilidad no coincide." }
+      : {}),
+  });
+
+  const confounders = new Map<string, DiagnosticConfounder>();
+  const mandatoryKeys = MANDATORY_CHECKS_BY_FAMILY[input.family] ?? [];
+  for (const checkKey of mandatoryKeys) {
+    const blueprint = blueprintForCheck(checkKey);
+    addOrReplaceConfounder(confounders, makeConfounder(input, blueprint));
+  }
+
+  if (sameTime === "no") {
+    const blueprint = blueprintForCheck("period_comparability");
+    addOrReplaceConfounder(confounders, makeConfounder(input, blueprint, {
+      evidence: "Las ventanas declaradas tienen duraciones distintas.",
+      plausibility: "supported", strength: "decisive", materiality: "material", status: "material",
+      confidence_effect: "La comparación temporal deja de sostener una lectura intacta.",
+    }));
+  }
+
+  for (const event of input.events) {
+    const type = EVENT_TO_TYPE[event.eventType];
+    if (!type) continue;
+    const category = CATEGORY_BY_TYPE[type];
+    addOrReplaceConfounder(confounders, makeConfounder(input, {
+      type, category,
+      description: `El evento ${event.eventType} puede explicar parte del movimiento observado en la ventana`,
+      requiredData: "Comparación tratada/no tratada y serie fuera de la ventana del evento",
+    }, {
+      evidence: event.description,
+      plausibility: event.eventType === "external_event" ? "plausible" : "supported",
+      status: event.eventType === "external_event" ? "plausible" : "supported",
+      strength: "moderate",
+      materiality: "low",
+    }));
+  }
+
+  for (const change of input.comparabilityBreaks) {
+    if (change.affectedMetrics.length > 0 && !change.affectedMetrics.includes(input.metric)) continue;
+    const type: ConfounderBlueprint["type"] = change.breakType.includes("tracking") || change.subtype?.includes("pixel") || change.subtype?.includes("attribution") || change.subtype?.includes("consent")
+      ? "tracking_change"
+      : change.breakType.includes("currency") || change.subtype?.includes("currency")
+        ? "currency_change"
+        : change.breakType.includes("definition") || change.breakType.includes("schema") || change.subtype?.includes("definition")
+          ? "metric_definition_change"
+          : "technology_change";
+    const material = type === "tracking_change" || type === "metric_definition_change" || type === "currency_change";
+    addOrReplaceConfounder(confounders, makeConfounder(input, {
+      type, category: CATEGORY_BY_TYPE[type],
+      description: "La ruptura registrada puede haber cambiado la medicion o la comparabilidad de la metrica",
+      requiredData: "Reconciliacion de la fuente antes y despues de la ruptura",
+    }, {
+      evidence: change.description,
+      plausibility: "supported",
+      strength: material ? "decisive" : "strong",
+      materiality: material ? "material" : "low",
+      status: material ? "material" : "supported",
+      ...(material ? { confidence_effect: "La ruptura impide mantener intacta la confianza de la lectura." } : {}),
+    }));
+  }
+
+  const signal = input.signals.find((item) => item.metric === input.metric);
+  if (signal?.lowSample) {
+    const blueprint = blueprintForCheck("scale_level");
+    addOrReplaceConfounder(confounders, makeConfounder(input, blueprint, {
+      evidence: `La señal declara muestra baja${signal.sampleSize != null ? ` (${signal.sampleSize} observaciones)` : ""}.`,
+      plausibility: "supported", strength: "strong", materiality: "material", status: "material",
+      confidence_effect: "La muestra no permite mantener intacta la confianza en el porcentaje observado.",
+    }));
+  }
+
+  for (const segment of input.mixSegments) {
+    if (Math.abs(segment.weightAfter - segment.weightBefore) <= Number.EPSILON) continue;
+    const type = TIPO_POR_DIMENSION[segment.dimension] ?? "channel_mix";
+    const performanceStable = segment.performanceBefore != null && segment.performanceAfter != null
+      && Math.abs(segment.performanceAfter - segment.performanceBefore) <= Number.EPSILON;
+    addOrReplaceConfounder(confounders, makeConfounder(input, {
+      type, category: CATEGORY_BY_TYPE[type],
+      description: "El peso del segmento cambio y puede mover el agregado aunque el rendimiento por segmento permanezca estable",
+      requiredData: "Comparacion within-segment con pesos y rendimiento de las dos ventanas",
+    }, {
+      evidence: `El peso de ${segment.segment} paso de ${segment.weightBefore} a ${segment.weightAfter}.`,
+      plausibility: "supported", strength: "moderate", materiality: "low", status: "supported",
+      masking_effect: performanceStable,
+    }));
+  }
+
+  const redTeam = runRedTeam(input);
+  const confounderList = [...confounders.values()]
+    .map((confounder) => confounder.confounder_type === "external_event" && confounder.status === "candidate"
+      ? { ...confounder, status: "plausible" as const }
+      : confounder);
+  const checks = mandatoryKeys.map((checkKey) => familyCheckOutcome(input, checkKey, confounderList, gate));
+  const sensitivityChanges = comparability === "not_comparable";
+  const sensitivity = [sensitivityAnalysisSchema.parse({
+    robustness_id: input.robustnessId,
+    assumption: "La ventana de comparación mantiene la misma lógica temporal y definición",
+    low_case: sensitivityChanges ? "Con la ventana corregida, la conclusión puede cambiar" : "La conclusión se mantiene con la ventana declarada",
+    high_case: "Con la ventana declarada y un baseline alternativo, revisar la misma conclusión",
+    diagnosis_changes: sensitivityChanges,
+    ...(sensitivityChanges ? { note: "La comparación actual no es válida; la conclusión requiere revisión." } : {}),
+  })];
+
+  const material = confounderList.some((confounder) => confounder.status === "material");
+  const supported = confounderList.some((confounder) => ["supported", "material"].includes(confounder.status));
+  const notPossible = checks.some((check) => ["not_possible", "skipped"].includes(check.status));
+  const critical = confounderList.some((confounder) => confounder.strength === "decisive" && confounder.category === "measurement");
+  const survivalStatus = critical
+    ? "requires_revision"
+    : material
+      ? "weakened"
+      : supported || notPossible || sensitivityChanges
+        ? "survives_with_limitations"
+        : "survives";
+  const lowerConfidence = critical || material || sensitivityChanges;
+  const after = confidenceAfter(input.currentConfidence, lowerConfidence);
+  const limitations = survivalStatus === "survives_with_limitations"
+    ? [
+      notPossible ? "Hay checks obligatorios que no pudieron ejecutarse." : null,
+      supported ? "Existen factores observados que requieren control o segmentación." : null,
+      sensitivityChanges ? "La conclusión depende de corregir la comparabilidad temporal." : null,
+      "Los factores sin evidencia siguen siendo candidatos, no hechos.",
+    ].filter((value): value is string => value != null).join(" ")
+    : undefined;
+  const robustness = diagnosticRobustnessSchema.parse({
+    robustness_id: input.robustnessId,
+    case_id: input.caseId,
+    false_diagnosis_risk: critical ? "critical" : material ? "high" : supported || notPossible ? "medium" : "low",
+    survival_status: survivalStatus,
+    robustness: survivalStatus === "survives" ? "high" : survivalStatus === "survives_with_limitations" ? "medium" : "low",
+    diagnosis_stability: survivalStatus === "survives" ? "stable_to_assumptions" : "sensitive",
+    confidence_before: input.currentConfidence ?? undefined,
+    confidence_after: after,
+    confidence_adjustment: after !== input.currentConfidence
+      ? "La revisión adversarial reduce la confianza porque encontró una distorsión material o una dependencia crítica."
+      : undefined,
+    red_team_counter_explanation: redTeam.strongest_counter_explanation,
+    red_team_supporting_evidence: redTeam.supporting_evidence ?? undefined,
+    red_team_required_evidence: redTeam.required_evidence,
+    red_team_effect: redTeam.diagnosis_effect,
+    revision_triggered: survivalStatus === "requires_revision",
+    reopened_blocks: survivalStatus === "requires_revision" ? ["D06", "D07", "D08", "D09"] : [],
+    remaining_limitations: limitations,
+  });
+
+  return { robustness, confounders: confounderList, tests: buildConfounderTests(input, confounderList), gates: [gate], checks, sensitivity, redTeam };
+}
+
+function buildConfounderTests(
+  input: AdversarialRuntimeInput,
+  confounders: readonly DiagnosticConfounder[],
+): ConfounderTest[] {
+  return confounders
+    .filter((confounder) => confounder.status === "supported" || confounder.status === "material")
+    .map((confounder) => {
+      const withinSegment = ["traffic_mix", "customer_mix", "product_mix", "market_mix", "device_mix", "channel_mix"].includes(confounder.confounder_type);
+      return confounderTestSchema.parse({
+        test_id: `T-${confounder.confounder_type}`,
+        confounder_id: confounder.confounder_id,
+        required_data: `Datos para contrastar ${confounder.confounder_type} en las dos ventanas`,
+        expected_pattern: withinSegment
+          ? "El rendimiento within-segment permanece estable mientras cambia el peso agregado"
+          : "La fuente o el evento cambia en la misma ventana que la métrica observada",
+        control_kind: withinSegment ? "within_segment" : "other",
+        result: "confirmed",
+        effect_on_diagnosis: "El factor queda trazado; la conclusión no puede ignorarlo.",
+      });
+    });
+}

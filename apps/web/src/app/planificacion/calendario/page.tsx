@@ -38,12 +38,20 @@ type CalendarItem = {
   ends_at: string | null;
   status: string;
   store_id: string | null;
+  task_id?: string | null;
+  milestone_id?: string | null;
   blocked_reason?: string | null;
   marketing_draft_id?: string | null;
 };
 type Planning = {
   calendars?: Array<{ id: string; name: string; year: number }>;
   items?: CalendarItem[];
+  milestones?: Array<{
+    id: string;
+    name: string;
+    status: string;
+    target_date: string | null;
+  }>;
 };
 /** Vistas de rejilla (una celda por día) y vistas de lista (por mes). */
 type View = "week" | "month" | "quarter" | "half" | "year";
@@ -101,6 +109,7 @@ function ItemEditor({
   calendarId,
   organizationId,
   storeId,
+  milestones,
   open,
   onOpenChange,
   onSaved,
@@ -113,6 +122,7 @@ function ItemEditor({
   calendarId: string | null;
   organizationId: string;
   storeId: string | null;
+  milestones: NonNullable<Planning["milestones"]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
@@ -122,6 +132,7 @@ function ItemEditor({
   const [channel, setChannel] = useState("Email");
   const [date, setDate] = useState("");
   const [status, setStatus] = useState("planned");
+  const [milestoneId, setMilestoneId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -131,6 +142,7 @@ function ItemEditor({
     setChannel(item?.channel ?? "Email");
     setDate(item ? localDayKey(new Date(item.starts_at)) : (day ?? ""));
     setStatus(item?.status ?? "planned");
+    setMilestoneId(item?.milestone_id ?? "");
     setError(null);
   }, [item, day, open]);
 
@@ -168,6 +180,8 @@ function ItemEditor({
                 startsAt,
                 status,
                 storeId,
+                milestoneId: milestoneId || null,
+                createTask: Boolean(milestoneId),
               }),
             },
           );
@@ -236,6 +250,33 @@ function ItemEditor({
                     />
                   </Field>
                 ) : null}
+                {!item && milestones.length > 0 ? (
+                  <Field label="Hito de Mi Camino (opcional)">
+                    <Select
+                      className="mt-1"
+                      aria-label="Hito de Mi Camino"
+                      value={milestoneId}
+                      onChange={setMilestoneId}
+                      options={[
+                        { value: "", label: "Sin vincular" },
+                        ...milestones.map((milestone) => ({
+                          value: milestone.id,
+                          label: `${milestone.name}${milestone.target_date ? ` · ${milestone.target_date}` : ""}`,
+                        })),
+                      ]}
+                    />
+                    {milestoneId ? (
+                      <p className="mt-1 text-xs text-muted">
+                        Se creará también una tarea enlazada a este hito.
+                      </p>
+                    ) : null}
+                  </Field>
+                ) : null}
+                {item?.milestone_id ? (
+                  <p className="text-xs text-muted">
+                    Esta acción está enlazada a un hito de Mi Camino.
+                  </p>
+                ) : null}
               </div>
             </Modal.Body>
             <Modal.Footer>
@@ -288,6 +329,9 @@ function ItemChip({
     >
       <span aria-hidden className={`h-3 w-1 shrink-0 ${style.fill}`} />
       <span className="min-w-0 flex-1 truncate">{item.title}</span>
+      {item.milestone_id ? (
+        <span className="shrink-0 text-[10px] font-medium">Camino</span>
+      ) : null}
       {signal.state === "blocked" || signal.state === "overdue" ? (
         <span aria-label={signal.label} className="shrink-0 text-danger">
           ●
@@ -306,6 +350,7 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [planning, setPlanning] = useState<Planning>({
     calendars: [],
     items: [],
+    milestones: [],
   });
   const [view, setView] = useState<View>("month");
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
@@ -320,11 +365,31 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     if (!organizationId) return;
     setLoading(true);
     try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/campaign-planning${connectionId ? `?storeId=${encodeURIComponent(connectionId)}` : ""}`,
-      );
-      if (response.ok) setPlanning((await response.json()) as Planning);
-      else setError(await readApiError(response));
+      const scope = connectionId
+        ? `?storeId=${encodeURIComponent(connectionId)}`
+        : "";
+      const [response, resourcesResponse] = await Promise.all([
+        apiFetch(
+          `/v1/organizations/${organizationId}/campaign-planning${scope}`,
+        ),
+        apiFetch(
+          `/v1/organizations/${organizationId}/campaign-planning/resources`,
+        ),
+      ]);
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      const calendar = (await response.json()) as Planning;
+      const resources = resourcesResponse.ok
+        ? ((await resourcesResponse.json()) as {
+            milestones?: Planning["milestones"];
+          })
+        : {};
+      setPlanning({
+        ...calendar,
+        milestones: resources.milestones ?? [],
+      });
     } catch {
       setError("No se pudo cargar el calendario. Reintenta.");
     } finally {
@@ -621,6 +686,9 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                               }).format(new Date(item.starts_at))}
                             </span>
                             <Badge tone={signal.tone}>{signal.label}</Badge>
+                            {item.milestone_id ? (
+                              <Badge tone="brand">Mi Camino</Badge>
+                            ) : null}
                           </List.Item>
                         );
                       })}
@@ -648,6 +716,7 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         calendarId={calendarId}
         organizationId={organizationId}
         storeId={connectionId || null}
+        milestones={planning.milestones ?? []}
         open={editorOpen}
         onOpenChange={(open) => {
           setEditorOpen(open);

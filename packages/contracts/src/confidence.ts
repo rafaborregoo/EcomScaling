@@ -552,10 +552,10 @@ export function checkConfidenceInvariants(
  * informacion que sirve: te dice cuanto fiarte, pero no de que.
  *
  * LO QUE HOY SALE, Y POR QUE. Las capas `why`, `root_cause` y `constraint`
- * salen `unknown` / `insufficient_data` **en todos los casos**, porque D07, D08
- * y D09 no tienen motor: no hay grafo causal que recorrer. No es un fallo del
- * motor, es el estado real del sistema -- y escribirlo es la unica forma de que
- * nadie lea un diagnostico incompleto como si estuviera cerrado.
+ * salen `unknown` / `insufficient_data` cuando el caso no tiene salidas de
+ * D07-D09 enlazadas. Si las tiene, D11 conserva el estado real de la ruta, la
+ * hipotesis, la causa y el constraint, sin convertir una evidencia parcial en
+ * una conclusion cerrada.
  *
  * SIN FORMULA, COMO SIEMPRE EN ESTA FASE. No hay media ponderada de dimensiones
  * ni de capas. Lo unico que se deriva es el techo (`capped_at`), y se deriva de
@@ -593,6 +593,48 @@ export type SymptomForConfidence = {
   known_relationship: boolean;
 };
 
+/** Evidencia causal que D11 recibe de D07, sin volver a calcularla. */
+export type CausalPathForConfidence = {
+  status: "supported" | "contradicted" | "untested" | "partial";
+  path_confidence: "insufficient_data" | "low" | "medium" | "high";
+  confounders_reviewed: boolean;
+  measurement_validated: boolean;
+  evidence?: readonly { stance: "supporting" | "contradicting" | "inconclusive"; observation: string }[];
+};
+
+/** Hipotesis viva de D08 que D11 usa para separar alternativas. */
+export type HypothesisForConfidence = {
+  status: string;
+  confidence: "high" | "medium" | "low" | "insufficient";
+  explanatory_coverage: "full" | "partial" | "minimal" | "unknown";
+  separation: "high" | "low" | "unknown";
+};
+
+/** Conclusion de D09: una causa no tiene que estar confirmada para ser util. */
+export type RootCauseForConfidence = {
+  status: string;
+  confidence: "high" | "medium" | "low" | "insufficient";
+  statement: string;
+  explanatory_coverage: "full" | "partial" | "minimal" | "unknown";
+  residual_material: boolean;
+  limitations?: string | null;
+};
+
+/** Candidata de constraint de D09, independiente de las causas raiz. */
+export type BusinessConstraintForConfidence = {
+  binding_status: "binding" | "secondary" | "latent" | "none";
+  confidence: string;
+  statement: string;
+  limits_target: boolean;
+};
+
+export type CausalEvidenceForConfidence = {
+  paths: readonly CausalPathForConfidence[];
+  hypotheses: readonly HypothesisForConfidence[];
+  rootCauses: readonly RootCauseForConfidence[];
+  constraints: readonly BusinessConstraintForConfidence[];
+};
+
 /** Lo que D10 midio, si midio algo. */
 export type SeverityForConfidence = {
   impact_confidence: string;
@@ -610,6 +652,7 @@ export type ConfidenceEngineInput = {
   signal?: SignalForConfidence | null;
   symptom?: SymptomForConfidence | null;
   severity?: SeverityForConfidence | null;
+  causal?: CausalEvidenceForConfidence | null;
 };
 
 export type ClaimDraft = {
@@ -745,6 +788,209 @@ function dimension(dimension: string, rating: string, reason: string) {
   return { dimension, rating, reason };
 }
 
+type CausalRead = {
+  available: boolean;
+  root: RootCauseForConfidence | null;
+  constraint: BusinessConstraintForConfidence | null;
+  path: CausalPathForConfidence | null;
+  hypothesis: HypothesisForConfidence | null;
+  level: string;
+  contradiction: "none" | "material";
+  alternatives: "strong" | "weak" | "unknown" | "not_applicable";
+  completeness: "complete_enough" | "partial" | "incomplete";
+  coverage: "full" | "partial" | "minimal" | "unknown";
+  limitations: string;
+};
+
+function normalizeConfidence(value: string): string {
+  if (value === "high") return "high";
+  if (value === "medium") return "medium";
+  if (value === "low") return "low";
+  return "insufficient_data";
+}
+
+function minConfidence(...values: string[]): string {
+  return values.reduce(
+    (lowest, value) => (nivel(value) < nivel(lowest) ? value : lowest),
+    "high",
+  );
+}
+
+function readCausalEvidence(causal: CausalEvidenceForConfidence | null | undefined): CausalRead {
+  const paths = causal?.paths ?? [];
+  const hypotheses = causal?.hypotheses ?? [];
+  const roots = causal?.rootCauses ?? [];
+  const constraints = causal?.constraints ?? [];
+  const available = paths.length > 0 || hypotheses.length > 0 || roots.length > 0 || constraints.length > 0;
+  const root = roots.find((candidate) => candidate.status === "confirmed")
+    ?? roots.find((candidate) => candidate.status === "partial_root_cause")
+    ?? roots[0]
+    ?? null;
+  const constraint = constraints.find((candidate) => candidate.limits_target)
+    ?? constraints[0]
+    ?? null;
+  const path = paths.find((candidate) => candidate.status === "supported")
+    ?? paths.find((candidate) => candidate.status === "partial")
+    ?? paths[0]
+    ?? null;
+  const hypothesis = hypotheses.find((candidate) => ["confirmed", "most_likely", "supported"].includes(candidate.status))
+    ?? hypotheses[0]
+    ?? null;
+  const contradictory = paths.some((candidate) => candidate.status === "contradicted")
+    || paths.some((candidate) => candidate.evidence?.some((evidence) => evidence.stance === "contradicting") ?? false);
+
+  if (!available) {
+    return {
+      available: false,
+      root: null,
+      constraint: null,
+      path: null,
+      hypothesis: null,
+      level: "insufficient_data",
+      contradiction: "none",
+      alternatives: "unknown",
+      completeness: "incomplete",
+      coverage: "unknown",
+      limitations: "Este caso no tiene evidencia causal cargada; no se puede distinguir mecanismo de co-movimiento.",
+    };
+  }
+
+  const pathLevel = path ? normalizeConfidence(path.path_confidence) : "insufficient_data";
+  const hypothesisLevel = hypothesis ? normalizeConfidence(hypothesis.confidence) : "insufficient_data";
+  const rootLevel = root ? normalizeConfidence(root.confidence) : "insufficient_data";
+  const hasValidPath = Boolean(path && path.status === "supported" && path.confounders_reviewed && path.measurement_validated);
+  const confirmedRoot = root?.status === "confirmed";
+  const strongAlternatives = hypothesis?.separation === "high";
+  const level = contradictory
+    ? "low"
+    : confirmedRoot && hasValidPath && strongAlternatives
+      ? minConfidence(pathLevel, hypothesisLevel, rootLevel)
+      : minConfidence("medium", pathLevel, hypothesisLevel, rootLevel);
+
+  return {
+    available: true,
+    root,
+    constraint,
+    path,
+    hypothesis,
+    level,
+    contradiction: contradictory ? "material" : "none",
+    alternatives: hypothesis?.separation === "high"
+      ? "strong"
+      : hypothesis?.separation === "low"
+        ? "weak"
+        : hypotheses.length > 1
+          ? "weak"
+          : "unknown",
+    completeness: root?.explanatory_coverage === "full" && !root.residual_material ? "complete_enough" : "partial",
+    coverage: root?.explanatory_coverage ?? hypothesis?.explanatory_coverage ?? "unknown",
+    limitations: root?.limitations
+      ?? (path?.status === "supported"
+        ? "La ruta causal está soportada, pero la confianza sigue limitada por la evidencia y la separación de alternativas."
+        : "Hay una candidata causal, pero la ruta todavía no está suficientemente validada."),
+  };
+}
+
+function buildCausalClaims(
+  input: ConfidenceEngineInput,
+  lectura: CausalRead,
+  capsComunes: ClaimDraft["caps"],
+  techo: string | null,
+): ClaimDraft[] {
+  const rootStatement = lectura.root?.statement ?? `No puede determinarse por que se movio ${input.targetMetric}.`;
+  const rootMissing = lectura.root?.residual_material
+    ? "Validar la parte residual de la cadena y separar las alternativas rivales."
+    : null;
+  const causalCaps = lectura.available
+    ? [
+        ...capsComunes,
+        {
+          cap_source: "dependent_evidence",
+          capped_level: lectura.level,
+          reason: lectura.limitations,
+        },
+      ]
+    : capsComunes;
+  const causalDimension = lectura.path?.status === "supported" ? "adequate" : "weak";
+  const causalReason = lectura.path
+    ? `D07 aporta una ruta ${lectura.path.status} con confianza ${lectura.path.path_confidence}.`
+    : "No hay una ruta causal de D07 enlazada a este caso.";
+  const common = {
+    target_question: input.targetQuestion,
+    epistemic_state: "inferred",
+    confidence_level: lectura.level,
+    alternative_separation: lectura.alternatives,
+    contradiction_level: lectura.contradiction,
+    completeness: lectura.completeness,
+    explanatory_coverage: lectura.coverage,
+    negative_claim_state: null,
+    coverage_declared: null,
+    capped_at: lectura.level === "high" ? techo : lectura.level,
+    cap_reason: lectura.limitations,
+    desired_level: lectura.level === "insufficient_data" ? "medium" : null,
+    missing_evidence: rootMissing,
+    next_evidence_required: rootMissing,
+    error_cost: "severe",
+    limitations: lectura.limitations,
+    dimensions: [dimension("mechanism_strength", causalDimension, causalReason)],
+    caps: causalCaps,
+  } satisfies Omit<ClaimDraft, "claim_layer" | "claim">;
+
+  const constraint = lectura.constraint;
+  const constraintLevel = constraint
+    ? constraint.binding_status === "binding"
+      ? minConfidence("medium", normalizeConfidence(constraint.confidence))
+      : "low"
+    : "insufficient_data";
+
+  return [
+    {
+      ...common,
+      claim_layer: "why",
+      claim: lectura.root
+        ? `${rootStatement} La explicacion causal es ${lectura.coverage === "full" ? "completa" : "parcial"}.`
+        : `No puede determinarse por que se movio ${input.targetMetric}; hay evidencia causal insuficiente.`,
+      target_question: "Â¿Por que ha pasado esto?",
+    },
+    {
+      ...common,
+      claim_layer: "root_cause",
+      claim: lectura.root ? rootStatement : "No puede determinarse cual es la causa raiz de este caso.",
+      target_question: "Â¿Cual es la causa de fondo?",
+    },
+    {
+      ...common,
+      claim_layer: "constraint",
+      claim: constraint
+        ? `${constraint.statement} No se ha demostrado que sea vinculante.`
+        : "No puede determinarse que cuello de botella limita a este negocio.",
+      target_question: "Â¿Que le esta limitando?",
+      confidence_level: constraintLevel,
+      capped_at: constraintLevel,
+      completeness: constraint ? "partial" : "incomplete",
+      explanatory_coverage: "unknown",
+      missing_evidence: constraint?.binding_status === "latent"
+        ? "Medir capacidad y demanda, y resolver el contrafactual del constraint."
+        : constraint ? null : "Una candidata a constraint de D09.",
+      next_evidence_required: constraint?.binding_status === "latent"
+        ? "Ejecutar el test contrafactual que D09 deja pendiente."
+        : constraint ? null : "Ejecutar el motor de causa raiz y constraint.",
+      limitations: constraint
+        ? "D09 ha identificado una candidata, pero latent no significa vinculante."
+        : lectura.limitations,
+      dimensions: [
+        dimension(
+          "mechanism_strength",
+          constraint ? "weak" : "unknown",
+          constraint
+            ? "La candidata de D09 necesita capacidad, demanda y contrafactual para declararse vinculante."
+            : "No hay una candidata a constraint enlazada a este caso.",
+        ),
+      ],
+    },
+  ];
+}
+
 /**
  * La confianza de cada capa del caso.
  *
@@ -754,6 +1000,7 @@ function dimension(dimension: string, rating: string, reason: string) {
  */
 export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngineOutput {
   const { targetMetric, targetQuestion, scope, signal, symptom, severity } = input;
+  const lecturaCausal = readCausalEvidence(input.causal);
 
   const capDato = dataQualityCap(input.dataQuality);
   const techo = capDato?.capped_level ?? null;
@@ -947,29 +1194,42 @@ export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngine
 
   // --- Capa `symptom`: Â¿que patron forman? ---------------------------------
   if (symptom) {
+    const nivelSintomaBase = capTo(
+      symptom.confidence === "high" ? "high" : symptom.confidence === "medium" ? "medium" : "low",
+      techo,
+    );
+    const nivelSintoma = lecturaCausal.available && lecturaCausal.alternatives === "strong"
+      ? nivelSintomaBase
+      : minConfidence(nivelSintomaBase, "medium");
     claims.push({
       claim_layer: "symptom",
       claim: `Las senales forman el patron "${symptom.label}".`,
       target_question: "Â¿Que patron forman los movimientos juntos?",
       epistemic_state: "derived",
-      confidence_level: capTo(symptom.confidence === "high" ? "high" : symptom.confidence === "medium" ? "medium" : "low", techo),
-      // Guardrail 25: sin separacion frente a las alternativas no se llega a
-      // alta -- y D07 no existe, asi que no hay alternativas que separar.
-      alternative_separation: "unknown",
+      confidence_level: nivelSintoma,
+      // Guardrail 25: la separacion frente a alternativas llega desde D08;
+      // cuando falta, el sintoma no se presenta como una explicacion.
+      alternative_separation: lecturaCausal.available ? lecturaCausal.alternatives : "unknown",
       contradiction_level: symptom.compatible_direction ? "none" : "material",
       completeness: "partial",
       explanatory_coverage: "unknown",
       negative_claim_state: null,
       coverage_declared: null,
-      capped_at: capTo("medium", techo),
-      cap_reason:
-        "Sin grafo causal no hay rutas rivales que descartar, asi que un patron no puede pasar de probable.",
+      capped_at: nivelSintoma === "medium" ? "medium" : techo,
+      cap_reason: lecturaCausal.available
+        ? lecturaCausal.limitations
+        : "Sin grafo causal no hay rutas rivales que descartar, asi que un patron no puede pasar de probable.",
       desired_level: "high",
-      missing_evidence: "Rutas causales rivales de D07 con las que contrastar este patron.",
-      next_evidence_required: "Escribir el grafo causal e implementar D07.",
+      missing_evidence: lecturaCausal.available
+        ? (lecturaCausal.alternatives === "unknown" ? "Hipotesis rivales de D08 con las que contrastar este patron." : null)
+        : "Rutas causales rivales de D07 con las que contrastar este patron.",
+      next_evidence_required: lecturaCausal.available
+        ? (lecturaCausal.alternatives === "unknown" ? "Generar y contrastar hipotesis rivales." : null)
+        : "Ejecutar D07 y D08 para este caso.",
       error_cost: "moderate",
-      limitations:
-        "Un patron coherente no es una explicacion: que dos metricas se muevan juntas y esten relacionadas no dice cual mueve a cual.",
+      limitations: lecturaCausal.available
+        ? "El patron tiene una ruta causal enlazada, pero sigue separado de una explicacion completa."
+        : "Un patron coherente no es una explicacion: que dos metricas se muevan juntas y esten relacionadas no dice cual mueve a cual.",
       dimensions: [
         dimension(
           "evidence_consistency",
@@ -1045,12 +1305,14 @@ export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngine
     });
   }
 
-  // --- Capas `why`, `root_cause` y `constraint`: lo que no se sabe ---------
+  // --- Capas `why`, `root_cause` y `constraint` -----------------------------
   //
-  // Estas tres son el motivo por el que existe este motor hoy. Sin ellas, un
-  // caso con senal, sintoma e impacto medido se leeria como un diagnostico
-  // cerrado -- y no lo es, porque nadie ha dicho por que pasa.
-  for (const capa of ["why", "root_cause", "constraint"] as const) {
+  // Estas tres siguen siendo desconocidas cuando el caso todavia no tiene
+  // salidas causales enlazadas. Cuando D07-D09 ya han escrito su fotografia,
+  // `buildCausalClaims` conserva su estado real y sus limites.
+  if (lecturaCausal.available) {
+    claims.push(...buildCausalClaims(input, lecturaCausal, capsComunes, techo));
+  } else for (const capa of ["why", "root_cause", "constraint"] as const) {
     claims.push({
       claim_layer: capa,
       claim:
@@ -1079,9 +1341,9 @@ export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngine
       cap_reason: null,
       desired_level: "medium",
       missing_evidence:
-        "Un grafo causal declarado (D07), hipotesis contrastadas (D08) y un motor de causa raiz (D09). Ninguno de los tres existe todavia.",
+        "Las salidas de D07, D08 y D09 enlazadas a este caso.",
       next_evidence_required:
-        "Escribir las relaciones causales del ecommerce, que es conocimiento de dominio y no codigo.",
+        "Ejecutar los motores causales para este caso.",
       error_cost: "severe",
       limitations:
         "Este caso no tiene causa. Lo que hay es un movimiento medido y un patron coherente, y ninguna de las dos cosas explica nada por si sola.",
@@ -1089,12 +1351,12 @@ export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngine
         dimension(
           "mechanism_strength",
           "absent",
-          "No existe grafo causal en el sistema: no hay ningun mecanismo declarado que conecte estas metricas.",
+          "No hay una salida causal enlazada a este caso: no hay un mecanismo evaluado que conecte estas metricas.",
         ),
         dimension(
           "missing_evidence",
           "absent",
-          "Faltan las tres capas causales enteras (D07, D08 y D09), no una pieza suelta.",
+          "Faltan las salidas causales de D07, D08 y D09 para este caso, no una pieza suelta del texto.",
         ),
       ],
       caps: capsComunes,
@@ -1110,30 +1372,36 @@ export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngine
   const nivelWhy = claims.find((c) => c.claim_layer === "why")?.confidence_level ?? "insufficient_data";
   claims.push({
     claim_layer: "overall",
-    claim: `El caso sobre ${targetMetric} no puede concluirse.`,
+    claim: lecturaCausal.available && lecturaCausal.root
+      ? `El caso sobre ${targetMetric} tiene una explicacion causal ${lecturaCausal.coverage === "full" ? "completa" : "parcial"}.`
+      : `El caso sobre ${targetMetric} no puede concluirse.`,
     target_question: targetQuestion,
-    epistemic_state: "unknown",
+    epistemic_state: lecturaCausal.available ? "inferred" : "unknown",
     confidence_level: nivelWhy,
     alternative_separation: "none",
     contradiction_level: "none",
-    completeness: "incomplete",
-    explanatory_coverage: "minimal",
-    negative_claim_state: "no_evidence",
+    completeness: lecturaCausal.available ? lecturaCausal.completeness : "incomplete",
+    explanatory_coverage: lecturaCausal.available ? lecturaCausal.coverage : "minimal",
+    negative_claim_state: lecturaCausal.available ? null : "no_evidence",
     coverage_declared: null,
     capped_at: nivelWhy,
-    cap_reason:
-      "La confianza de un diagnostico no puede superar la que tiene en su causa: sin causa no hay explicacion, y sin explicacion no hay diagnostico (D00, apartado 2).",
-    desired_level: "medium",
-    missing_evidence: "La capa causal entera.",
-    next_evidence_required: "Cerrar D07, D08 y D09.",
+    cap_reason: lecturaCausal.available
+      ? lecturaCausal.limitations
+      : "La confianza de un diagnostico no puede superar la que tiene en su causa: sin causa no hay explicacion, y sin explicacion no hay diagnostico (D00, apartado 2).",
+    desired_level: lecturaCausal.available ? null : "medium",
+    missing_evidence: lecturaCausal.available ? "Validar la parte residual de la explicacion causal." : "La capa causal entera.",
+    next_evidence_required: lecturaCausal.available ? "Completar la validacion causal y el contrafactual pendiente." : "Cerrar D07, D08 y D09.",
     error_cost: "severe",
-    limitations:
-      "Lo que este caso sabe es que algo se movio, que patron forma y cuanto costo. Presentarlo como un diagnostico seria dar por explicado lo que solo esta descrito.",
+    limitations: lecturaCausal.available
+      ? lecturaCausal.limitations
+      : "Lo que este caso sabe es que algo se movio, que patron forma y cuanto costo. Presentarlo como un diagnostico seria dar por explicado lo que solo esta descrito.",
     dimensions: [
       dimension(
         "missing_evidence",
-        "absent",
-        "El caso no tiene ninguna capa causal resuelta, que es lo que lo convertiria en un diagnostico.",
+        lecturaCausal.available ? "weak" : "absent",
+        lecturaCausal.available
+          ? "La explicacion tiene evidencia causal, pero conserva residuo declarado."
+          : "El caso no tiene ninguna capa causal resuelta, que es lo que lo convertiria en un diagnostico.",
       ),
     ],
     caps: capsComunes,
@@ -1142,13 +1410,15 @@ export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngine
   const uncertainties: ConfidenceEngineOutput["uncertainties"] = [
     {
       uncertainty_type: "causal",
-      description:
-        "No existe grafo causal declarado en el sistema, asi que ningun caso puede pasar de describir lo que ocurre a explicarlo. Afecta a todos los casos por igual.",
-      materiality: "critical_unknown",
+      description: lecturaCausal.available
+        ? lecturaCausal.limitations
+        : "No existe grafo causal declarado en el sistema, asi que ningun caso puede pasar de describir lo que ocurre a explicarlo. Afecta a todos los casos por igual.",
+      materiality: lecturaCausal.available ? "material" : "critical_unknown",
       is_known_unknown: true,
       resolvability: "resolvable_now",
-      required_evidence:
-        "Las relaciones causales del ecommerce escritas a mano: que mueve a que, con que mecanismo y en que direccion.",
+      required_evidence: lecturaCausal.available
+        ? "Validacion adicional de la ruta, separacion de alternativas y resolucion del residuo causal."
+        : "Las relaciones causales del ecommerce escritas a mano: que mueve a que, con que mecanismo y en que direccion.",
       claim_layer: "why",
     },
   ];

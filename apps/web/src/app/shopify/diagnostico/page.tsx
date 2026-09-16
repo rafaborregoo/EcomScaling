@@ -9,7 +9,19 @@ import { CapabilityHealthPanel } from "./capability-health";
 import { CausalPathsPanel } from "./causal-paths";
 import { HypothesesPanel } from "./hypotheses";
 import { RootCausePanel } from "./root-cause";
+import { AdversarialPanel } from "./adversarial";
 import { ConfidencePanel } from "./confidence-panel";
+import { TemporalPanel } from "./temporal";
+import { DiagnosticOutputPanel } from "./diagnostic-output";
+import { PrioritizationPanel } from "./prioritization";
+import { DecisionContextPanel } from "./decision-context";
+import { TemporalUrgencyPanel } from "./temporal-urgency";
+import { DecisionImpactPanel } from "./decision-impact";
+import { ConstraintsPanel } from "./constraints";
+import { FeasibilityPanel } from "./feasibility";
+import { F4DimensionsPanel } from "./f4-dimensions";
+import { PlaybookFrameworkPanel } from "./playbook";
+import { AcquisitionPlaybookPanel } from "./acquisition";
 import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
 import { SeverityPanel } from "./severity-panel";
@@ -502,11 +514,23 @@ function ShopifyDiagnosticoView({
               calibrada, casi siempre sin cerrar -- y el limite candidato,
               por separado, sin ninguna clave que los ate. */}
           <RootCausePanel />
+          <AdversarialPanel />
           {/* D11 va el ultimo a proposito: le pone freno a todo lo de arriba.
               Con senal, patron e impacto medido, un caso parece cerrado hasta
               que se lee la fila que dice que nadie sabe por que pasa. */}
           <ConfidencePanel />
           <ContextReadingsPanel />
+          <TemporalPanel />
+          <DiagnosticOutputPanel />
+          <DecisionContextPanel />
+          <TemporalUrgencyPanel />
+          <DecisionImpactPanel />
+          <ConstraintsPanel />
+          <FeasibilityPanel />
+          <F4DimensionsPanel />
+          <PlaybookFrameworkPanel />
+          <AcquisitionPlaybookPanel />
+          <PrioritizationPanel />
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">
               <span className="font-medium">Ultimo error Shopify:</span>{" "}

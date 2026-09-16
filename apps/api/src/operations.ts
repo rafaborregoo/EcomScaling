@@ -892,6 +892,23 @@ export async function updateTaskStatus(
     return { ok: false as const, statusCode: 404, error: "task_not_found" };
   }
 
+  // A task may be the execution handle of one or more calendar items. Keep
+  // Planning aligned when the task is completed from Tareas or Mi Camino.
+  const calendarStatus =
+    statusInput === "in_progress"
+      ? "in_progress"
+      : statusInput === "completed"
+        ? "completed"
+        : statusInput === "ignored" || statusInput === "cancelled"
+          ? "cancelled"
+          : "planned";
+  await supabase
+    .from("campaign_calendar_items")
+    .update({ status: calendarStatus })
+    .eq("organization_id", organizationId)
+    .eq("task_id", data.id)
+    .is("deleted_at", null);
+
   // Completar la tarea resuelve su alerta origen; el historial lo escribe el
   // trigger record_task_status_change, no hace falta insertarlo aqui.
   if (statusInput === "completed" && data.alert_id) {

@@ -35,6 +35,7 @@ import { readApiError } from "@/lib/api-error";
 import { formatMoney } from "@/lib/money";
 import { ModuleSummary } from "@/components/module-summary";
 import { CaminoProposal } from "@/components/camino-proposal";
+import { StrategicPlanImport } from "@/components/strategic-plan-import";
 import { useAssignedConsultant } from "@/hooks/use-assigned-consultant";
 import { clientNextStep } from "./next-step";
 import { isPast } from "@/lib/elapsed";
@@ -2086,6 +2087,12 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             description={plan.description ?? undefined}
             actions={
               <div className="flex items-center gap-2">
+                {canManage ? (
+                  <StrategicPlanImport
+                    organizationId={organizationId ?? ""}
+                    onImported={() => loadPlan()}
+                  />
+                ) : null}
                 {plan.status === "draft" && canManage ? (
                   <Button
                     type="button"
@@ -2520,13 +2527,21 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               : "Pídele una propuesta a la IA aquí arriba: analiza tus datos y dibuja las fases y los hitos. También puedes escribirlo tú."
           }
           action={
-            <Button
-              type="button"
-              variant={isConsultantView ? "primary" : "secondary"}
-              onClick={() => setIsCreatingPlan(true)}
-            >
-              {isConsultantView ? "Crear camino" : "Prefiero escribirlo yo"}
-            </Button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button
+                type="button"
+                variant={isConsultantView ? "primary" : "secondary"}
+                onClick={() => setIsCreatingPlan(true)}
+              >
+                {isConsultantView ? "Crear camino" : "Prefiero escribirlo yo"}
+              </Button>
+              {isConsultantView && organizationId ? (
+                <StrategicPlanImport
+                  organizationId={organizationId}
+                  onImported={() => loadPlan()}
+                />
+              ) : null}
+            </div>
           }
         />
       )}

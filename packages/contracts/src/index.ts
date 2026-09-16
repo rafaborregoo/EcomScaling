@@ -245,3 +245,23 @@ export * from "./authorization-attempt.js";
 
 // FASE 3 / D14: la salida diagnostica, su validacion y el lenguaje calibrado.
 export * from "./output.js";
+
+// FASE 4 / P00: contrato raíz de ejecución, validez, unknowns y trazabilidad.
+export * from "./prioritization.js";
+export * from "./decision-context.js";
+export * from "./temporal-urgency.js";
+export * from "./impact.js";
+export * from "./constraints.js";
+export * from "./feasibility.js";
+export * from "./risk.js";
+export * from "./allocation.js";
+export * from "./strategic-fit.js";
+export * from "./ranking.js";
+export * from "./portfolio.js";
+export * from "./decision-output.js";
+
+// FASE 5 / 5.00: contrato universal de playbooks, aplicabilidad y trazabilidad.
+export * from "./playbook.js";
+
+// FASE 5 / 5.01: extensión acotada para adquisición, demanda y fit de canal.
+export * from "./acquisition.js";

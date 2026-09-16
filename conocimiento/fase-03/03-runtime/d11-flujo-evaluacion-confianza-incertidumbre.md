@@ -261,3 +261,28 @@ D11 no:
 - ejecuta business action;
 - sustituye D1–D10;
 - convierte RAG retrieval score en diagnosis truth.
+
+---
+
+## Actualizacion de integracion D07-D09 — 2026-09-16
+
+El runtime ya no trata las capas causales como una plantilla fija. Antes de
+llamar a `assessConfidence`, el adaptador carga, siempre dentro de la
+organizacion y del caso:
+
+- `causal_paths` y `causal_case_evidence` de D07;
+- hipotesis vivas de `diagnostic_hypotheses` de D08;
+- causas raiz y constraints activos de D09.
+
+La funcion pura conserva esas salidas como evidencia: una ruta parcial produce
+una lectura causal parcial y una candidata `latent` se muestra como candidata,
+no como constraint vinculante. Si no hay filas para el caso, se mantiene
+`insufficient_data`, pero el motivo pasa a ser "no hay salidas causales
+enlazadas" y no que los motores D07-D09 no existan. La confianza global hereda
+la capa `why` y las alternativas de D08 se reflejan en `alternative_separation`.
+
+La escritura sigue siendo una foto completa: se borran claims, dimensiones,
+caps e incertidumbres anteriores y se reescribe el conjunto actual. La prueba
+real con `.env.local` sembró una ruta D07, la pasó por D08 y D09, confirmó tres
+claims causales no genéricos en D11, ejecutó dos pasadas idénticas y limpió el
+caso a cero.

@@ -3633,6 +3633,68 @@ extension mas larga, no un paso intermedio que se descarta.
 
 ---
 
+## `D12` — Motor y pantalla · **hecho** 2026-09-16
+
+D12 ya no se queda en el contrato: intenta refutar la interpretación completa
+del caso, conserva candidatos y descartes, y deja visible qué evidencia falta.
+No elige una causa de D08 ni convierte una correlación en causalidad.
+
+### Qué se ha construido
+
+| Pieza | Dónde |
+| --- | --- |
+| Motor puro | `getDiagnosticRobustness()` y `runRedTeam()` en `packages/contracts/src/adversarial.ts` |
+| Tests puros | `packages/contracts/src/adversarial.test.ts` — 37/37 en la ejecución local |
+| Flujo runtime con I/O | `apps/api/src/adversarial-engine.ts` |
+| Job | `apps/worker/src/adversarial-once.ts` + `.github/workflows/adversarial-engine.yml` |
+| Lectura del consultor | `listConsultantDiagnosticRobustness()` + `GET /v1/consultant/adversarial` |
+| Decisiones de pantalla | `apps/web/src/app/shopify/diagnostico/adversarial-view-model.ts` — 4 tests |
+| Panel | `apps/web/src/app/shopify/diagnostico/adversarial.tsx`, montado detrás de D09 |
+
+**Sin migración nueva**: la migración `20260923090000_f3_d12_confusores_y_falsos_diagnosticos.sql`
+ya contiene las seis tablas y sus restricciones. El runtime conserva el
+historial: la revisión vigente anterior pasa a `superseded`, y los checks/gates
+de la pasada se reemplazan de forma explícita comprobando cada error de borrado
+y escritura.
+
+### Decisiones
+
+**El red team es determinista y acotado.** Lee señales de D05, eventos y
+rupturas de comparabilidad de D02, mix de D02 y pedidos Shopify. La LLM no
+inventa eventos externos ni puede forzar `survives`; la salida siempre incluye
+la contraexplicación más fuerte disponible y la evidencia que la zanjaría.
+
+**Comparable son las cinco preguntas.** Definición, alcance, lógica temporal,
+moneda y filtro de estado deben ser `yes`; un solo `no` lleva a
+`not_comparable`. Una ruptura de tracking, definición o moneda se trata como
+material y abre la revisión D06–D09; un cambio de mix produce una prueba
+`within_segment` y conserva el posible efecto de enmascaramiento.
+
+**La ausencia también se persiste.** Los checks obligatorios se escriben todos.
+`cohort_maturity` queda `not_possible` mientras las fuentes actuales no
+exponen cohortes maduras. Esto no se presenta como que las cohortes sean
+estables ni como ausencia de confusor.
+
+**La pantalla es solo de consultor.** Muestra la contraexplicación, candidatos,
+materiales, sensibilidad, checks ejecutados/no posibles y bloques reabiertos.
+Un candidato se lee como posibilidad, no como hecho; el cliente no recibe esta
+lista de razonamiento interno.
+
+### Verificación y recortes
+
+Contrato y view-model pasan sus tests locales; API, worker y web pasan
+typecheck. Verificación end-to-end realizada contra el proyecto de tests
+`kopcblejsxpkxoykldyh` usando `env.local`: se sembró un caso, una promoción y
+una ruptura de tracking; dos pasadas produjeron 2 revisiones históricas y 14
+confusores históricos, mientras que los 8 checks se reemplazaron de forma
+idempotente en la segunda pasada. La revisión vigente quedó `current`, la
+anterior `superseded`, y el borrado final confirmó cero filas D12 para el caso.
+No se usó producción.
+
+Queda fuera a propósito la madurez de cohortes (no hay fuente observable), el
+presupuesto de recursión y la propagación automática de reapertura sobre D11;
+el resultado sí deja `revision_triggered` y `reopened_blocks` trazables.
+
 ## Audiencia: que vera cada vista de esta fase
 
 Añadido 2026-09-14 despues de `D00`, `D01` y `D02`. Los tres se cerraron con RLS
@@ -3737,16 +3799,22 @@ pertenece a otra organizacion. Y la constraint rechaza marcar un
 
 ## Lo que falta para cerrar la fase 3
 
+**Estado canónico 2026-09-16:** esta sección histórica queda supersedida por el
+addendum de cierre al final del documento: D13 y D14 están hechos y F3 está
+cerrada. F4 queda habilitada.
+
 Escrito el **2026-09-25**, al terminar `D14` y comprobar que "fase completa"
 significaba unicamente "esquema completo". Los 15 bloques tienen contrato; la
 fase necesita ademas motor y pixel (plan maestro, apartado 3).
 
 ### El motor
 
-La capa `03-runtime` de esta fase **ya tiene 9 flujos escritos**. Nueve estan
-implementados (`d05`, `d01`, `d02`, `d06`, `d03`, `d07`, `d09`, `d10` y `d11`),
-y `D08` tiene motor sin flujo escrito propio. No hay que inventar los tres que
-quedan: hay que leerlos y escribirlos, como se hizo con estos nueve.
+La capa `03-runtime` de esta fase **ya tiene 10 flujos escritos**. Diez estan
+implementados (`d05`, `d01`, `d02`, `d06`, `d03`, `d07`, `d09`, `d10`, `d11` y
+`d12`),
+y `D08` tiene motor sin flujo escrito propio. D12 queda pendiente solo de la
+verificacion real de staging; todavia hay que leer y escribir los flujos de
+`D13` y `D14`.
 
 | Flujo | Bloque | Estado |
 | --- | --- | --- |
@@ -3757,15 +3825,15 @@ quedan: hay que leerlos y escribirlos, como se hizo con estos nueve.
 | `d06-flujo-motor-sintomas` | `D06` | **hecho** — `apps/api/src/symptom-engine.ts` |
 | `d07-flujo-razonamiento-causal` | `D07` | **hecho** (recorrido hacia atras; el de ida y los confusores, no) — `apps/api/src/causal-engine.ts` |
 | `d09-flujo-root-cause-constraint` | `D09` | **hecho** — `apps/api/src/root-cause-engine.ts` |
+| `d12-flujo-confusores-y-falsos-diagnosticos` | `D12` | **hecho** — `apps/api/src/adversarial-engine.ts` + verificación e2e en `kopcblejsxpkxoykldyh` |
 | `d10-flujo-evaluacion-severidad-impacto` | `D10` | **hecho** (solo la rama de cuantificacion) — `apps/api/src/severity-engine.ts` |
 | `d11-flujo-evaluacion-confianza-incertidumbre` | `D11` | **hecho** (las capas que la cadena puede sostener hoy) — `apps/api/src/confidence-engine.ts` |
 
-Y **cuatro bloques necesitan motor sin tener flujo escrito**, asi que ahi si hay
+Y **dos bloques necesitan motor sin tener flujo escrito**, asi que ahi si hay
 diseno que hacer (`D04` ya lo tiene, escrito sin flujo el 2026-10-02): `D08`
 (el indice le pone `CRPET` pero **no existe `d08` en `03-runtime`** — la fila
-esta mal), `D12` (los checks deterministas del apartado 17: alineacion de
-periodos, descomposicion de mix, suficiencia de muestra, madurez de cohorte),
-`D13` (series, change points, pendientes, calculo de lag, histeresis) y `D14`
+esta mal), `D13` (series, change points, pendientes, calculo de lag, histeresis)
+y `D14`
 (suite de evals y release gate, apartados 31 y 32).
 
 `D00` no necesita motor: es contrato puro por diseno.
@@ -3784,8 +3852,8 @@ plataforma, y con el la primera pantalla se disena contra datos que existen.
 ### El pixel
 
 `D01` ya se ve en `/integraciones`, y `D02`, `D03`, `D04`, `D05`, `D06`, `D07`,
-`D08`, `D09`, `D10` y `D11` en `/shopify/diagnostico`. De los 15 bloques,
-**queda pantalla por hacer en 3** (`D12`, `D13`, `D14`; `D00` es contrato puro
+`D08`, `D09`, `D10`, `D11` y `D12` en `/shopify/diagnostico`. De los 15 bloques,
+**queda pantalla por hacer en 2** (`D13`, `D14`; `D00` es contrato puro
 por diseno y no necesita una). La matriz de
 audiencia de mas arriba ya dice que lleva cada una.
 
@@ -3799,3 +3867,17 @@ primario (plan maestro, apartado 9) y es quien necesita el razonamiento entero,
 que es justo lo que estas 23 tablas guardan.
 
 ### Hasta que esto cierre, F4 no se abre.
+## Addendum de cierre D13/D14 — 2026-09-16
+
+La obra de F3 queda cerrada. D13 dispone de flujo escrito en `03-runtime/d13-flujo-diagnostico-temporal-y-regresion.md`, motor puro en `packages/contracts/src/temporal.ts`, motor persistente en `apps/api/src/temporal-engine.ts`, worker, workflow y panel `temporal.tsx`. D14 dispone de flujo escrito en `03-runtime/d14-flujo-salida-diagnostica-y-validacion.md`, motor puro en `packages/contracts/src/output.ts`, motor persistente en `apps/api/src/diagnostic-output-engine.ts`, worker, workflow y panel `diagnostic-output.tsx`.
+
+## Addendum de cierre D11 — 2026-09-16
+
+D11 queda realmente integrado con la cadena causal: `assessConfidence()` recibe
+las salidas de D07, D08 y D09; `apps/api/src/confidence-engine.ts` las carga con
+filtro de organizacion y caso; y la pantalla conserva el nivel, el residuo y
+las limitaciones reales. La prueba en `.env.local` encadeno D07 -> D08 -> D09
+-> D11, ejecuto dos pasadas y confirmo tres claims causales no genericos y
+cleanup a cero. El bloque queda en **hecho** dentro del alcance de su contrato.
+
+La verificación real se ejecutó con `.env.local` sobre `kopcblejsxpkxoykldyh`: seis señales sembradas, una evaluación temporal y una transición D13, una salida D14 con 11 validadores y degradación explícita por falta de causa/evidencia. El `finally` comprobó cero filas residuales después de borrar el caso y sus dependencias. Los tests de contratos quedan en 579 en verde. D13 y D14 pasan a **hecho**; F4 queda habilitada.

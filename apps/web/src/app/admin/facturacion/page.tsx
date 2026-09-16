@@ -145,6 +145,9 @@ type BillingInvoice = {
   currency_code: string;
   verifactu_status: string;
   verifactu_qr_url: string | null;
+  invoice_email_status: string;
+  invoice_email_sent_at: string | null;
+  invoice_email_error: string | null;
 };
 
 const VIGENTES = new Set(["trial", "active"]);
@@ -220,6 +223,22 @@ function estadoFactura(invoice: BillingInvoice) {
     return { label: "Revisar envío", tone: "danger" as const };
   }
   return { label: invoice.verifactu_status, tone: "neutral" as const };
+}
+
+function estadoEmail(invoice: BillingInvoice) {
+  if (invoice.invoice_email_status === "sent") {
+    return { label: "Factura enviada", tone: "success" as const };
+  }
+  if (invoice.invoice_email_status === "not_sent") {
+    return { label: "Sin email", tone: "warn" as const };
+  }
+  if (invoice.invoice_email_status === "failed") {
+    return { label: "Email fallido", tone: "danger" as const };
+  }
+  if (invoice.invoice_email_status === "sending") {
+    return { label: "Enviando email", tone: "warn" as const };
+  }
+  return { label: "Email pendiente", tone: "neutral" as const };
 }
 
 function FiscalInvoicingPanel() {
@@ -318,6 +337,27 @@ function FiscalInvoicingPanel() {
     }
   }
 
+  async function retryEmail(invoiceId: string) {
+    setRetrying(invoiceId);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/v1/admin/invoices/${invoiceId}/email/retry`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      setNotice("Email de factura reintentado.");
+      invoicesQuery.reload();
+    } catch {
+      setError("No se pudo reintentar el email de factura.");
+    } finally {
+      setRetrying(null);
+    }
+  }
+
   const invoiceColumns: TableColumnDef<BillingInvoice>[] = [
     {
       key: "code",
@@ -344,6 +384,13 @@ function FiscalInvoicingPanel() {
       ),
     },
     {
+      key: "email",
+      label: "Entrega",
+      render: (row) => (
+        <Badge tone={estadoEmail(row).tone}>{estadoEmail(row).label}</Badge>
+      ),
+    },
+    {
       key: "actions",
       label: "",
       render: (row) =>
@@ -357,6 +404,15 @@ function FiscalInvoicingPanel() {
             onClick={() => void retry(row.id)}
           >
             {retrying === row.id ? "Enviando..." : "Reintentar"}
+          </Button>
+        ) : row.invoice_email_status !== "sent" ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={retrying === row.id}
+            onClick={() => void retryEmail(row.id)}
+          >
+            {retrying === row.id ? "Enviando..." : "Reenviar factura"}
           </Button>
         ) : row.verifactu_qr_url ? (
           <a

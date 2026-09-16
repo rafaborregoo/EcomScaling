@@ -1,0 +1,11 @@
+import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+
+type ApiEnv = { SUPABASE_URL: string; SUPABASE_PUBLISHABLE_KEY: string; SUPABASE_SERVICE_ROLE_KEY?: string };
+
+export async function listConsultantTemporalUrgency(env: ApiEnv, authorization: string, context: AuthContext) {
+  if (!["consultant", "platform_admin"].includes(context.profile.platform_role)) return { ok: false as const, statusCode: 403, error: "consultant_only" };
+  const supabase = createUserScopedClient(env, authorization.slice("Bearer ".length)) as any;
+  const { data, error } = await supabase.from("temporal_urgency_assessments").select("id, organization_id, candidate_ref, as_of, temporal_assessment, temporal_confidence, total_response_time_days, unresolved_unknowns, reason_codes, result").order("assessed_at", { ascending: false }).limit(300);
+  if (error) return { ok: false as const, statusCode: 500, error: "temporal_urgency_load_failed", detail: error.message };
+  return { ok: true as const, data: { assessments: data ?? [] } };
+}

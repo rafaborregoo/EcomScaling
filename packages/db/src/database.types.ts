@@ -125,6 +125,12 @@ export type Database = {
           external_subscription_id: string | null
           id: string
           invoice_code: string
+          invoice_email_attempts: number
+          invoice_email_error: string | null
+          invoice_email_last_attempt_at: string | null
+          invoice_email_message_id: string | null
+          invoice_email_sent_at: string | null
+          invoice_email_status: string
           invoice_number: number
           invoice_series: string
           invoice_type: string
@@ -168,6 +174,12 @@ export type Database = {
           external_subscription_id?: string | null
           id?: string
           invoice_code: string
+          invoice_email_attempts?: number
+          invoice_email_error?: string | null
+          invoice_email_last_attempt_at?: string | null
+          invoice_email_message_id?: string | null
+          invoice_email_sent_at?: string | null
+          invoice_email_status?: string
           invoice_number: number
           invoice_series: string
           invoice_type?: string
@@ -211,6 +223,12 @@ export type Database = {
           external_subscription_id?: string | null
           id?: string
           invoice_code?: string
+          invoice_email_attempts?: number
+          invoice_email_error?: string | null
+          invoice_email_last_attempt_at?: string | null
+          invoice_email_message_id?: string | null
+          invoice_email_sent_at?: string | null
+          invoice_email_status?: string
           invoice_number?: number
           invoice_series?: string
           invoice_type?: string

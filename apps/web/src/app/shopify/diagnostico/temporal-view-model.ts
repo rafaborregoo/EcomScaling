@@ -1,0 +1,5 @@
+export type TemporalDiagnosisView = {
+  id: string; case_id: string; target: string; current_state: string; trajectory: string; short_term_trajectory: string; long_term_trajectory: string; temporal_sufficiency: string; persistence: string; onset_estimated_at: string | null; change_type: string | null; regression_status: string; business_impact_recovery: string; baseline_status: string; trajectory_confidence: string; limitations: string | null; events: { event_type: string; from_state: string | null; to_state: string | null; note: string | null }[]; lag_checks: { cause_label: string; effect_label: string; lag_fit: string; note: string | null }[];
+};
+export function temporalTone(value: string): "neutral" | "brand" | "success" | "warn" | "danger" { return ["deteriorating", "rapidly_deteriorating", "regressed", "relapsed"].includes(value) ? "danger" : ["improving", "recovering", "recovered"].includes(value) ? "success" : ["unknown", "insufficient", "partial"].includes(value) ? "warn" : "neutral"; }
+export function temporalLabel(value: string) { return value.replaceAll("_", " "); }

@@ -21,6 +21,8 @@ import {
   REGRESSION_STATUSES,
   type TemporalDiagnosis,
   type TemporalCheckInput,
+  evaluateTemporalDiagnosis,
+  type CapabilityTimeProfile,
 } from "./temporal.js";
 
 function temporal(over: Partial<TemporalDiagnosis> = {}): TemporalDiagnosis {
@@ -436,3 +438,72 @@ test("§21: cinco confianzas temporales, no una", () => {
   }
   assert.ok(!campos.includes("temporal_confidence"), "una sola confianza ocultaria las diferencias");
 });
+test("runtime: conserva estado malo y trayectoria mejorando", () => {
+  const result = evaluateTemporalDiagnosis({
+    diagnosisId: "D13-1", caseId: "CASE-1", target: "net_sales",
+    currentState: "bad", direction: "higher_is_better",
+    observations: runtimePoints([100, 90, 94, 98]), profile: runtimeProfile(),
+  });
+  assert.equal(result.diagnosis.current_state, "bad");
+  assert.equal(result.diagnosis.trajectory, "improving");
+});
+
+test("runtime: no convierte dos observaciones en una tendencia", () => {
+  const result = evaluateTemporalDiagnosis({
+    diagnosisId: "D13-2", caseId: "CASE-2", target: "net_sales",
+    observations: runtimePoints([100, 80]), profile: runtimeProfile(),
+  });
+  assert.equal(result.diagnosis.trajectory, "unknown");
+  assert.equal(result.diagnosis.temporal_sufficiency, "partial");
+  assert.equal(result.diagnosis.trajectory_confidence, "unknown");
+});
+
+test("runtime: cambio brusco registra change point y evento temporal", () => {
+  const result = evaluateTemporalDiagnosis({
+    diagnosisId: "D13-3", caseId: "CASE-3", target: "net_sales",
+    observations: runtimePoints([100, 101, 99, 55, 52]), profile: runtimeProfile(),
+  });
+  assert.equal(result.diagnosis.change_type, "abrupt");
+  assert.ok(result.diagnosis.change_point_at);
+  assert.ok(result.events.some((event) => event.event_type === "new_deterioration"));
+});
+
+test("runtime: regresión exige un periodo previo mejor y estable", () => {
+  const previous = temporal({
+    diagnosis_id: "PREV", case_id: "CASE-4", target: "net_sales",
+    current_state: "healthy", trajectory: "stable", temporal_sufficiency: "sufficient",
+    history_coverage: "moderate", history_quality: "high", trajectory_confidence: "high",
+  });
+  const result = evaluateTemporalDiagnosis({
+    diagnosisId: "D13-4", caseId: "CASE-4", target: "net_sales",
+    currentState: "bad", observations: runtimePoints([100, 99, 70, 65]), profile: runtimeProfile(), previous,
+    previousStablePeriod: { start: "2026-09-01T00:00:00Z", end: "2026-09-03T00:00:00Z" },
+    regressionType: "technical_regression",
+  });
+  assert.equal(result.diagnosis.regression_status, "regressed");
+  assert.equal(result.diagnosis.regression_type, "technical_regression");
+});
+
+test("runtime: recuperación parcial no es recuperación final", () => {
+  const result = evaluateTemporalDiagnosis({
+    diagnosisId: "D13-5", caseId: "CASE-5", target: "net_sales",
+    currentState: "fragile", observations: runtimePoints([50, 60, 70, 75]), profile: runtimeProfile(),
+    recovery: { cause: "recovered", system: "near_baseline", businessImpact: "partial_recovery", persistenceMet: false },
+  });
+  assert.equal(result.diagnosis.cause_recovery, "recovered");
+  assert.equal(result.diagnosis.business_impact_recovery, "partial_recovery");
+  assert.equal(result.diagnosis.recovery_persistence_met, false);
+});
+
+function runtimePoints(values: number[]) {
+  return values.map((value, index) => ({
+    at: `2026-09-${String(index + 1).padStart(2, "0")}T00:00:00Z`, value,
+  }));
+}
+
+function runtimeProfile() {
+  return {
+    capability: "conversion", evaluation_window_hours: 96,
+    minimum_observation_window_hours: 48, expected_lag_hours: 24,
+  } satisfies CapabilityTimeProfile;
+}

@@ -1,0 +1,16 @@
+name: F4 P03 temporal urgency
+on:
+  workflow_dispatch:
+jobs:
+  verify-temporal-urgency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test packages/contracts/src/temporal-urgency.test.ts
+      - run: npm run build --workspace=@ecomscaling/api
+      - run: npm run build --workspace=@ecomscaling/worker

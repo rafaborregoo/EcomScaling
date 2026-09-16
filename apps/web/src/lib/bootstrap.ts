@@ -1,6 +1,7 @@
 import { getSupabaseClient } from "@/lib/supabase";
 import type { AccountAction } from "@ecomscaling/contracts";
 import { fetchApiWithTimeout } from "@/lib/request-timeout";
+import { getViewAs } from "@/lib/view-as";
 
 export { fetchApiWithTimeout } from "@/lib/request-timeout";
 
@@ -133,11 +134,32 @@ function authHeaders(init: RequestInit, token: string) {
   return headers;
 }
 
+// Todas las escrituras del portal pasan por aqui, asi que es el unico sitio
+// donde hace falta bloquearlas para que "ver como" (view-as.ts) sea de
+// verdad solo lectura. No cubre las pocas pantallas que escriben directo
+// contra Supabase con su propio cliente (registro, onboarding, perfil) --
+// ninguna de ellas es a la que un admin entra "viendo como" un cliente.
+function blockedByViewAs(method: string): Response | null {
+  if (method === "GET" || method === "HEAD") return null;
+  const viewAs = getViewAs();
+  if (!viewAs) return null;
+  return new Response(
+    JSON.stringify({
+      error: "view_as_read_only",
+      message: `Estás viendo como ${viewAs.displayName} en modo lectura. Sal del modo "ver como" para poder escribir.`,
+    }),
+    { status: 403, headers: { "Content-Type": "application/json" } },
+  );
+}
+
 export async function apiFetch(
   path: string,
   init: RequestInit = {},
   timeoutMs = defaultTimeoutFor(path),
 ) {
+  const blocked = blockedByViewAs((init.method ?? "GET").toUpperCase());
+  if (blocked) return blocked;
+
   const token = await getAccessToken();
 
   if (!token) {

@@ -22,11 +22,28 @@ import {
 } from "@ecomscaling/observability";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { apiMetrics } from "./metrics.js";
+import {
+  createConsultantDecisionContextDeclaration,
+  listConsultantDecisionContexts,
+} from "./decision-context-api.js";
+import { listConsultantTemporalUrgency } from "./temporal-urgency-api.js";
+import { listConsultantDecisionImpact } from "./decision-impact-api.js";
+import { listConsultantConstraints } from "./constraints-api.js";
+import { listConsultantFeasibility } from "./feasibility-api.js";
+import { listConsultantRisk } from "./risk-api.js";
+import { listConsultantAllocation } from "./allocation-api.js";
+import { listConsultantStrategicFit } from "./strategic-fit-api.js";
+import { listConsultantRanking } from "./ranking-api.js";
+import { listConsultantPortfolio } from "./portfolio-api.js";
+import { listConsultantDecisionOutputs } from "./decision-output-api.js";
+import { listConsultantPlaybookRuns } from "./playbook-api.js";
+import { listConsultantAcquisitionRuns } from "./acquisition-api.js";
 import { listAccountActions } from "./actions.js";
 import {
   addMarketingDraftNote,
   generateClientInviteCode,
   createClientOrganization,
+  deleteConsultant,
   deleteOrganization,
   deleteOrganizationStore,
   getAdminObservability,
@@ -49,6 +66,10 @@ import {
   listConsultantCausalPaths,
   listConsultantHypotheses,
   listConsultantRootCauses,
+  listConsultantDiagnosticRobustness,
+  listConsultantTemporalDiagnoses,
+  listConsultantDiagnosticOutputs,
+  listConsultantPrioritizationRuns,
   listConsultantConfidence,
   listConsultantSeverity,
   listConsultantSignals,
@@ -132,6 +153,7 @@ import {
   getPlatformInvoice,
   listPlatformInvoices,
   retryInvoiceVerifactu,
+  sendInvoiceEmailForInvoice,
   upsertPlatformBillingSettings,
 } from "./invoicing.js";
 import {
@@ -341,10 +363,12 @@ import {
   createObjectiveDefinition,
   updateObjectiveDefinition,
   archiveObjectiveDefinition,
+  assertCanManagePlan,
   createMilestone,
   createMilestoneTask,
   createPhase,
   createStrategicPlan,
+  createStrategicPlanFromMarkdown,
   createStrategicPlanFromProposal,
   getStrategicPlan,
   linkTaskToMilestone,
@@ -353,6 +377,7 @@ import {
   updateMilestone,
   updateMilestoneStatus,
   updatePhase,
+  previewStrategicPlanMarkdown,
 } from "./strategic-plans.js";
 
 const logger = createLogger("api");
@@ -1121,6 +1146,23 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  app.post<{ Params: { invoiceId: string } }>(
+    "/v1/admin/invoices/:invoiceId/email/retry",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      if (auth.context.profile.platform_role !== "platform_admin") {
+        return reply.code(403).send({ error: "platform_admin_required" });
+      }
+      const result = await sendInvoiceEmailForInvoice(
+        env,
+        request.params.invoiceId,
+      );
+      if (!result.ok) return reply.code(result.statusCode).send(result);
+      return result;
+    },
+  );
+
   app.post<{ Body: GrantInput }>(
     "/v1/admin/subscriptions",
     async (request, reply) => {
@@ -1232,6 +1274,53 @@ export async function buildApp(): Promise<FastifyInstance> {
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { markdown?: string; fileName?: string };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/import/preview",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const access = assertCanManagePlan(
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isServiceFailure(access)) return sendServiceFailure(reply, access);
+      const markdown = request.body?.markdown;
+      if (typeof markdown !== "string") {
+        return reply.code(400).send({ error: "missing_markdown" });
+      }
+      return reply.send({
+        ...previewStrategicPlanMarkdown(markdown),
+        fileName: request.body?.fileName ?? null,
+      });
+    },
+  );
+
+  app.post<{
+    Params: { organizationId: string };
+    Body: { markdown?: string; fileName?: string };
+  }>(
+    "/v1/organizations/:organizationId/strategic-plan/import",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const markdown = request.body?.markdown;
+      if (typeof markdown !== "string") {
+        return reply.code(400).send({ error: "missing_markdown" });
+      }
+      const result = await createStrategicPlanFromMarkdown(
+        env,
+        auth.context,
+        request.params.organizationId,
+        markdown,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
     },
   );
 
@@ -2052,6 +2141,119 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  // F3/D12. El consultor ve la contraexplicación, todos los confusores,
+  // checks obligatorios y sensibilidad; no se presenta como dato accionable
+  // al cliente sin una traducción posterior.
+  app.get("/v1/consultant/adversarial", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+
+    const result = await listConsultantDiagnosticRobustness(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // F3/D13. Película temporal para revisión del consultor.
+  app.get("/v1/consultant/temporal", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await listConsultantTemporalDiagnoses(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // F3/D14. Registro administrativo validado, con snapshot, evidencia y checks.
+  app.get("/v1/consultant/diagnostic-outputs", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await listConsultantDiagnosticOutputs(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // F4/P00. La primera pantalla deja visible si P0 puede empezar o debe
+  // esperar a P1; no transforma la ausencia de contexto en una prioridad.
+  app.get("/v1/consultant/prioritization", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await listConsultantPrioritizationRuns(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // F4/P01. El contexto se expone como snapshot y la declaración solo entra
+  // por la frontera de consultor; el worker es quien evalúa y persiste P1.
+  app.get("/v1/consultant/decision-context", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await listConsultantDecisionContexts(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Body: unknown }>("/v1/consultant/decision-context", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const result = await createConsultantDecisionContextDeclaration(env, auth.context, request.body);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return reply.code(201).send(result.data);
+  });
+
+  app.get("/v1/consultant/temporal-urgency", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await listConsultantTemporalUrgency(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+  app.get("/v1/consultant/decision-impact", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await listConsultantDecisionImpact(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+  app.get("/v1/consultant/constraints", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await listConsultantConstraints(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+  app.get("/v1/consultant/feasibility", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const result = await listConsultantFeasibility(env, authorization, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+  app.get("/v1/consultant/risk", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantRisk(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+  app.get("/v1/consultant/allocation", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantAllocation(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+  app.get("/v1/consultant/strategic-fit", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantStrategicFit(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+  app.get("/v1/consultant/ranking", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantRanking(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+  app.get("/v1/consultant/portfolio", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantPortfolio(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+  app.get("/v1/consultant/decision-outputs", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantDecisionOutputs(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+  app.get("/v1/consultant/playbooks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantPlaybookRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+  app.get("/v1/consultant/acquisition", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantAcquisitionRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+
   // F3/D07. Declarar una relacion causal propia de una tienda. Es lo que
   // desbloquea el bloque: el grafo global trae cinco aristas, y todo lo demas
   // que un consultor sabe de una tienda concreta no tenia donde escribirse.
@@ -2398,6 +2600,22 @@ export async function buildApp(): Promise<FastifyInstance> {
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
 
       const result = await resendConsultantInvite(
+        env,
+        auth.context,
+        request.params.userId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.delete<{ Params: { userId: string } }>(
+    "/v1/admin/consultants/:userId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await deleteConsultant(
         env,
         auth.context,
         request.params.userId,

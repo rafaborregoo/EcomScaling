@@ -3169,9 +3169,13 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
     { data: consultantStats, error: consultantStatsError },
     { data: orgStats, error: orgStatsError },
   ] = await Promise.all([
+    // Sin filtrar por kind a proposito: hacen falta las organizaciones
+    // CLIENTE (para pintar sus carteras) Y las CONSULTORA de cada uno (para
+    // saber a que organizacion se le ajusta el plan -- desde Fase 1 el plan
+    // que de verdad cuenta esta ahi, no en una fila a nombre del usuario).
     supabase
       .from("organizations")
-      .select("id, display_name, slug, status")
+      .select("id, display_name, slug, status, kind, created_by")
       .order("display_name", { ascending: true }),
     supabase
       .from("consultant_assignments")
@@ -3237,6 +3241,40 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
   const orgById = new Map(
     (organizations ?? []).map((org) => [org.id as string, org]),
   );
+  // La organizacion consultora de cada uno: `created_by` es el consultor que
+  // la genero (`createConsultingOrganization`), asi que sirve de indice sin
+  // una consulta aparte por persona.
+  const consultingOrgIdByConsultant = new Map(
+    (organizations ?? [])
+      .filter((org) => org.kind === "consulting" && org.created_by)
+      .map((org) => [org.created_by as string, org.id as string]),
+  );
+  const consultingOrgIds = [...consultingOrgIdByConsultant.values()];
+  const { data: consultantPlans, error: consultantPlansError } =
+    consultingOrgIds.length > 0
+      ? await supabase
+          .from("service_subscriptions")
+          .select("organization_id, plan_code, store_limit, status, ends_at")
+          .in("status", ["trial", "active"])
+          .in("organization_id", consultingOrgIds)
+      : { data: [], error: null };
+  if (consultantPlansError) {
+    logger.info("admin_consultant_plans_unavailable", {
+      detail: consultantPlansError.message,
+    });
+  }
+  const planByConsultingOrg = new Map(
+    (consultantPlans ?? []).map((s) => [
+      s.organization_id as string,
+      {
+        plan_code: s.plan_code as string,
+        store_limit: s.store_limit as number | null,
+        status: s.status as string,
+        ends_at: s.ends_at as string | null,
+      },
+    ]),
+  );
+
   const byConsultant = new Map<
     string,
     Array<{
@@ -3282,14 +3320,28 @@ export async function listConsultants(env: ApiEnv, context: AuthContext) {
     ok: true as const,
     data: {
       window_days: AI_STATS_WINDOW_DAYS,
-      consultants: (profiles ?? []).map((profile) => ({
-        id: profile.id,
-        full_name: profile.full_name,
-        is_active: profile.is_active,
-        assignments: byConsultant.get(profile.id as string) ?? [],
-        ai: consultantStatsById.get(profile.id as string) ?? EMPTY_AI_STATS,
-      })),
-      organizations: organizations ?? [],
+      consultants: (profiles ?? []).map((profile) => {
+        const consultingOrganizationId = consultingOrgIdByConsultant.get(
+          profile.id as string,
+        );
+        return {
+          id: profile.id,
+          full_name: profile.full_name,
+          is_active: profile.is_active,
+          assignments: byConsultant.get(profile.id as string) ?? [],
+          ai: consultantStatsById.get(profile.id as string) ?? EMPTY_AI_STATS,
+          consulting_organization_id: consultingOrganizationId ?? null,
+          plan: consultingOrganizationId
+            ? (planByConsultingOrg.get(consultingOrganizationId) ?? null)
+            : null,
+        };
+      }),
+      // Solo organizaciones CLIENTE: esta lista alimenta el selector de "a
+      // que cliente asigno este consultor", y una consultora colada ahi se
+      // podria "asignar" como si fuera un cliente mas.
+      organizations: (organizations ?? []).filter(
+        (org) => org.kind !== "consulting",
+      ),
       organization_stats: organizationStats,
     },
   };
@@ -5014,6 +5066,98 @@ export async function updateConsultant(
   return { ok: true as const, data: { consultant: updated } };
 }
 
+/**
+ * Borra un consultor para siempre: su cuenta de Auth y su organizacion
+ * consultora (con su membership y su plan). Solo platform_admin.
+ *
+ * No hace falta desasignar clientes a mano ni recorrer sus codigos
+ * pendientes: `consultant_assignments.consultant_user_id`,
+ * `client_invites.consultant_user_id` y el resto de sus memberships tienen
+ * `on delete cascade` hacia `profiles`, y `profiles` lo tiene hacia
+ * `auth.users` -- borrar la cuenta de Auth deja a sus clientes SIN
+ * consultor (recuperables reasignandolos), no los borra a ellos.
+ *
+ * Ojo: si el consultor tenia ademas tiendas propias (`createOwnStore`,
+ * accessSource "membership"), esa organizacion pierde a su unico miembro
+ * pero no se borra sola -- queda huerfana, recuperable reasignando a otro
+ * dueño desde aqui mismo. Un caso raro que no merece mas codigo por ahora.
+ */
+export async function deleteConsultant(
+  env: ApiEnv,
+  context: AuthContext,
+  userId: string,
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: profile, error: loadError } = await loadExistingProfile(
+    supabase,
+    userId,
+  );
+  if (loadError)
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "profile_load_failed",
+      detail: loadError.message,
+    };
+  if (!profile)
+    return { ok: false as const, statusCode: 404, error: "profile_not_found" };
+  if (profile.platform_role !== CONSULTANT_ROLE) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "profile_not_consultant",
+    };
+  }
+
+  // El audit log va antes de borrar nada, por el mismo motivo que en
+  // hardDeleteOrganization: la fila sobrevive con el actor y el id ya nulos.
+  await recordAuditLog(supabase, {
+    organizationId: null,
+    actorUserId: context.user.id,
+    action: "admin.delete_consultant",
+    entityType: "profile",
+    entityId: userId,
+    oldData: profile,
+  });
+
+  // La organizacion consultora primero: si se deja para despues de borrar la
+  // cuenta de Auth, su membership ya se habria ido por cascada y quedaria
+  // huerfana igual, pero sin este paso explicito nunca se borraria sola.
+  const consultingOrganizationId = await findConsultingOrganizationId(
+    supabase,
+    userId,
+  );
+  if (consultingOrganizationId) {
+    const { error: orgError } = await supabase
+      .from("organizations")
+      .delete()
+      .eq("id", consultingOrganizationId);
+    if (orgError) {
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "consulting_organization_delete_failed",
+        detail: orgError.message,
+      };
+    }
+  }
+
+  const { error: authError } = await supabase.auth.admin.deleteUser(userId);
+  if (authError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_auth_delete_failed",
+      detail: authError.message,
+    };
+  }
+
+  return { ok: true as const, data: { user_id: userId, deleted: true } };
+}
+
 /** Reenvía el acceso a un consultor que ya existe en Auth pero nunca activó su
  *  cuenta (o perdió el enlace). `inviteUserByEmail` falla con usuarios ya
  *  registrados, así que se manda un email de recuperación con redirect a
@@ -5880,12 +6024,19 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
     { data: organizations, error: orgsError },
     { data: assignments, error: assignmentsError },
     { data: members, error: membersError },
+    { data: subscriptions, error: subscriptionsError },
   ] = await Promise.all([
     supabase
       .from("organizations")
       .select(
         "id, display_name, slug, status, timezone, currency_code, created_at",
       )
+      // Sin este filtro tambien salian las organizaciones consultoras (kind
+      // 'consulting'): esta lista es de CLIENTES, y una consultora mezclada
+      // aqui es justo la que un admin acabaria eligiendo por error para
+      // "ver como" -- entraria en la organizacion de facturacion de un
+      // consultor, no en la tienda de ningun cliente.
+      .eq("kind", "client")
       .order("created_at", { ascending: false }),
     supabase
       .from("consultant_assignments")
@@ -5895,9 +6046,13 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
       .from("organization_members")
       .select("organization_id, user_id, role")
       .eq("is_active", true),
+    supabase
+      .from("service_subscriptions")
+      .select("organization_id, plan_code, store_limit, status, ends_at")
+      .in("status", ["trial", "active"]),
   ]);
 
-  if (orgsError || assignmentsError || membersError) {
+  if (orgsError || assignmentsError || membersError || subscriptionsError) {
     return {
       ok: false as const,
       statusCode: 500,
@@ -5905,7 +6060,8 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
       detail:
         orgsError?.message ??
         assignmentsError?.message ??
-        membersError?.message,
+        membersError?.message ??
+        subscriptionsError?.message,
     };
   }
 
@@ -5952,6 +6108,20 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
     const orgId = m.organization_id as string;
     memberCountByOrg.set(orgId, (memberCountByOrg.get(orgId) ?? 0) + 1);
   }
+  // El plan vigente, para que la ficha lo muestre y lo pueda ajustar sin
+  // saltar a /admin/facturacion. Una organizacion cliente solo tiene una fila
+  // "actual" a la vez (indice unico), asi que no hace falta desempatar.
+  const planByOrg = new Map(
+    (subscriptions ?? []).map((s) => [
+      s.organization_id as string,
+      {
+        plan_code: s.plan_code as string,
+        store_limit: s.store_limit as number | null,
+        status: s.status as string,
+        ends_at: s.ends_at as string | null,
+      },
+    ]),
+  );
 
   return {
     ok: true as const,
@@ -5960,6 +6130,7 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
         ...org,
         member_count: memberCountByOrg.get(org.id as string) ?? 0,
         consultants: consultantsByOrg.get(org.id as string) ?? [],
+        plan: planByOrg.get(org.id as string) ?? null,
       })),
     },
   };
@@ -8417,4 +8588,125 @@ export async function listConsultantRootCauses(
   }));
 
   return { ok: true as const, data: { rootCauses, businessConstraints } };
+}
+
+/**
+ * F3/D12. Lectura completa de la revisión adversarial para el consultor.
+ * Incluye candidatos y descartes: ocultar lo que no sobrevivió sería borrar
+ * precisamente la memoria de falsos diagnósticos que el bloque protege.
+ */
+export async function listConsultantDiagnosticRobustness(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+
+  const organizations = orgsResult.data.organizations;
+  const nombrePorOrg = new Map(organizations.map((o) => [o.id, o.display_name]));
+  const ids = organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+  const token = authorization.slice("Bearer ".length);
+  const supabase = createUserScopedClient(env, token);
+
+  const { data: robustness, error } = await supabase
+    .from("diagnostic_robustness")
+    .select("*")
+    .in("organization_id", safeIds)
+    .eq("review_status", "current")
+    .order("reviewed_at", { ascending: false })
+    .limit(300);
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "consultant_adversarial_load_failed", detail: error.message };
+  }
+
+  const caseIds = [...new Set((robustness ?? []).map((row) => row.case_id as string))];
+  const robustnessIds = (robustness ?? []).map((row) => row.id as string);
+  const [confoundersResult, gatesResult, checksResult, sensitivityResult] = await Promise.all([
+    robustnessIds.length
+      ? supabase.from("diagnostic_confounders").select("*").in("robustness_id", robustnessIds)
+      : Promise.resolve({ data: [], error: null }),
+    caseIds.length
+      ? supabase.from("metric_comparability_gates").select("*").in("case_id", caseIds)
+      : Promise.resolve({ data: [], error: null }),
+    caseIds.length
+      ? supabase.from("mandatory_confounder_checks").select("*").in("case_id", caseIds)
+      : Promise.resolve({ data: [], error: null }),
+    robustnessIds.length
+      ? supabase.from("sensitivity_analyses").select("*").in("robustness_id", robustnessIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  for (const result of [confoundersResult, gatesResult, checksResult, sensitivityResult]) {
+    if (result.error) {
+      return { ok: false as const, statusCode: 500, error: "consultant_adversarial_children_load_failed", detail: result.error.message };
+    }
+  }
+
+  return {
+    ok: true as const,
+    data: {
+      reviews: (robustness ?? []).map((review) => ({
+        ...review,
+        organization_name: nombrePorOrg.get(review.organization_id as string) ?? null,
+        confounders: (confoundersResult.data ?? []).filter((row) => row.robustness_id === review.id),
+        gates: (gatesResult.data ?? []).filter((row) => row.case_id === review.case_id),
+        checks: (checksResult.data ?? []).filter((row) => row.case_id === review.case_id),
+        sensitivity: (sensitivityResult.data ?? []).filter((row) => row.robustness_id === review.id),
+      })),
+    },
+  };
+}
+
+/** F3/D13. Lectura administrativa de la película temporal, con lags y eventos. */
+export async function listConsultantTemporalDiagnoses(env: ApiEnv, authorization: string, context: AuthContext) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+  const ids = orgsResult.data.organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+  const supabase = createUserScopedClient(env, authorization.slice("Bearer ".length));
+  const { data: diagnoses, error } = await supabase.from("temporal_diagnoses").select("*").in("organization_id", safeIds).order("assessed_at", { ascending: false }).limit(300);
+  if (error) return { ok: false as const, statusCode: 500, error: "consultant_temporal_load_failed", detail: error.message };
+  const diagnosisIds = (diagnoses ?? []).map((row) => row.id as string);
+  const [lags, events] = await Promise.all([
+    diagnosisIds.length ? supabase.from("temporal_lag_checks").select("*").in("diagnosis_id", diagnosisIds) : Promise.resolve({ data: [], error: null }),
+    diagnosisIds.length ? supabase.from("temporal_events").select("*").in("diagnosis_id", diagnosisIds).order("occurred_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (lags.error || events.error) return { ok: false as const, statusCode: 500, error: "consultant_temporal_children_load_failed", detail: lags.error?.message ?? events.error?.message };
+  return { ok: true as const, data: { diagnoses: (diagnoses ?? []).map((diagnosis) => ({ ...diagnosis, lag_checks: (lags.data ?? []).filter((lag) => lag.diagnosis_id === diagnosis.id), events: (events.data ?? []).filter((event) => event.diagnosis_id === diagnosis.id) })) } };
+}
+
+/** F3/D14. Salida administrativa completa; no se expone el ledger al cliente final. */
+export async function listConsultantDiagnosticOutputs(env: ApiEnv, authorization: string, context: AuthContext) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+  const ids = orgsResult.data.organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+  const supabase = createUserScopedClient(env, authorization.slice("Bearer ".length));
+  const { data: outputs, error } = await supabase.from("diagnostic_outputs").select("*").in("organization_id", safeIds).eq("is_current", true).order("evaluated_at", { ascending: false }).limit(300);
+  if (error) return { ok: false as const, statusCode: 500, error: "consultant_diagnostic_outputs_load_failed", detail: error.message };
+  const outputIds = (outputs ?? []).map((row) => row.id as string);
+  const [evidence, validations, snapshots] = await Promise.all([
+    outputIds.length ? supabase.from("diagnostic_output_evidence").select("*").in("output_id", outputIds) : Promise.resolve({ data: [], error: null }),
+    outputIds.length ? supabase.from("diagnostic_validations").select("*").in("output_id", outputIds) : Promise.resolve({ data: [], error: null }),
+    outputIds.length ? supabase.from("diagnostic_snapshots").select("id, case_id, as_of, reproducible, reproducibility_limitations").in("id", (outputs ?? []).map((row) => row.snapshot_id).filter(Boolean)) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (evidence.error || validations.error || snapshots.error) return { ok: false as const, statusCode: 500, error: "consultant_diagnostic_output_children_load_failed", detail: evidence.error?.message ?? validations.error?.message ?? snapshots.error?.message };
+  return { ok: true as const, data: { outputs: (outputs ?? []).map((output) => ({ ...output, evidence: (evidence.data ?? []).filter((item) => item.output_id === output.id), validations: (validations.data ?? []).filter((item) => item.output_id === output.id), snapshot: (snapshots.data ?? []).find((snapshot) => snapshot.id === output.snapshot_id) ?? null })) } };
+}
+
+/** F4/P00. El panel muestra la ejecución y su motivo, no una falsa cola. */
+export async function listConsultantPrioritizationRuns(env: ApiEnv, authorization: string, context: AuthContext) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+  const ids = orgsResult.data.organizations.map((organization) => organization.id);
+  const safeIds = ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
+  const supabase = createUserScopedClient(env, authorization.slice("Bearer ".length));
+  const { data: runs, error } = await supabase.from("prioritization_runs").select("*").in("organization_id", safeIds).order("created_at", { ascending: false }).limit(100);
+  if (error) return { ok: false as const, statusCode: 500, error: "consultant_prioritization_load_failed", detail: error.message };
+  const runIds = (runs ?? []).map((run) => run.id as string);
+  const traces = runIds.length ? await supabase.from("prioritization_rule_traces").select("*").in("prioritization_run_id", runIds).order("executed_at", { ascending: true }) : { data: [], error: null };
+  if (traces.error) return { ok: false as const, statusCode: 500, error: "consultant_prioritization_traces_load_failed", detail: traces.error.message };
+  return { ok: true as const, data: { runs: (runs ?? []).map((run) => ({ ...run, rule_traces: (traces.data ?? []).filter((trace) => trace.prioritization_run_id === run.id) })) } };
 }
