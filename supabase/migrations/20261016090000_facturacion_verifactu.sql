@@ -145,6 +145,12 @@ create trigger set_billing_invoices_updated_at
 before update on private.billing_invoices
 for each row execute function private.set_updated_at();
 
+-- Una funcion que devuelve TABLE no se puede `create or replace` si una
+-- migracion futura le cambia las columnas: Postgres responde "cannot change
+-- return type of existing function". El drop previo es lo que deja reaplicar
+-- esta migracion sin dano si el esquema se toco por fuera de db:push.
+drop function if exists private.allocate_billing_invoice_number(varchar, integer);
+
 create or replace function private.allocate_billing_invoice_number(
   target_series varchar,
   target_year integer
