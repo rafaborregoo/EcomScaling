@@ -4567,6 +4567,10 @@ export async function provisionConsultantAccount(
   const { error: roleError } = await supabase
     .from("profiles")
     .update({
+      // La columna se sigue escribiendo mientras exista: varias consultas la
+      // leen todavia para pintar listas de perfiles. Deja de ser la verdad en
+      // cuanto se borre (paso pendiente de 20261006090000), y lo que manda ya
+      // es la suscripcion de aqui abajo.
       platform_role: CONSULTANT_ROLE,
       full_name: fullName,
       is_active: true,
@@ -4578,6 +4582,26 @@ export async function provisionConsultantAccount(
       statusCode: 500,
       error: "profile_role_update_failed",
       detail: roleError.message,
+    };
+  }
+
+  // Lo que de verdad le hace consultor: su plan a nombre propio. Sin esta fila
+  // el alta creaba la cuenta y la persona entraba como cliente, porque el rol
+  // se deriva de aqui y no de la columna de arriba.
+  const { error: planError } = await supabase
+    .from("service_subscriptions")
+    .insert({
+      user_id: invitedUser.id,
+      plan_code: CONSULTANT_ROLE,
+      status: "active",
+      starts_at: new Date().toISOString(),
+    });
+  if (planError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "consultant_plan_create_failed",
+      detail: planError.message,
     };
   }
 

@@ -164,12 +164,47 @@ export function createUserScopedClient(env: ApiEnv, token: string) {
   });
 }
 
+/**
+ * El rol, derivado. No se lee de ninguna columna de rol porque no existe una
+ * que sea la verdad (migracion 20261006090000):
+ *
+ *   staff     -> profiles.is_platform_staff. No lo otorga ningun plan: si
+ *                dependiera de una fila de facturacion, cancelarla dejaria la
+ *                plataforma sin administradores.
+ *   consultor -> tiene una suscripcion vigente A SU NOMBRE. Cuando caduca deja
+ *                de ser consultor solo, sin que nadie tenga que acordarse de
+ *                bajar una columna -- que es justo la deriva que habia antes.
+ *   cliente   -> lo demas.
+ *
+ * Se devuelve en `platform_role` con los mismos tres valores de siempre para
+ * que los ~149 sitios que lo leen no se enteren de nada: todos pasan por aqui.
+ */
+export function derivePlatformRole(input: {
+  isPlatformStaff: boolean;
+  hasOwnSubscription: boolean;
+}): string {
+  if (input.isPlatformStaff) return "platform_admin";
+  return input.hasOwnSubscription ? "consultant" : "user";
+}
+
 async function loadProfile(supabase: SupabaseClient, userId: string) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, full_name, avatar_url, platform_role, is_active, onboarding_completed_at")
-    .eq("id", userId)
-    .maybeSingle();
+  const [{ data, error }, { data: ownSubscriptions, error: subscriptionError }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select(
+          "id, full_name, avatar_url, is_platform_staff, is_active, onboarding_completed_at",
+        )
+        .eq("id", userId)
+        .maybeSingle(),
+      // Vigencia igual que en private.is_consultant: mismo criterio en SQL y en
+      // Node, o la API y la RLS acabarian discrepando sobre quien es consultor.
+      supabase
+        .from("service_subscriptions")
+        .select("id, status, starts_at, ends_at")
+        .eq("user_id", userId)
+        .in("status", ["trial", "active"]),
+    ]);
 
   if (error) {
     return {
@@ -178,6 +213,17 @@ async function loadProfile(supabase: SupabaseClient, userId: string) {
         statusCode: 500,
         error: "profile_load_failed",
         detail: error.message,
+      },
+    };
+  }
+
+  if (subscriptionError) {
+    return {
+      ok: false as const,
+      error: {
+        statusCode: 500,
+        error: "profile_load_failed",
+        detail: subscriptionError.message,
       },
     };
   }
@@ -193,7 +239,29 @@ async function loadProfile(supabase: SupabaseClient, userId: string) {
     };
   }
 
-  return { ok: true as const, data: data as Profile };
+  const now = Date.now();
+  const hasOwnSubscription = (ownSubscriptions ?? []).some((row) => {
+    const startsAt = row.starts_at ? Date.parse(row.starts_at as string) : null;
+    const endsAt = row.ends_at ? Date.parse(row.ends_at as string) : null;
+    return (
+      (startsAt === null || startsAt <= now) && (endsAt === null || endsAt > now)
+    );
+  });
+
+  const profile: Profile = {
+    id: data.id as string,
+    full_name: (data.full_name as string | null) ?? null,
+    avatar_url: (data.avatar_url as string | null) ?? null,
+    is_active: Boolean(data.is_active),
+    onboarding_completed_at:
+      (data.onboarding_completed_at as string | null) ?? null,
+    platform_role: derivePlatformRole({
+      isPlatformStaff: Boolean(data.is_platform_staff),
+      hasOwnSubscription,
+    }),
+  };
+
+  return { ok: true as const, data: profile };
 }
 
 async function loadMemberships(supabase: SupabaseClient, userId: string) {
