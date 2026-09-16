@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (227 archivos).
+-- Regenerado desde supabase/migrations (237 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -32153,3 +32153,436 @@ grant execute on function public.link_client_invite(uuid, uuid, uuid, uuid) to s
 
 comment on function public.link_client_invite(uuid, uuid, uuid, uuid) is
   'Vincula atomicamente una organizacion recien creada por su cliente al codigo suelto que la trajo. Solo service_role.';
+
+-- =============================================================================
+-- Migracion: 20261026100000_factura_email_delivery.sql
+-- =============================================================================
+-- Estado del envio de la factura al comprador. El correo es un efecto
+-- secundario del webhook: no debe hacer que Stripe reintente el cobro, pero
+-- tampoco debe perderse un fallo SMTP silenciosamente.
+alter table private.billing_invoices
+  add column if not exists invoice_email_status varchar(20) not null default 'pending'
+    check (invoice_email_status in ('pending', 'sending', 'sent', 'failed', 'not_sent'));
+
+alter table private.billing_invoices
+  add column if not exists invoice_email_attempts integer not null default 0
+    check (invoice_email_attempts >= 0);
+
+alter table private.billing_invoices
+  add column if not exists invoice_email_sent_at timestamptz;
+
+alter table private.billing_invoices
+  add column if not exists invoice_email_last_attempt_at timestamptz;
+
+alter table private.billing_invoices
+  add column if not exists invoice_email_message_id text;
+
+alter table private.billing_invoices
+  add column if not exists invoice_email_error text;
+
+create index if not exists billing_invoices_email_status_idx
+  on private.billing_invoices (invoice_email_status, invoice_email_last_attempt_at);
+
+-- =============================================================================
+-- Migracion: 20261027090000_f4_p00_prioritization_runtime.sql
+-- =============================================================================
+-- FASE 4 / P00 — contrato raíz y runtime de priorización.
+--
+-- P00 no calcula el ranking final. Congela la ejecución, registra su contexto,
+-- separa ABSTAINED de FAILED y deja trazable qué reglas permitieron avanzar.
+-- El ranking/portfolio se incorpora en P1-P12 sin mutar estas ejecuciones.
+
+create table if not exists public.prioritization_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  business_id uuid not null references public.organizations (id) on delete cascade,
+  analysis_snapshot_id text not null,
+  created_at timestamptz not null default now(),
+  decision_as_of timestamptz not null,
+  completed_at timestamptz,
+  schema_version varchar(32) not null,
+  decision_policy_version varchar(64) not null,
+  input_fingerprint varchar(80) not null,
+  recompute_reason varchar(48),
+  run_status varchar(24) not null,
+  decision_validity varchar(32) not null,
+  input_envelope jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  abstention_reason_codes text[] not null default '{}',
+  source_lineage_refs text[] not null default '{}',
+  warnings text[] not null default '{}',
+  result jsonb not null default '{}'::jsonb,
+  invalidation_reason text,
+  invalidated_at timestamptz,
+  replacement_run_id uuid references public.prioritization_runs (id) on delete set null,
+  constraint prioritization_runs_status_check check (run_status in ('CREATED','INPUT_INCOMPLETE','READY','EVALUATING','COMPLETED','ABSTAINED','INVALIDATED','FAILED')),
+  constraint prioritization_runs_validity_check check (decision_validity in ('VALID','VALID_WITH_LIMITATIONS','REQUIRES_VALIDATION','INSUFFICIENT_INFORMATION','NO_VALID_CANDIDATES','STALE','INVALID')),
+  constraint prioritization_runs_failed_invalid_check check (run_status <> 'FAILED' or decision_validity = 'INVALID'),
+  constraint prioritization_runs_abstained_reason_check check (run_status <> 'ABSTAINED' or cardinality(abstention_reason_codes) > 0)
+);
+
+comment on table public.prioritization_runs is
+  'F4/P00: ejecución inmutable de priorización. No es una tarea ni un playbook.';
+comment on column public.prioritization_runs.analysis_snapshot_id is
+  'Referencia al estado lógico congelado; nunca se reescribe una ejecución histórica.';
+comment on column public.prioritization_runs.input_envelope is
+  'Referencias P0, no una copia mutable de diagnósticos, contexto o candidatos.';
+
+create unique index if not exists prioritization_runs_semantic_input_uidx
+  on public.prioritization_runs (organization_id, analysis_snapshot_id, input_fingerprint, decision_policy_version);
+create index if not exists prioritization_runs_org_created_idx
+  on public.prioritization_runs (organization_id, created_at desc);
+
+create table if not exists public.prioritization_rule_traces (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  prioritization_run_id uuid not null references public.prioritization_runs (id) on delete cascade,
+  rule_id varchar(96) not null,
+  rule_version varchar(32) not null,
+  rule_type varchar(24) not null,
+  input_refs text[] not null default '{}',
+  result jsonb not null,
+  reason_codes text[] not null default '{}',
+  evidence_refs text[] not null default '{}',
+  deterministic boolean not null,
+  executed_at timestamptz not null default now()
+);
+
+comment on table public.prioritization_rule_traces is
+  'F4/P00: cada regla que altera la ejecución deja una traza reconstruible.';
+create index if not exists prioritization_rule_traces_run_idx
+  on public.prioritization_rule_traces (prioritization_run_id, executed_at);
+
+alter table public.prioritization_runs enable row level security;
+alter table public.prioritization_rule_traces enable row level security;
+
+grant select on public.prioritization_runs, public.prioritization_rule_traces to authenticated;
+
+drop policy if exists prioritization_runs_tenant_select on public.prioritization_runs;
+create policy prioritization_runs_tenant_select on public.prioritization_runs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+drop policy if exists prioritization_rule_traces_tenant_select on public.prioritization_rule_traces;
+create policy prioritization_rule_traces_tenant_select on public.prioritization_rule_traces
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261027093000_f4_p01_decision_context.sql
+-- =============================================================================
+-- F4/P01: snapshots auditables del contexto decisional.
+-- Las declaraciones las escribe la API tras autorización; el tenant solo
+-- puede leer sus snapshots a través de RLS. Cada snapshot conserva el input,
+-- el resultado y su lineage para poder explicar qué cambió entre t1 y t2.
+
+create table if not exists public.decision_context_declarations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  created_by uuid references public.profiles (id) on delete set null,
+  declared_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  input_envelope jsonb not null,
+  source_lineage_refs jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  constraint decision_context_declarations_lineage_array check (jsonb_typeof(source_lineage_refs) = 'array'),
+  constraint decision_context_declarations_unique_fingerprint unique (organization_id, input_fingerprint)
+);
+
+create index if not exists decision_context_declarations_org_idx
+  on public.decision_context_declarations (organization_id, declared_at desc);
+
+create table if not exists public.decision_contexts (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  decision_context_id varchar(160) not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  schema_version varchar(40) not null,
+  context_policy_version varchar(80) not null,
+  input_fingerprint varchar(80) not null,
+  context_status varchar(20) not null,
+  context_confidence varchar(40) not null,
+  primary_objective_kind varchar(20),
+  primary_objective_statement text,
+  input_envelope jsonb not null,
+  result jsonb not null,
+  unresolved_unknowns jsonb not null default '[]'::jsonb,
+  reason_codes jsonb not null default '[]'::jsonb,
+  source_lineage_refs jsonb not null default '[]'::jsonb,
+  invalidated_at timestamptz,
+  invalidation_reason text,
+  created_at timestamptz not null default now(),
+  constraint decision_contexts_status_values check (context_status in ('COMPLETE', 'INCOMPLETE', 'CONFLICTING', 'STALE', 'FAILED')),
+  constraint decision_contexts_confidence_values check (context_confidence in ('SUFFICIENT_TO_DECIDE', 'SUFFICIENT_WITH_LIMITATIONS', 'VALIDATION_REQUIRED', 'INSUFFICIENT', 'UNKNOWN')),
+  constraint decision_contexts_json_arrays check (
+    jsonb_typeof(unresolved_unknowns) = 'array'
+    and jsonb_typeof(reason_codes) = 'array'
+    and jsonb_typeof(source_lineage_refs) = 'array'
+  ),
+  constraint decision_contexts_unique_fingerprint unique (organization_id, input_fingerprint)
+);
+
+create index if not exists decision_contexts_org_idx
+  on public.decision_contexts (organization_id, evaluated_at desc);
+create index if not exists decision_contexts_current_idx
+  on public.decision_contexts (organization_id, invalidated_at, evaluated_at desc);
+
+alter table public.decision_context_declarations enable row level security;
+alter table public.decision_contexts enable row level security;
+
+drop policy if exists "decision_context_declarations_select_consultant" on public.decision_context_declarations;
+create policy "decision_context_declarations_select_consultant"
+  on public.decision_context_declarations for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+drop policy if exists "decision_contexts_select_consultant" on public.decision_contexts;
+create policy "decision_contexts_select_consultant"
+  on public.decision_contexts for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+grant select on public.decision_context_declarations, public.decision_contexts to authenticated;
+
+comment on table public.decision_context_declarations is
+  'Declaraciones de contexto introducidas por un consultor; no contienen ranking ni weights.';
+comment on table public.decision_contexts is
+  'Snapshots evaluados de P1; una fila por fingerprint semántico para preservar historia y evitar objective drift silencioso.';
+
+-- =============================================================================
+-- Migracion: 20261027100000_f4_p03_temporal_urgency.sql
+-- =============================================================================
+-- F4/P03: assessment temporal separado de D13 y del ranking P00.
+create table if not exists public.temporal_urgency_assessments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  candidate_ref uuid,
+  temporal_diagnosis_id uuid references public.temporal_diagnoses (id) on delete set null,
+  as_of timestamptz not null,
+  assessed_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  temporal_assessment varchar(24) not null,
+  temporal_confidence varchar(40) not null,
+  total_response_time_days numeric,
+  input_envelope jsonb not null,
+  result jsonb not null,
+  unresolved_unknowns jsonb not null default '[]'::jsonb,
+  reason_codes jsonb not null default '[]'::jsonb,
+  source_refs jsonb not null default '[]'::jsonb,
+  constraint temporal_urgency_assessment_values check (temporal_assessment in ('TIME_CRITICAL', 'TIME_SENSITIVE', 'NOT_TIME_SENSITIVE', 'UNKNOWN')),
+  constraint temporal_urgency_confidence_values check (temporal_confidence in ('SUFFICIENT_TO_ASSESS', 'SUFFICIENT_WITH_LIMITATIONS', 'VALIDATION_REQUIRED', 'INSUFFICIENT', 'UNKNOWN')),
+  constraint temporal_urgency_arrays check (jsonb_typeof(unresolved_unknowns) = 'array' and jsonb_typeof(reason_codes) = 'array' and jsonb_typeof(source_refs) = 'array'),
+  constraint temporal_urgency_unique_fingerprint unique (organization_id, input_fingerprint)
+);
+create index if not exists temporal_urgency_org_idx on public.temporal_urgency_assessments (organization_id, assessed_at desc);
+alter table public.temporal_urgency_assessments enable row level security;
+drop policy if exists "temporal_urgency_select_consultant" on public.temporal_urgency_assessments;
+create policy "temporal_urgency_select_consultant" on public.temporal_urgency_assessments for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+grant select on public.temporal_urgency_assessments to authenticated;
+
+-- =============================================================================
+-- Migracion: 20261027103000_f4_p04_decision_impact.sql
+-- =============================================================================
+-- F4/P04: valor en juego separado de urgencia, severidad y ranking.
+create table if not exists public.decision_impact_assessments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  candidate_ref uuid not null,
+  as_of timestamptz not null,
+  assessed_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  impact_assessment varchar(16) not null,
+  input_envelope jsonb not null,
+  result jsonb not null,
+  unresolved_unknowns jsonb not null default '[]'::jsonb,
+  reason_codes jsonb not null default '[]'::jsonb,
+  source_refs jsonb not null default '[]'::jsonb,
+  constraint decision_impact_assessment_values check (impact_assessment in ('HIGH', 'MEDIUM', 'LOW', 'UNKNOWN')),
+  constraint decision_impact_arrays check (jsonb_typeof(unresolved_unknowns) = 'array' and jsonb_typeof(reason_codes) = 'array' and jsonb_typeof(source_refs) = 'array'),
+  constraint decision_impact_unique_fingerprint unique (organization_id, input_fingerprint)
+);
+create index if not exists decision_impact_org_idx on public.decision_impact_assessments (organization_id, assessed_at desc);
+alter table public.decision_impact_assessments enable row level security;
+drop policy if exists "decision_impact_select_consultant" on public.decision_impact_assessments;
+create policy "decision_impact_select_consultant" on public.decision_impact_assessments for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+grant select on public.decision_impact_assessments to authenticated;
+
+-- =============================================================================
+-- Migracion: 20261027110000_f4_p05_constraints_dependencies.sql
+-- =============================================================================
+-- F4/P05: constraint map y dependency graph, separados de prioridad y secuencia.
+create table if not exists public.decision_constraints_assessments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  as_of timestamptz not null,
+  assessed_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  current_primary_ref uuid,
+  input_envelope jsonb not null,
+  result jsonb not null,
+  unresolved_unknowns jsonb not null default '[]'::jsonb,
+  reason_codes jsonb not null default '[]'::jsonb,
+  source_refs jsonb not null default '[]'::jsonb,
+  constraint decision_constraints_arrays check (jsonb_typeof(unresolved_unknowns) = 'array' and jsonb_typeof(reason_codes) = 'array' and jsonb_typeof(source_refs) = 'array'),
+  constraint decision_constraints_unique_fingerprint unique (organization_id, input_fingerprint)
+);
+create index if not exists decision_constraints_org_idx on public.decision_constraints_assessments (organization_id, assessed_at desc);
+alter table public.decision_constraints_assessments enable row level security;
+drop policy if exists "decision_constraints_select_consultant" on public.decision_constraints_assessments;
+create policy "decision_constraints_select_consultant" on public.decision_constraints_assessments for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+grant select on public.decision_constraints_assessments to authenticated;
+
+-- =============================================================================
+-- Migracion: 20261027120000_f4_p06_feasibility.sql
+-- =============================================================================
+create table if not exists public.decision_feasibility_assessments (
+  id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations (id) on delete cascade,
+  candidate_ref uuid not null, as_of timestamptz not null, assessed_at timestamptz not null default now(), input_fingerprint varchar(80) not null,
+  feasibility_assessment varchar(24) not null, input_envelope jsonb not null, result jsonb not null,
+  unresolved_unknowns jsonb not null default '[]'::jsonb, reason_codes jsonb not null default '[]'::jsonb, source_refs jsonb not null default '[]'::jsonb,
+  constraint decision_feasibility_values check (feasibility_assessment in ('FEASIBLE','PARTIAL','NOT_FEASIBLE','UNKNOWN')),
+  constraint decision_feasibility_arrays check (jsonb_typeof(unresolved_unknowns) = 'array' and jsonb_typeof(reason_codes) = 'array' and jsonb_typeof(source_refs) = 'array'),
+  constraint decision_feasibility_unique unique (organization_id, input_fingerprint)
+);
+create index if not exists decision_feasibility_org_idx on public.decision_feasibility_assessments (organization_id, assessed_at desc);
+alter table public.decision_feasibility_assessments enable row level security;
+drop policy if exists "decision_feasibility_select_consultant" on public.decision_feasibility_assessments;
+create policy "decision_feasibility_select_consultant" on public.decision_feasibility_assessments for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+grant select on public.decision_feasibility_assessments to authenticated;
+
+-- =============================================================================
+-- Migracion: 20261027130000_f4_p06_p12_decision_runtime.sql
+-- =============================================================================
+-- F4/P06-P12: snapshots de las dimensiones finales de decisión.
+create table if not exists public.decision_risk_assessments (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, candidate_ref uuid not null, as_of timestamptz not null, assessed_at timestamptz not null default now(), input_fingerprint varchar(80) not null, risk_assessment varchar(16) not null, input_envelope jsonb not null, result jsonb not null, unresolved_unknowns jsonb not null default '[]'::jsonb, reason_codes jsonb not null default '[]'::jsonb, source_refs jsonb not null default '[]'::jsonb, constraint decision_risk_values check(risk_assessment in('HIGH','MEDIUM','LOW','UNKNOWN')), constraint decision_risk_unique unique(organization_id,input_fingerprint));
+create table if not exists public.decision_allocation_assessments (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, candidate_ref uuid not null, as_of timestamptz not null, assessed_at timestamptz not null default now(), input_fingerprint varchar(80) not null, allocation_assessment varchar(24) not null, input_envelope jsonb not null, result jsonb not null, unresolved_unknowns jsonb not null default '[]'::jsonb, reason_codes jsonb not null default '[]'::jsonb, source_refs jsonb not null default '[]'::jsonb, constraint decision_allocation_unique unique(organization_id,input_fingerprint));
+create table if not exists public.decision_strategic_fit_assessments (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, candidate_ref uuid not null, as_of timestamptz not null, assessed_at timestamptz not null default now(), input_fingerprint varchar(80) not null, strategic_assessment varchar(16) not null, input_envelope jsonb not null, result jsonb not null, unresolved_unknowns jsonb not null default '[]'::jsonb, reason_codes jsonb not null default '[]'::jsonb, source_refs jsonb not null default '[]'::jsonb, constraint decision_fit_unique unique(organization_id,input_fingerprint));
+create table if not exists public.decision_rankings (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, as_of timestamptz not null, assessed_at timestamptz not null default now(), input_fingerprint varchar(80) not null, ranking_status varchar(16) not null, input_envelope jsonb not null, result jsonb not null, unresolved_unknowns jsonb not null default '[]'::jsonb, reason_codes jsonb not null default '[]'::jsonb, source_refs jsonb not null default '[]'::jsonb, constraint decision_ranking_unique unique(organization_id,input_fingerprint));
+create table if not exists public.decision_portfolio_assessments (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, as_of timestamptz not null, assessed_at timestamptz not null default now(), input_fingerprint varchar(80) not null, portfolio_status varchar(24) not null, input_envelope jsonb not null, result jsonb not null, unresolved_unknowns jsonb not null default '[]'::jsonb, reason_codes jsonb not null default '[]'::jsonb, source_refs jsonb not null default '[]'::jsonb, constraint decision_portfolio_unique unique(organization_id,input_fingerprint));
+create table if not exists public.decision_outputs (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade, candidate_ref uuid not null, as_of timestamptz not null, assessed_at timestamptz not null default now(), input_fingerprint varchar(80) not null, decision_status varchar(24) not null, input_envelope jsonb not null, result jsonb not null, reason_codes jsonb not null default '[]'::jsonb, source_refs jsonb not null default '[]'::jsonb, constraint decision_output_unique unique(organization_id,input_fingerprint));
+
+create index if not exists decision_risk_assessments_org_idx on public.decision_risk_assessments (organization_id, assessed_at desc);
+create index if not exists decision_allocation_assessments_org_idx on public.decision_allocation_assessments (organization_id, assessed_at desc);
+create index if not exists decision_strategic_fit_assessments_org_idx on public.decision_strategic_fit_assessments (organization_id, assessed_at desc);
+create index if not exists decision_rankings_org_idx on public.decision_rankings (organization_id, assessed_at desc);
+create index if not exists decision_portfolio_assessments_org_idx on public.decision_portfolio_assessments (organization_id, assessed_at desc);
+create index if not exists decision_outputs_org_idx on public.decision_outputs (organization_id, assessed_at desc);
+
+alter table public.decision_risk_assessments enable row level security;
+alter table public.decision_allocation_assessments enable row level security;
+alter table public.decision_strategic_fit_assessments enable row level security;
+alter table public.decision_rankings enable row level security;
+alter table public.decision_portfolio_assessments enable row level security;
+alter table public.decision_outputs enable row level security;
+
+grant select on public.decision_risk_assessments, public.decision_allocation_assessments, public.decision_strategic_fit_assessments, public.decision_rankings, public.decision_portfolio_assessments, public.decision_outputs to authenticated;
+
+drop policy if exists decision_risk_assessments_select_consultant on public.decision_risk_assessments;
+create policy decision_risk_assessments_select_consultant on public.decision_risk_assessments
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+drop policy if exists decision_allocation_assessments_select_consultant on public.decision_allocation_assessments;
+create policy decision_allocation_assessments_select_consultant on public.decision_allocation_assessments
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+drop policy if exists decision_strategic_fit_assessments_select_consultant on public.decision_strategic_fit_assessments;
+create policy decision_strategic_fit_assessments_select_consultant on public.decision_strategic_fit_assessments
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+drop policy if exists decision_rankings_select_consultant on public.decision_rankings;
+create policy decision_rankings_select_consultant on public.decision_rankings
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+drop policy if exists decision_portfolio_assessments_select_consultant on public.decision_portfolio_assessments;
+create policy decision_portfolio_assessments_select_consultant on public.decision_portfolio_assessments
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+drop policy if exists decision_outputs_select_consultant on public.decision_outputs;
+create policy decision_outputs_select_consultant on public.decision_outputs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261028090000_f5_p00_playbook_framework.sql
+-- =============================================================================
+create table if not exists public.playbook_templates (
+  id uuid primary key default gen_random_uuid(),
+  template_id text not null,
+  template_version text not null,
+  lifecycle varchar(16) not null,
+  template jsonb not null,
+  source_refs jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  constraint playbook_templates_lifecycle_check check (lifecycle in ('DRAFT','ACTIVE','DEPRECATED','RETIRED')),
+  constraint playbook_templates_source_refs_array check (jsonb_typeof(source_refs) = 'array'),
+  constraint playbook_templates_identity_unique unique (template_id, template_version)
+);
+
+create table if not exists public.playbook_framework_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(32) not null,
+  selected_instance_id text,
+  candidate_count integer not null default 0,
+  input_envelope jsonb not null,
+  result jsonb not null,
+  unresolved_unknowns jsonb not null default '[]'::jsonb,
+  reason_codes jsonb not null default '[]'::jsonb,
+  source_refs jsonb not null default '[]'::jsonb,
+  constraint playbook_framework_disposition_check check (
+    disposition in (
+      'READY_FOR_RECOMMENDATION',
+      'VALIDATION_REQUIRED',
+      'BLOCKED',
+      'NO_APPLICABLE_PLAYBOOK',
+      'REASSESS_DIAGNOSIS',
+      'REPRIORITIZE'
+    )
+  ),
+  constraint playbook_framework_arrays_check check (
+    jsonb_typeof(unresolved_unknowns) = 'array'
+    and jsonb_typeof(reason_codes) = 'array'
+    and jsonb_typeof(source_refs) = 'array'
+  ),
+  constraint playbook_framework_unique_input unique (organization_id, input_fingerprint)
+);
+
+create index if not exists playbook_templates_active_idx
+  on public.playbook_templates (lifecycle, template_id, template_version);
+create index if not exists playbook_framework_org_idx
+  on public.playbook_framework_runs (organization_id, evaluated_at desc);
+
+alter table public.playbook_templates enable row level security;
+alter table public.playbook_framework_runs enable row level security;
+
+drop policy if exists "playbook_templates_select_consultant" on public.playbook_templates;
+create policy "playbook_templates_select_consultant"
+  on public.playbook_templates for select to authenticated
+  using (private.is_platform_admin() or true);
+
+drop policy if exists "playbook_framework_select_consultant" on public.playbook_framework_runs;
+create policy "playbook_framework_select_consultant"
+  on public.playbook_framework_runs for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+grant select on public.playbook_templates to authenticated;
+grant select on public.playbook_framework_runs to authenticated;
+
+-- =============================================================================
+-- Migracion: 20261028100000_f5_p01_acquisition_playbook.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  add column if not exists domain varchar(32) not null default 'GENERAL';
+
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in ('GENERAL', 'ACQUISITION'));
+
+create index if not exists playbook_framework_domain_idx
+  on public.playbook_framework_runs (domain, evaluated_at desc);
