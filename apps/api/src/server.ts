@@ -112,6 +112,9 @@ import { getMetaInsights } from "./meta-insights.js";
 import { getKlaviyoInsights } from "./klaviyo-insights.js";
 import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
 import { handleFathomWebhookRequest } from "./fathom-webhook-handler.js";
+import { handleWhopWebhookRequest } from "./whop-webhook-handler.js";
+import { createWhopCheckout } from "./whop-checkout.js";
+import type { StandardWebhookHeaders } from "./standard-webhook.js";
 import { processQueuedFathomWebhookEvents } from "./fathom-webhook-handler.js";
 import type { FathomWebhookHeaders } from "./fathom-webhook.js";
 import { reconcileAllShopifyConnections } from "./shopify-reconcile.js";
@@ -909,6 +912,25 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(201).send(result.data);
     },
   );
+
+  app.post<{
+    Body: {
+      plan_id?: string;
+      organization_id?: string;
+      redirect_url?: string;
+    };
+  }>("/v1/billing/whop/checkout", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await createWhopCheckout(
+      env,
+      auth.context,
+      request.body ?? {},
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
 
   app.delete<{ Params: { partnerUserId: string } }>(
     "/v1/consultant/partners/:partnerUserId",
@@ -6549,6 +6571,15 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.body as Buffer,
       );
 
+      return reply.code(result.statusCode).send(result.body);
+    });
+
+    webhookScope.post("/v1/whop/webhooks", async (request, reply) => {
+      const result = await handleWhopWebhookRequest(
+        env,
+        request.headers as StandardWebhookHeaders,
+        request.body as Buffer,
+      );
       return reply.code(result.statusCode).send(result.body);
     });
 

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans } from "next/font/google";
 import { AriaRouterProvider } from "@/components/aria-router-provider";
+import { WhopPixel } from "@/components/whop-pixel";
 import { Toast } from "@/components/ui";
 import "./globals.css";
 
@@ -18,7 +19,11 @@ export const metadata: Metadata = {
   description: "Portal operativo para clientes y consultores de EcomScaling.",
   // El portal se usa como app instalada en el móvil (Añadir a pantalla de
   // inicio): sin barra de navegador, arranque a pantalla completa.
-  appleWebApp: { capable: true, statusBarStyle: "default", title: "EcomScaling" },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "EcomScaling",
+  },
 };
 
 // `viewport-fit=cover` habilita las env(safe-area-inset-*) que usan la barra
@@ -48,6 +53,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
+        <WhopPixel />
         <AriaRouterProvider>
           {children}
           {/* Arriba y flotando sobre el contenido, justo bajo el nav: un aviso

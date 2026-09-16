@@ -27,6 +27,8 @@ import {
   targetsByKey,
   totalCosts,
   funnelSteps,
+  opportunities,
+  opportunitiesTotal,
   type FunnelStep,
   type PanelFunnel,
   type MetricTarget,
@@ -65,6 +67,12 @@ type PanelMetrics = {
   previous_period: {
     sales: { orders_count: number; net_sales: number };
     financial: { net_profit: number; net_margin_pct: number };
+  } | null;
+  previous_year: {
+    orders_count: number;
+    net_revenue_ex_tax: number;
+    net_profit: number;
+    aov_ex_tax: number;
   } | null;
   funnel:
     | (PanelFunnel & {
@@ -147,6 +155,32 @@ function DeltaBadge({
   );
 }
 
+/**
+ * Variacion contra el mismo periodo del ano pasado.
+ *
+ * Va junto al delta del periodo anterior y no en su lugar: responden preguntas
+ * distintas. En una tienda con temporada, "agosto contra julio" puede caer y
+ * ser una temporada excelente; "agosto contra el agosto pasado" es el que lo
+ * dice. Cuando el ano pasado no habia negocio, no se enseña nada.
+ */
+function YoYBadge({
+  current,
+  yearAgo,
+}: {
+  current: number;
+  yearAgo: number | null | undefined;
+}) {
+  const delta = deltaPct(current, yearAgo);
+
+  if (delta === null) return null;
+
+  return (
+    <Badge tone={delta >= 0 ? "success" : "danger"}>
+      {delta >= 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)} % YoY
+    </Badge>
+  );
+}
+
 function TargetBadge({
   value,
   target,
@@ -203,6 +237,18 @@ function PanelContent() {
   const steps = useMemo(
     () => funnelSteps(metrics?.funnel ?? null),
     [metrics?.funnel],
+  );
+  const palancas = useMemo(
+    () =>
+      financial
+        ? opportunities(
+            financial,
+            metrics?.funnel ?? null,
+            targets,
+            Number(periodDays),
+          )
+        : [],
+    [financial, metrics?.funnel, targets, periodDays],
   );
 
   if (isLoading) {
@@ -287,10 +333,16 @@ function PanelContent() {
           tone={financial.net_profit >= 0 ? "success" : "danger"}
           hint={`${formatPct(financial.net_margin_pct)} de margen`}
           delta={
-            <DeltaBadge
-              current={financial.net_profit}
-              previous={metrics.previous_period?.financial.net_profit}
-            />
+            <span className="flex flex-wrap gap-1">
+              <DeltaBadge
+                current={financial.net_profit}
+                previous={metrics.previous_period?.financial.net_profit}
+              />
+              <YoYBadge
+                current={financial.net_profit}
+                yearAgo={metrics.previous_year?.net_profit}
+              />
+            </span>
           }
         />
         <Metric
@@ -299,12 +351,18 @@ function PanelContent() {
           value={formatMoney(financial.net_revenue_ex_tax)}
           hint={`${formatMoney(financial.tax_collected)} de IVA aparte`}
           delta={
-            <TargetBadge
-              value={financial.net_revenue_ex_tax}
-              target={targets.net_revenue_ex_tax}
-              direction="arriba"
-              format={formatMoney}
-            />
+            <span className="flex flex-wrap gap-1">
+              <TargetBadge
+                value={financial.net_revenue_ex_tax}
+                target={targets.net_revenue_ex_tax}
+                direction="arriba"
+                format={formatMoney}
+              />
+              <YoYBadge
+                current={financial.net_revenue_ex_tax}
+                yearAgo={metrics.previous_year?.net_revenue_ex_tax}
+              />
+            </span>
           }
         />
         <Metric
@@ -313,10 +371,16 @@ function PanelContent() {
           value={financial.orders_count}
           hint={`${financial.new_customers} clientes nuevos`}
           delta={
-            <DeltaBadge
-              current={financial.orders_count}
-              previous={metrics.previous_period?.sales.orders_count}
-            />
+            <span className="flex flex-wrap gap-1">
+              <DeltaBadge
+                current={financial.orders_count}
+                previous={metrics.previous_period?.sales.orders_count}
+              />
+              <YoYBadge
+                current={financial.orders_count}
+                yearAgo={metrics.previous_year?.orders_count}
+              />
+            </span>
           }
         />
         <Metric
@@ -348,12 +412,18 @@ function PanelContent() {
             label="Ticket medio"
             value={formatMoney(financial.aov_ex_tax)}
             delta={
-              <TargetBadge
-                value={financial.aov_ex_tax}
-                target={targets.aov_ex_tax}
-                direction="arriba"
-                format={formatMoney}
-              />
+              <span className="flex flex-wrap gap-1">
+                <TargetBadge
+                  value={financial.aov_ex_tax}
+                  target={targets.aov_ex_tax}
+                  direction="arriba"
+                  format={formatMoney}
+                />
+                <YoYBadge
+                  current={financial.aov_ex_tax}
+                  yearAgo={metrics.previous_year?.aov_ex_tax}
+                />
+              </span>
             }
           />
           <Metric
@@ -513,6 +583,50 @@ function PanelContent() {
         />
       </div>
 
+      {/* F7: solo aparece cuando el margen es real. Un "dinero sobre la mesa"
+          calculado sobre un COGS a cero es una cifra que el consultor le diria
+          a un cliente en voz alta, y estaria inventada. */}
+      {financial.cogs > 0 ? (
+        <Card
+          title="Dinero sobre la mesa"
+          description="Lo que ganarías al mes si cada métrica llegara al objetivo que le has puesto. Solo aparecen las que van por debajo."
+        >
+          {palancas.length === 0 ? (
+            <EmptyState
+              title="Nada que calcular todavía"
+              hint="Fija objetivos en Configuración: sin objetivo no hay escenario, y no nos inventamos medias del sector."
+            />
+          ) : (
+            <>
+              <ul className="divide-y divide-separator">
+                {palancas.map((palanca) => (
+                  <li
+                    key={palanca.palanca}
+                    className="flex items-baseline justify-between gap-4 py-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{palanca.palanca}</p>
+                      <p className="text-xs text-muted">{palanca.regla}</p>
+                    </div>
+                    <p className="whitespace-nowrap font-mono text-sm text-success">
+                      +{formatMoney(palanca.eur_mes)} /mes
+                    </p>
+                  </li>
+                ))}
+              </ul>
+              {palancas.length > 1 ? (
+                <p className="mt-3 border-t border-separator pt-3 text-sm">
+                  Todo junto:{" "}
+                  <span className="font-mono text-success">
+                    +{formatMoney(opportunitiesTotal(palancas))} /mes
+                  </span>
+                </p>
+              ) : null}
+            </>
+          )}
+        </Card>
+      ) : null}
+
       <Card
         title="Embudo"
         description="De la visita a la compra. El porcentaje es la caída respecto al paso anterior: ahí está la fuga."
@@ -525,16 +639,20 @@ function PanelContent() {
         ) : (
           <>
             <Funnel steps={steps} />
-            {!metrics.funnel?.has_checkout_data ? (
+            {metrics.funnel?.has_funnel_steps ? (
               <p className="mt-3 text-xs text-muted">
-                El paso de pago iniciado no se muestra: en este periodo todavía
-                no sincronizábamos los checkouts. No significa que nadie llegara
-                a pagar.
+                Todo en visitas a la tienda online. «Compró» son visitas que
+                acabaron comprando, no el total de pedidos: esos incluyen los
+                demás canales.
               </p>
-            ) : null}
-            <p className="mt-2 text-xs text-muted">
-              Falta el paso de añadir al carrito: todavía no lo medimos.
-            </p>
+            ) : (
+              <p className="mt-3 text-xs text-muted">
+                Faltan los pasos intermedios: en este periodo todavía no
+                pedíamos esas métricas a Shopify. No significa que nadie llenara
+                el carrito ni llegara a pagar. Se rellenan con una
+                sincronización completa de la tienda.
+              </p>
+            )}
           </>
         )}
       </Card>

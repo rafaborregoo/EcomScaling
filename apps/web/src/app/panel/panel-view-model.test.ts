@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   costBreakdown,
   funnelSteps,
+  opportunities,
+  opportunitiesTotal,
   deltaPct,
   monthLabel,
   monthlyChartRows,
@@ -128,36 +130,73 @@ test("el embudo encadena la caída de un paso al siguiente", () => {
   const steps = funnelSteps({
     has_sessions: true,
     sessions: 1000,
-    checkouts_started: 200,
-    orders_count: 100,
-    has_checkout_data: true,
+    cart_additions: 500,
+    checkouts_reached: 200,
+    purchases: 100,
+    has_funnel_steps: true,
+    orders_count: 130,
   });
 
   assert.deepEqual(
     steps.map((step) => step.paso),
-    ["Sesiones", "Pago iniciado", "Compras"],
+    ["Sesiones", "Añadió al carrito", "Llegó al pago", "Compró"],
   );
-  assert.equal(steps[1]?.pct_del_anterior, 20, "200 de 1000 sesiones");
-  assert.equal(steps[2]?.pct_del_anterior, 50, "100 de los 200 que pagaron");
-  assert.equal(steps[2]?.pct_del_total, 10, "y 100 de las 1000 sesiones");
+  assert.equal(steps[1]?.pct_del_anterior, 50, "500 de las 1000 sesiones");
+  assert.equal(steps[2]?.pct_del_anterior, 40, "200 de los 500 carritos");
+  assert.equal(steps[3]?.pct_del_anterior, 50, "100 de los 200 que llegaron al pago");
+  assert.equal(steps[3]?.pct_del_total, 10, "y 100 de las 1000 sesiones");
 });
 
-test("un paso sin dato se omite; no se pinta a cero", () => {
-  // Pintar 0 diría que nadie inició el pago, cuando lo que pasa es que en ese
-  // periodo todavía no sincronizábamos checkouts.
+test("el último paso son visitas que compraron, no pedidos", () => {
+  // 130 pedidos con 100 visitas que compraron: los otros 30 entraron por fuera
+  // de la web. Pintarlos aquí daría un 130 % del paso anterior.
   const steps = funnelSteps({
     has_sessions: true,
     sessions: 1000,
-    checkouts_started: 0,
+    cart_additions: 500,
+    checkouts_reached: 200,
+    purchases: 100,
+    has_funnel_steps: true,
+    orders_count: 130,
+  });
+
+  assert.equal(steps[3]?.valor, 100);
+});
+
+test("sin los pasos intermedios queda la vista corta", () => {
+  // Nada de ceros inventados: sesiones y pedidos es lo único que se puede
+  // afirmar cuando esas métricas no se pedían todavía.
+  const steps = funnelSteps({
+    has_sessions: true,
+    sessions: 1000,
+    cart_additions: 0,
+    checkouts_reached: 0,
+    purchases: 0,
+    has_funnel_steps: false,
     orders_count: 100,
-    has_checkout_data: false,
   });
 
   assert.deepEqual(
     steps.map((step) => step.paso),
-    ["Sesiones", "Compras"],
+    ["Sesiones", "Pedidos"],
   );
   assert.equal(steps[1]?.pct_del_anterior, 10, "la caída se mide contra sesiones");
+});
+
+test("un carrito a cero con dato sí se pinta: es una tienda rota, no un hueco", () => {
+  const steps = funnelSteps({
+    has_sessions: true,
+    sessions: 1000,
+    cart_additions: 0,
+    checkouts_reached: 0,
+    purchases: 0,
+    has_funnel_steps: true,
+    orders_count: 0,
+  });
+
+  assert.equal(steps[1]?.paso, "Añadió al carrito");
+  assert.equal(steps[1]?.valor, 0);
+  assert.equal(steps[1]?.pct_del_anterior, 0);
 });
 
 test("sin sesiones no hay embudo que enseñar", () => {
@@ -165,11 +204,110 @@ test("sin sesiones no hay embudo que enseñar", () => {
     funnelSteps({
       has_sessions: false,
       sessions: 0,
-      checkouts_started: 0,
+      cart_additions: 0,
+      checkouts_reached: 0,
+      purchases: 0,
+      has_funnel_steps: false,
       orders_count: 5,
-      has_checkout_data: false,
     }),
     [],
   );
   assert.deepEqual(funnelSteps(null), []);
+});
+
+// F7: "dinero sobre la mesa". La cifra que un consultor va a decirle a un
+// cliente en voz alta, así que cada escenario tiene que poder defenderse.
+
+const funnel = {
+  has_sessions: true,
+  sessions: 10000,
+  orders_count: 200,
+  cart_additions: 900,
+  checkouts_reached: 400,
+  purchases: 190,
+  has_funnel_steps: true,
+};
+
+test("sin objetivos no hay escenarios: no se inventan medias del sector", () => {
+  assert.deepEqual(opportunities(financial, funnel, {}, 30), []);
+});
+
+test("margen: los puntos que faltan sobre la facturación actual", () => {
+  // Margen 10 %, objetivo 15 % → 5 puntos sobre 1.000 € = 50 € en 30 días.
+  const found = opportunities(financial, funnel, { net_margin_pct: 15 }, 30);
+
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.palanca, "Margen neto al objetivo");
+  assert.ok(
+    Math.abs(found[0]!.eur_mes - 50.73) < 0.01,
+    `50 € del periodo llevados a un mes medio de 30,44 días, salió ${found[0]?.eur_mes}`,
+  );
+});
+
+test("una métrica que ya cumple sale de la lista, no resta", () => {
+  const found = opportunities(financial, funnel, { net_margin_pct: 5 }, 30);
+  assert.deepEqual(found, [], "el margen ya está por encima del objetivo");
+});
+
+test("conversión: pedidos extra con el mismo tráfico, al margen de hoy", () => {
+  // 200/10.000 = 2 %. Objetivo 3 % → 100 pedidos más × 20 € de contribución.
+  const found = opportunities(financial, funnel, { conversion_rate: 3 }, 30);
+
+  assert.equal(found[0]?.palanca, "Conversión al objetivo");
+  assert.ok(
+    Math.abs(found[0]!.eur_mes - 2029.3) < 1,
+    `2.000 € del periodo a mes medio, salió ${found[0]?.eur_mes}`,
+  );
+  assert.match(found[0]!.regla, /100 pedidos más/);
+});
+
+test("CAC: lo que te ahorras es beneficio directo", () => {
+  // CAC 6,67 €, objetivo 5 € → 1,67 € × 15 clientes nuevos.
+  const found = opportunities(financial, funnel, { cac_blended: 5 }, 30);
+
+  assert.equal(found[0]?.palanca, "CAC al objetivo");
+  assert.ok(
+    Math.abs(found[0]!.eur_mes - 25.42) < 0.1,
+    `25,05 € del periodo a mes medio, salió ${found[0]?.eur_mes}`,
+  );
+});
+
+test("sin sesiones no hay escenario de conversión", () => {
+  const found = opportunities(
+    financial,
+    { ...funnel, has_sessions: false, sessions: 0 },
+    { conversion_rate: 3 },
+    30,
+  );
+  assert.deepEqual(found, []);
+});
+
+test("los escenarios van de mayor a menor y el total los suma", () => {
+  const found = opportunities(
+    financial,
+    funnel,
+    { net_margin_pct: 15, conversion_rate: 3, cac_blended: 5 },
+    30,
+  );
+
+  assert.equal(found.length, 3);
+  assert.ok(
+    found[0]!.eur_mes >= found[1]!.eur_mes &&
+      found[1]!.eur_mes >= found[2]!.eur_mes,
+    "primero la palanca grande: es por donde se empieza",
+  );
+  assert.ok(
+    Math.abs(opportunitiesTotal(found) - found.reduce((a, b) => a + b.eur_mes, 0)) <
+      0.001,
+  );
+});
+
+test("el periodo se normaliza a mes: 90 días no valen el triple", () => {
+  const treintaDias = opportunities(financial, funnel, { net_margin_pct: 15 }, 30);
+  const noventaDias = opportunities(financial, funnel, { net_margin_pct: 15 }, 90);
+
+  assert.ok(
+    noventaDias[0]!.eur_mes < treintaDias[0]!.eur_mes,
+    "el mismo importe repartido en tres meses es menos al mes",
+  );
 });

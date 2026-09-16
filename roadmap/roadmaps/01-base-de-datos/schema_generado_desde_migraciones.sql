@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (212 archivos).
+-- Regenerado desde supabase/migrations (215 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -30378,3 +30378,375 @@ create policy service_subscriptions_select_propia
   for select
   to authenticated
   using (user_id = (select auth.uid()));
+
+-- =============================================================================
+-- Migracion: 20261013090000_suscripciones_desde_whop.sql
+-- =============================================================================
+-- Whop pasa a ser quien escribe las suscripciones.
+--
+-- ADR-0023 dejo el rol derivandose de `service_subscriptions`, y con un cabo
+-- suelto escrito en el propio ADR: "hoy nada mueve una suscripcion a expired".
+-- El cobro era manual, asi que la caducidad tambien lo era -- es decir, no
+-- existia. Los webhooks de Whop son lo que cierra ese lazo: activar, cancelar y
+-- desactivar dejan de ser cosas que alguien tiene que acordarse de reflejar.
+--
+-- Aqui solo va lo que la base de datos tiene que garantizar. El mapeo de
+-- estados y de planes vive en `apps/api/src/whop.ts`.
+
+-- 1. Los eventos de Whop se guardan donde los demas -------------------------
+-- `private.webhook_events` ya da deduplicacion por (provider, external_event_id)
+-- y el payload crudo para poder reprocesar. Un cobro duplicado por un reintento
+-- de Whop es exactamente lo que esa tabla existe para evitar.
+
+alter table private.webhook_events
+  drop constraint if exists webhook_events_provider_check;
+
+alter table private.webhook_events
+  add constraint webhook_events_provider_check check (
+    provider in (
+      'shopify',
+      'meta_ads',
+      'klaviyo',
+      'instagram',
+      'fathom',
+      'loom',
+      'whop'
+    )
+  );
+
+-- 2. Una membresia de Whop = como mucho una suscripcion ---------------------
+-- El handler busca por `external_subscription_id` para decidir entre crear y
+-- actualizar. Sin unicidad, dos entregas simultaneas del mismo evento crean dos
+-- filas y el limite de tiendas pasa a depender de cual lea primero el que
+-- pregunte.
+
+create unique index if not exists service_subscriptions_external_id_unique
+  on public.service_subscriptions (external_subscription_id)
+  where external_subscription_id is not null;
+
+-- 3. Una persona, un plan vigente -------------------------------------------
+-- Lo de organizacion ya lo garantizaba `service_subscriptions_one_current_per_org`
+-- desde DB-02. Las de usuario (las del consultor, desde 20261006090000) no
+-- tenian equivalente, y a partir de ahora entran solas por webhook: sin este
+-- indice, un cambio de plan deja dos filas activas y `private.is_consultant`
+-- diria que si por la vieja aunque la nueva se hubiera cancelado.
+--
+-- El saneo previo es defensivo y hoy no deberia tocar nada (el backfill de
+-- 20261006090000 iba guardado con un `not exists`). Si tocara algo, es
+-- justamente el estado que el indice no admitiria: se conserva la mas reciente.
+
+with duplicadas as (
+  select
+    id,
+    row_number() over (
+      partition by user_id
+      order by coalesce(starts_at, created_at) desc, created_at desc
+    ) as posicion
+  from public.service_subscriptions
+  where user_id is not null
+    and status in ('trial', 'active')
+)
+update public.service_subscriptions s
+set status = 'expired'::public.subscription_status,
+    ends_at = coalesce(s.ends_at, now())
+from duplicadas d
+where d.id = s.id
+  and d.posicion > 1;
+
+create unique index if not exists service_subscriptions_one_current_per_user
+  on public.service_subscriptions (user_id)
+  where user_id is not null and status in ('trial', 'active');
+
+-- 4. Atribuir una compra a una cuenta ----------------------------------------
+-- La atribucion buena es la metadata que la plataforma mete en la checkout
+-- configuration. Pero una compra puede empezar en un enlace de Whop suelto, sin
+-- pasar por la app, y entonces lo unico que llega es el correo del comprador.
+--
+-- `profiles` no guarda el correo: vive en `auth.users`, que PostgREST no expone.
+-- De ahi esta funcion. Es `security definer` sobre una tabla de auth, asi que
+-- solo la ejecuta `service_role` -- nunca un usuario con sesion, que podria
+-- usarla para comprobar si un correo esta registrado.
+
+create or replace function private.user_id_by_email(target_email text)
+returns uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select u.id
+  from auth.users u
+  where lower(u.email) = lower(trim(target_email))
+    and u.deleted_at is null
+  limit 1;
+$$;
+
+revoke all on function private.user_id_by_email(text) from public;
+revoke all on function private.user_id_by_email(text) from authenticated;
+revoke all on function private.user_id_by_email(text) from anon;
+grant execute on function private.user_id_by_email(text) to service_role;
+
+comment on function private.user_id_by_email(text) is
+  'Resuelve el usuario por correo para atribuir una compra de Whop. Solo service_role.';
+
+-- =============================================================================
+-- Migracion: 20261014090000_embudo_paso_de_anadir_al_carrito.sql
+-- =============================================================================
+-- F5 del panel del manager, segundo paso del embudo: "anadio al carrito".
+-- Ver docs/PLAN_PANEL_MANAGER.md.
+--
+-- 20261010090000 dejo el paso fuera a proposito: "necesita una metrica de
+-- ShopifyQL que no tenemos verificada contra la API real, y meter un nombre de
+-- columna a ojo es como se rompen los sync en silencio".
+--
+-- YA NO SE ADIVINA. La referencia del esquema `sessions` de ShopifyQL publica
+-- los identificadores exactos, y el que buscabamos es
+-- `sessions_with_cart_additions` (INTEGER, "Online store visits in which a
+-- visitor added an item to cart"). Es una metrica de sesion, igual que
+-- `sessions`: mismo denominador, mismo origen, comparable sin conversiones.
+--
+-- NULLABLE A PROPOSITO. `sessions` y `online_store_visitors` son `not null
+-- default 0` porque desde el primer dia se pidieron. Esta no: las filas ya
+-- sincronizadas se quedan a null, y null aqui significa "ese dia no lo
+-- pedimos", no "ese dia nadie anadio al carrito". Poner 0 diria que ningun
+-- visitante toco el carrito en un ano entero, que es mentira. Se rellenan solas
+-- segun corra el sync, o de golpe con un sync completo de la tienda.
+
+alter table public.shopify_sessions_daily
+  add column if not exists sessions_with_cart_additions integer;
+
+comment on column public.shopify_sessions_daily.sessions_with_cart_additions is
+  'ShopifyQL sessions.sessions_with_cart_additions: visitas en las que alguien '
+  'anadio un articulo al carrito. NULL = ese dia no se pidio la metrica (no '
+  'equivale a 0).';
+
+-- El embudo suma la metrica y dice desde cuando la tiene, con el mismo criterio
+-- que `checkout_data_since`: no saber no es cero.
+drop function if exists public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid);
+create function public.shopify_funnel_summary(
+  target_organization_id uuid,
+  period_start timestamptz,
+  period_end timestamptz,
+  target_store_id uuid
+)
+returns table (
+  sessions bigint,
+  online_store_visitors bigint,
+  conversion_rate_shopify numeric,
+  days_with_sessions bigint,
+  abandoned_checkouts bigint,
+  checkout_data_since date,
+  cart_additions bigint,
+  cart_data_since date
+)
+language sql
+stable
+set search_path to 'pg_catalog', 'public'
+as $$
+  with sesiones as (
+    select
+      coalesce(sum(d.sessions), 0)::bigint as sessions,
+      coalesce(sum(d.online_store_visitors), 0)::bigint as online_store_visitors,
+      -- Media ponderada por sesiones, no media de medias.
+      round(
+        case
+          when coalesce(sum(d.sessions), 0) > 0
+          then sum(d.conversion_rate * d.sessions) / nullif(sum(d.sessions), 0)
+        end,
+        5
+      ) as conversion_rate_shopify,
+      count(*)::bigint as days_with_sessions,
+      -- `sum` ignora los null: suma los dias que si tienen la metrica.
+      coalesce(sum(d.sessions_with_cart_additions), 0)::bigint as cart_additions
+    from public.shopify_sessions_daily d
+    where d.organization_id = target_organization_id
+      and (target_store_id is null or d.store_id = target_store_id)
+      -- period_start null = "Todo": sin cota inferior.
+      and (period_start is null or d.bucket_date >= date_trunc('day', period_start)::date)
+      and d.bucket_date <= date_trunc('day', period_end)::date
+  ),
+  checkouts as (
+    select count(*)::bigint as abandoned_checkouts
+    from public.shopify_abandoned_checkouts c
+    where c.organization_id = target_organization_id
+      and (target_store_id is null or c.store_id = target_store_id)
+      and (period_start is null or c.external_created_at >= period_start)
+      and c.external_created_at <= period_end
+  ),
+  -- Desde cuando tenemos checkouts de esta tienda, sin acotar al periodo: es lo
+  -- que distingue "nadie inicio el pago" de "todavia no lo sincronizabamos".
+  cobertura as (
+    select min(c.external_created_at)::date as checkout_data_since
+    from public.shopify_abandoned_checkouts c
+    where c.organization_id = target_organization_id
+      and (target_store_id is null or c.store_id = target_store_id)
+  ),
+  -- Lo mismo para el carrito, y sin columna de bookkeeping: el primer dia con
+  -- la metrica no nula ES la fecha desde la que se puede pintar el paso.
+  cobertura_carrito as (
+    select min(d.bucket_date) as cart_data_since
+    from public.shopify_sessions_daily d
+    where d.organization_id = target_organization_id
+      and (target_store_id is null or d.store_id = target_store_id)
+      and d.sessions_with_cart_additions is not null
+  )
+  select
+    s.sessions,
+    s.online_store_visitors,
+    s.conversion_rate_shopify,
+    s.days_with_sessions,
+    k.abandoned_checkouts,
+    v.checkout_data_since,
+    s.cart_additions,
+    cc.cart_data_since
+  from sesiones s
+  cross join checkouts k
+  cross join cobertura v
+  cross join cobertura_carrito cc;
+$$;
+
+grant execute on function public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid) to authenticated;
+
+comment on function public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid) is
+  'Embudo: sesiones y carritos (ShopifyQL) y checkouts abandonados del periodo. '
+  'Los pagos iniciados se componen fuera sumando estos checkouts a los pedidos, '
+  'que la misma peticion ya tiene -- esta funcion NO vuelve a escanear '
+  'shopify_order_facts a proposito. checkout_data_since y cart_data_since dicen '
+  'desde cuando hay dato de cada paso, para no confundir "nadie llego ahi" con '
+  '"todavia no lo sincronizabamos".';
+
+-- El indice de sesiones por organizacion y fecha ya existe
+-- (shopify_sessions_daily_org_date_idx, 20260903140000) y calza con el
+-- predicado: la columna nueva no necesita indice propio, solo se agrega.
+
+-- =============================================================================
+-- Migracion: 20261015090000_embudo_de_una_sola_fuente.sql
+-- =============================================================================
+-- F5 del panel del manager: el embudo pasa a tener UNA sola fuente.
+-- Ver docs/PLAN_PANEL_MANAGER.md.
+--
+-- DE DONDE VENIMOS. El embudo se fue montando con lo que habia a mano:
+--   Sesiones            -> ShopifyQL (analitica de la tienda online)
+--   Anadio al carrito   -> ShopifyQL (20261014090000)
+--   Pago iniciado       -> checkouts abandonados + pedidos (20261010090000)
+--   Compras             -> pedidos
+--
+-- Los dos ultimos cuentan TODOS los canales; los dos primeros solo visitas a la
+-- web. Mezclados en la misma columna de porcentajes, un paso podia salir por
+-- encima del 100 % del anterior en una tienda que venda tambien fuera de la
+-- web. No era un error de cuenta: era la costura entre dos fuentes.
+--
+-- LO QUE SE HACE. El esquema `sessions` de ShopifyQL publica los cuatro pasos
+-- con la misma unidad -- visitas a la tienda online:
+--   sessions
+--   sessions_with_cart_additions        ("anadio un articulo al carrito")
+--   sessions_that_reached_checkout      ("llego a la pagina de pago")
+--   sessions_that_completed_checkout    ("completo la compra")
+--
+-- Asi que el embudo se queda con esas cuatro y el apano de los checkouts
+-- abandonados se jubila AQUI DENTRO. El bloque de sync de checkouts sigue
+-- existiendo y la tabla tambien: lo que se retira es su uso como paso del
+-- embudo, que nunca fue su trabajo.
+--
+-- LO QUE ESTA FUNCION YA NO HACE: leer shopify_abandoned_checkouts. Solo toca
+-- shopify_sessions_daily, que son decenas de filas por tienda y mes.
+--
+-- NULLABLE, COMO EL CARRITO. Las filas ya sincronizadas se quedan a null: null
+-- es "ese dia no pedimos la metrica", no "ese dia nadie llego al pago". Se
+-- rellenan segun corra el sync, o de golpe con un sync completo (365 dias).
+
+alter table public.shopify_sessions_daily
+  add column if not exists sessions_that_reached_checkout integer;
+
+alter table public.shopify_sessions_daily
+  add column if not exists sessions_that_completed_checkout integer;
+
+comment on column public.shopify_sessions_daily.sessions_that_reached_checkout is
+  'ShopifyQL sessions.sessions_that_reached_checkout: visitas que llegaron a la '
+  'pagina de pago. NULL = ese dia no se pidio la metrica (no equivale a 0).';
+
+comment on column public.shopify_sessions_daily.sessions_that_completed_checkout is
+  'ShopifyQL sessions.sessions_that_completed_checkout: visitas que completaron '
+  'la compra. NULL = ese dia no se pidio la metrica (no equivale a 0). No es lo '
+  'mismo que el numero de pedidos: aqui solo cuenta la tienda online.';
+
+drop function if exists public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid);
+create function public.shopify_funnel_summary(
+  target_organization_id uuid,
+  period_start timestamptz,
+  period_end timestamptz,
+  target_store_id uuid
+)
+returns table (
+  sessions bigint,
+  online_store_visitors bigint,
+  conversion_rate_shopify numeric,
+  days_with_sessions bigint,
+  cart_additions bigint,
+  checkouts_reached bigint,
+  purchases bigint,
+  funnel_data_since date
+)
+language sql
+stable
+set search_path to 'pg_catalog', 'public'
+as $$
+  with sesiones as (
+    select
+      coalesce(sum(d.sessions), 0)::bigint as sessions,
+      coalesce(sum(d.online_store_visitors), 0)::bigint as online_store_visitors,
+      -- Media ponderada por sesiones, no media de medias.
+      round(
+        case
+          when coalesce(sum(d.sessions), 0) > 0
+          then sum(d.conversion_rate * d.sessions) / nullif(sum(d.sessions), 0)
+        end,
+        5
+      ) as conversion_rate_shopify,
+      count(*)::bigint as days_with_sessions,
+      -- `sum` ignora los null: suma los dias que si tienen la metrica. Cuales
+      -- son esos dias lo dice `funnel_data_since`.
+      coalesce(sum(d.sessions_with_cart_additions), 0)::bigint as cart_additions,
+      coalesce(sum(d.sessions_that_reached_checkout), 0)::bigint as checkouts_reached,
+      coalesce(sum(d.sessions_that_completed_checkout), 0)::bigint as purchases
+    from public.shopify_sessions_daily d
+    where d.organization_id = target_organization_id
+      and (target_store_id is null or d.store_id = target_store_id)
+      -- period_start null = "Todo": sin cota inferior.
+      and (period_start is null or d.bucket_date >= date_trunc('day', period_start)::date)
+      and d.bucket_date <= date_trunc('day', period_end)::date
+  ),
+  -- Desde cuando el embudo esta COMPLETO. Las tres metricas viajan en la misma
+  -- consulta a ShopifyQL, asi que normalmente aparecen y desaparecen juntas;
+  -- exigir las tres evita pintar medio embudo si alguna vez no fuera asi.
+  -- Sin columna de bookkeeping: el dato se describe a si mismo.
+  cobertura as (
+    select min(d.bucket_date) as funnel_data_since
+    from public.shopify_sessions_daily d
+    where d.organization_id = target_organization_id
+      and (target_store_id is null or d.store_id = target_store_id)
+      and d.sessions_with_cart_additions is not null
+      and d.sessions_that_reached_checkout is not null
+      and d.sessions_that_completed_checkout is not null
+  )
+  select
+    s.sessions,
+    s.online_store_visitors,
+    s.conversion_rate_shopify,
+    s.days_with_sessions,
+    s.cart_additions,
+    s.checkouts_reached,
+    s.purchases,
+    c.funnel_data_since
+  from sesiones s
+  cross join cobertura c;
+$$;
+
+grant execute on function public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid) to authenticated;
+
+comment on function public.shopify_funnel_summary(uuid, timestamptz, timestamptz, uuid) is
+  'Embudo de la tienda online, entero desde ShopifyQL: sesiones -> carrito -> '
+  'pago -> compra, los cuatro pasos en la misma unidad (visitas). `purchases` '
+  'son visitas que compraron, NO el numero de pedidos: los pedidos incluyen '
+  'otros canales. funnel_data_since dice desde cuando el embudo esta completo, '
+  'para no confundir "nadie llego ahi" con "todavia no lo sincronizabamos".';

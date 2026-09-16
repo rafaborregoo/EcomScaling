@@ -193,7 +193,9 @@ export type Database = {
         Args: { target_organization_id: string }
         Returns: boolean
       }
+      is_consultant: { Args: { target_user_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      is_platform_staff: { Args: never; Returns: boolean }
       purge_expired_ai_context: {
         Args: { p_before: string; p_limit?: number }
         Returns: Json
@@ -214,6 +216,7 @@ export type Database = {
         Args: { p_payload: Json }
         Returns: string
       }
+      user_id_by_email: { Args: { target_email: string }; Returns: string }
     }
     Enums: {
       [_ in never]: never
@@ -8655,6 +8658,7 @@ export type Database = {
           audience: string
           authority: string
           checksum: string
+          content: string | null
           created_at: string
           created_by: string | null
           description: string | null
@@ -8680,6 +8684,7 @@ export type Database = {
           audience?: string
           authority?: string
           checksum: string
+          content?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -8705,6 +8710,7 @@ export type Database = {
           audience?: string
           authority?: string
           checksum?: string
+          content?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -11691,6 +11697,7 @@ export type Database = {
           full_name: string | null
           id: string
           is_active: boolean
+          is_platform_staff: boolean
           last_login_at: string | null
           onboarding_completed_at: string | null
           phone: string | null
@@ -11704,6 +11711,7 @@ export type Database = {
           full_name?: string | null
           id: string
           is_active?: boolean
+          is_platform_staff?: boolean
           last_login_at?: string | null
           onboarding_completed_at?: string | null
           phone?: string | null
@@ -11717,6 +11725,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           is_active?: boolean
+          is_platform_staff?: boolean
           last_login_at?: string | null
           onboarding_completed_at?: string | null
           phone?: string | null
@@ -12004,12 +12013,13 @@ export type Database = {
           external_subscription_id: string | null
           id: string
           metadata: Json | null
-          organization_id: string
+          organization_id: string | null
           plan_code: string
           starts_at: string | null
           status: Database["public"]["Enums"]["subscription_status"]
           store_limit: number | null
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           cancelled_at?: string | null
@@ -12018,12 +12028,13 @@ export type Database = {
           external_subscription_id?: string | null
           id?: string
           metadata?: Json | null
-          organization_id: string
+          organization_id?: string | null
           plan_code: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["subscription_status"]
           store_limit?: number | null
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           cancelled_at?: string | null
@@ -12032,12 +12043,13 @@ export type Database = {
           external_subscription_id?: string | null
           id?: string
           metadata?: Json | null
-          organization_id?: string
+          organization_id?: string | null
           plan_code?: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["subscription_status"]
           store_limit?: number | null
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -12045,6 +12057,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -13858,6 +13877,9 @@ export type Database = {
           organization_id: string
           raw: Json | null
           sessions: number
+          sessions_that_completed_checkout: number | null
+          sessions_that_reached_checkout: number | null
+          sessions_with_cart_additions: number | null
           store_id: string
           updated_at: string
         }
@@ -13870,6 +13892,9 @@ export type Database = {
           organization_id: string
           raw?: Json | null
           sessions?: number
+          sessions_that_completed_checkout?: number | null
+          sessions_that_reached_checkout?: number | null
+          sessions_with_cart_additions?: number | null
           store_id: string
           updated_at?: string
         }
@@ -13882,6 +13907,9 @@ export type Database = {
           organization_id?: string
           raw?: Json | null
           sessions?: number
+          sessions_that_completed_checkout?: number | null
+          sessions_that_reached_checkout?: number | null
+          sessions_with_cart_additions?: number | null
           store_id?: string
           updated_at?: string
         }
@@ -16764,6 +16792,7 @@ export type Database = {
           target_store_id: string
         }
         Returns: {
+          abandoned_checkouts: number
           bucket_date: string
           sessions: number
         }[]
@@ -16776,9 +16805,13 @@ export type Database = {
           target_store_id: string
         }
         Returns: {
+          cart_additions: number
+          checkouts_reached: number
           conversion_rate_shopify: number
           days_with_sessions: number
+          funnel_data_since: string
           online_store_visitors: number
+          purchases: number
           sessions: number
         }[]
       }
@@ -16809,6 +16842,7 @@ export type Database = {
               cogs: number
               gross_margin: number
               items_with_cost: number
+              items_with_estimated_cost: number
               items_without_cost: number
               margin_pct: number
               revenue: number

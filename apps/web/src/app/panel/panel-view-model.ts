@@ -191,8 +191,11 @@ export type PanelFunnel = {
   has_sessions: boolean;
   sessions: number;
   orders_count: number;
-  checkouts_started: number;
-  has_checkout_data: boolean;
+  cart_additions: number;
+  checkouts_reached: number;
+  /** Visitas que compraron. NO es `orders_count`: los pedidos incluyen otros canales. */
+  purchases: number;
+  has_funnel_steps: boolean;
 };
 
 export type FunnelStep = {
@@ -212,8 +215,14 @@ export type FunnelStep = {
  * cero diria que nadie inicio el pago, cuando lo que pasa es que no lo
  * medimos en ese periodo.
  *
- * Falta "anadir al carrito": necesita una metrica de ShopifyQL que no esta
- * verificada contra la API real (ver docs/PLAN_PANEL_MANAGER.md, F5).
+ * UNA SOLA UNIDAD EN TODA LA COLUMNA: visitas a la tienda online. Por eso el
+ * ultimo paso es "Compro" (visitas que compraron) y no "Pedidos": los pedidos
+ * cuentan tambien los otros canales, y un paso medido en pedidos detras de uno
+ * medido en visitas puede dar mas del 100 % del anterior sin que nadie se haya
+ * equivocado. Los pedidos del periodo estan en su propia tarjeta.
+ *
+ * Sin los pasos intermedios queda la vista corta —sesiones y pedidos—, que es
+ * lo unico que se puede afirmar entonces.
  */
 export function funnelSteps(funnel: PanelFunnel | null): FunnelStep[] {
   if (!funnel || !funnel.has_sessions) return [];
@@ -222,11 +231,15 @@ export function funnelSteps(funnel: PanelFunnel | null): FunnelStep[] {
     { paso: "Sesiones", valor: funnel.sessions },
   ];
 
-  if (funnel.has_checkout_data) {
-    steps.push({ paso: "Pago iniciado", valor: funnel.checkouts_started });
+  if (funnel.has_funnel_steps) {
+    steps.push(
+      { paso: "Añadió al carrito", valor: funnel.cart_additions },
+      { paso: "Llegó al pago", valor: funnel.checkouts_reached },
+      { paso: "Compró", valor: funnel.purchases },
+    );
+  } else {
+    steps.push({ paso: "Pedidos", valor: funnel.orders_count });
   }
-
-  steps.push({ paso: "Compras", valor: funnel.orders_count });
 
   const total = funnel.sessions;
 
@@ -242,4 +255,101 @@ export function funnelSteps(funnel: PanelFunnel | null): FunnelStep[] {
       pct_del_total: total > 0 ? (step.valor / total) * 100 : null,
     };
   });
+}
+
+export type Opportunity = {
+  palanca: string;
+  /** Euros de BENEFICIO extra al mes. Todos los escenarios en la misma unidad. */
+  eur_mes: number;
+  /** La cuenta, en palabras, para poder discutirla con el cliente. */
+  regla: string;
+};
+
+/** Dias de un mes medio: el mismo divisor que usa el prorrateo de gastos fijos. */
+const DIAS_MES = 30.44;
+
+/**
+ * "Dinero sobre la mesa": lo que ganarias si cada metrica llegara al objetivo
+ * que TU le has puesto.
+ *
+ * Tres reglas para que esto sea una herramienta y no un powerpoint:
+ *
+ *  1. **Solo con objetivo puesto.** Sin objetivo no hay escenario. No se
+ *     inventan "medias del sector": el numero tiene que poder defenderse
+ *     delante del cliente, y para eso alguien ha tenido que decidirlo.
+ *  2. **Todo en euros de beneficio al mes.** Mezclar euros de facturacion con
+ *     euros de beneficio en la misma lista es como se construye una cifra
+ *     bonita que no significa nada.
+ *  3. **Solo si vas por debajo.** Una metrica que ya cumple no tiene dinero
+ *     encima de la mesa; sale de la lista en vez de restar.
+ *
+ * El ticket medio se queda fuera a proposito: subirlo da mas facturacion, pero
+ * cuanto de eso es beneficio depende de si sube por precio (casi todo) o por
+ * unidades (casi nada, porque el producto cuesta). Sin saber cual, el numero
+ * seria inventado.
+ */
+export function opportunities(
+  financial: PanelFinancial,
+  funnel: PanelFunnel | null,
+  targets: Record<string, number>,
+  periodDays: number,
+): Opportunity[] {
+  const found: Opportunity[] = [];
+  const aMes = (valorDelPeriodo: number) =>
+    periodDays > 0 ? (valorDelPeriodo * DIAS_MES) / periodDays : 0;
+
+  // Margen: misma facturacion, mejor margen. La cuenta mas directa que hay.
+  const margenObjetivo = targets.net_margin_pct;
+  if (margenObjetivo !== undefined && financial.net_margin_pct < margenObjetivo) {
+    const puntos = margenObjetivo - financial.net_margin_pct;
+    found.push({
+      palanca: "Margen neto al objetivo",
+      eur_mes: aMes((financial.net_revenue_ex_tax * puntos) / 100),
+      regla: `${puntos.toFixed(2)} puntos de margen sobre la facturación actual`,
+    });
+  }
+
+  // Conversion: mismas visitas, mas pedidos, cada uno dejando lo que deja hoy.
+  const conversionObjetivo = targets.conversion_rate;
+  const conversionActual =
+    funnel && funnel.has_sessions && funnel.sessions > 0
+      ? (funnel.orders_count / funnel.sessions) * 100
+      : null;
+  if (
+    conversionObjetivo !== undefined &&
+    conversionActual !== null &&
+    conversionActual < conversionObjetivo &&
+    financial.contribution_per_order > 0
+  ) {
+    const pedidosExtra =
+      (funnel!.sessions * (conversionObjetivo - conversionActual)) / 100;
+    found.push({
+      palanca: "Conversión al objetivo",
+      eur_mes: aMes(pedidosExtra * financial.contribution_per_order),
+      regla: `${pedidosExtra.toFixed(0)} pedidos más con el mismo tráfico, a ${financial.contribution_per_order.toFixed(2)} € de margen cada uno`,
+    });
+  }
+
+  // CAC: mismos clientes, pagando menos por cada uno. Lo que te ahorras es
+  // beneficio directo.
+  const cacObjetivo = targets.cac_blended;
+  if (
+    cacObjetivo !== undefined &&
+    financial.cac_blended !== null &&
+    financial.cac_blended > cacObjetivo &&
+    financial.new_customers > 0
+  ) {
+    const ahorroPorCliente = financial.cac_blended - cacObjetivo;
+    found.push({
+      palanca: "CAC al objetivo",
+      eur_mes: aMes(financial.new_customers * ahorroPorCliente),
+      regla: `${ahorroPorCliente.toFixed(2)} € menos por cada uno de los ${financial.new_customers} clientes nuevos`,
+    });
+  }
+
+  return found.sort((a, b) => b.eur_mes - a.eur_mes);
+}
+
+export function opportunitiesTotal(found: Opportunity[]): number {
+  return found.reduce((total, item) => total + item.eur_mes, 0);
 }

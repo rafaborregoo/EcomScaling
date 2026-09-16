@@ -135,13 +135,19 @@ llamarlas: los `grant` y la cadena de RLS a través del `lateral` funcionan fuer
 
 ---
 
-## F3b · Que los datos se puedan meter  ✅ 4 de 5 hechos
+## F3b · Que los datos se puedan meter  ✅ HECHO
 
 **Hecho**: el puente de costes (migración `20261004090000`, ya en producción), la carga masiva de
 costes, los objetivos editables en `/configuracion` (API + pantalla) y la retirada del campo País.
 
-**Pendiente**: solo limpiar `vat_pct`, que sobra desde F1 pero cuesta tocar modelo y pantalla para
-un beneficio nulo.
+**`vat_pct` se queda** (decisión de Rafa, 2026-09-16). Sobra para el beneficio —el impuesto real
+viene en cada pedido desde F1— pero borrarlo cuesta una migración destructiva, tocar la vista del
+gateway SQL de la IA (`20260718100000_db_08b_ai_sql_gateway.sql`), `ai-runtime.ts` y regenerar
+tipos, a cambio de nada que el usuario vea. El riesgo que preocupaba —que alguien lo "arreglara"
+aplicando el IVA dos veces— ya lo cubre un test: `db-03-financial-engine-golden.test.ts`, "el IVA
+sale del pedido, no de `vat_pct`", con la columna sembrada al 21 % a propósito. Un test que falla
+protege mejor que una columna que no está, y no rompe a quien lea esa tabla. Fuera de pantalla
+sigue: `/configuracion` no lo edita.
 
 ### Carga masiva de costes
 
@@ -208,7 +214,8 @@ Lo que falta:
    dejó de pedir a propósito). O se quita el campo, o se decide volver a solicitar ese acceso. Hoy
    la pantalla promete algo que el motor no puede cumplir.
 5. **`vat_pct` sobra.** Se carga en `/configuracion` pero no se edita, y tras F1 el IVA sale del
-   propio pedido. Retirarlo del modelo evita que alguien lo "arregle" aplicándolo dos veces.
+   propio pedido. ~~Retirarlo del modelo~~ → cerrado el 2026-09-16: se queda, el doble IVA lo
+   guarda un test. Ver F3b.
 
 ## F4 · El panel  ✅ HECHO
 
@@ -261,7 +268,7 @@ El embudo sigue en sesiones → pedidos (F5).
 
 ---
 
-## F5 · Embudo  ✅ HECHO (3 de los 4 pasos) · en producción
+## F5 · Embudo  ✅ HECHO · en producción
 
 Migración `20261010090000_embudo_paso_de_pago_iniciado.sql`.
 
@@ -269,56 +276,130 @@ Migración `20261010090000_embudo_paso_de_pago_iniciado.sql`.
 tuviera sin modelar. Comprobado en producción: `{"day", "sessions", "online_store_visitors"}` y
 nada más, porque es exactamente lo que pide la consulta.
 
-**El paso llegó por otro lado, y con dato propio.** `shopify_abandoned_checkouts` tiene 34 filas
-y **cero** con `completed_at`: Shopify solo lista los checkouts sin terminar. Por tanto
-`pagos iniciados = checkouts abandonados + pedidos`, sin doble conteo, sin depender del proveedor
-y sin volver a escanear `shopify_order_facts` (la función solo lee la tabla de checkouts, que son
-decenas de filas).
+**Primer intento, con dato propio (20261010090000).** `shopify_abandoned_checkouts` no lista ni un
+checkout con `completed_at`: Shopify solo guarda los que se quedaron sin terminar. De ahí
+`pagos iniciados = checkouts abandonados + pedidos`, sin doble conteo. Servía, pero mezclaba dos
+unidades en la misma columna de porcentajes. **Superado por 20261015090000**, abajo.
 
-**No saber no es cero.** El sync de checkouts empezó el 2026-07-16. En un periodo anterior, pintar
-0 diría que todos los pedidos entraron sin pasar por el pago. Por eso la función devuelve
-`checkout_data_since`, la API compara con el inicio del periodo, y si no está cubierto el paso
-**se omite** del embudo en vez de mostrarse a cero.
+**Segundo, "añadir al carrito" (20261014090000).** Aquí se acabó el bloqueo: no hizo falta sondear
+la API porque la referencia del schema `sessions` publica los identificadores exactos, y ninguno de
+los que iba a probar a ojo (`cart_sessions`, `view_sessions`…) era el bueno.
 
-**Lo que falta: "añadir al carrito".** Necesita una métrica del schema `sessions` de ShopifyQL
-cuyo nombre exacto no he podido verificar contra la API real — la tienda de dev necesita
-reautorización y la otra usa una app personalizada cuyos secretos solo están en el VPS. Meter un
-nombre de columna a ojo es como se rompen los sync en silencio, así que se queda fuera. Para
-cerrarlo: reautorizar `ecomscaling-dev.myshopify.com` y sondear los nombres candidatos
-(`cart_sessions`, `checkout_sessions`, `converted_sessions`, `view_sessions`).
+**Y la costura se cerró el mismo día.** Migración `20261015090000_embudo_de_una_sola_fuente.sql`,
+en test y en producción. El esquema `sessions` publica los cuatro pasos en la misma unidad —visitas
+a la tienda online—, así que el embudo entero pasa a salir de ahí:
+
+| Paso | Métrica |
+| --- | --- |
+| Sesiones | `sessions` |
+| Añadió al carrito | `sessions_with_cart_additions` |
+| Llegó al pago | `sessions_that_reached_checkout` |
+| Compró | `sessions_that_completed_checkout` |
+
+**El apaño de los checkouts abandonados queda jubilado dentro del embudo.** El bloque de sync y la
+tabla siguen (son su propia función); lo que se retira es su uso como paso, que nunca fue su
+trabajo. `shopify_funnel_summary` ya solo lee `shopify_sessions_daily`.
+
+**«Compró» no son los pedidos**, y por eso se llama así. Los pedidos incluyen los demás canales:
+un paso medido en pedidos detrás de uno medido en visitas puede dar más del 100 % del anterior sin
+que nadie se haya equivocado. Los pedidos del periodo tienen su propia tarjeta.
+
+**Las tres métricas viajan juntas o no viajan.** Una sola consulta, y `funnel_data_since` exige las
+tres no nulas: medio embudo es peor que ninguno, porque la caída sale donde no está. Sin ellas
+queda la vista corta, sesiones y pedidos, que es lo único afirmable entonces.
+
+**Backfill**: un sync completo de la tienda trae 365 días de golpe. Hasta entonces el panel explica
+por qué faltan los pasos en vez de pintarlos a cero.
 
 Pantalla: tarjeta de embudo en `/panel`, barras horizontales con la caída respecto al paso
-anterior. 14 tests en el view-model, tres de ellos del embudo.
+anterior. 17 tests en el view-model, cinco de ellos del embudo, más cuatro en la API para la regla de null-vs-cero.
 
-**Cautela sobre el dato**: en la tienda de pruebas salen 34 checkouts abandonados frente a 453
-pedidos (93 % de finalización), que para una tienda real sería implausible. O son pedidos
-sembrados, o la cobertura del sync de checkouts es parcial. Conviene mirarlo en una tienda real
-antes de sacarle conclusiones al embudo.
-
----
-
-## F6 · YoY
-
-Hoy solo se compara con el periodo anterior del mismo largo. Añadir la ventana del año anterior
-como tercera comparación (`previous_year`), reusando el mismo camino que ya existe para
-`previous_period`.
+**La cautela sobre el 93 % de finalización queda resuelta de raíz**: ese número salía de dividir
+pedidos entre checkouts abandonados + pedidos, o sea de mezclar dos fuentes. Ahora el paso lo da
+Shopify con la misma unidad que el resto.
 
 ---
 
-## F7 · Dinero sobre la mesa
+## F6 · YoY  ✅ HECHO
 
-Escenarios cuantificados: "precio/mezcla al 60-70 % de margen → +1.082 €/mes", "email al 40 % →
-+640 €/mes".
+Sin migración: dos RPC más (ventas y financiero) sobre la misma ventana desplazada un año, no
+fatales como el resto de añadidos.
 
-Esto **no es un dato, es un motor de oportunidad**: cada escenario es una regla explícita
-(métrica actual + objetivo de `organization_metric_targets` + volumen del periodo) que se
-documenta y se puede auditar. Nada de números redondos que salen de ningún sitio.
+**Va junto al delta del periodo anterior, no en su lugar.** Responden preguntas distintas: en una
+tienda con temporada, "agosto contra julio" puede caer y ser una temporada excelente, y "agosto
+contra el agosto pasado" es el único que lo dice. Las cuatro tarjetas principales llevan las dos
+insignias.
 
-Va al final a propósito: depende de F1 (el margen real) y de F3 (los objetivos).
+**El desplazamiento es por calendario, no restando 365 días.** Con la resta fija, un año bisiesto
+de por medio corre la ventana un día y el "mismo periodo" deja de serlo. Y el 29 de febrero se
+lleva al 28, porque `setUTCFullYear` por sí solo lo desbordaría al 1 de marzo, que ya es otro
+mes. Cuatro tests lo fijan.
+
+**Sin año pasado no se enseña nada.** Si en esa ventana no hubo pedidos, la comparación sería
+"+∞ % contra cero", que no informa: el bloque viaja como `null` y la insignia no aparece.
+
+### La preocupación de rendimiento, medida
+
+Llevaba tres fases avisando de que `shopify_financial_summary` recorre el histórico completo para
+contar clientes nuevos, y que el panel la llama muchas veces. Medido en producción (789 pedidos):
+
+| Llamada | Tiempo |
+| --- | --- |
+| Financiero, periodo actual (en frío) | 293 ms |
+| Financiero, periodo anterior | 48 ms |
+| Financiero, año anterior | 57 ms |
+| Serie mensual (12 periodos por dentro) | 201 ms |
+| Embudo | 93 ms |
+
+Van en paralelo, así que el techo es la más lenta: ~300 ms contra un `statement_timeout` de 8 s.
+A esta escala no es un problema. El plan si algún día lo fuera sigue siendo el mismo: materializar
+el primer pedido por cliente, no duplicar la fórmula.
 
 ---
 
-## F8 · Google Ads
+## F7 · Dinero sobre la mesa  ✅ HECHO
+
+Sin migración ni API: todo se deriva de lo que el panel ya recibe. Tarjeta nueva en `/panel`.
+
+Es la cifra que un consultor le va a decir a un cliente en voz alta, así que se construye con
+tres reglas duras:
+
+1. **Solo con objetivo puesto.** Sin objetivo no hay escenario. No se inventan "medias del
+   sector": el número tiene que poder defenderse delante del cliente, y para eso alguien ha
+   tenido que decidirlo. Sin objetivos, la tarjeta manda a `/configuracion` en vez de rellenar.
+2. **Todo en euros de beneficio al mes.** Mezclar euros de facturación con euros de beneficio en
+   la misma lista es como se construye una cifra bonita que no significa nada. El periodo se
+   normaliza a un mes medio de 30,44 días — el mismo divisor que el prorrateo de gastos fijos —
+   así que mirar 90 días no triplica la oportunidad.
+3. **Solo si vas por debajo.** Una métrica que ya cumple sale de la lista en vez de restar.
+
+Cada escenario lleva su cuenta en palabras ("100 pedidos más con el mismo tráfico, a 20 € de
+margen cada uno") para poder discutirla.
+
+### Las tres palancas
+
+| Palanca | Cuenta |
+| --- | --- |
+| Margen neto al objetivo | puntos que faltan × facturación sin IVA |
+| Conversión al objetivo | pedidos extra con el mismo tráfico × contribución por pedido |
+| CAC al objetivo | ahorro por cliente × clientes nuevos |
+
+**El ticket medio se queda fuera a propósito.** Subirlo da más facturación, pero cuánto de eso es
+beneficio depende de si sube por precio (casi todo) o por unidades (casi nada, porque el producto
+cuesta). Sin saber cuál, el número sería inventado. El "email al 40 %" de la captura tampoco
+entra: la atribución de Klaviyo no viaja en este payload y por ADR-0021 no se suma a nada.
+
+**La tarjeta desaparece si el COGS es cero.** Un "dinero sobre la mesa" calculado sobre un margen
+ficticio es exactamente la cifra que no puede salir de aquí.
+
+Once tests nuevos en el view-model (22 en total).
+
+---
+
+## F8 · Google Ads  ⏸ APARCADO
+
+**Aparcado por decisión de Rafa (2026-09-16): no se despliega ahora, se hará más adelante.** Lo de
+abajo queda como el estudio hecho, no como trabajo en curso.
 
 **Sí es posible.** La API existe, es estable y da lo que necesitamos (gasto, conversiones, coste
 por conversión por campaña/día). El trabajo técnico es el de siempre; lo que manda el calendario
@@ -341,8 +422,9 @@ Encaje: `ads_spend_summary` de F1.3 ya suma por plataforma. Cuando Google entre,
 total y el CAC blended se corrigen solos sin tocar el panel. La atribución de Google **no se
 suma** a la de Meta (ADR-0021): cada cifra con su ventana y su fuente.
 
-**Bloqueador externo, no técnico.** Va a `BLOQUEADORES_EXTERNOS_Y_ACTIVACION.md`: el paso 1 se
-puede lanzar hoy y correr en paralelo a F1-F7.
+**Bloqueador externo, no técnico.** Va a `BLOQUEADORES_EXTERNOS_Y_ACTIVACION.md`. El paso 1 (el
+developer token) es el que tarda semanas y no depende de nosotros: se puede pedir cualquier día,
+también ahora que F8 está aparcada, para que el reloj corra mientras tanto.
 
 ---
 

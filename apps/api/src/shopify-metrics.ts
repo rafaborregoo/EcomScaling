@@ -103,8 +103,8 @@ type ShopifyMetricsData = {
   }>;
   // Objetivos vigentes por metrica (`organization_metric_targets`). Sin ellos
   // una cifra no puede decir si va bien o mal, que es la mitad de su utilidad.
-  // Se leen aqui y no desde /financial-config porque ese endpoint es solo para
-  // owner/manager/consultor y el panel tambien lo ve el cliente.
+  // Viajan con las metricas y no se piden a /financial-config: una llamada en
+  // vez de dos, y sin depender de un endpoint restringido a owner/manager.
   metric_targets: Array<{
     metric_key: string;
     target_value: number;
@@ -114,6 +114,17 @@ type ShopifyMetricsData = {
     period: { start: string; end: string };
     sales: ShopifyMetricsData["sales"];
     financial: { net_profit: number; net_margin_pct: number };
+  } | null;
+  // La misma ventana del ano anterior. Responde una pregunta distinta a
+  // `previous_period`: en un negocio con temporada, agosto contra julio dice
+  // poco y agosto contra el agosto pasado lo dice todo. `null` con "Todo"
+  // (no hay ventana que desplazar) o si la consulta falla.
+  previous_year: {
+    period: { start: string; end: string };
+    orders_count: number;
+    net_revenue_ex_tax: number;
+    net_profit: number;
+    aov_ex_tax: number;
   } | null;
   // Serie diaria para los sparklines de las tarjetas KPI. Vacia cuando se pide
   // "Todo" (no hay ventana acotada) o si el bloque falla (no es fatal).
@@ -131,13 +142,20 @@ type ShopifyMetricsData = {
     conversion_rate_own: number | null;
     revenue_per_session: number | null;
     days_with_sessions: number;
-    // Paso "pago iniciado" del embudo. `has_checkout_data` en false = no lo
-    // sabemos (la sincronizacion de checkouts empezo despues del periodo que
-    // se esta mirando), que no es lo mismo que "nadie inicio el pago".
-    checkouts_started: number;
-    has_checkout_data: boolean;
+    // Pasos intermedios del embudo, los tres de ShopifyQL y en la misma unidad
+    // que `sessions`: visitas a la tienda online. `purchases` NO es
+    // `orders_count` -- los pedidos incluyen otros canales.
+    //
+    // `has_funnel_steps` en false = no lo sabemos (esas metricas empezaron a
+    // pedirse despues del periodo que se esta mirando), que no es lo mismo que
+    // "nadie llego ahi". La pantalla omite los pasos en vez de pintar ceros.
+    cart_additions: number;
+    checkouts_reached: number;
+    purchases: number;
+    has_funnel_steps: boolean;
+    cart_rate: number | null;
     checkout_rate: number | null;
-    checkout_to_order_rate: number | null;
+    checkout_to_purchase_rate: number | null;
   } | null;
   funnel_daily: Array<{
     date: string;
@@ -159,6 +177,28 @@ function parsePeriodDays(daysInput: string | undefined): number | "all" {
   }
 
   return Math.min(MAX_PERIOD_DAYS, Math.max(MIN_PERIOD_DAYS, Math.floor(parsed)));
+}
+
+/**
+ * La misma fecha del ano anterior.
+ *
+ * Se desplaza por CALENDARIO y no restando 365 dias, porque lo que compara un
+ * consultor es agosto contra agosto: con la resta fija, un ano bisiesto de por
+ * medio corre la ventana un dia y el "mismo periodo" deja de serlo.
+ *
+ * El 29 de febrero se lleva al 28: `setUTCFullYear` por si solo lo desbordaria
+ * al 1 de marzo, que ya es otro mes.
+ */
+export function shiftOneYearBack(date: Date): Date {
+  const shifted = new Date(date.getTime());
+  const day = shifted.getUTCDate();
+
+  if (shifted.getUTCMonth() === 1 && day === 29) {
+    shifted.setUTCDate(28);
+  }
+
+  shifted.setUTCFullYear(shifted.getUTCFullYear() - 1);
+  return shifted;
 }
 
 export type MetricTargetRow = {
@@ -275,6 +315,7 @@ function emptyMetricsData(
     financial_monthly: [],
     metric_targets: [],
     previous_period: null,
+    previous_year: null,
     daily: [],
     funnel: null,
     funnel_daily: [],
@@ -351,6 +392,13 @@ export async function getShopifyMetrics(
       ? null
       : new Date(periodStart.getTime() - periodDays * 24 * 60 * 60 * 1000);
 
+  // F6: la misma ventana, un ano antes. Es otra comparacion, no un sustituto
+  // del periodo anterior: "agosto contra julio" y "agosto contra el agosto
+  // pasado" responden preguntas distintas, y en un negocio con temporada la
+  // segunda es la unica que no enganya.
+  const yearAgoStart = periodStart ? shiftOneYearBack(periodStart) : null;
+  const yearAgoEnd = periodStart ? shiftOneYearBack(periodEnd) : null;
+
   const token = authorization.slice("Bearer ".length);
   const supabase = createUserScopedClient(env, token);
 
@@ -384,6 +432,8 @@ export async function getShopifyMetrics(
       funnelDailyResult,
       monthlyResult,
       targetsResult,
+      yearAgoSalesResult,
+      yearAgoFinancialResult,
     ] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
@@ -483,6 +533,22 @@ export async function getShopifyMetrics(
         .lte("valid_from", new Date().toISOString().slice(0, 10))
         .order("store_id", { ascending: false, nullsFirst: false })
         .order("valid_from", { ascending: false }),
+      yearAgoStart && yearAgoEnd
+        ? supabase.rpc("shopify_sales_summary", {
+            target_organization_id: organizationId,
+            period_start: yearAgoStart.toISOString(),
+            period_end: yearAgoEnd.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
+      yearAgoStart && yearAgoEnd
+        ? supabase.rpc("shopify_financial_summary", {
+            target_organization_id: organizationId,
+            period_start: yearAgoStart.toISOString(),
+            period_end: yearAgoEnd.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (salesResult.error) {
@@ -533,6 +599,14 @@ export async function getShopifyMetrics(
     }
     if (targetsResult.error) {
       logger.error("organization_metric_targets_failed", { organization_id: organizationId, error: targetsResult.error.message });
+    }
+    // Tampoco fatal: sin el ano anterior el panel pierde una comparacion, no
+    // una cifra.
+    if (yearAgoSalesResult.error) {
+      logger.error("shopify_sales_summary_year_ago_failed", { organization_id: organizationId, error: yearAgoSalesResult.error.message });
+    }
+    if (yearAgoFinancialResult.error) {
+      logger.error("shopify_financial_summary_year_ago_failed", { organization_id: organizationId, error: yearAgoFinancialResult.error.message });
     }
 
     type DailyRow = { bucket_date: string; net_sales: number; orders_count: number };
@@ -603,8 +677,10 @@ export async function getShopifyMetrics(
       online_store_visitors: number;
       conversion_rate_shopify: number | null;
       days_with_sessions: number;
-      abandoned_checkouts: number;
-      checkout_data_since: string | null;
+      cart_additions: number;
+      checkouts_reached: number;
+      purchases: number;
+      funnel_data_since: string | null;
     };
     const funnelRow = (!funnelResult.error
       ? (funnelResult.data?.[0] as FunnelRow | undefined)
@@ -612,32 +688,40 @@ export async function getShopifyMetrics(
     const funnelSessions = Number(funnelRow?.sessions) || 0;
     const funnelOrders = Number(sales.orders_count) || 0;
     const funnelNetSales = Number(sales.net_sales) || 0;
-    // Pagos iniciados = checkouts abandonados + pedidos. Shopify solo nos lista
-    // los checkouts que se quedaron sin terminar (comprobado en produccion: 0
-    // filas con completed_at), asi que no hay doble conteo con los pedidos.
-    const abandonedCheckouts = Number(funnelRow?.abandoned_checkouts) || 0;
-    const checkoutsStarted = abandonedCheckouts + funnelOrders;
-    // El paso solo vale si TODO el periodo esta cubierto por el sync de
-    // checkouts. Con "Todo" no se puede afirmar (el historico arranca en el
-    // primer pedido, muy anterior), asi que se declara desconocido.
-    const checkoutDataSince = funnelRow?.checkout_data_since ?? null;
-    const hasCheckoutData =
-      checkoutDataSince !== null &&
+    // Los tres pasos intermedios, todos de ShopifyQL y en visitas. Antes el de
+    // "pago iniciado" se componia sumando checkouts abandonados a los pedidos:
+    // servia, pero mezclaba dos unidades en la misma columna de porcentajes.
+    const cartAdditions = Number(funnelRow?.cart_additions) || 0;
+    const checkoutsReached = Number(funnelRow?.checkouts_reached) || 0;
+    const funnelPurchases = Number(funnelRow?.purchases) || 0;
+    // Los pasos solo valen si TODO el periodo esta cubierto: esas metricas
+    // empezaron a pedirse el 2026-09-16, y antes las filas tienen null, no
+    // cero. Con "Todo" no se puede afirmar, asi que se declaran desconocidos en
+    // vez de pintar una caida enorme que solo existe porque no preguntamos.
+    const funnelDataSince = funnelRow?.funnel_data_since ?? null;
+    const hasFunnelSteps =
+      funnelDataSince !== null &&
       periodStart !== null &&
-      checkoutDataSince <= periodStart.toISOString().slice(0, 10);
+      funnelDataSince <= periodStart.toISOString().slice(0, 10);
 
     const funnel = funnelRow
       ? {
           has_sessions: Number(funnelRow.days_with_sessions) > 0,
-          checkouts_started: checkoutsStarted,
-          has_checkout_data: hasCheckoutData,
-          checkout_rate:
-            hasCheckoutData && funnelSessions > 0
-              ? checkoutsStarted / funnelSessions
+          cart_additions: cartAdditions,
+          checkouts_reached: checkoutsReached,
+          purchases: funnelPurchases,
+          has_funnel_steps: hasFunnelSteps,
+          cart_rate:
+            hasFunnelSteps && funnelSessions > 0
+              ? cartAdditions / funnelSessions
               : null,
-          checkout_to_order_rate:
-            hasCheckoutData && checkoutsStarted > 0
-              ? funnelOrders / checkoutsStarted
+          checkout_rate:
+            hasFunnelSteps && funnelSessions > 0
+              ? checkoutsReached / funnelSessions
+              : null,
+          checkout_to_purchase_rate:
+            hasFunnelSteps && checkoutsReached > 0
+              ? funnelPurchases / checkoutsReached
               : null,
           sessions: funnelSessions,
           online_store_visitors: Number(funnelRow.online_store_visitors) || 0,
@@ -697,6 +781,34 @@ export async function getShopifyMetrics(
           }))
         : [];
 
+    // El ano anterior solo cuenta si la consulta salio bien Y hay algo que
+    // comparar: una tienda que abrio hace seis meses tendria un "vs ano
+    // anterior" de +infinito contra cero, que no informa de nada.
+    const yearAgoFinancial =
+      !yearAgoFinancialResult.error && yearAgoStart && yearAgoEnd
+        ? (yearAgoFinancialResult.data?.[0] as
+            | { net_revenue_ex_tax: number; net_profit: number; aov_ex_tax: number }
+            | undefined)
+        : undefined;
+    const yearAgoSales =
+      !yearAgoSalesResult.error && yearAgoStart
+        ? (yearAgoSalesResult.data?.[0] as { orders_count: number } | undefined)
+        : undefined;
+
+    const previousYear =
+      yearAgoStart && yearAgoEnd && yearAgoFinancial && Number(yearAgoSales?.orders_count) > 0
+        ? {
+            period: {
+              start: yearAgoStart.toISOString(),
+              end: yearAgoEnd.toISOString(),
+            },
+            orders_count: Number(yearAgoSales?.orders_count) || 0,
+            net_revenue_ex_tax: Number(yearAgoFinancial.net_revenue_ex_tax) || 0,
+            net_profit: Number(yearAgoFinancial.net_profit) || 0,
+            aov_ex_tax: Number(yearAgoFinancial.aov_ex_tax) || 0,
+          }
+        : null;
+
     const metricTargets = selectCurrentTargets(
       !targetsResult.error && Array.isArray(targetsResult.data)
         ? (targetsResult.data as MetricTargetRow[])
@@ -723,6 +835,7 @@ export async function getShopifyMetrics(
       financial_monthly: financialMonthly,
       metric_targets: metricTargets,
       previous_period: previousPeriod,
+      previous_year: previousYear,
       daily,
       funnel,
       funnel_daily: funnelDaily,

@@ -32,6 +32,40 @@ const FULL_IMPORT_DAYS = 365;
 // in-place corrige el dato ya guardado.
 const INCREMENTAL_MIN_DAYS = 7;
 
+// Las dos métricas con las que nació el bloque. Si una de estas falla, el
+// bloque falla: sin sesiones no hay nada que guardar.
+const BASE_METRICS = ["sessions", "online_store_visitors"];
+// Los tres pasos intermedios del embudo, en la misma unidad que `sessions`:
+// visitas a la tienda online. Van en la MISMA consulta —misma fila, misma
+// fecha, mismo denominador— pero son opcionales: si la tienda o la versión de
+// la API las rechaza, se reintenta sin ellas. El embudo se queda corto; lo que
+// no puede pasar es que el bloque entero deje de traer sesiones por ellas.
+const FUNNEL_METRICS = [
+  "sessions_with_cart_additions",
+  "sessions_that_reached_checkout",
+  "sessions_that_completed_checkout",
+] as const;
+
+/** ¿Vinieron las métricas del embudo en la respuesta? Se pregunta por las
+ * columnas devueltas, no por si hubo reintento: lo que decide si hay dato es lo
+ * que Shopify manda, no lo que nosotros pedimos. */
+export function hasFunnelMetrics(
+  columns: Array<{ name?: string | null }>,
+): boolean {
+  const names = new Set(columns.map((column) => column?.name));
+  return FUNNEL_METRICS.every((metric) => names.has(metric));
+}
+
+/** `null` = ese día no pedimos la métrica. `0` = ese día nadie llegó a ese
+ * paso. Confundirlos pinta un embudo que dice que la tienda no funciona. */
+export function funnelMetric(
+  record: Record<string, unknown>,
+  metric: (typeof FUNNEL_METRICS)[number],
+  available: boolean,
+): number | null {
+  return available ? Math.round(toNumber(record[metric])) : null;
+}
+
 type ShopifyqlResponse = {
   shopifyqlQuery?: {
     tableData?: {
@@ -202,13 +236,26 @@ export async function syncShopifySessions(
     : FULL_IMPORT_DAYS;
   const since = `-${days}d`;
 
-  let sessionsResult;
-  try {
-    sessionsResult = await runShopifyql(
+  const warnings: string[] = [];
+  const runSessionsQuery = (metrics: string[]) =>
+    runShopifyql(
       shopDomain,
       accessToken,
-      `FROM sessions SHOW sessions, online_store_visitors TIMESERIES day SINCE ${since} UNTIL today`,
+      `FROM sessions SHOW ${metrics.join(", ")} TIMESERIES day SINCE ${since} UNTIL today`,
     );
+
+  let sessionsResult;
+  try {
+    sessionsResult = await runSessionsQuery([
+      ...BASE_METRICS,
+      ...FUNNEL_METRICS,
+    ]);
+    if (sessionsResult.parseErrors.length) {
+      warnings.push(
+        `pasos del embudo no disponibles: ${sessionsResult.parseErrors.join(" | ")}`,
+      );
+      sessionsResult = await runSessionsQuery(BASE_METRICS);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isAccessDenied(message)) {
@@ -221,6 +268,11 @@ export async function syncShopifySessions(
     throw new Error(
       `shopifyql_sessions_parse_error: ${sessionsResult.parseErrors.join(" | ")}`,
     );
+  }
+
+  const hasFunnel = hasFunnelMetrics(sessionsResult.columns);
+  if (!hasFunnel && !warnings.length) {
+    warnings.push("los pasos del embudo no venían en las columnas devueltas");
   }
 
   const dateKey = findDateKey(sessionsResult.columns);
@@ -250,7 +302,6 @@ export async function syncShopifySessions(
   // ordenable por tiempo, así que puede fallar con TIMESERIES. Es opcional: si
   // falla, la conversión propia (pedidos/sesiones) se calcula en SQL igual.
   const conversionByDate = new Map<string, number>();
-  let warning: string | null = null;
   try {
     const conversionResult = await runShopifyql(
       shopDomain,
@@ -258,7 +309,9 @@ export async function syncShopifySessions(
       `FROM sessions SHOW conversion_rate TIMESERIES day SINCE ${since} UNTIL today`,
     );
     if (conversionResult.parseErrors.length) {
-      warning = `conversion_rate no disponible: ${conversionResult.parseErrors.join(" | ")}`;
+      warnings.push(
+        `conversion_rate no disponible: ${conversionResult.parseErrors.join(" | ")}`,
+      );
     } else {
       const conversionDateKey =
         findDateKey(conversionResult.columns) ?? dateKey;
@@ -269,13 +322,19 @@ export async function syncShopifySessions(
       }
     }
   } catch (error) {
-    warning = `conversion_rate no disponible: ${
-      error instanceof Error ? error.message : String(error)
-    }`;
+    warnings.push(
+      `conversion_rate no disponible: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 
+  // Un solo aviso con todo lo que no vino: es lo que acaba en
+  // integration_sync_runs y lo que se lee cuando alguien pregunta por qué al
+  // embudo le falta un paso.
+  const warning = warnings.length ? warnings.join(" | ") : null;
   if (warning) {
-    logger.info("ShopifyQL conversion_rate no disponible", {
+    logger.info("ShopifyQL: métricas opcionales no disponibles", {
       connection_id: options.connectionId,
       shop_domain: shopDomain,
       detail: warning,
@@ -295,6 +354,21 @@ export async function syncShopifySessions(
           toNumber(record["online_store_visitors"]),
         ),
         conversion_rate: conversionByDate.get(bucketDate) ?? null,
+        sessions_with_cart_additions: funnelMetric(
+          record,
+          "sessions_with_cart_additions",
+          hasFunnel,
+        ),
+        sessions_that_reached_checkout: funnelMetric(
+          record,
+          "sessions_that_reached_checkout",
+          hasFunnel,
+        ),
+        sessions_that_completed_checkout: funnelMetric(
+          record,
+          "sessions_that_completed_checkout",
+          hasFunnel,
+        ),
         raw: record,
       };
     })

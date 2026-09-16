@@ -75,6 +75,18 @@ const apiEnvSchema = z.object({
   // de prueba aprobada. Nunca se expone al frontend.
   FATHOM_API_KEY: z.string().min(1).optional(),
   FATHOM_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Whop: la pasarela de cobro de la plataforma. Las dos variables son
+  // independientes -- solo con el secreto ya se reciben altas y bajas de plan;
+  // la API key hace falta ademas para abrir un checkout desde la app. Sin
+  // ninguna, la plataforma funciona igual y los planes se tocan a mano.
+  WHOP_API_KEY: z.string().min(1).optional(),
+  WHOP_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Whop versiona por fecha. Sin esto se usa la version por defecto de la key;
+  // fijarla es lo que evita que un cambio suyo mueva el payload bajo los pies.
+  WHOP_API_VERSION_DATE: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   // Allowlist opcional de providers implementados, separado por comas.
   // Ejemplo: INTEGRATION_FEATURE_FLAGS=shopify,meta_ads
   INTEGRATION_FEATURE_FLAGS: z.string().min(1).optional(),
@@ -181,6 +193,9 @@ export type LoadedApiEnv = {
   KLAVIYO_SCOPES?: string;
   FATHOM_API_KEY?: string;
   FATHOM_WEBHOOK_SECRET?: string;
+  WHOP_API_KEY?: string;
+  WHOP_WEBHOOK_SECRET?: string;
+  WHOP_API_VERSION_DATE?: string;
   INTEGRATION_FEATURE_FLAGS?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
@@ -405,6 +420,13 @@ export function loadApiEnv(
     ...(env.FATHOM_API_KEY ? { FATHOM_API_KEY: env.FATHOM_API_KEY } : {}),
     ...(env.FATHOM_WEBHOOK_SECRET
       ? { FATHOM_WEBHOOK_SECRET: env.FATHOM_WEBHOOK_SECRET }
+      : {}),
+    ...(env.WHOP_API_KEY ? { WHOP_API_KEY: env.WHOP_API_KEY } : {}),
+    ...(env.WHOP_WEBHOOK_SECRET
+      ? { WHOP_WEBHOOK_SECRET: env.WHOP_WEBHOOK_SECRET }
+      : {}),
+    ...(env.WHOP_API_VERSION_DATE
+      ? { WHOP_API_VERSION_DATE: env.WHOP_API_VERSION_DATE }
       : {}),
     ...(env.INTEGRATION_FEATURE_FLAGS
       ? { INTEGRATION_FEATURE_FLAGS: env.INTEGRATION_FEATURE_FLAGS }
