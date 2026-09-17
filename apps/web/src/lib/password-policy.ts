@@ -36,16 +36,32 @@ export function passwordConfirmationState(
   return password === confirmation ? "match" : "mismatch";
 }
 
-export function getPasswordErrorMessage(error: {
-  code?: string;
-  message?: string;
-} | null): string | null {
+export function getPasswordErrorMessage(
+  error: {
+    code?: string;
+    message?: string;
+    reasons?: readonly string[];
+  } | null,
+  password?: string,
+): string | null {
   if (!error) return null;
 
   const rawMessage = error.message ?? "";
-  if (
+  const isWeakPassword =
     error.code === "weak_password" ||
-    /password should contain|weak password/i.test(rawMessage)
+    /password should contain|weak password/i.test(rawMessage);
+  if (isWeakPassword && error.reasons?.includes("pwned")) {
+    return "Esta contraseña aparece en filtraciones conocidas. Elige una contraseña diferente.";
+  }
+  if (
+    isWeakPassword &&
+    password &&
+    isPasswordValid(password)
+  ) {
+    return "La contraseña cumple los requisitos visibles, pero la política de seguridad de Auth la ha rechazado. Elige otra contraseña diferente.";
+  }
+  if (
+    isWeakPassword
   ) {
     return "La contraseña debe tener al menos 8 caracteres e incluir una minúscula, una mayúscula, un número y un símbolo.";
   }

@@ -73,7 +73,7 @@ export default function NuevaContrasenaPage() {
         password,
       });
       if (updateError) {
-        setError(getPasswordErrorMessage(updateError));
+        setError(getPasswordErrorMessage(updateError, password));
         return;
       }
       router.replace("/dashboard");

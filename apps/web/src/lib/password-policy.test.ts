@@ -28,6 +28,20 @@ test("translates Supabase weak-password errors into a useful message", () => {
   );
 });
 
+test("explains the provider reason when a locally valid password is rejected", () => {
+  assert.equal(
+    getPasswordErrorMessage(
+      {
+        code: "weak_password",
+        message: "Password should contain at least one character of each: ...",
+        reasons: ["pwned"],
+      },
+      "Rb49832956!",
+    ),
+    "Esta contraseña aparece en filtraciones conocidas. Elige una contraseña diferente.",
+  );
+});
+
 test("validates the confirmation field explicitly", () => {
   assert.equal(passwordConfirmationState("EcomScaling-2026!", ""), "empty");
   assert.equal(

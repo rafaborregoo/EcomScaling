@@ -165,7 +165,7 @@ function PasswordStep({
     const { error: updateError } = await supabase.auth.updateUser({ password });
     setBusy(false);
     if (updateError) {
-      setError(getPasswordErrorMessage(updateError));
+      setError(getPasswordErrorMessage(updateError, password));
       return;
     }
     onDone();

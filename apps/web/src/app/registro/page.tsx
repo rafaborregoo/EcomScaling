@@ -88,7 +88,7 @@ function RegistroContent() {
         });
 
       if (signUpError) {
-        setError(getPasswordErrorMessage(signUpError));
+        setError(getPasswordErrorMessage(signUpError, password));
         return;
       }
 
