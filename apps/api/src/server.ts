@@ -39,6 +39,7 @@ import { listConsultantDecisionOutputs } from "./decision-output-api.js";
 import { listConsultantPlaybookRuns } from "./playbook-api.js";
 import { listConsultantAcquisitionRuns } from "./acquisition-api.js";
 import { listConsultantPaidMediaRuns } from "./paid-media-api.js";
+import { listConsultantConversionRuns } from "./conversion-api.js";
 import { listAccountActions } from "./actions.js";
 import {
   addMarketingDraftNote,
@@ -2255,6 +2256,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/v1/consultant/playbooks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantPlaybookRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
   app.get("/v1/consultant/acquisition", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantAcquisitionRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
   app.get("/v1/consultant/paid-media", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantPaidMediaRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+  app.get("/v1/consultant/conversion", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantConversionRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
 
   // F3/D07. Declarar una relacion causal propia de una tienda. Es lo que
   // desbloquea el bloque: el grafo global trae cinco aristas, y todo lo demas

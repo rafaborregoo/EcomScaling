@@ -23,6 +23,7 @@ import { F4DimensionsPanel } from "./f4-dimensions";
 import { PlaybookFrameworkPanel } from "./playbook";
 import { AcquisitionPlaybookPanel } from "./acquisition";
 import { PaidMediaPlaybookPanel } from "./paid-media";
+import { ConversionCroPlaybookPanel } from "./conversion";
 import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
 import { SeverityPanel } from "./severity-panel";
@@ -532,6 +533,7 @@ function ShopifyDiagnosticoView({
           <PlaybookFrameworkPanel />
           <AcquisitionPlaybookPanel />
           <PaidMediaPlaybookPanel />
+          <ConversionCroPlaybookPanel />
           <PrioritizationPanel />
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">

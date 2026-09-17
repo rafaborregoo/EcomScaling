@@ -298,7 +298,16 @@ bitÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡cora, pero no representan trabajo a
       persistencia por dominio, worker, workflow, endpoint y panel. Verificado
       contra cinco organizaciones reales usando `.env.local`: la evidencia
       incompleta produce `VALIDATION_REQUIRED`, y el cleanup queda en cero.
-- [ ] Implementar 5.03, conversión y CRO.
+- [x] ~~Implementar 5.03, conversión y CRO.~~ Extensión CRO sobre P00,
+      cobertura real del funnel Shopify con `UNKNOWN` cuando falta dato,
+      validator, motor, persistencia compartida, worker, workflow, endpoint y
+      panel. Verificado con `.env.local` sobre cinco organizaciones; las cinco
+      evaluaciones exigieron validación y el cleanup quedó en cero.
+
+### Cierre F5/P03 — 2026-09-17
+
+P03 queda hecho. F5 sigue abierta; el siguiente bloque habilitado es 5.04,
+oferta, pricing, merchandising y AOV.
 
 ### Integración F4/F5 con el Copiloto — 2026-09-17
 

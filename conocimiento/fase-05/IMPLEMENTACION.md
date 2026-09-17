@@ -148,3 +148,39 @@ La integración se verifica con
 `decision-playbook-chat-context.test.ts`, typecheck/build de API y worker, y
 una lectura real en `.env.local` sobre las cinco organizaciones, con tres
 bloques de contexto por organización y sin escrituras.
+
+## P03 / 5.03 — Conversión y CRO
+
+### Decisión de contrato
+
+P03 reutiliza el framework universal P00 y añade la extensión acotada
+`domain_extension.conversion_cro` en `packages/contracts/src/conversion-cro.ts`.
+El perfil conserva modo de intervención (`FIX`, `RESEARCH` o `TEST`), etapa del
+funnel, segmento, hipótesis, métrica primaria, guardrails, métrica económica y
+requisitos de evidencia. Un template `TEST` exige hipótesis y métrica primaria.
+No se han añadido benchmarks, umbrales, sample size, p-values ni significancia
+estadística porque el corpus no los define.
+
+### Runtime y persistencia
+
+`apps/api/src/conversion-engine.ts` filtra templates `CONVERSION` válidos y
+enriquece el contexto con `shopify_funnel_summary` de los últimos 30 días.
+Solo convierte en `TRUE` la disponibilidad observada de sesiones y la
+cobertura completa del funnel. Una cobertura parcial o un error de lectura
+queda en `UNKNOWN`; el motor no infiere una fuga desde una tasa ni propone una
+intervención sin etapa, evidencia y contexto económico. La migración
+`20261028120000_f5_p03_conversion_cro.sql` amplía el dominio permitido de la
+tabla universal. Worker, workflow, endpoint `/v1/consultant/conversion` y
+`ConversionCroPlaybookPanel` consumen la misma salida trazable.
+
+### Verificación
+
+- contrato: validator CRO y motor puro verdes;
+- compilación: contracts, API, worker y typecheck web verdes;
+- migración: aplicada con `.env.local` sobre `kopcblejsxpkxoykldyh`;
+- datos reales: template temporal, cinco organizaciones, cinco evaluaciones;
+- resultado: `VALIDATION_REQUIRED` en las cinco por evidencia no suficiente;
+- cleanup: template y las cinco ejecuciones temporales eliminados.
+
+P03 queda **hecho**. F5 continúa abierta y el siguiente bloque habilitado es
+P04 / 5.04, oferta, pricing, merchandising y AOV.

@@ -129,7 +129,11 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
   return {
     data,
     error,
-    isLoading: data === undefined && error === null,
+    // `key` null = la pagina todavia no sabe QUE pedir (no hay cliente activo,
+    // por ejemplo), asi que no hay fetch en marcha. Sin esta condicion se
+    // devolvia `isLoading: true` para siempre: sin datos, sin error y sin nada
+    // que los fuera a traer. La pantalla se quedaba girando y parecia lentitud.
+    isLoading: key !== null && data === undefined && error === null,
     isValidating,
     reload,
   };

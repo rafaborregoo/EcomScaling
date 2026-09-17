@@ -521,3 +521,14 @@ La lectura está aislada por organización y es solo lectura. Si faltan datos,
 el contexto lo declara; no se inventa prioridad, estrategia, presupuesto ni
 acción. En la ruta de Diagnóstico, las preguntas sugeridas también apuntan a
 la decisión bloqueada, la evidencia pendiente y el playbook aplicable.
+
+### Addendum de avance F5/P03 — 2026-09-17
+
+`5.03` está hecho con extensión contractual CRO, tests, migración, runtime,
+worker, workflow, endpoint y panel. El runtime lee el funnel Shopify real y
+solo declara cobertura observable; no transforma una tasa en fuga ni inventa
+benchmarks, umbrales, tráfico, economía o significancia. La verificación con
+`.env.local` sobre `kopcblejsxpkxoykldyh` procesó cinco organizaciones sin
+fallos y produjo `VALIDATION_REQUIRED` por evidencia insuficiente; el template
+y las cinco ejecuciones temporales se eliminaron. F5 continúa abierta y el
+siguiente bloque habilitado es `5.04`.

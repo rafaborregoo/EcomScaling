@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (238 archivos).
+-- Regenerado desde supabase/migrations (239 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -32596,3 +32596,13 @@ alter table public.playbook_framework_runs
 alter table public.playbook_framework_runs
   add constraint playbook_framework_domain_check
   check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA'));
+
+-- =============================================================================
+-- Migracion: 20261028120000_f5_p03_conversion_cro.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION'));

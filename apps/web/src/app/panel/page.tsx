@@ -251,6 +251,18 @@ function PanelContent() {
     [financial, metrics?.funnel, targets, periodDays],
   );
 
+  // Un consultor arranca en "vista general", sin cliente activo. El panel es de
+  // UNA tienda, asi que aqui no hay nada que calcular todavia -- y decirlo es
+  // mejor que dejar un cargador girando sobre una peticion que nadie ha hecho.
+  if (!organizationId) {
+    return (
+      <EmptyState
+        title="Elige un cliente"
+        hint="El panel son las cifras de una tienda concreta. Selecciónala en la cabecera."
+      />
+    );
+  }
+
   if (isLoading) {
     return <AsyncState status="loading" loadingLabel="Calculando el panel..." />;
   }

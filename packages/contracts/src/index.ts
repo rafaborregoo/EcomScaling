@@ -265,3 +265,6 @@ export * from "./playbook.js";
 
 // FASE 5 / 5.01: extensión acotada para adquisición, demanda y fit de canal.
 export * from "./acquisition.js";
+
+// FASE 5 / 5.03: extensión CRO para funnel, research, fixes y tests.
+export * from "./conversion-cro.js";

@@ -36,6 +36,11 @@ export type PlaybookEngineOptions = {
     latestDecision: DecisionRow | null,
     now?: string,
   ) => PlaybookFrameworkInputLike["context"];
+  contextEnricher?: (
+    supabase: any,
+    context: PlaybookFrameworkInputLike["context"],
+    organizationId: string,
+  ) => Promise<PlaybookFrameworkInputLike["context"]>;
   templateFilter?: (template: PlaybookTemplate) => boolean;
 };
 
@@ -183,11 +188,14 @@ export async function runPlaybookFrameworkEngine(
       throw new Error(`playbook_input_load_failed: ${result.error.message}`);
     }
   }
-  const context = (options.contextBuilder ?? buildPlaybookContext)(
+  const baseContext = (options.contextBuilder ?? buildPlaybookContext)(
     organizationId,
     (diagnosticsResult.data ?? []) as DiagnosticRow[],
     (decisionResult.data ?? null) as DecisionRow | null,
   );
+  const context = options.contextEnricher
+    ? await options.contextEnricher(supabase, baseContext, organizationId)
+    : baseContext;
   const input: PlaybookFrameworkInputLike = {
     context,
     templates: parseActivePlaybookTemplates(templatesResult.data ?? []).filter(
