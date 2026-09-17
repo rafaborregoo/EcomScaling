@@ -92,7 +92,7 @@ falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 | --- | --- | --- | --- | --- | --- |
 | `5.00` | Framework universal de estrategias y playbooks ecommerce | `CRPET` | — | **hecho** | migración `20261028090000` + `packages/contracts/src/playbook.ts` + motor `apps/api/src/playbook-engine.ts` + worker + API/pantalla; verificado con `.env.local`: cinco organizaciones sin fallos, `NO_APPLICABLE_PLAYBOOK` honesto y cleanup confirmado |
 | `5.01` | Adquisicion y generacion de demanda | `CRPET` | Ã¢â‚¬â€ | **hecho** | extension `packages/contracts/src/acquisition.ts` + migration `20261028100000` + motor `apps/api/src/acquisition-engine.ts` + worker + API/pantalla; verificado con `.env.local`: cinco organizaciones sin fallos y cleanup confirmado |
-| `5.02` | Paid media y eficiencia de trafico | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
+| `5.02` | Paid media y eficiencia de trafico | `CRPET` | Ã¢â‚¬â€ | **hecho** | migracion `20261028110000` + reutiliza contrato/motor universal `packages/contracts/src/playbook.ts` y `apps/api/src/playbook-engine.ts` + `apps/api/src/paid-media-engine.ts` + worker + API/pantalla; verificado con `.env.local`: cinco organizaciones en `VALIDATION_REQUIRED` por evidencia desconocida, worker 5/5/0 y cleanup confirmado |
 | `5.03` | Conversion y cro | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
 | `5.04` | Oferta pricing merchandising y aov | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
 | `5.05` | Retencion crm lifecycle y ltv | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |

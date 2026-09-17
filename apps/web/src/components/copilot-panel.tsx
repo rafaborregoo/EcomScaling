@@ -83,6 +83,13 @@ const CHAT_TURN_STATUS_MESSAGES: Record<string, ChatError> = {
 // al abrir esa pantalla, no ejemplos genéricos. La ruta más específica gana.
 const VIEW_PROMPTS: Array<{ prefix: string; prompts: string[] }> = [
   {
+    prefix: "/shopify/diagnostico",
+    prompts: [
+      "¿Qué decisión está bloqueada y qué evidencia falta para poder recomendar?",
+      "¿Qué playbook de F5 podría aplicar y qué unknowns hay que validar primero?",
+    ],
+  },
+  {
     prefix: "/planificacion",
     prompts: [
       "¿Qué debería entrar en el plan de las próximas 2 semanas y por qué?",

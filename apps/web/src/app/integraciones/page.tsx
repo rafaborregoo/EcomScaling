@@ -7,7 +7,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
-import { ModuleSummary } from "@/components/module-summary";
+import { useModuleSummary } from "@/components/module-summary";
 import {
   AsyncState,
   Badge,
@@ -31,7 +31,6 @@ import {
   buildStoreViews,
   healthTone,
   unassignedConnections,
-  type StoreProviderView,
   type StoreView,
 } from "./store-view-model";
 
@@ -48,43 +47,15 @@ import {
 // /integraciones/tienda/<connectionId>, y la configuracion de cada conector en
 // /integraciones/<slug>.
 
-/** El titular de la fila: lo peor que le pasa a la tienda, en dos palabras. */
-function storeHeadline(store: StoreView): string {
-  if (store.severity === 0) return "Al día";
-  const worst = store.providers.find((item) => item.status === store.status);
-  return worst ? `${worst.name}: ${worst.explanation.label}` : "Revisar";
-}
-
-/**
- * Una fila por aplicacion, no tres etiquetas apretadas en el margen.
- *
- * Los tres conectores de una tienda son tres cosas distintas que se miran de
- * una en una ("¿Klaviyo esta conectado?"), y en linea no se podia: habia que
- * leer la tira entera para encontrar el que buscabas. En filas, el ojo baja por
- * la columna de iconos y para en el suyo.
- */
-function ProviderRow({ provider }: { provider: StoreProviderView }) {
-  const connected = provider.connections.length > 0;
-  return (
-    <div className="flex items-center gap-3 py-1.5">
-      <ProviderIcon provider={provider.provider} />
-      <span
-        className={
-          connected ? "text-sm font-medium text-foreground" : "text-sm text-muted"
-        }
-      >
-        {provider.name}
-      </span>
-      {/* Solido y no suave: el color del estado es el dato de la fila. */}
-      <Badge
-        tone={connected ? healthTone(provider.status) : "neutral"}
-        variant={connected ? "solid" : "soft"}
-      >
-        {provider.explanation.label}
-      </Badge>
-    </div>
-  );
-}
+// Texto plano, sin badges: el color de la palabra ya dice el estado, no hace
+// falta una pastilla alrededor. "Sin conectar" en gris no es una averia.
+const TEXT_TONE: Record<string, string> = {
+  success: "text-success",
+  warn: "text-warning",
+  danger: "text-danger",
+  brand: "text-brand",
+  neutral: "text-muted",
+};
 
 function StoreRow({
   store,
@@ -93,41 +64,87 @@ function StoreRow({
   store: StoreView;
   isActive: boolean;
 }) {
-  const worst = store.providers.find((item) => item.status === store.status);
-
   return (
     <Link
       href={`/integraciones/tienda/${store.connectionId}`}
       aria-label={`Abrir ${store.name}`}
-      className="flex flex-col gap-3 px-1 py-4 no-underline sm:flex-row sm:items-center sm:justify-between"
+      className="flex items-center justify-between gap-4 px-1 py-3 no-underline"
     >
-      <div className="min-w-0 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex flex-wrap items-baseline gap-2">
           <span className="font-medium text-foreground">{store.name}</span>
-          {isActive ? <Badge tone="brand">Tienda activa</Badge> : null}
-          <Badge tone={healthTone(store.status)} variant="solid">
-            {storeHeadline(store)}
-          </Badge>
+          {isActive ? <span className="text-xs text-muted">(activa)</span> : null}
+          {store.domain ? (
+            <span className="truncate font-mono text-xs text-muted">
+              {store.domain}
+            </span>
+          ) : null}
         </div>
-        {store.domain ? (
-          <p className="truncate font-mono text-xs text-muted">{store.domain}</p>
-        ) : null}
-        {store.severity > 0 && worst?.explanation.detail ? (
-          <p className="max-w-prose text-sm leading-6 text-muted">
-            {worst.explanation.detail}
-          </p>
-        ) : null}
+        <p className="text-sm">
+          {store.providers.map((provider, index) => {
+            const connected = provider.connections.length > 0;
+            return (
+              <span key={provider.provider}>
+                {index > 0 ? <span className="text-muted"> · </span> : null}
+                <span
+                  className={
+                    connected ? TEXT_TONE[healthTone(provider.status)] : "text-muted"
+                  }
+                >
+                  {provider.name}: {provider.explanation.label}
+                </span>
+              </span>
+            );
+          })}
+        </p>
       </div>
-
-      <div className="flex items-center gap-4 sm:shrink-0">
-        <div className="min-w-56">
-          {store.providers.map((provider) => (
-            <ProviderRow key={provider.provider} provider={provider} />
-          ))}
-        </div>
-        <IconChevronRight aria-hidden />
-      </div>
+      <IconChevronRight aria-hidden className="shrink-0 text-muted" />
     </Link>
+  );
+}
+
+/** Numeros y texto plano, sin tarjetas: publica el resumen al Consultor IA
+ * (mismo contrato que ModuleSummary) pero lo pinta como una linea, no como
+ * KPIs con borde y fondo de color. */
+function IntegrationsSummaryLine({
+  stores,
+  needAttention,
+}: {
+  stores: StoreView[];
+  needAttention: StoreView[];
+}) {
+  useModuleSummary({
+    metrics: [
+      { label: "Tiendas", value: stores.length.toLocaleString("es-ES") },
+      {
+        label: "Necesitan atención",
+        value: needAttention.length.toLocaleString("es-ES"),
+        tone: needAttention.length > 0 ? "danger" : "success",
+      },
+    ],
+  });
+
+  return (
+    <p className="text-sm">
+      <span className="text-muted">Tiendas: </span>
+      <span className="font-medium text-foreground">{stores.length}</span>
+      <span className="text-muted"> · Necesitan atención: </span>
+      <span
+        className={
+          needAttention.length > 0
+            ? "font-medium text-danger"
+            : "font-medium text-success"
+        }
+      >
+        {needAttention.length}
+      </span>
+      {needAttention.length > 0 ? (
+        <span className="text-muted">
+          {" "}
+          ({needAttention.map((store) => store.name).join(", ")})
+        </span>
+      ) : null}
+    </p>
   );
 }
 
@@ -232,29 +249,13 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       {/* Cobertura de datos: sin esto, cualquier consejo sobre un canal es una
-          opinión. Es lo mismo que el Consultor IA lee como "vista actual". */}
-      <ModuleSummary
-        metrics={[
-          {
-            label: "Tiendas",
-            value: stores.length.toLocaleString("es-ES"),
-            hint: "Cada tienda es una conexión de Shopify",
-          },
-          {
-            label: "Necesitan atención",
-            value: needAttention.length.toLocaleString("es-ES"),
-            tone: needAttention.length > 0 ? "danger" : "success",
-            hint:
-              needAttention.length > 0
-                ? needAttention.map((store) => store.name).join(", ")
-                : "Todas las conexiones al día",
-          },
-        ]}
-      />
+          opinión. Es lo mismo que el Consultor IA lee como "vista actual".
+          Solo numeros y texto, sin tarjetas: publica el resumen pero no lo
+          dibuja como KPI. */}
+      <IntegrationsSummaryLine stores={stores} needAttention={needAttention} />
 
       <Card
         title="Tus tiendas"
-        description="Cada tienda es una conexión de Shopify; Meta y Klaviyo cuelgan de ella. Entra en una para ver y arreglar sus conexiones."
         actions={
           <ButtonLink variant="secondary" href="/integraciones/shopify">
             Conectar otra tienda

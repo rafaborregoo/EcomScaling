@@ -94,3 +94,57 @@ se fabrica recomendación: la salida observada permanece
 
 P01 queda **hecho**. F5 continúa abierta y el siguiente bloque habilitado es
 P02 / 5.02, paid media y eficiencia de tráfico.
+
+## P02 / 5.02 — Paid media y eficiencia de tráfico
+
+### Decisión de contrato
+
+El corpus no aporta un contrato runtime específico ni una entidad nueva: P02
+es una especialización del framework universal P00. Se reutilizan
+`playbookTemplateSchema`, `evaluatePlaybookFramework` y la instancia/salida
+trazable de P00. El test público `packages/contracts/src/paid-media.test.ts`
+fija la regla principal: un template `PAID_MEDIA` no autoriza por sí solo una
+recomendación; con medición `UNKNOWN` queda en `VALIDATION_REQUIRED`.
+
+### Runtime y persistencia
+
+El flujo `03-runtime/5.02-flujo-diagnostico-recuperacion-y-escalado-paid-media.md`
+se traduce en `apps/api/src/paid-media-engine.ts`: construye contexto Paid
+Media sobre el contexto universal, declara como `UNKNOWN` medición, coste de
+distribución, respuesta del anuncio, calidad de tráfico, conversión post-click,
+economics, incrementalidad, inventario, capacidad operativa y cash-flow, y
+evalúa solo templates `PAID_MEDIA`. No inventa CAC, ROAS, MER, presupuesto,
+audiencia, umbrales ni atribución.
+
+La migración `20261028110000_f5_p02_paid_media.sql` amplía el check de dominio
+compartido de `playbook_framework_runs`. El worker, workflow manual, endpoint
+`/v1/consultant/paid-media` y `PaidMediaPlaybookPanel` consumen la misma
+persistencia de P00 y muestran la disposición/unknowns sin convertir métricas
+de plataforma en una orden.
+
+### Verificación
+
+- contrato: suite completa de contracts verde (`652` tests);
+- compilación: API, worker y typecheck/build web con `.env.local` verdes;
+- migración: aplicada en el proyecto de desarrollo de `.env.local`;
+- datos reales: plantilla temporal PAID_MEDIA y cinco organizaciones evaluadas,
+  cinco `VALIDATION_REQUIRED` por medición insuficiente;
+- worker real: cinco organizaciones, `5 succeeded`, `0 failed`, `5 assessments`;
+- cleanup: plantilla, ejecuciones y filas del worker eliminadas; restante `0`.
+
+P02 queda **hecho**. F5 continúa abierta y el siguiente bloque habilitado es
+P03 / 5.03, conversión y CRO.
+
+### Integración transversal F4/F5 con el Copiloto
+
+El adaptador `apps/api/src/decision-playbook-chat-context.ts` incorpora al
+contexto de A09 los últimos snapshots de decisión de F4 y las evaluaciones de
+playbooks de F5, siempre filtrados por `organization_id`. Reduce la salida a
+estado, motivos, confianza, unknowns, evidencia, precondiciones, requisitos
+de validación y stop conditions. Si falta un snapshot, el Copiloto recibe esa
+ausencia explícitamente y no puede rellenarla por inferencia.
+
+La integración se verifica con
+`decision-playbook-chat-context.test.ts`, typecheck/build de API y worker, y
+una lectura real en `.env.local` sobre las cinco organizaciones, con tres
+bloques de contexto por organización y sin escrituras.

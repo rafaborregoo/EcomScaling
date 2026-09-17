@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { AvatarPicker } from "@/components/avatar-picker";
 import { PasswordRequirements } from "@/components/password-requirements";
+import { PasswordInput } from "@/components/password-input";
 import {
   getPasswordErrorMessage,
   isPasswordValid,
   PASSWORD_MIN_LENGTH,
+  passwordConfirmationState,
 } from "@/lib/password-policy";
 import {
   Button,
@@ -151,8 +153,11 @@ function PasswordStep({
   const [error, setError] = useState<string | null>(null);
 
   const tooShort = password.length > 0 && password.length < PASSWORD_MIN_LENGTH;
-  const mismatch = confirm.length > 0 && confirm !== password;
-  const canSubmit = isPasswordValid(password) && confirm === password && !busy;
+  const mismatch = passwordConfirmationState(password, confirm) === "mismatch";
+  const canSubmit =
+    isPasswordValid(password) &&
+    passwordConfirmationState(password, confirm) === "match" &&
+    !busy;
 
   async function submit() {
     setBusy(true);
@@ -173,8 +178,7 @@ function PasswordStep({
     >
       <div className="mt-4 grid gap-4">
         <Field label="Contraseña">
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -186,15 +190,25 @@ function PasswordStep({
           <p className="text-xs text-danger">Mínimo 8 caracteres.</p>
         ) : null}
         <Field label="Repite la contraseña">
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
+            minLength={PASSWORD_MIN_LENGTH}
+            aria-invalid={mismatch}
+            aria-describedby={
+              confirm.length > 0 ? "password-confirmation-status" : undefined
+            }
+            required
           />
         </Field>
         {mismatch ? (
-          <p className="text-xs text-danger">Las contraseñas no coinciden.</p>
+          <p id="password-confirmation-status" className="text-xs text-danger" role="alert">Las contraseñas no coinciden.</p>
+        ) : null}
+        {confirm.length > 0 && !mismatch ? (
+          <p id="password-confirmation-status" className="text-xs text-success" role="status">
+            Las contraseñas coinciden.
+          </p>
         ) : null}
         {error ? <ErrorBlock>{error}</ErrorBlock> : null}
         <Button disabled={!canSubmit} onClick={() => void submit()}>

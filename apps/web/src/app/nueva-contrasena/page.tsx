@@ -5,10 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import { PasswordRequirements } from "@/components/password-requirements";
+import { PasswordInput } from "@/components/password-input";
 import {
   getPasswordErrorMessage,
   isPasswordValid,
   PASSWORD_MIN_LENGTH,
+  passwordConfirmationState,
 } from "@/lib/password-policy";
 import {
   Button,
@@ -17,7 +19,6 @@ import {
   EYEBROW,
   Field,
   Heading,
-  Input,
   LoadingBlock,
 } from "@/components/ui";
 
@@ -57,9 +58,11 @@ export default function NuevaContrasenaPage() {
   }, [supabase]);
 
   const corta = password.length > 0 && password.length < PASSWORD_MIN_LENGTH;
-  const noCoincide = confirm.length > 0 && confirm !== password;
+  const noCoincide = passwordConfirmationState(password, confirm) === "mismatch";
   const puedeEnviar =
-    isPasswordValid(password) && confirm === password && !isSubmitting;
+    isPasswordValid(password) &&
+    passwordConfirmationState(password, confirm) === "match" &&
+    !isSubmitting;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,8 +110,7 @@ export default function NuevaContrasenaPage() {
         <Card>
           <form className="grid gap-4" onSubmit={handleSubmit}>
             <Field label="Contraseña">
-              <Input
-                type="password"
+              <PasswordInput
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete="new-password"
@@ -122,17 +124,27 @@ export default function NuevaContrasenaPage() {
             ) : null}
 
             <Field label="Repite la contraseña">
-              <Input
-                type="password"
+              <PasswordInput
                 value={confirm}
                 onChange={(event) => setConfirm(event.target.value)}
                 autoComplete="new-password"
+                minLength={PASSWORD_MIN_LENGTH}
+                aria-invalid={noCoincide}
+                aria-describedby={
+                  confirm.length > 0 ? "password-confirmation-status" : undefined
+                }
                 required
               />
             </Field>
             {noCoincide ? (
-              <p className="text-xs text-danger">
+              <p id="password-confirmation-status" className="text-xs text-danger" role="alert">
                 Las contraseñas no coinciden.
+              </p>
+            ) : null}
+
+            {confirm.length > 0 && !noCoincide ? (
+              <p id="password-confirmation-status" className="text-xs text-success" role="status">
+                Las contraseñas coinciden.
               </p>
             ) : null}
 

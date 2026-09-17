@@ -293,4 +293,16 @@ bitÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡cora, pero no representan trabajo a
       determinista, runtime filtrado por dominio, columna de persistencia
       compartida, worker, workflow, endpoint y panel. Verificado con
       `.env.local`: cinco organizaciones sin fallos y cleanup confirmado.
-- [ ] Implementar 5.02, paid media y eficiencia de trÃ¡fico.
+- [x] ~~Implementar 5.02, paid media y eficiencia de trÃ¡fico.~~ Reutiliza el
+      contrato y evaluador universal de P00, con contexto Paid Media explícito,
+      persistencia por dominio, worker, workflow, endpoint y panel. Verificado
+      contra cinco organizaciones reales usando `.env.local`: la evidencia
+      incompleta produce `VALIDATION_REQUIRED`, y el cleanup queda en cero.
+- [ ] Implementar 5.03, conversión y CRO.
+
+### Integración F4/F5 con el Copiloto — 2026-09-17
+
+- [x] ~~Conectar las salidas decisionales y los playbooks al contexto del
+      Copiloto.~~ Se añadió un adaptador tenant-scoped de solo lectura que
+      entrega contexto F4/F5 resumido, conserva `UNKNOWN`, `ABSTAIN` y
+      `VALIDATION_REQUIRED`, y añade preguntas específicas en Diagnóstico.

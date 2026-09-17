@@ -293,3 +293,11 @@ compartida. Verificado en `.env.local`: cinco organizaciones correctas, cero
 fallos, salida conservadora y cleanup a cero.
 
 P12 queda `hecho`. Con P06–P12 terminados, F4 queda cerrada en esta sesión.
+
+### Integración con el Copiloto
+
+Las salidas de F4 no se quedan únicamente en los paneles de diagnóstico. El
+Copiloto las recibe mediante un contexto de solo lectura que resume contexto
+de decisión, salida decisional, estado, motivos, confianza, unknowns y
+evidencia. Respeta `ABSTAIN` y `VALIDATION_REQUIRED`; no convierte una salida
+de F4 en una orden ni amplía el alcance del tenant.

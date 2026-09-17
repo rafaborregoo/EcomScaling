@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (237 archivos).
+-- Regenerado desde supabase/migrations (238 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -32586,3 +32586,13 @@ alter table public.playbook_framework_runs
 
 create index if not exists playbook_framework_domain_idx
   on public.playbook_framework_runs (domain, evaluated_at desc);
+
+-- =============================================================================
+-- Migracion: 20261028110000_f5_p02_paid_media.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA'));

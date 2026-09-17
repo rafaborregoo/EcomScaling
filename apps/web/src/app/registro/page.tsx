@@ -5,10 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseClient } from "@/lib/supabase";
 import { PasswordRequirements } from "@/components/password-requirements";
+import { PasswordConfirmation } from "@/components/password-confirmation";
+import { PasswordInput } from "@/components/password-input";
 import {
   getPasswordErrorMessage,
   isPasswordValid,
   PASSWORD_MIN_LENGTH,
+  passwordConfirmationState,
 } from "@/lib/password-policy";
 import {
   Banner,
@@ -41,6 +44,7 @@ function RegistroContent() {
   const inviteCode = (params.get("code") ?? "").toUpperCase().trim();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [fullName, setFullName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +54,15 @@ function RegistroContent() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    if (
+      !isPasswordValid(password) ||
+      passwordConfirmationState(password, confirm) !== "match"
+    ) {
+      setError(
+        "La contraseña debe cumplir los requisitos y coincidir en ambos campos.",
+      );
+      return;
+    }
     setIsSubmitting(true);
 
     try {
@@ -154,8 +167,7 @@ function RegistroContent() {
             />
           </Field>
           <Field label="Contraseña">
-            <Input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="new-password"
@@ -166,11 +178,21 @@ function RegistroContent() {
 
           <PasswordRequirements password={password} />
 
+          <PasswordConfirmation
+            password={password}
+            value={confirm}
+            onChange={setConfirm}
+          />
+
           {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
           <Button
             type="submit"
-            disabled={isSubmitting || !isPasswordValid(password)}
+            disabled={
+              isSubmitting ||
+              !isPasswordValid(password) ||
+              passwordConfirmationState(password, confirm) !== "match"
+            }
           >
             {isSubmitting ? "Creando cuenta..." : "Crear cuenta"}
           </Button>

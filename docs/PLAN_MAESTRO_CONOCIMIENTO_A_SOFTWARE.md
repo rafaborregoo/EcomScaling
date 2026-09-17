@@ -493,3 +493,31 @@ proyecto de desarrollo de `.env.local` (`kopcblejsxpkxoykldyh`). La verificació
 real recorrió cinco organizaciones sin fallos y eliminó las filas temporales.
 P01 queda hecho; el siguiente bloque habilitado es F5/P02, paid media y
 eficiencia de tráfico.
+
+### Cierre F5/P02 — 2026-09-17
+
+P02 queda hecho como especialización del framework universal P00. El artefacto
+no define una extensión contractual nueva, por lo que no se duplican métricas
+ni se inventan conectores, fórmulas o thresholds. `paid-media-engine.ts`
+construye el contexto del dominio y conserva `UNKNOWN` para medición,
+distribución, respuesta, calidad de tráfico, conversión, economics,
+incrementalidad, inventario, capacidad y cash-flow; el evaluador solo permite
+avanzar cuando el template y sus precondiciones lo sostienen.
+
+La migración `20261028110000_f5_p02_paid_media.sql`, worker, workflow,
+endpoint y panel quedaron implementados. Con `.env.local` se sembró una
+plantilla temporal y se evaluaron las cinco organizaciones del proyecto:
+`VALIDATION_REQUIRED` en las cinco por evidencia insuficiente; después se
+eliminaron plantilla y ejecuciones. El worker real terminó `5 succeeded`,
+`0 failed`, `5 assessments`, con cleanup a cero. P02 está hecho; F5 sigue
+abierta y el siguiente bloque habilitado es F5/P03, conversión y CRO.
+
+### Integración transversal F4/F5 con el Copiloto — 2026-09-17
+
+El Copiloto ya consume un resumen estructurado de F4 y F5 mediante
+`decision-playbook-chat-context.ts`: contexto de decisión, salida decisional,
+estado, confianza, motivos, unknowns, evidencia y evaluaciones de playbooks.
+La lectura está aislada por organización y es solo lectura. Si faltan datos,
+el contexto lo declara; no se inventa prioridad, estrategia, presupuesto ni
+acción. En la ruta de Diagnóstico, las preguntas sugeridas también apuntan a
+la decisión bloqueada, la evidencia pendiente y el playbook aplicable.

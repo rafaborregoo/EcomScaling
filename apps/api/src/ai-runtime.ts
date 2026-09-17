@@ -79,6 +79,7 @@ import {
   runWithRequestCorrelation,
 } from "./request-context.js";
 import { emailHtmlToText } from "./email-body-text.js";
+import { loadDecisionPlaybookContextBlocks } from "./decision-playbook-chat-context.js";
 import { apiMetrics } from "./metrics.js";
 import {
   type AuthContext,
@@ -3311,6 +3312,7 @@ async function runGenericDiagnosticAgent(
       ...(await buildContextBlocks(supabase, runId)),
       ...priorProposalBlocks,
       ...constraintBlocks,
+      ...(await loadDecisionPlaybookContextBlocks(supabase, organizationId)),
     ];
     const contextDuration = Date.now() - contextStart;
 

@@ -4,6 +4,7 @@ import {
   getPasswordErrorMessage,
   getPasswordRequirements,
   isPasswordValid,
+  passwordConfirmationState,
 } from "./password-policy";
 
 test("matches the production Supabase password policy", () => {
@@ -24,5 +25,17 @@ test("translates Supabase weak-password errors into a useful message", () => {
       message: "Password should contain at least one character of each: ...",
     }),
     "La contraseña debe tener al menos 8 caracteres e incluir una minúscula, una mayúscula, un número y un símbolo.",
+  );
+});
+
+test("validates the confirmation field explicitly", () => {
+  assert.equal(passwordConfirmationState("EcomScaling-2026!", ""), "empty");
+  assert.equal(
+    passwordConfirmationState("EcomScaling-2026!", "EcomScaling-2026!"),
+    "match",
+  );
+  assert.equal(
+    passwordConfirmationState("EcomScaling-2026!", "EcomScaling-2026?"),
+    "mismatch",
   );
 });

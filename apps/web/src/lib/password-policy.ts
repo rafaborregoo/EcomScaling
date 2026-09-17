@@ -26,6 +26,16 @@ export function isPasswordValid(password: string): boolean {
   return Object.values(getPasswordRequirements(password)).every(Boolean);
 }
 
+export type PasswordConfirmationState = "empty" | "match" | "mismatch";
+
+export function passwordConfirmationState(
+  password: string,
+  confirmation: string,
+): PasswordConfirmationState {
+  if (!confirmation) return "empty";
+  return password === confirmation ? "match" : "mismatch";
+}
+
 export function getPasswordErrorMessage(error: {
   code?: string;
   message?: string;
