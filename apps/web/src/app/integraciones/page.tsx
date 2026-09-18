@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal } from "@heroui/react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
@@ -21,6 +20,7 @@ import {
   Link,
   List,
   LoadingBlock,
+  Modal,
   ProviderIcon,
   toast,
 } from "@/components/ui";
