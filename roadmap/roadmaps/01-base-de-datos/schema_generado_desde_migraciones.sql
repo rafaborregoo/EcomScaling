@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (239 archivos).
+-- Regenerado desde supabase/migrations (261 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -32606,3 +32606,266 @@ alter table public.playbook_framework_runs
 alter table public.playbook_framework_runs
   add constraint playbook_framework_domain_check
   check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION'));
+
+-- =============================================================================
+-- Migracion: 20261028130000_f5_p04_offer_pricing.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING'));
+
+-- =============================================================================
+-- Migracion: 20261028140000_f5_p05_retention_crm.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM'));
+
+-- =============================================================================
+-- Migracion: 20261028150000_f5_p06_unit_economics.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS'));
+
+-- =============================================================================
+-- Migracion: 20261028160000_f5_p07_product_inventory.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY'));
+
+-- =============================================================================
+-- Migracion: 20261028170000_f5_p08_operations_cx.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL',
+    'ACQUISITION',
+    'PAID_MEDIA',
+    'CONVERSION',
+    'OFFER_PRICING',
+    'RETENTION_CRM',
+    'UNIT_ECONOMICS',
+    'PRODUCT_INVENTORY',
+    'OPERATIONS_CX'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261028180000_f5_p09_measurement_experimentation.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL',
+    'ACQUISITION',
+    'PAID_MEDIA',
+    'CONVERSION',
+    'OFFER_PRICING',
+    'RETENTION_CRM',
+    'UNIT_ECONOMICS',
+    'PRODUCT_INVENTORY',
+    'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261028190000_f5_p10_scalability.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261028200000_f5_p11_recovery_crisis.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261029090000_f6_p00_benchmark_guardrails.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS',
+    'BENCHMARKS_GUARDRAILS'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261029100000_f6_p01_cohort_context.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS',
+    'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261029110000_f6_p02_data_quality_reliability.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS',
+    'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261029120000_f6_p03_acquisition_demand.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS',
+    'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY',
+    'ACQUISITION_DEMAND'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261029130000_f6_p04_paid_media_benchmarks.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS',
+    'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY',
+    'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261029140000_f6_p05_conversion_cro_benchmarks.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS',
+    'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY',
+    'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261029150000_f6_p06_offer_pricing_benchmarks.sql
+-- =============================================================================
+alter table public.playbook_framework_runs
+  drop constraint if exists playbook_framework_domain_check;
+
+alter table public.playbook_framework_runs
+  add constraint playbook_framework_domain_check
+  check (domain in (
+    'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING',
+    'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX',
+    'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS',
+    'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY',
+    'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS',
+    'OFFER_PRICING_BENCHMARKS'
+  ));
+
+-- =============================================================================
+-- Migracion: 20261029160000_f6_p07_retention_crm_benchmarks.sql
+-- =============================================================================
+alter table public.playbook_framework_runs drop constraint if exists playbook_framework_domain_check;
+alter table public.playbook_framework_runs add constraint playbook_framework_domain_check check (domain in (
+  'GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX', 'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS', 'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY', 'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS', 'OFFER_PRICING_BENCHMARKS', 'RETENTION_CRM_BENCHMARKS'
+));
+
+-- =============================================================================
+-- Migracion: 20261029170000_f6_p08_unit_economics_benchmarks.sql
+-- =============================================================================
+alter table public.playbook_framework_runs drop constraint if exists playbook_framework_domain_check;
+alter table public.playbook_framework_runs add constraint playbook_framework_domain_check check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX', 'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS', 'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY', 'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS', 'OFFER_PRICING_BENCHMARKS', 'RETENTION_CRM_BENCHMARKS', 'UNIT_ECONOMICS_BENCHMARKS'));
+
+-- =============================================================================
+-- Migracion: 20261029180000_f6_p09_operations_cx_benchmarks.sql
+-- =============================================================================
+alter table public.playbook_framework_runs drop constraint if exists playbook_framework_domain_check;
+alter table public.playbook_framework_runs add constraint playbook_framework_domain_check check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX', 'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS', 'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY', 'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS', 'OFFER_PRICING_BENCHMARKS', 'RETENTION_CRM_BENCHMARKS', 'UNIT_ECONOMICS_BENCHMARKS', 'OPERATIONS_CX_BENCHMARKS'));
+
+-- =============================================================================
+-- Migracion: 20261029190000_f6_p10_product_inventory_benchmarks.sql
+-- =============================================================================
+alter table public.playbook_framework_runs drop constraint if exists playbook_framework_domain_check;
+alter table public.playbook_framework_runs add constraint playbook_framework_domain_check check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX', 'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS', 'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY', 'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS', 'OFFER_PRICING_BENCHMARKS', 'RETENTION_CRM_BENCHMARKS', 'UNIT_ECONOMICS_BENCHMARKS', 'OPERATIONS_CX_BENCHMARKS', 'PRODUCT_INVENTORY_BENCHMARKS'));
+
+-- =============================================================================
+-- Migracion: 20261029200000_f6_p11_scalability_benchmarks.sql
+-- =============================================================================
+alter table public.playbook_framework_runs drop constraint if exists playbook_framework_domain_check;
+alter table public.playbook_framework_runs add constraint playbook_framework_domain_check check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX', 'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS', 'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY', 'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS', 'OFFER_PRICING_BENCHMARKS', 'RETENTION_CRM_BENCHMARKS', 'UNIT_ECONOMICS_BENCHMARKS', 'OPERATIONS_CX_BENCHMARKS', 'PRODUCT_INVENTORY_BENCHMARKS', 'SCALABILITY_BENCHMARKS'));
+
+-- =============================================================================
+-- Migracion: 20261029210000_f6_p12_anomalies_red_flags.sql
+-- =============================================================================
+alter table public.playbook_framework_runs drop constraint if exists playbook_framework_domain_check;
+alter table public.playbook_framework_runs add constraint playbook_framework_domain_check check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX', 'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS', 'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY', 'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS', 'OFFER_PRICING_BENCHMARKS', 'RETENTION_CRM_BENCHMARKS', 'UNIT_ECONOMICS_BENCHMARKS', 'OPERATIONS_CX_BENCHMARKS', 'PRODUCT_INVENTORY_BENCHMARKS', 'SCALABILITY_BENCHMARKS', 'ANOMALIES_RED_FLAGS'));
+
+-- =============================================================================
+-- Migracion: 20261029220000_f6_p13_benchmark_confidence.sql
+-- =============================================================================
+alter table public.playbook_framework_runs drop constraint if exists playbook_framework_domain_check;
+alter table public.playbook_framework_runs add constraint playbook_framework_domain_check check (domain in ('GENERAL', 'ACQUISITION', 'PAID_MEDIA', 'CONVERSION', 'OFFER_PRICING', 'RETENTION_CRM', 'UNIT_ECONOMICS', 'PRODUCT_INVENTORY', 'OPERATIONS_CX', 'MEASUREMENT_EXPERIMENTATION', 'SCALABILITY', 'RECOVERY_CRISIS', 'BENCHMARKS_GUARDRAILS', 'COHORT_CONTEXT', 'DATA_QUALITY_RELIABILITY', 'ACQUISITION_DEMAND', 'PAID_MEDIA_BENCHMARKS', 'CONVERSION_CRO_BENCHMARKS', 'OFFER_PRICING_BENCHMARKS', 'RETENTION_CRM_BENCHMARKS', 'UNIT_ECONOMICS_BENCHMARKS', 'OPERATIONS_CX_BENCHMARKS', 'PRODUCT_INVENTORY_BENCHMARKS', 'SCALABILITY_BENCHMARKS', 'ANOMALIES_RED_FLAGS', 'BENCHMARK_CONFIDENCE'));
