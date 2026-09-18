@@ -77,52 +77,83 @@ const ALL_STORES_KEY = "__all_stores__";
 // cuando no hay organizacion activa.
 const ORG_SCOPED_PREFIXES = ["/agentes"];
 
-// Nav del consultor: lista plana, sin etiquetas de grupo. Solo lo que se opera
-// a diario sobre el cliente activo. "Ejecuciones IA" (/agentes) sigue fuera del
-// nav. Configuración vive al fondo (settingsNavItem).
+// Nav del consultor, agrupado por LO QUE ESTAS HACIENDO (decision de Rafa,
+// 2026-09-17). Era una lista plana de 17 entradas: cabia, pero para encontrar
+// una habia que leerlas todas. Ningun grupo pasa de cuatro, que es lo que se
+// abarca de un vistazo sin contar.
 //
-// Fuera del nav a proposito (la ruta sigue viva, se llega desde
-// Configuración): /consultor es el inventario de tus clientes -- se consulta de
-// vez en cuando, no se opera.
+// Los grupos no son categorias de producto sino verbos, porque la pregunta que
+// uno se hace al mirar el nav no es "de que modulo es esto" sino "que quiero
+// hacer ahora". Por eso Shopify/Meta/Klaviyo van juntos (mirar cifras) aunque
+// sean tres integraciones distintas, y Marketing va con Tareas (hacer cosas)
+// aunque tecnicamente sea el generador de Klaviyo.
 //
-// /tiendas SI entra desde 2026-09-10. Estaba fuera por el mismo motivo, y no es
-// el mismo caso: es el unico sitio donde el consultor da de alta y gestiona sus
-// tiendas propias, y sin entrada de nav no se llegaba salvo buscandolo en
-// Configuración > Cartera.
+// El ultimo grupo va sin etiqueta a proposito: es el cajon de lo que se toca
+// una vez y se olvida, y ponerle titulo seria darle una importancia que no
+// tiene. Configuración vive aun mas abajo (settingsNavItem).
+//
+// "Ejecuciones IA" (/agentes) sigue fuera del nav.
+//
+// /tiendas SI entra desde 2026-09-10: es el unico sitio donde el consultor da
+// de alta y gestiona sus tiendas propias, y sin entrada de nav no se llegaba
+// salvo buscandolo en Configuración > Cartera.
 //
 // /shopify SI entra desde 2026-09-07. Estaba fuera por ser "el detalle de una
 // integracion", y esa premisa ya no se sostiene: deja de contar el estado de
 // una conexion -- eso se queda en Integraciones -- y pasa a ser los numeros de
-// la tienda (recurrencia, LTV, atribucion, devoluciones, entregas). Un modulo
-// de datos al que solo se llegaba por un boton suelto del panel.
+// la tienda (recurrencia, LTV, atribucion, devoluciones, entregas).
 const consultantNavGroups: NavGroup[] = [
   {
+    // Las dos pantallas de entrada, sin titulo: son el sitio al que se vuelve.
     label: "",
     items: [
       { href: "/dashboard", label: "Dashboard" },
-      // El panel va pegado al dashboard porque es su version de asesoramiento:
+      // Rentabilidad va pegada al dashboard porque es su version de asesoramiento:
       // las mismas cifras llevadas hasta el margen por pedido y el CAC de
       // break-even. Solo del consultor a proposito -- son numeros que hay que
       // saber interpretar (ver docs/PLAN_PANEL_MANAGER.md).
-      { href: "/panel", label: "Panel" },
-      // Lo unico del nav que NO es de un cliente: es la pantalla del consultor
-      // sobre si mismo, asi que va la primera y no cambia al cambiar de tienda.
-      { href: "/mi-trabajo", label: "Mi trabajo" },
-      { href: "/consultor", label: "Clientes" },
-      // Tampoco es de un cliente: son las tiendas propias del consultor.
-      { href: "/tiendas", label: "Mis Tiendas" },
-      { href: "/camino", label: "Mi Camino" },
-      { href: "/tareas", label: "Tareas" },
-      { href: "/agenda", label: "Agenda" },
-      { href: "/mensajes", label: "Chats" },
-      { href: "/llamadas", label: "Llamadas" },
-      // Los dos modulos de cifras, juntos y en este orden: primero la tienda,
-      // luego lo que la alimenta.
+      { href: "/panel", label: "Rentabilidad" },
+    ],
+  },
+  {
+    label: "Medir",
+    items: [
+      // En este orden: primero la tienda, luego lo que la alimenta.
       { href: "/shopify", label: "Shopify" },
       { href: "/meta", label: "Meta Ads" },
       { href: "/klaviyo", label: "Klaviyo" },
-      { href: "/marketing", label: "Marketing" },
+    ],
+  },
+  {
+    label: "Trabajar",
+    items: [
+      { href: "/camino", label: "Camino" },
       { href: "/planificacion", label: "Planificación" },
+      { href: "/tareas", label: "Tareas" },
+      { href: "/marketing", label: "Marketing IA" },
+    ],
+  },
+  {
+    label: "Hablar",
+    items: [
+      { href: "/mensajes", label: "Chats" },
+      { href: "/llamadas", label: "Llamadas" },
+      { href: "/agenda", label: "Agenda" },
+    ],
+  },
+  {
+    // Lo unico del nav que NO es de un cliente: no cambia al cambiar de tienda
+    // activa. Agrupado y etiquetado, esa diferencia por fin se ve.
+    label: "Tuyo",
+    items: [
+      { href: "/mi-trabajo", label: "Mi trabajo" },
+      { href: "/consultor", label: "Clientes" },
+      { href: "/tiendas", label: "Mis tiendas" },
+    ],
+  },
+  {
+    label: "",
+    items: [
       { href: "/integraciones", label: "Integraciones" },
       { href: "/conocimiento", label: "Conocimiento" },
     ],
@@ -157,33 +188,57 @@ const platformAdminNavGroups: NavGroup[] = [
   },
 ];
 
-// Nav del cliente final: misma lista plana que el consultor pero sin "Clientes"
-// (solo tiene la suya). Sin selector de cliente ni "vista general".
+// Nav del cliente final: los mismos grupos que el consultor, sin lo que no es
+// suyo. Sin selector de cliente ni "vista general".
+//
+// "Trabajar" y "Hablar" van ANTES de "Medir", al reves que en el del consultor.
+// No es un descuido: el cliente entra a hacer sus tareas y a contestar, y mira
+// las cifras de vez en cuando; el consultor entra a mirar cifras. Ademas la
+// barra inferior de movil son las cuatro primeras rutas del nav, asi que este
+// orden es tambien el que decide que ve cada rol en el movil.
+//
+// Sin grupo "Tuyo": Mi trabajo, Clientes y Mis tiendas son del consultor.
+//
+// /planificacion NO esta a proposito -- es una herramienta del consultor y el
+// cliente no debe verla en navegacion ni llegar por un enlace accidental.
+// Antes se quitaba con un filtro por href despues de construir la lista; ahora
+// simplemente no se escribe, que es mas dificil de deshacer sin querer.
 const clientNavGroups: NavGroup[] = [
   {
     label: "",
+    items: [{ href: "/dashboard", label: "Dashboard" }],
+  },
+  {
+    label: "Trabajar",
     items: [
-      { href: "/dashboard", label: "Dashboard" },
-      { href: "/camino", label: "Mi Camino" },
+      { href: "/camino", label: "Mi camino" },
       { href: "/tareas", label: "Tareas" },
+      { href: "/marketing", label: "Marketing" },
+    ],
+  },
+  {
+    label: "Hablar",
+    items: [
       { href: "/mensajes", label: "Chats" },
       { href: "/llamadas", label: "Llamadas" },
+    ],
+  },
+  {
+    label: "Medir",
+    items: [
       { href: "/shopify", label: "Shopify" },
       { href: "/meta", label: "Meta Ads" },
       { href: "/klaviyo", label: "Klaviyo" },
-      { href: "/marketing", label: "Marketing" },
-      { href: "/planificacion", label: "Planificación" },
+    ],
+  },
+  {
+    label: "",
+    items: [
       { href: "/integraciones", label: "Integraciones" },
       { href: "/conocimiento", label: "Conocimiento" },
     ],
   },
 ];
-
-// Planificacion es una herramienta del consultor; el cliente no debe verla en
-// navegacion ni llegar a ella por un enlace accidental.
-for (const group of clientNavGroups) {
-  group.items = group.items.filter((item) => item.href !== "/planificacion");
-}
 
 // Iconos para la barra de navegacion inferior en movil (las 4 primeras rutas
 // del nav del rol + "Mas"). Sin icono -> icono generico.
@@ -875,8 +930,11 @@ function PortalShellContent({
 
   const navigation = (
     <nav className="grid gap-6" aria-label="Navegacion principal">
-      {visibleGroups.map((group) => (
-        <div key={group.label}>
+      {/* La clave es el indice y no `group.label`: hay dos grupos sin etiqueta
+          (el de entrada y el cajon del final) y con el label como clave React
+          los veria como el mismo. */}
+      {visibleGroups.map((group, index) => (
+        <div key={index}>
           {group.label ? (
             <p className={navGroupLabelClass}>{group.label}</p>
           ) : null}
@@ -1208,22 +1266,15 @@ function PortalShellContent({
           </aside>
 
           <section id="portal-content" tabIndex={-1} className="min-w-0">
-            {/* Barra superior fija: breadcrumb + selector de cliente/tienda
-              activos, inline y minimalista (estilo Supabase). El consultor
-              siempre tiene el selector de cliente, con "Vista general" (sin
-              cliente) como estado por defecto. Un cliente normal solo lo ve si
-              pertenece a mas de una organizacion, y sin la opcion "Vista
-              general". Al elegir un cliente/tienda todo se scopea a el. */}
+            {/* Barra superior fija: una sola fila, estilo Supabase --
+              selectores de ambito (cliente/tienda) a la izquierda, seguidos
+              del breadcrumb, notificaciones (IA y normales) a la derecha. El
+              consultor siempre tiene el selector de cliente, con "Vista
+              general" (sin cliente) como estado por defecto. Un cliente
+              normal solo lo ve si pertenece a mas de una organizacion. Al
+              elegir un cliente/tienda todo se scopea a el. */}
             <div className="sticky top-0 z-20 hidden items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10">
-              <Breadcrumbs items={[{ label: title }]} />
-              {clientSelectNode ? (
-                <>
-                  <span aria-hidden className="text-line">
-                    /
-                  </span>
-                  {clientSelectNode}
-                </>
-              ) : null}
+              {clientSelectNode}
               {/* El selector de tienda solo aporta con >=2 tiendas. Con una
                 sola, "Todas" y esa tienda son lo mismo. */}
               {storeSelectNode ? (
@@ -1234,6 +1285,12 @@ function PortalShellContent({
                   {storeSelectNode}
                 </>
               ) : null}
+              {clientSelectNode || storeSelectNode ? (
+                <span aria-hidden className="text-line">
+                  /
+                </span>
+              ) : null}
+              <Breadcrumbs items={[{ label: title }]} />
               <div className="ml-auto flex items-center gap-3">
                 {ownStoreSelectNode}
                 <InsightsMenu

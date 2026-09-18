@@ -10,6 +10,42 @@ que es el checklist canonico del piloto. Aqui solo lo de esta linea de trabajo.
 
 ---
 
+## Integracion transversal Copiloto-first — bloqueante antes de F7
+
+El producto se esta construyendo para que el Copiloto consulte y explique los
+resultados. F3, F4, F5 y F6 ya tienen avances de contrato, motor y pantallas, y
+parte del camino comun ya existe (`decision-playbook-chat-context.ts` e
+`InsightsMenu`), pero la auditoria por bloque todavia no esta cerrada. Esta
+deuda no se resuelve creando escrituras automaticas: el Copiloto debe leer
+evidencia y proponer con los controles existentes.
+
+- [ ] **Inventariar F3 bloque a bloque (D01–D14).** Declarar para cada uno la
+      tool o adaptador de contexto, los campos que puede leer, el agente y la
+      version/`allowed_tools`; dejar motivo explicito en D00 y en cualquier
+      bloque que aun no deba exponerse.
+- [ ] **Auditar F4 y F5.** Confirmar que decisiones y playbooks llegan al
+      Copiloto con `organization_id`, `as_of`, `source_refs`, `reason_codes`,
+      `UNKNOWN`, `ABSTAIN`, `BLOCKED` y `VALIDATION_REQUIRED` sin perder
+      semantica.
+- [ ] **Auditar F6.** Renombrar el contexto que hoy se presenta como F5 para
+      incluir benchmarks y guardrails, enriquecer el resumen con facts/unknowns
+      y decidir si hace falta una tool de lectura especifica para assessments F6.
+- [ ] **Alinear prompt y permisos.** Dejar escrito que `UNKNOWN` no es falso,
+      confidence no autoriza ejecucion y toda mutacion pasa por propuesta,
+      aprobacion, idempotencia y auditoria; actualizar `allowed_tools` solo con
+      una version identificable del agente.
+- [ ] **Probar el camino del agente.** Añadir tests de contrato/contexto,
+      aislamiento entre organizaciones y una pregunta representativa con datos
+      reales usando `.env.local`; comprobar tambien el salto de `InsightsMenu`
+      al ancla exacta de cada card. La campana de notificaciones permanece
+      separada.
+- [ ] **Cerrar la pausa antes de abrir F7.** Documentar la auditoria en el
+      plan maestro, el indice y la bitacora de la fase correspondiente. Puede
+      resolverse con un adaptador comun; no hace falta una tool distinta por
+      bloque si se conserva procedencia y semantica.
+
+---
+
 ## Para Rafa ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â nadie mas puede hacerlo
 
 - [ ] **Reautorizar Shopify en `ecomscaling-dev.myshopify.com`.** La credencial
@@ -38,8 +74,8 @@ que es el checklist canonico del piloto. Aqui solo lo de esta linea de trabajo.
       no.
 - [ ] **Commits.** Hay ficheros sin commitear y la instruccion es no hacer
       commits ni push. Cuando quieras, dime y los preparo.
-- [ ] **Destilar los 5 bloques que siguen sin capas** (`6.04`, `7.15`, `7.17`,
-      `7.18`, `8.12`): solo tienen corpus maestro, hay que pasarlos por el
+- [ ] **Destilar los 4 bloques que siguen sin capas** (`7.15`, `7.17`, `7.18`,
+      `8.12`): solo tienen corpus maestro, hay que pasarlos por el
       prompt maestro. Tres de ellos bloquean la ola 1.
 
 ---
@@ -309,9 +345,314 @@ bitÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡cora, pero no representan trabajo a
 P03 queda hecho. F5 sigue abierta; el siguiente bloque habilitado es 5.04,
 oferta, pricing, merchandising y AOV.
 
+### Cierre F5/P04 — 2026-09-17
+
+- [x] ~~Implementar 5.04, oferta, pricing, merchandising y AOV.~~ Contrato
+      especializado, validator, migración, runtime con ventas/margen/stock/
+      catálogo Shopify, worker, workflow, endpoint y panel. Elasticidad,
+      incrementalidad y calidad de cliente quedan `UNKNOWN` cuando no hay
+      observación suficiente. Verificado con `.env.local`: 5/5 organizaciones,
+      0 fallos, `VALIDATION_REQUIRED` por evidencia insuficiente y cleanup a 0.
+
+F5 sigue abierta; el siguiente bloque habilitado es 5.05, retención, CRM,
+lifecycle y LTV.
+
+### Cierre F5/P05 — 2026-09-17
+
+- [x] ~~Implementar 5.05, retención, CRM, lifecycle y LTV.~~ Contrato,
+      validator, migración, motor con clientes/pedidos Shopify y configuración
+      de Klaviyo, worker, workflow manual, endpoint y panel. El runtime conserva
+      `UNKNOWN` para churn, LTV, suscripciones, incrementalidad y customer
+      quality cuando no están observados. Verificado con `.env.local`: 5/5
+      organizaciones, 0 fallos, 5 filas contadas directamente, `BLOCKED`
+      conservador y cleanup a 0.
+
+F5 sigue abierta; el siguiente bloque habilitado es 5.06, unit economics y
+rentabilidad.
+
+### Cierre F5/P06 — 2026-09-17
+
+- [x] ~~Implementar 5.06, unit economics y rentabilidad.~~ Contrato,
+  validator, motor puro con tests, migración, runtime con ventas/margen/resumen
+  financiero Shopify, worker, workflow manual, endpoint y panel. Separamos
+  waterfall, COGS, margen bruto, costes fijos y resumen financiero; CAC,
+  contribution, payback, cash, segmentación, escenarios y comparabilidad no se
+  inventan y permanecen `UNKNOWN` sin fuente suficiente.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales, `5 succeeded`, `0 failed`, `VALIDATION_REQUIRED` conservador y
+  cleanup directo a cero.
+
+F5 sigue abierta; el siguiente bloque habilitado es 5.07, producto, catálogo e
+inventario.
+
+### Cierre F5/P07 — 2026-09-17
+
+- [x] ~~Implementar 5.07, producto, catálogo e inventario.~~ Contrato,
+  validator, motor puro con tests, migración, runtime con catálogo/variantes,
+  stock Shopify, ventas y margen, worker, workflow manual, endpoint y panel.
+  El runtime separa catálogo, inventario, demanda y economics; no inventa
+  overstock, forecast, reposición, supplier, calidad ni racionalización.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales, `5 succeeded`, `0 failed`, `BLOCKED` conservador y cleanup directo
+  a cero.
+
+F5 sigue abierta; el siguiente bloque habilitado es 5.08, operaciones,
+fulfillment y customer experience.
+
+### Cierre F5/P08 — 2026-09-17
+
+- [x] ~~Implementar 5.08, operaciones, fulfillment y customer experience.~~
+  Contrato, validator, migración, motor puro con tests, runtime con entrega,
+  ventas y devoluciones Shopify, worker, workflow manual, endpoint y panel.
+  El runtime separa preparación, fulfillment, tránsito, promesa, capacidad,
+  devoluciones, soporte y recuperación; no inventa SLA, backlog, capacidad,
+  causa del carrier ni experiencia de cliente.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales, `5 succeeded`, `0 failed`, `VALIDATION_REQUIRED` conservador y
+  cleanup directo a cero.
+
+F5 sigue abierta; el siguiente bloque habilitado es 5.09, datos, tracking y
+experimentación.
+
+### Cierre F5/P09 — 2026-09-18
+
+- [x] ~~Implementar 5.09, datos, tracking y experimentación.~~ Contrato,
+  validator, migración, motor puro con tests, runtime con ventas, funnel y
+  series diarias Shopify, worker, workflow manual, endpoint y panel. El runtime
+  separa cobertura, calidad, semántica, reconciliación, atribución, causalidad
+  y experimentación; no confunde datos observados con datos fiables ni
+  atribución con incrementalidad.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales, `5 succeeded`, `0 failed`, `VALIDATION_REQUIRED` conservador y
+  cleanup directo a cero.
+
+F5 sigue abierta; el siguiente bloque habilitado es 5.10, escalabilidad y
+eliminación de constraints.
+
+### Cierre F5/P10 — 2026-09-18
+
+- [x] ~~Implementar 5.10, escalabilidad y eliminación de constraints.~~
+  Contrato con `domain_extension.scalability`, validator, migración, motor puro
+  con tests, runtime con ventas/margen/stock/delivery/serie diaria Shopify,
+  worker, workflow manual, endpoint y panel ordenado de cobertura. El runtime
+  no inventa capacidad, headroom, bottleneck, fragilidad ni siguiente
+  constraint sin evidencia específica.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales, `5 succeeded`, `0 failed`, `VALIDATION_REQUIRED` conservador y
+  cleanup directo a cero.
+
+F5 sigue abierta; el siguiente bloque habilitado es 5.11, recovery, crisis y
+playbooks transversales.
+
 ### Integración F4/F5 con el Copiloto — 2026-09-17
 
 - [x] ~~Conectar las salidas decisionales y los playbooks al contexto del
       Copiloto.~~ Se añadió un adaptador tenant-scoped de solo lectura que
       entrega contexto F4/F5 resumido, conserva `UNKNOWN`, `ABSTAIN` y
       `VALIDATION_REQUIRED`, y añade preguntas específicas en Diagnóstico.
+
+### Cierre F5/P11 — 2026-09-18
+
+- [x] ~~Implementar 5.11, recovery, crisis y playbooks transversales.~~
+  Contrato `domain_extension.recovery_crisis`, validator, migración, motor puro
+  con tests, worker, workflow manual, endpoint y panel. El runtime hace triage
+  conservador y mantiene `UNKNOWN` para crisis, severidad, blast radius,
+  continuidad, containment, estabilización, causa raíz y comunicación no
+  observadas.
+- [x] ~~Conectar el feed transversal de IA con `InsightsMenu`.~~ La zona de IA
+  sigue separada de la campana normal, filtra por organización y enlaza cada
+  assessment con el ancla de la card concreta. Se añadieron anclas a F5.01–F5.11
+  y al resumen diagnóstico; el patrón queda disponible para fases anteriores.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, `5 succeeded`,
+  `0 failed`, cinco ejecuciones `VALIDATION_REQUIRED`, cleanup a cero; el feed
+  devolvió un assessment temporal sembrado y lo borró al terminar.
+
+F5 queda cerrada completa (`P00`–`P11`). La siguiente fase habilitada es F6,
+benchmarks y guardrails.
+
+### Cierre F6/P00 — 2026-09-18
+
+- [x] ~~Implementar 6.00, framework universal de benchmarks y guardrails.~~
+  Contrato, validator, motor puro con tests, migración, worker, workflow,
+  endpoint y panel. El runtime observa historia propia y fuentes Shopify, pero
+  no inventa comparabilidad, benchmark externo, objetivo, materialidad,
+  guardrails ni confianza.
+- [x] ~~Verificar con `.env.local`.~~ Template temporal, cinco organizaciones,
+  `5 succeeded`, `0 failed`, cinco filas `VALIDATION_REQUIRED` y cleanup a cero.
+- [x] ~~Conservar la integración de `InsightsMenu`.~~ P00 publica la card con
+  ancla estable y usa el feed de IA separado de las notificaciones normales.
+
+F6/P00 queda hecho. El siguiente bloque habilitado es F6/P01,
+contextualización y cohortes comparables.
+
+### Cierre F6/P01 — 2026-09-18
+
+- [x] ~~Implementar 6.01, contextualización y cohortes comparables.~~
+  Contrato con métrica, dimensiones materiales, referencias, definiciones,
+  muestra, mix, temporalidad y comparabilidad; validator, migración, motor
+  puro con tests, runtime Shopify, worker, workflow manual, endpoint y panel.
+  El motor observa solo lo que las fuentes demuestran y mantiene `UNKNOWN`
+  para cohortes, peer groups, definiciones, mix y confianza no medidos.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales, `5 succeeded`, `0 failed`, `VALIDATION_REQUIRED` conservador y
+  cleanup directo a cero.
+- [x] ~~Conectar P01 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-cohort-context`; el feed transversal conserva la separación de la
+  campana normal y puede llevar al consultor directamente a la card.
+
+F6/P01 queda hecho. El siguiente bloque habilitado es F6/P02.
+
+### Cierre F6/P02 — 2026-09-18
+
+- [x] ~~Implementar 6.02, calidad, suficiencia y fiabilidad de los datos.~~
+  Contrato con identidad de métrica, source of truth, tipo de evidencia,
+  calidad, muestra, maduración, missingness, reconciliación, validaciones
+  matemáticas, gaps y scope of claim; validator, migración, motor puro con
+  tests, runtime sobre D01 + Shopify, worker, workflow manual, endpoint y
+  panel separado de la pantalla D01.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales, `5 succeeded`, `0 failed`, `VALIDATION_REQUIRED` conservador y
+  cleanup directo a cero.
+- [x] ~~Conectar P02 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-data-quality-reliability`; el feed transversal conserva la
+  separación de la campana normal y lleva al consultor al punto exacto.
+
+F6/P02 queda hecho. El siguiente bloque habilitado es F6/P03.
+
+### Cierre F6/P03 — 2026-09-18
+
+- [x] ~~Implementar 6.03, benchmarks y guardrails de adquisición y demanda.~~
+  Contrato con nuevos clientes, CAC, economics, calidad, roles de canal,
+  dependencia, eficiencia marginal, cohortes, restricciones e incrementalidad;
+  validator, migración, motor puro con tests, runtime Shopify, worker, workflow
+  manual, endpoint y panel.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales, `5 succeeded`, `0 failed`, `VALIDATION_REQUIRED` conservador y
+  cleanup directo a cero.
+- [x] ~~Conectar P03 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-acquisition-demand`; el feed transversal conserva la separación de
+  la campana normal y lleva al consultor a la evaluación.
+
+F6/P03 queda hecho. El siguiente bloque habilitado es F6/P04.
+
+### Cierre F6/P04 — 2026-09-18
+
+- [x] ~~Implementar 6.04, benchmarks y guardrails de Paid Media y eficiencia
+  de tráfico.~~ Contrato específico separado de F5.02 mediante
+  `PAID_MEDIA_BENCHMARKS`, validator, migración, motor puro con tests, runtime
+  Meta/Shopify, worker, workflow manual, endpoint y panel. La cadena separa
+  media efficiency, post-click, acquisition, economics, atribución y
+  guardrails; incrementalidad, escala marginal, objetivo y confianza quedan
+  `UNKNOWN` sin evidencia compatible.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P04 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-paid-media-benchmarks`; el feed de IA sigue separado de la campana
+  normal y lleva al consultor a la card exacta.
+
+F6/P04 queda hecho. El siguiente bloque habilitado es F6/P05.
+
+### Cierre F6/P05 — 2026-09-18
+
+- [x] ~~Implementar 6.05, benchmarks y guardrails de conversión y CRO.~~
+  Contrato específico `CONVERSION_CRO_BENCHMARKS`, validator, motor puro con
+  tests, runtime Shopify, migración, worker, workflow, endpoint y panel. El
+  flujo valida definición y denominador, controla mix, descompone funnel,
+  separa economics de causalidad y conserva `UNKNOWN` para product views,
+  técnica, experimentos, comparabilidad, oportunidad y guardrails no medidos.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P05 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-conversion-cro-benchmarks`; el feed de IA sigue separado de la
+  campana normal y lleva al consultor a la evaluación CRO.
+
+F6/P05 queda hecho. El siguiente bloque habilitado es F6/P06.
+
+### Cierre F6/P06 — 2026-09-18
+
+- [x] ~~Implementar 6.06, benchmarks y guardrails de oferta, pricing,
+  merchandising y AOV.~~ Contrato `OFFER_PRICING_BENCHMARKS`, validator, motor
+  puro con tests, runtime Shopify, migración, worker, workflow, endpoint y
+  panel. Descompone AOV, separa economics de pricing/elasticidad, conserva
+  `UNKNOWN` para incrementalidad y customer quality no observadas y no ejecuta
+  cambios comerciales.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P06 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-offer-pricing-benchmarks` y permanece separada de la campana normal.
+
+F6/P06 queda hecho. El siguiente bloque habilitado es F6/P07.
+
+### Cierre F6/P07 — 2026-09-18
+
+- [x] ~~Implementar 6.07, benchmarks y guardrails de retención, CRM y LTV.~~
+  Contrato `RETENTION_CRM_BENCHMARKS`, validator, motor puro con tests,
+  runtime Shopify/Klaviyo, migración, worker, workflow, endpoint y panel.
+  Observa identidad, repeat, contribution y capacidades CRM sin inventar
+  cohort maturity, churn, LTV o incrementalidad.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P07 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-retention-crm-benchmarks` y sigue separada de la campana normal.
+
+F6/P07 queda hecho. El siguiente bloque habilitado es F6/P08.
+
+### Cierre F6/P08 — 2026-09-18
+
+- [x] ~~Implementar 6.08, benchmarks y guardrails de unit economics y
+  rentabilidad.~~ Contrato `UNIT_ECONOMICS_BENCHMARKS`, validator, motor puro
+  con tests, runtime Shopify, migración, worker, workflow, endpoint y panel.
+  Separa revenue, costes y gross profit, y mantiene contribution, CAC,
+  payback, cash y escenarios en `UNKNOWN` sin evidencia específica.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P08 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-unit-economics-benchmarks` y permanece separada de la campana normal.
+
+F6/P08 queda hecho. El siguiente bloque habilitado es F6/P09.
+
+### Cierre F6/P09 — 2026-09-18
+
+- [x] ~~Implementar 6.09, benchmarks y guardrails de operaciones y experiencia
+  de cliente.~~ Contrato `OPERATIONS_CX_BENCHMARKS`, validator, motor puro con
+  tests, runtime Shopify, migración, worker, workflow, endpoint y panel.
+  Promesa, timestamps, delivery y returns se separan de capacidad, soporte,
+  CX y coste no observados.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas
+  temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P09 con `InsightsMenu`.~~ La card tiene el ancla estable
+  `#insight-operations-cx-benchmarks` y sigue separada de la campana normal.
+
+F6/P09 queda hecho. El siguiente bloque habilitado es F6/P10.
+
+### Cierre F6/P10 — 2026-09-18
+
+- [x] ~~Implementar 6.10, benchmarks y guardrails de inventario y salud comercial.~~ Contrato `PRODUCT_INVENTORY_BENCHMARKS`, validator, motor puro con tests, runtime Shopify, migración, worker, workflow, endpoint y panel; stock y demanda observados no se convierten en coverage, forecast, aging o replenishment.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P10 con `InsightsMenu`.~~ Card `#insight-product-inventory-benchmarks` y entrada de overview registrados.
+
+F6/P10 queda hecho. El siguiente bloque habilitado es F6/P11.
+
+### Cierre F6/P11 — 2026-09-18
+
+- [x] ~~Implementar 6.11, benchmarks y guardrails de escalabilidad y límites.~~ Contrato `SCALABILITY_BENCHMARKS`, validator, motor puro con tests, runtime Shopify, migración, worker, workflow, endpoint y panel; economics y throughput no se convierten en headroom o bottleneck.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P11 con `InsightsMenu`.~~ Card `#insight-scalability-benchmarks` y entrada de overview registrados.
+
+F6/P11 queda hecho. El siguiente bloque habilitado es F6/P12.
+
+### Cierre F6/P12 — 2026-09-18
+
+- [x] ~~Implementar 6.12, anomalías, red flags y patterns.~~ Contrato `ANOMALIES_RED_FLAGS`, validator, motor puro con tests, runtime Shopify, migración, worker, workflow, endpoint y panel; una observación no se presenta como anomalía sin baseline y desviación.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P12 con `InsightsMenu`.~~ Card `#insight-anomalies-red-flags` y entrada de overview registrados.
+
+F6/P12 queda hecho. El siguiente bloque habilitado es F6/P13.
+
+### Cierre F6/P13 — 2026-09-18
+
+- [x] ~~Implementar 6.13, confianza, incertidumbre y comunicación del benchmark.~~ Contrato `BENCHMARK_CONFIDENCE`, validator, motor puro con tests, runtime Shopify, migración, worker, workflow, endpoint y panel; las dimensiones no se promedian y confianza no autoriza ejecución.
+- [x] ~~Verificar con `.env.local`.~~ Cinco organizaciones, cinco filas temporales `VALIDATION_REQUIRED`, `5 succeeded`, `0 failed` y cleanup a cero.
+- [x] ~~Conectar P13 con `InsightsMenu`.~~ Card `#insight-benchmark-confidence` y entrada de overview registrados.
+
+F6 queda cerrada completa (`P00`–`P13`). F7 puede abrirse en una sesión posterior.

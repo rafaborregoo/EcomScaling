@@ -1,0 +1,9 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { applyRetentionCrmBenchmarksEvidence, buildRetentionCrmBenchmarksPlaybookContext } from "./retention-crm-benchmarks-engine.js";
+test("F6.07 observa base, repeat y contribution sin inventar LTV, churn ni incrementalidad", () => {
+  const context = buildRetentionCrmBenchmarksPlaybookContext("org-1", [], null, "2026-09-18T10:00:00.000Z");
+  const enriched = applyRetentionCrmBenchmarksEvidence(context, { customers: { available: true, customer_count: 100, repeat_customers: 30, stateful_customers: 80 }, margin: { available: true, items_with_cost: 6, contribution: 700 }, sales: { available: true, orders_count: 140, refunds: 3 }, crm: { available: true, account_count: 1, flows_count: 4 }, history: { available: true, days: 90 } }, ["shopify_customers:org-1:2026-09-18"]);
+  assert.equal(enriched.facts?.["retention_benchmarks.customer_base.observed"], "TRUE"); assert.equal(enriched.facts?.["retention_benchmarks.repeat.observed"], "TRUE"); assert.equal(enriched.facts?.["retention_benchmarks.contribution.observed"], "TRUE"); assert.equal(enriched.facts?.["retention_benchmarks.crm.observed"], "TRUE"); assert.equal(enriched.facts?.["retention_benchmarks.ltv.observed"], "UNKNOWN"); assert.equal(enriched.facts?.["retention_benchmarks.incrementality.observed"], "UNKNOWN"); assert.equal(enriched.facts?.["retention_benchmarks.churn.observed"], "UNKNOWN");
+});
+test("F6.07 conserva UNKNOWN sin identidad ni cohortes", () => { const enriched = applyRetentionCrmBenchmarksEvidence(buildRetentionCrmBenchmarksPlaybookContext("org-1", [], null, "2026-09-18T10:00:00.000Z"), {}); assert.equal(enriched.facts?.["retention_benchmarks.customer_base.observed"], "UNKNOWN"); assert.equal(enriched.facts?.["retention_benchmarks.cohorts.observed"], "UNKNOWN"); assert.equal(enriched.facts?.["retention_benchmarks.confidence.observed"], "UNKNOWN"); });

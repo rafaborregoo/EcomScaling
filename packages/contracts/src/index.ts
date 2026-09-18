@@ -268,3 +268,28 @@ export * from "./acquisition.js";
 
 // FASE 5 / 5.03: extensión CRO para funnel, research, fixes y tests.
 export * from "./conversion-cro.js";
+
+// FASE 5 / 5.04: extensión de oferta, pricing, merchandising y AOV.
+export * from "./offer-pricing.js";
+// FASE 5 / 5.05: extensión de retención, CRM, lifecycle y LTV.
+export * from "./retention-crm.js";
+export * from "./unit-economics.js";
+export * from "./product-inventory.js";
+export * from "./measurement-experimentation.js";
+export * from "./scalability-constraints.js";
+export * from "./recovery-crisis.js";
+export * from "./benchmark-guardrails.js";
+export * from "./cohort-context.js";
+export * from "./data-quality-reliability.js";
+export * from "./acquisition-demand.js";
+export * from "./paid-media-benchmarks.js";
+export * from "./conversion-cro-benchmarks.js";
+export * from "./offer-pricing-benchmarks.js";
+export * from "./retention-crm-benchmarks.js";
+export * from "./unit-economics-benchmarks.js";
+export * from "./operations-cx-benchmarks.js";
+export * from "./product-inventory-benchmarks.js";
+export * from "./scalability-benchmarks.js";
+export * from "./anomalies-red-flags.js";
+export * from "./benchmark-confidence.js";
+export * from "./operations-cx.js";

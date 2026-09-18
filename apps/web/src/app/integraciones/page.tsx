@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Modal } from "@heroui/react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
-import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
@@ -26,79 +26,51 @@ import {
 } from "@/components/ui";
 import { classifyAuthorizationAttempt } from "@ecomscaling/contracts";
 import { ClientDataQualityNotice, DataQualityPanel } from "./data-quality-panel";
-import { PROVIDER_SLUG, readOAuthNotice, useIntegrations, useStoreScope } from "./shared";
+import {
+  PROVIDER_SLUG,
+  readOAuthNotice,
+  useIntegrations,
+  useStoreScope,
+  type IntegrationProvider,
+} from "./shared";
 import {
   buildStoreViews,
+  explainHealth,
   healthTone,
   unassignedConnections,
   type StoreView,
 } from "./store-view-model";
 
-// Hub de /integraciones: LA LISTA DE TIENDAS.
-//
-// Antes era una rejilla de cinco tarjetas por proveedor, cada una con el estado
-// de su peor tienda y una lista de ids crudos debajo. Para saber si la tienda de
-// un cliente estaba bien habia que leer las cinco y cruzarlas de cabeza, y todo
-// lo que no estaba conectado -- que es una decision, no una averia -- salia en
-// rojo junto a lo que si estaba roto.
-//
-// Aqui la unidad es la tienda, que es como el cliente piensa su negocio: entras
-// en una y ves sus tres conexiones. El detalle de cada tienda vive en
-// /integraciones/tienda/<connectionId>, y la configuracion de cada conector en
-// /integraciones/<slug>.
+// Los 5 conectores del catalogo, en el orden fijo en que se leen: primero los
+// que tienen tienda detras (Shopify, Meta, Klaviyo), luego los que no.
+const PROVIDER_ORDER = ["shopify", "meta_ads", "klaviyo", "instagram", "fathom"];
 
-// Texto plano, sin badges: el color de la palabra ya dice el estado, no hace
-// falta una pastilla alrededor. "Sin conectar" en gris no es una averia.
-const TEXT_TONE: Record<string, string> = {
-  success: "text-success",
-  warn: "text-warning",
-  danger: "text-danger",
-  brand: "text-brand",
-  neutral: "text-muted",
-};
+// Hub de /integraciones: una rejilla de 2 columnas, una tarjeta por conexion
+// (Shopify, Meta Ads, Klaviyo, Instagram, Fathom). Shopify es la excepcion --
+// Meta y Klaviyo son conexiones DE una tienda, pero Shopify ES la tienda, asi
+// que su tarjeta lista cada una en vez de resumir "conectado/no conectado".
+// El detalle de cada tienda vive en /integraciones/tienda/<connectionId>, y la
+// configuracion de cada conector en /integraciones/<slug>.
 
-function StoreRow({
-  store,
-  isActive,
-}: {
-  store: StoreView;
-  isActive: boolean;
-}) {
+/** Solo el nombre de la tienda y si necesita atencion: el detalle de sus tres
+ * conexiones (cuenta, ultimo sync, error) vive en su propia ficha, un clic
+ * mas alla. Esta pantalla es para conectar, no para diagnosticar. */
+function StoreRow({ store }: { store: StoreView }) {
   return (
     <Link
       href={`/integraciones/tienda/${store.connectionId}`}
       aria-label={`Abrir ${store.name}`}
-      className="flex items-center justify-between gap-4 px-1 py-3 no-underline"
+      className="flex items-center justify-between gap-4 px-1 py-2.5 no-underline"
     >
-      <div className="min-w-0 space-y-0.5">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <span className="font-medium text-foreground">{store.name}</span>
-          {isActive ? <span className="text-xs text-muted">(activa)</span> : null}
-          {store.domain ? (
-            <span className="truncate font-mono text-xs text-muted">
-              {store.domain}
-            </span>
-          ) : null}
-        </div>
-        <p className="text-sm">
-          {store.providers.map((provider, index) => {
-            const connected = provider.connections.length > 0;
-            return (
-              <span key={provider.provider}>
-                {index > 0 ? <span className="text-muted"> · </span> : null}
-                <span
-                  className={
-                    connected ? TEXT_TONE[healthTone(provider.status)] : "text-muted"
-                  }
-                >
-                  {provider.name}: {provider.explanation.label}
-                </span>
-              </span>
-            );
-          })}
-        </p>
-      </div>
-      <IconChevronRight aria-hidden className="shrink-0 text-muted" />
+      <span className="min-w-0 truncate font-medium text-foreground">
+        {store.name}
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {store.severity > 0 ? (
+          <Badge tone={healthTone(store.status)}>Necesita atención</Badge>
+        ) : null}
+        <IconChevronRight aria-hidden className="text-muted" />
+      </span>
     </Link>
   );
 }
@@ -148,6 +120,183 @@ function IntegrationsSummaryLine({
   );
 }
 
+/** Boton que abre el catalogo de las 5 apps con su logo. Ir a conectar una era
+ * antes "adivina el slug en la barra de direcciones" o "date con la tarjeta
+ * correcta en Otras integraciones"; aqui esta todo junto, se elige por logo. */
+function ConnectAppsModal({ providers }: { providers: IntegrationProvider[] }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const ordered = [...providers].sort(
+    (a, b) => PROVIDER_ORDER.indexOf(a.id) - PROVIDER_ORDER.indexOf(b.id),
+  );
+
+  return (
+    <>
+      <Button onClick={() => setIsOpen(true)}>Conectar</Button>
+      <Modal isOpen={isOpen} onOpenChange={setIsOpen}>
+        <Modal.Backdrop>
+          <Modal.Container size="md">
+            <Modal.Dialog aria-label="Conectar una aplicación">
+              <Modal.Header>
+                <Modal.Heading>Conectar una aplicación</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <ul className="grid gap-3 sm:grid-cols-2">
+                  {ordered.map((provider) => {
+                    const slug = PROVIDER_SLUG[provider.id];
+                    const clickable = Boolean(slug && provider.available);
+                    return (
+                      <li key={provider.id}>
+                        {clickable ? (
+                          <Link
+                            href={`/integraciones/${slug}`}
+                            onClick={() => setIsOpen(false)}
+                            className="flex items-center gap-3 rounded-md border border-edge p-3 no-underline transition hover:border-accent"
+                          >
+                            <ProviderIcon provider={provider.id} size={28} />
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground">
+                                {provider.name}
+                              </div>
+                              <div className="truncate text-xs text-muted">
+                                {provider.description}
+                              </div>
+                            </div>
+                            <IconChevronRight
+                              aria-hidden
+                              className="ml-auto shrink-0 text-muted"
+                            />
+                          </Link>
+                        ) : (
+                          <div className="flex items-center gap-3 rounded-md border border-edge p-3 opacity-60">
+                            <ProviderIcon provider={provider.id} size={28} />
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground">
+                                {provider.name}
+                              </div>
+                              <div className="truncate text-xs text-muted">
+                                Disponible más adelante
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="ghost" onClick={() => setIsOpen(false)}>
+                  Cerrar
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+    </>
+  );
+}
+
+/** La tarjeta de Shopify en la rejilla: no es "un proveedor mas", es la que
+ * cuelga las tiendas -- Meta y Klaviyo son conexiones DE una tienda, Shopify
+ * ES la tienda. Por eso lista cada una (con acceso a su detalle) en vez de
+ * resumir "conectado/no conectado" como las demas tarjetas. */
+function ShopifyGridCard({
+  provider,
+  stores,
+}: {
+  provider: IntegrationProvider | null;
+  stores: StoreView[];
+}) {
+  return (
+    <Card
+      title={
+        <span className="flex items-center gap-2">
+          <ProviderIcon provider="shopify" size={20} />
+          Shopify
+        </span>
+      }
+      description={provider?.description}
+      actions={
+        <ButtonLink variant="secondary" href="/integraciones/shopify">
+          Conectar otra tienda
+        </ButtonLink>
+      }
+    >
+      {!provider?.available ? (
+        <p className="text-sm text-muted">Disponible más adelante.</p>
+      ) : stores.length === 0 ? (
+        <EmptyState
+          title="Todavía no hay ninguna tienda"
+          hint="Una tienda nace al conectar Shopify. A partir de ahí se le añaden Meta Ads y Klaviyo."
+          action={
+            <ButtonLink href="/integraciones/shopify">
+              Conectar la primera tienda
+            </ButtonLink>
+          }
+        />
+      ) : (
+        <List as="ul" className="-mx-1">
+          {stores.map((store) => (
+            <List.Item as="li" key={store.connectionId}>
+              <StoreRow store={store} />
+            </List.Item>
+          ))}
+        </List>
+      )}
+    </Card>
+  );
+}
+
+/** Tarjeta de la rejilla para Meta Ads, Klaviyo, Instagram y Fathom: son una
+ * conexion de la organizacion (no varias tiendas), asi que basta con su
+ * estado y un boton para conectar/reconectar/configurar. */
+function ProviderGridCard({ provider }: { provider: IntegrationProvider }) {
+  const slug = PROVIDER_SLUG[provider.id];
+  const explanation = explainHealth(provider.health, provider.connection);
+  const connected = provider.connections.length > 0;
+
+  return (
+    <div className="flex items-start gap-3 rounded-md border border-edge p-4">
+      <ProviderIcon provider={provider.id} size={28} className="mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-medium text-foreground">{provider.name}</p>
+          <Badge
+            tone={connected ? healthTone(provider.health.status) : "neutral"}
+            variant="soft"
+          >
+            {provider.available ? explanation.label : "Disponible más adelante"}
+          </Badge>
+        </div>
+        {/* Que se conecta y para que se usa: sin esto, "Conectar" era un salto
+            de fe -- ni el propio dueño de la tienda sabe que le va a leer. */}
+        <p className="mt-1 text-xs text-muted">{provider.description}</p>
+      </div>
+      {slug && provider.available ? (
+        <ButtonLink
+          variant={
+            explanation.fix === "reconnect" ||
+            explanation.fix === "connect" ||
+            explanation.fix === "discard"
+              ? "primary"
+              : "secondary"
+          }
+          href={`/integraciones/${slug}`}
+        >
+          {explanation.fix === "discard"
+            ? "Retomar"
+            : explanation.fix === "reconnect"
+              ? "Reconectar"
+              : explanation.fix === "connect"
+                ? "Conectar"
+                : "Configurar"}
+        </ButtonLink>
+      ) : null}
+    </div>
+  );
+}
+
 function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const {
     organization,
@@ -171,8 +320,6 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ["owner", "manager"].includes(membership.role),
     );
   const { scope } = useStoreScope(organization?.id ?? null);
-  // La tienda del selector del encabezado, para marcar cual estas viendo.
-  const { connectionId: activeConnectionId } = useActiveConnection();
   // Onboarding: se llega aquí justo después de crear una tienda propia en
   // /tiendas (?welcome=<nombre>) para conectar sus integraciones.
   const [welcomeStore, setWelcomeStore] = useState<string | null>(null);
@@ -225,11 +372,10 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const stores = buildStoreViews(payload, scope);
   const unassigned = unassignedConnections(payload, scope);
   const needAttention = stores.filter((store) => store.severity > 0);
-  // Conectores que no cuelgan de una tienda todavia (Instagram, Fathom). No son
-  // una averia: se dicen una vez, en gris, al final.
-  const otros = payload.providers.filter(
-    (provider) => !["shopify", "meta_ads", "klaviyo"].includes(provider.id),
-  );
+  const shopify = payload.providers.find((provider) => provider.id === "shopify") ?? null;
+  const otherProviders = payload.providers
+    .filter((provider) => provider.id !== "shopify")
+    .sort((a, b) => PROVIDER_ORDER.indexOf(a.id) - PROVIDER_ORDER.indexOf(b.id));
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
@@ -254,37 +400,17 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
           dibuja como KPI. */}
       <IntegrationsSummaryLine stores={stores} needAttention={needAttention} />
 
-      <Card
-        title="Tus tiendas"
-        actions={
-          <ButtonLink variant="secondary" href="/integraciones/shopify">
-            Conectar otra tienda
-          </ButtonLink>
-        }
-      >
-        {stores.length === 0 ? (
-          <EmptyState
-            title="Todavía no hay ninguna tienda"
-            hint="Una tienda nace al conectar Shopify. A partir de ahí se le añaden Meta Ads y Klaviyo."
-            action={
-              <ButtonLink href="/integraciones/shopify">
-                Conectar la primera tienda
-              </ButtonLink>
-            }
-          />
-        ) : (
-          <List as="ul" className="mt-1">
-            {stores.map((store) => (
-              <List.Item as="li" key={store.connectionId}>
-                <StoreRow
-                  store={store}
-                  isActive={store.connectionId === activeConnectionId}
-                />
-              </List.Item>
-            ))}
-          </List>
-        )}
-      </Card>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-medium text-foreground">Tus conexiones</h2>
+        <ConnectAppsModal providers={payload.providers} />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <ShopifyGridCard provider={shopify} stores={stores} />
+        {otherProviders.map((provider) => (
+          <ProviderGridCard key={provider.id} provider={provider} />
+        ))}
+      </div>
 
       {unassigned.length > 0 ? (
         <Card
@@ -340,36 +466,6 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         : "Descartar"}
                     </Button>
                   ) : null}
-                </List.Item>
-              );
-            })}
-          </List>
-        </Card>
-      ) : null}
-
-      {otros.length > 0 ? (
-        <Card title="Otras integraciones">
-          <List as="ul">
-            {otros.map((provider) => {
-              const slug = PROVIDER_SLUG[provider.id];
-              return (
-                <List.Item
-                  as="li"
-                  key={provider.id}
-                  className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"
-                >
-                  <span className="flex items-center gap-2">
-                    <ProviderIcon provider={provider.id} />
-                    {provider.name}
-                    <span className="text-muted">{provider.description}</span>
-                  </span>
-                  {provider.available && slug ? (
-                    <Link href={`/integraciones/${slug}`}>Configurar</Link>
-                  ) : (
-                    <span className="text-xs text-muted">
-                      Disponible más adelante
-                    </span>
-                  )}
                 </List.Item>
               );
             })}

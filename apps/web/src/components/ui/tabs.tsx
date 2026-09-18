@@ -20,6 +20,7 @@ export function Tabs({
 }) {
   return (
     <HeroTabs
+      variant="secondary"
       selectedKey={value}
       onSelectionChange={(key) => onChange(String(key))}
       className={className}

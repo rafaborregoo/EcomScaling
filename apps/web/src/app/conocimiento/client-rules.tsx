@@ -13,6 +13,7 @@ import {
   Input,
   List,
   LoadingBlock,
+  Modal,
   Select,
   Textarea,
   toast,
@@ -72,6 +73,7 @@ export function ClientRules({
 }) {
   const [rules, setRules] = useState<ClientRule[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isAddOpen, setIsAddOpen] = useState(false);
   const [statement, setStatement] = useState("");
   const [category, setCategory] = useState("operations");
   const [validUntil, setValidUntil] = useState("");
@@ -127,6 +129,7 @@ export function ClientRules({
       }
       setStatement("");
       setValidUntil("");
+      setIsAddOpen(false);
       toast.success("Regla añadida", {
         description: "El copiloto la tendrá delante desde la próxima respuesta.",
       });
@@ -168,9 +171,16 @@ export function ClientRules({
       title="Reglas de este cliente"
       description="El copiloto las tiene delante en cada respuesta, sin depender de que la conversación las saque."
       actions={
-        active.length > 0 ? (
-          <Badge tone="success">{active.length} activas</Badge>
-        ) : undefined
+        <div className="flex items-center gap-2">
+          {active.length > 0 ? (
+            <Badge tone="success">{active.length} activas</Badge>
+          ) : null}
+          {canManage ? (
+            <Button size="sm" onClick={() => setIsAddOpen(true)}>
+              Añadir regla
+            </Button>
+          ) : null}
+        </div>
       }
     >
       {error ? (
@@ -179,50 +189,7 @@ export function ClientRules({
         </div>
       ) : null}
 
-      {canManage ? (
-        <form className="space-y-3" onSubmit={submit}>
-          <Field label="Regla">
-            <Textarea
-              className="mt-1 h-20"
-              maxLength={MAX_LENGTH}
-              value={statement}
-              onChange={(event) => setStatement(event.target.value)}
-              placeholder="Ej: Nunca propongas descuentos por encima del 20%."
-            />
-            {remaining < 80 ? (
-              <p className="mt-1 text-xs text-muted">
-                {remaining} caracteres. Si necesitas más, es un documento: una
-                regla entra entera en cada respuesta.
-              </p>
-            ) : null}
-          </Field>
-          <div className="flex flex-wrap items-end gap-3">
-            <Field label="Tema">
-              <Select
-                className="mt-1 w-44"
-                aria-label="Tema de la regla"
-                value={category}
-                onChange={setCategory}
-                options={RULE_CATEGORIES}
-              />
-            </Field>
-            <Field label="Deja de aplicar (opcional)">
-              <Input
-                className="mt-1 w-44"
-                type="date"
-                min={today}
-                value={validUntil}
-                onChange={(event) => setValidUntil(event.target.value)}
-              />
-            </Field>
-            <Button type="submit" disabled={isSaving || !statement.trim()}>
-              {isSaving ? "Guardando…" : "Añadir regla"}
-            </Button>
-          </div>
-        </form>
-      ) : null}
-
-      <div className="mt-6">
+      <div>
         {rules === null ? (
           <LoadingBlock label="Cargando reglas…" />
         ) : rules.length === 0 ? (
@@ -278,6 +245,72 @@ export function ClientRules({
           </List>
         )}
       </div>
+
+      <Modal isOpen={isAddOpen} onOpenChange={setIsAddOpen}>
+        <Modal.Backdrop>
+          <Modal.Container size="md">
+            <Modal.Dialog aria-label="Añadir regla">
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <Modal.Heading>Añadir regla</Modal.Heading>
+              </Modal.Header>
+              <form onSubmit={submit}>
+                <Modal.Body>
+                  <div className="space-y-3">
+                    <Field label="Regla">
+                      <Textarea
+                        className="mt-1 h-20"
+                        maxLength={MAX_LENGTH}
+                        value={statement}
+                        onChange={(event) => setStatement(event.target.value)}
+                        placeholder="Ej: Nunca propongas descuentos por encima del 20%."
+                      />
+                      {remaining < 80 ? (
+                        <p className="mt-1 text-xs text-muted">
+                          {remaining} caracteres. Si necesitas más, es un
+                          documento: una regla entra entera en cada respuesta.
+                        </p>
+                      ) : null}
+                    </Field>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <Field label="Tema">
+                        <Select
+                          className="mt-1 w-44"
+                          aria-label="Tema de la regla"
+                          value={category}
+                          onChange={setCategory}
+                          options={RULE_CATEGORIES}
+                        />
+                      </Field>
+                      <Field label="Deja de aplicar (opcional)">
+                        <Input
+                          className="mt-1 w-44"
+                          type="date"
+                          min={today}
+                          value={validUntil}
+                          onChange={(event) => setValidUntil(event.target.value)}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </Modal.Body>
+                <Modal.Footer>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setIsAddOpen(false)}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button type="submit" disabled={isSaving || !statement.trim()}>
+                    {isSaving ? "Guardando…" : "Añadir regla"}
+                  </Button>
+                </Modal.Footer>
+              </form>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
     </Card>
   );
 }

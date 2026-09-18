@@ -357,26 +357,6 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
             />
           ))
         : null}
-
-      <Card
-        title="Ver más"
-        description="El detalle de cada canal, cuando lo necesites."
-      >
-        <div className="flex flex-wrap gap-2">
-          <ButtonLink href="/shopify" variant="secondary">
-            Tu tienda
-          </ButtonLink>
-          <ButtonLink href="/marketing" variant="secondary">
-            Marketing
-          </ButtonLink>
-          <ButtonLink href="/tareas" variant="secondary">
-            Tareas
-          </ButtonLink>
-          <ButtonLink href="/integraciones" variant="secondary">
-            Conexiones
-          </ButtonLink>
-        </div>
-      </Card>
     </div>
   );
 }

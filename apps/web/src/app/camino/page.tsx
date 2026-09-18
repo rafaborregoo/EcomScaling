@@ -2752,7 +2752,7 @@ function StrategicPlanRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
 function StrategicPlanPageContent() {
   return (
-    <PortalShell title="Mi Camino">
+    <PortalShell title="Camino">
       {(bootstrap) => <StrategicPlanRouter bootstrap={bootstrap} />}
     </PortalShell>
   );
@@ -2760,7 +2760,7 @@ function StrategicPlanPageContent() {
 
 export default function StrategicPlanPage() {
   return (
-    <Suspense fallback={<LoadingBlock label="Cargando Mi Camino..." />}>
+    <Suspense fallback={<LoadingBlock label="Cargando el camino..." />}>
       <StrategicPlanPageContent />
     </Suspense>
   );

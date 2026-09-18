@@ -548,7 +548,7 @@ function ClientStoresCard({
 
 export default function TiendasPage() {
   return (
-    <PortalShell title="Tiendas">
+    <PortalShell title="Mis tiendas">
       {(bootstrap, token) => {
         // Las tiendas propias (membership real) no son cartera: se excluyen de
         // "Clientes" aunque el backend las devuelva (p. ej. platform_admin ve

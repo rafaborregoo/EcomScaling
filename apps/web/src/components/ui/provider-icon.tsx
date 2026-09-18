@@ -17,9 +17,9 @@ const LOGOS: Record<string, { src: string; fallback: string }> = {
   shopify: { src: "/shopify-svgrepo-com.svg", fallback: "S" },
   meta: { src: "/meta-logo-facebook-svgrepo-com.svg", fallback: "M" },
   meta_ads: { src: "/meta-logo-facebook-svgrepo-com.svg", fallback: "M" },
-  klaviyo: { src: "/logos/klaviyo.svg", fallback: "K" },
+  klaviyo: { src: "/logos/klaviyo.png", fallback: "K" },
   instagram: { src: "/logos/instagram.svg", fallback: "I" },
-  fathom: { src: "/logos/fathom.svg", fallback: "F" },
+  fathom: { src: "/logos/fathom.png", fallback: "F" },
 };
 
 export function ProviderIcon({

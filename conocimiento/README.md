@@ -52,7 +52,7 @@ mitad, o hay que repetir la pasada.
 | `fase-03` | Sistema de diagnostico | D01..D11 (11, completa) |
 | `fase-04` | Priorizacion y decision | P00..P12, falta P02 |
 | `fase-05` | Estrategias y playbooks por area | 5.00..5.11 (12, completa, con destilado completo en `01-rag-produccion`) |
-| `fase-06` | Benchmarks y guardrails por area | 6.00..6.13 (14, completa; destilado en `01-rag-produccion` completo salvo 6.04) |
+| `fase-06` | Benchmarks y guardrails por area | 6.00..6.13 (14, completa; destilado en `01-rag-produccion`) |
 | `fase-07` | Motor de recomendaciones | 7.01..7.18, **7.16 no existe** (17 bloques reales) |
 | `fase-08` | Ejecucion y supervision | 8.00..8.17 (18, completa; destilado en `01-rag-produccion` completo salvo 8.12) |
 | `fase-09` | Aprendizaje continuo | 9.00..9.41, faltan 9.02 y 9.21 (40 bloques reales, destilado completo) |

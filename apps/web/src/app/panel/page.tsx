@@ -14,7 +14,6 @@ import {
   BarChart,
   Card,
   EmptyState,
-  EYEBROW,
   Link,
   Metric,
   Select,
@@ -264,7 +263,7 @@ function PanelContent() {
   }
 
   if (isLoading) {
-    return <AsyncState status="loading" loadingLabel="Calculando el panel..." />;
+    return <AsyncState status="loading" loadingLabel="Calculando la rentabilidad..." />;
   }
 
   if (error) {
@@ -305,13 +304,13 @@ function PanelContent() {
   return (
     <div className="portal-page space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className={EYEBROW}>Panel del manager</p>
-          <p className="text-sm text-muted">
-            Todas las cifras sin IVA. El beneficio ya descuenta producto,
-            envíos, comisiones, gastos fijos y publicidad.
-          </p>
-        </div>
+        {/* Sin antetítulo: la cabecera del shell ya dice "Rentabilidad" y
+            repetirlo no aporta. La línea que se queda sí evita un error de
+            lectura -- sin ella, estas cifras se leen con IVA dentro. */}
+        <p className="text-sm text-muted">
+          Todas las cifras sin IVA. El beneficio ya descuenta producto, envíos,
+          comisiones, gastos fijos y publicidad.
+        </p>
         <Select
           aria-label="Periodo"
           value={periodDays}
@@ -722,7 +721,7 @@ function PanelContent() {
 
 export default function PanelPage() {
   return (
-    <PortalShell title="Panel">
+    <PortalShell title="Rentabilidad">
       {(bootstrap: BootstrapResponse) =>
         ["platform_admin", "consultant"].includes(
           bootstrap.profile.platform_role,

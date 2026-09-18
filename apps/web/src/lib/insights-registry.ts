@@ -45,6 +45,74 @@ export type InsightScope = {
   isConsultant: boolean;
 };
 
+export type PlaybookInsightAssessment = {
+  domain: string;
+  disposition: string;
+  unresolved_unknowns?: string[];
+  reason_codes?: string[];
+};
+
+const PLAYBOOK_INSIGHT_META: Record<string, { slug: string; label: string; location: string }> = {
+  ACQUISITION: { slug: "acquisition", label: "Adquisición", location: "Diagnóstico · F5.01" },
+  PAID_MEDIA: { slug: "paid-media", label: "Paid media", location: "Diagnóstico · F5.02" },
+  CONVERSION: { slug: "conversion", label: "Conversión / CRO", location: "Diagnóstico · F5.03" },
+  OFFER_PRICING: { slug: "offer-pricing", label: "Oferta / pricing", location: "Diagnóstico · F5.04" },
+  RETENTION_CRM: { slug: "retention-crm", label: "Retención / CRM", location: "Diagnóstico · F5.05" },
+  UNIT_ECONOMICS: { slug: "unit-economics", label: "Unit economics", location: "Diagnóstico · F5.06" },
+  PRODUCT_INVENTORY: { slug: "product-inventory", label: "Producto / stock", location: "Diagnóstico · F5.07" },
+  OPERATIONS_CX: { slug: "operations-cx", label: "Operaciones / CX", location: "Diagnóstico · F5.08" },
+  MEASUREMENT_EXPERIMENTATION: { slug: "measurement-experimentation", label: "Datos / experimentación", location: "Diagnóstico · F5.09" },
+  SCALABILITY: { slug: "scalability", label: "Escalabilidad / constraints", location: "Diagnóstico · F5.10" },
+  RECOVERY_CRISIS: { slug: "recovery-crisis", label: "Recovery / crisis", location: "Diagnóstico · F5.11" },
+  BENCHMARKS_GUARDRAILS: { slug: "benchmark-guardrails", label: "Benchmarks / guardrails", location: "Diagnóstico · F6.00" },
+  COHORT_CONTEXT: { slug: "cohort-context", label: "Contexto / cohortes", location: "Diagnóstico · F6.01" },
+  DATA_QUALITY_RELIABILITY: { slug: "data-quality-reliability", label: "Calidad / fiabilidad", location: "Diagnóstico · F6.02" },
+  ACQUISITION_DEMAND: { slug: "acquisition-demand", label: "Adquisición / demanda", location: "Diagnóstico · F6.03" },
+  PAID_MEDIA_BENCHMARKS: { slug: "paid-media-benchmarks", label: "Paid Media / benchmarks", location: "Diagnóstico · F6.04" },
+  CONVERSION_CRO_BENCHMARKS: { slug: "conversion-cro-benchmarks", label: "Conversión / CRO benchmarks", location: "Diagnóstico · F6.05" },
+  OFFER_PRICING_BENCHMARKS: { slug: "offer-pricing-benchmarks", label: "Oferta / pricing benchmarks", location: "Diagnóstico · F6.06" },
+  RETENTION_CRM_BENCHMARKS: { slug: "retention-crm-benchmarks", label: "Retención / CRM benchmarks", location: "Diagnóstico · F6.07" },
+  UNIT_ECONOMICS_BENCHMARKS: { slug: "unit-economics-benchmarks", label: "Unit economics benchmarks", location: "Diagnóstico · F6.08" },
+  OPERATIONS_CX_BENCHMARKS: { slug: "operations-cx-benchmarks", label: "Operaciones / CX benchmarks", location: "Diagnóstico · F6.09" },
+  PRODUCT_INVENTORY_BENCHMARKS: { slug: "product-inventory-benchmarks", label: "Inventario / salud comercial", location: "Diagnóstico · F6.10" },
+  SCALABILITY_BENCHMARKS: { slug: "scalability-benchmarks", label: "Escalabilidad / límites", location: "Diagnóstico · F6.11" },
+  ANOMALIES_RED_FLAGS: { slug: "anomalies-red-flags", label: "Anomalías / red flags", location: "Diagnóstico · F6.12" },
+  BENCHMARK_CONFIDENCE: { slug: "benchmark-confidence", label: "Confianza / incertidumbre", location: "Diagnóstico · F6.13" },
+};
+
+function playbookInsightSeverity(disposition: string): MetricInsight["severity"] {
+  return disposition === "BLOCKED" || disposition === "REASSESS_DIAGNOSIS" ? "high" : "medium";
+}
+
+export function insightSpotsFromPlaybookAssessments(
+  scope: InsightScope,
+  assessments: PlaybookInsightAssessment[],
+): InsightSpot[] {
+  if (!scope.organizationId || !scope.isConsultant) return [];
+  return assessments.flatMap((assessment) => {
+    const meta = PLAYBOOK_INSIGHT_META[assessment.domain];
+    if (!meta || !["BLOCKED", "VALIDATION_REQUIRED", "REASSESS_DIAGNOSIS", "REPRIORITIZE"].includes(assessment.disposition)) return [];
+    const unknowns = assessment.unresolved_unknowns ?? [];
+    const reasons = assessment.reason_codes ?? [];
+    const pending = [...unknowns, ...reasons].filter(Boolean);
+    return [{
+      id: `playbook-${meta.slug}`,
+      label: meta.label,
+      href: `/shopify/diagnostico#insight-${meta.slug}`,
+      location: meta.location,
+      audience: "consultant" as const,
+      storeId: null,
+      insights: [{
+        id: `playbook-${meta.slug}-${assessment.disposition.toLowerCase()}`,
+        title: `${meta.label}: ${assessment.disposition}`,
+        severity: playbookInsightSeverity(assessment.disposition),
+        evidence: pending.length ? `Pendiente: ${pending.join(", ")}.` : "La evaluación requiere revisión antes de recomendar una intervención.",
+        steps: ["Abrir la card del diagnóstico y validar la evidencia pendiente."],
+      }],
+    }];
+  });
+}
+
 export function insightAnchorId(spotId: string) {
   return `insight-${spotId}`;
 }

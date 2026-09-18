@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
+import { apiFetch } from "@/lib/bootstrap";
 import {
+  insightSpotsFromPlaybookAssessments,
   insightSpotsFor,
   totalInsightCount,
   type InsightScope,
+  type PlaybookInsightAssessment,
   type InsightSpot,
 } from "@/lib/insights-registry";
 import {
@@ -34,8 +37,38 @@ import {
 export function InsightsMenu({ scope }: { scope: InsightScope }) {
   const isDesktop = useIsDesktop();
   const [isOpen, setIsOpen] = useState(false);
+  const [playbookSpots, setPlaybookSpots] = useState<InsightSpot[]>([]);
 
-  const spots = insightSpotsFor(scope);
+  useEffect(() => {
+    if (!scope.isConsultant || !scope.organizationId) {
+      setPlaybookSpots([]);
+      return;
+    }
+
+    let cancelled = false;
+    const organizationId = encodeURIComponent(scope.organizationId);
+    apiFetch(`/v1/consultant/ai-playbook-insights?organizationId=${organizationId}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("No se pudieron cargar los insights de IA.");
+        return response.json() as Promise<{ assessments: PlaybookInsightAssessment[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setPlaybookSpots(insightSpotsFromPlaybookAssessments(scope, payload.assessments));
+      })
+      .catch(() => {
+        if (!cancelled) setPlaybookSpots([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scope.isConsultant, scope.organizationId]);
+
+  const staticSpots = insightSpotsFor(scope);
+  const spots = [
+    ...staticSpots,
+    ...playbookSpots.filter((spot) => !staticSpots.some((item) => item.id === spot.id)),
+  ];
   if (spots.length === 0) return null;
   const count = totalInsightCount(spots);
 
@@ -151,4 +184,3 @@ export function InsightsMenu({ scope }: { scope: InsightScope }) {
     </>
   );
 }
-

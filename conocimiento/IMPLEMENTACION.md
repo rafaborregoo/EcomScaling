@@ -40,7 +40,18 @@ done Ã¢â‚¬â€ incluidos el punto 2 (existe codigo que escribe esas tab
 viola cada invariante de `04-policies`. Los recortes deliberados se anotan en la
 fila con su motivo.
 
-**129 bloques**: 18 en la ola 1, 5 sin destilar. **11 en `hecho`** (`D01`, `D02`,
+### Criterio transversal de Copiloto
+
+Desde el 2026-09-18, todo bloque debe declarar tambien su consumo por Copiloto:
+tool o adaptador de contexto de solo lectura, aislamiento por organizacion,
+procedencia (`as_of`, `source_refs`, `reason_codes`), estados conservadores y
+version/`allowed_tools` cuando aplique. `InsightsMenu` es el acceso de IA a la
+card exacta y permanece separado de las notificaciones normales; no sustituye
+al contexto que necesita el agente para razonar. Los bloques historicos que ya
+estan en `hecho` conservan ese estado de contrato/motor/pixel, pero su auditoria
+Copiloto-first queda registrada como deuda transversal hasta cerrarse.
+
+**129 bloques**: 18 en la ola 1, 4 sin destilar. **11 en `hecho`** (`D01`, `D02`,
 `D03`, `D04`, `D05`, `D06`, `D07`, `D08`, `D09`, `D10` y `D11`, con las tres
 patas); los otros 4 de la fase 3 siguen en `contrato`, a la espera de motor y pantalla.
 
@@ -94,33 +105,33 @@ falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 | `5.01` | Adquisicion y generacion de demanda | `CRPET` | Ã¢â‚¬â€ | **hecho** | extension `packages/contracts/src/acquisition.ts` + migration `20261028100000` + motor `apps/api/src/acquisition-engine.ts` + worker + API/pantalla; verificado con `.env.local`: cinco organizaciones sin fallos y cleanup confirmado |
 | `5.02` | Paid media y eficiencia de trafico | `CRPET` | Ã¢â‚¬â€ | **hecho** | migracion `20261028110000` + reutiliza contrato/motor universal `packages/contracts/src/playbook.ts` y `apps/api/src/playbook-engine.ts` + `apps/api/src/paid-media-engine.ts` + worker + API/pantalla; verificado con `.env.local`: cinco organizaciones en `VALIDATION_REQUIRED` por evidencia desconocida, worker 5/5/0 y cleanup confirmado |
 | `5.03` | Conversion y cro | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/conversion-cro.ts` + migracion `20261028120000` + motor `apps/api/src/conversion-engine.ts` + worker + API/pantalla; verificado con `.env.local`: cinco organizaciones en `VALIDATION_REQUIRED`, cleanup confirmado |
-| `5.04` | Oferta pricing merchandising y aov | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `5.05` | Retencion crm lifecycle y ltv | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `5.06` | Unit economics y rentabilidad | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `5.07` | Producto catalogo e inventario | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `5.08` | Operaciones fulfillment y customer experience | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `5.09` | Datos tracking y experimentacion | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `5.10` | Escalabilidad y eliminacion de constraints | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `5.11` | Recovery crisis y playbooks transversales | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
+| `5.04` | Oferta pricing merchandising y aov | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/offer-pricing.ts` + migracion `20261028130000` + motor `apps/api/src/offer-pricing-engine.ts` + worker + API/pantalla; verificado con `.env.local`: cinco organizaciones, `VALIDATION_REQUIRED` y cleanup a cero |
+| `5.05` | Retencion crm lifecycle y ltv | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/retention-crm.ts` + migracion `20261028140000` + motor `apps/api/src/retention-crm-engine.ts` + worker/workflow + API/pantalla; verifica clientes, repeat, lifecycle, contribution, CRM y consentimiento, y conserva churn/LTV/incrementalidad como `UNKNOWN`; verificado con `.env.local`: cinco organizaciones, cinco filas reales, `BLOCKED` conservador y cleanup a cero |
+| `5.06` | Unit economics y rentabilidad | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/unit-economics.ts` + migracion `20261028150000` + motor `apps/api/src/unit-economics-engine.ts` + worker/workflow + API/pantalla; waterfall real de ventas, margen y resumen financiero, con contribution, CAC, payback, cash, segmentacion, escenarios y comparabilidad en `UNKNOWN` cuando no hay fuente suficiente; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `5.07` | Producto catalogo e inventario | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/product-inventory.ts` + migracion `20261028160000` + motor `apps/api/src/product-inventory-engine.ts` + worker/workflow + API/pantalla; separa catalogo, variantes, snapshot de inventario, stockout y demanda, y conserva reposicion, forecast, supplier, calidad, overstock y racionalizacion como `UNKNOWN` sin evidencia especifica; verificado con `.env.local`: cinco organizaciones, cinco filas `BLOCKED` y cleanup a cero |
+| `5.08` | Operaciones fulfillment y customer experience | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/operations-cx.ts` + migracion `20261028170000` + motor `apps/api/src/operations-cx-engine.ts` + worker/workflow + API/pantalla; separa fulfillment, entrega, promesa, capacidad, devoluciones, soporte y recuperacion, y conserva `UNKNOWN` para SLA, backlog, capacidad y CX no observados; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `5.09` | Datos tracking y experimentacion | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/measurement-experimentation.ts` + migracion `20261028180000` + motor `apps/api/src/measurement-experimentation-engine.ts` + worker/workflow + API/pantalla; separa cobertura de datos, calidad, tracking, reconciliacion, atribucion, causalidad y experimentacion, y conserva `UNKNOWN` cuando no hay evidencia suficiente; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `5.10` | Escalabilidad y eliminacion de constraints | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/scalability-constraints.ts` + migracion `20261028190000_f5_p10_scalability.sql` + motor `apps/api/src/scalability-constraints-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` conservadoras y cleanup a cero |
+| `5.11` | Recovery crisis y playbooks transversales | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/recovery-crisis.ts` + migracion `20261028200000_f5_p11_recovery_crisis.sql` + motor `apps/api/src/recovery-crisis-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
 
 ## fase-06 Ã¢â‚¬â€ Benchmarks y guardrails
 
 | Bloque | Tema | Capas | Ola | Estado | Codigo |
 | --- | --- | --- | --- | --- | --- |
-| `6.00` | Framework universal de benchmarks y guardrails | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.01` | Contextualizacion y cohortes comparables | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.02` | Calidad suficiencia y fiabilidad de los datos | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.03` | Benchmarks y guardrails de adquisicion y generacion de deman | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.04` | Benchmarks y guardrails de paid media y eficiencia de trafic | `Ã‚Â·Ã‚Â·Ã‚Â·Ã‚Â·Ã‚Â·` | Ã¢â‚¬â€ | **sin destilar** | Ã¢â‚¬â€ |
-| `6.05` | Benchmarks y guardrails de conversion y cro | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.06` | Benchmarks y guardrails de oferta pricing merchandising y ao | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.07` | Benchmarks y guardrails de retencion crm y ltv | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.08` | Benchmarks y guardrails de unit economics y rentabilidad | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.09` | Benchmarks y guardrails de operaciones y experiencia de clie | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.10` | Benchmarks y guardrails de inventario y salud comercial | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.11` | Benchmarks y guardrails de escalabilidad y limites de crecim | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.12` | Anomalias red flags y combinaciones peligrosas | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
-| `6.13` | Confianza incertidumbre y comunicacion del benchmark | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
+| `6.00` | Framework universal de benchmarks y guardrails | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/benchmark-guardrails.ts` + migracion `20261029090000_f6_p00_benchmark_guardrails.sql` + motor `apps/api/src/benchmark-guardrails-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.01` | Contextualizacion y cohortes comparables | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/cohort-context.ts` + migracion `20261029100000_f6_p01_cohort_context.sql` + motor `apps/api/src/cohort-context-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.02` | Calidad suficiencia y fiabilidad de los datos | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/data-quality-reliability.ts` + migracion `20261029110000_f6_p02_data_quality_reliability.sql` + motor `apps/api/src/data-quality-reliability-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.03` | Benchmarks y guardrails de adquisicion y generacion de deman | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/acquisition-demand.ts` + migracion `20261029120000_f6_p03_acquisition_demand.sql` + motor `apps/api/src/acquisition-demand-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.04` | Benchmarks y guardrails de paid media y eficiencia de trafic | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/paid-media-benchmarks.ts` + migracion `20261029130000_f6_p04_paid_media_benchmarks.sql` + motor `apps/api/src/paid-media-benchmarks-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.05` | Benchmarks y guardrails de conversion y cro | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/conversion-cro-benchmarks.ts` + migracion `20261029140000_f6_p05_conversion_cro_benchmarks.sql` + motor `apps/api/src/conversion-cro-benchmarks-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.06` | Benchmarks y guardrails de oferta pricing merchandising y ao | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/offer-pricing-benchmarks.ts` + migracion `20261029150000_f6_p06_offer_pricing_benchmarks.sql` + motor `apps/api/src/offer-pricing-benchmarks-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.07` | Benchmarks y guardrails de retencion crm y ltv | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/retention-crm-benchmarks.ts` + migracion `20261029160000_f6_p07_retention_crm_benchmarks.sql` + motor `apps/api/src/retention-crm-benchmarks-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.08` | Benchmarks y guardrails de unit economics y rentabilidad | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/unit-economics-benchmarks.ts` + migracion `20261029170000_f6_p08_unit_economics_benchmarks.sql` + motor `apps/api/src/unit-economics-benchmarks-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.09` | Benchmarks y guardrails de operaciones y experiencia de clie | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/operations-cx-benchmarks.ts` + migracion `20261029180000_f6_p09_operations_cx_benchmarks.sql` + motor `apps/api/src/operations-cx-benchmarks-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.10` | Benchmarks y guardrails de inventario y salud comercial | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/product-inventory-benchmarks.ts` + migracion `20261029190000_f6_p10_product_inventory_benchmarks.sql` + motor `apps/api/src/product-inventory-benchmarks-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.11` | Benchmarks y guardrails de escalabilidad y limites de crecimiento | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/scalability-benchmarks.ts` + migracion `20261029200000_f6_p11_scalability_benchmarks.sql` + motor `apps/api/src/scalability-benchmarks-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.12` | Anomalias red flags y combinaciones peligrosas | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/anomalies-red-flags.ts` + migracion `20261029210000_f6_p12_anomalies_red_flags.sql` + motor `apps/api/src/anomalies-red-flags-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
+| `6.13` | Confianza incertidumbre y comunicacion del benchmark | `CRPET` | Ã¢â‚¬â€ | **hecho** | contrato `packages/contracts/src/benchmark-confidence.ts` + migracion `20261029220000_f6_p13_benchmark_confidence.sql` + motor `apps/api/src/benchmark-confidence-engine.ts` + worker/workflow + API/pantalla; verificado con `.env.local`: cinco organizaciones, cinco filas `VALIDATION_REQUIRED` y cleanup a cero |
 
 ## fase-07 Ã¢â‚¬â€ Motor de recomendaciones
 
@@ -218,7 +229,7 @@ falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 5 bloques tienen corpus maestro pero ninguna capa de
 especificacion. Tres de ellos (`7.15`, `7.17`, `7.18`) entran en la ola 1: la
 ola no puede cerrarse sin destilarlos antes. `8.12` (rollback) hace falta en la
-ola 2, y `6.04` cuando se ensanche a benchmarks.
+ola 2, y los bloques de benchmarks restantes cuando se ensanchen a software.
 
 ## Recortes anotados
 

@@ -13,7 +13,7 @@ Leelo antes de empezar.
 Estado del corpus al abrir este plan: 9 fases clasificadas en 8 capas,
 287 documentos en `01-rag-produccion` ya indexados (315 documentos globales /
 2559 chunks, identicos en test y produccion), 644 artefactos en las capas
-`02`..`06` sin implementar y 5 bloques todavia sin destilar (seccion 6).
+`02`..`06` sin implementar y 4 bloques todavia sin destilar (seccion 6).
 
 Nota de nomenclatura: cada fase nombra sus bloques a su manera y aqui se usa la
 del indice, que normaliza fase-04 (`P06` y `4.06` son el mismo bloque, se
@@ -51,6 +51,11 @@ Corolarios que no se negocian:
   contenido estaba mal clasificado: o es un criterio (se queda en RAG) o es una
   politica (se va a `04-policies` y entonces si, codigo).
 - **Un contrato sin su runtime es una tabla muerta.** Ver seccion 2.
+- **Un bloque que el Copiloto no puede leer no termina de cambiar el producto.**
+  Cada bloque debe declarar su consumidor IA (tool, adaptador de contexto o motivo para no
+  exponerlo), conservar la procedencia y los estados conservadores, y respetar el aislamiento por
+  organizacion. `InsightsMenu` es el acceso navegable a la card; no sustituye al contexto o tool
+  que permite al Copiloto razonar con el dato.
 
 ## 2. La unidad de trabajo es el bloque, no el fichero
 
@@ -199,9 +204,12 @@ Un bloque esta implementado cuando, de sus artefactos:
    fueron 15 filas de requisitos y cero pixeles. "Todavia nadie lo ve" solo vale
    mientras el bloque no tenga motor; en cuanto escribe filas, se ven. Ver el
    apartado 9.
-8. **Consumo por agentes** Ã¢â‚¬â€ el bloque dice **que agente lo usa y a traves de
-   que tool**, o que ninguno y por que. Una tabla que ningun agente puede leer
-   no cambia el comportamiento del producto. Ver el apartado 10.
+8. **Consumo por agentes y Copiloto** Ã¢â‚¬â€ el bloque dice **que agente lo usa, a
+   traves de que tool o adaptador de contexto y en que version**, o que ninguno
+   y por que. La lectura debe ser tenant-scoped, con procedencia y con los
+   estados `UNKNOWN`/`ABSTAIN`/`VALIDATION_REQUIRED` intactos. Una tabla que
+   ningun agente puede leer no cambia el comportamiento del producto. Ver el
+   apartado 10.
 
 Lo que el artefacto decia y se ha decidido **no** implementar se anota en su
 fila con el motivo. Un bloque a medias con su recorte escrito es honesto; un
@@ -228,8 +236,8 @@ que alternativa se descarto, que quedo fuera y donde se aplico el esquema. Son
 dos preguntas distintas y por eso son dos ficheros: el indice cabe en una
 pantalla precisamente porque el razonamiento no esta dentro.
 
-De los 129, **5 siguen sin destilar** (corpus maestro sin ninguna capa de
-especificacion): `6.04`, `7.15`, `7.17`, `7.18`, `8.12`. No son opcionales ni
+De los 129, **4 siguen sin destilar** (corpus maestro sin ninguna capa de
+especificacion): `7.15`, `7.17`, `7.18`, `8.12`. No son opcionales ni
 casuales: tres bloquean la ola 1 y uno la ola 2.
 
 ## 7. Lo que no hacemos
@@ -267,8 +275,8 @@ secciÃƒÂ³n quedan supersedidas por este estado y por el addendum final.
    `D05`. Los contratos, invariantes y tenant-context si se implementan
    enteros. Cuando se llegue a `D05` habra que volver a `D01` y `D02` a montar
    sus flujos Ã¢â‚¬â€ esta anotado en cada entrada de la bitacora.
-5. Fuera de la cola de fases, cuando estorbe: destilar `6.04`, `7.15`, `7.17`,
-   `7.18` y `8.12`, y un ADR para el reparto de la seccion 1.
+5. Fuera de la cola de fases, cuando estorbe: destilar `7.15`, `7.17`, `7.18`
+   y `8.12`, y un ADR para el reparto de la seccion 1.
 
 ## 9. Audiencia: las tres vistas
 
@@ -364,6 +372,27 @@ Cada bloque contesta: **Ã‚Â¿que agente lo consume, con que tool, y en que v
 Cuando llegue el consumo, el patron es el de siempre: tool nueva en el runtime,
 `allowed_tools` de una version nueva del agente, y el prompt contandole cuando
 usarla. La version anterior se queda: asi se puede comparar.
+
+### Copiloto como consumidor primario
+
+El Copiloto consultor es el consumidor transversal de esta linea de producto. Desde F3 hasta la
+fase activa, cada bloque se audita con estas preguntas antes de abrir la fase siguiente:
+
+1. ¿Puede leer el resultado mediante una tool de solo lectura o mediante un adaptador de contexto
+   documentado?
+2. ¿La lectura esta aislada por `organization_id` y conserva `as_of`, `source_refs`,
+   `reason_codes`, desconocidos y requisitos de validacion?
+3. ¿El prompt y la tool dejan claro que `UNKNOWN` no es falso, que `VALIDATION_REQUIRED` limita la
+   recomendacion y que confidence no autoriza escritura?
+4. ¿El agente tiene esa capacidad en `allowed_tools` y en una version identificable, o esta escrito
+   por que todavia no debe tenerla?
+5. ¿La pregunta representativa devuelve el dato correcto y, cuando procede, enlaza mediante
+   `InsightsMenu` con el ancla exacta de la card? El menu de IA permanece separado de la campana de
+   notificaciones.
+
+La integracion del Copiloto no obliga a crear una tool nueva para cada bloque: se reutiliza un
+adaptador comun cuando el shape y la procedencia son suficientes. Pero no se da por integrada una
+fase porque sus paneles funcionen: hay que probar tambien el camino de lectura y sus limites.
 
 ### Riesgo ya materializado, para no repetirlo
 
@@ -532,3 +561,416 @@ benchmarks, umbrales, tráfico, economía o significancia. La verificación con
 fallos y produjo `VALIDATION_REQUIRED` por evidencia insuficiente; el template
 y las cinco ejecuciones temporales se eliminaron. F5 continúa abierta y el
 siguiente bloque habilitado es `5.04`.
+
+### Addendum de avance F5/P04 — 2026-09-17
+
+`5.04` queda hecho con contrato de oferta/pricing/merchandising/AOV, validator,
+migración, runtime, worker, workflow, endpoint y panel. El runtime usa las RPC
+Shopify reales de ventas, margen, descuentos, stock y productos principales;
+mantiene separadas las dimensiones y conserva `UNKNOWN` para elasticidad,
+incrementalidad de promociones y calidad de cliente, que no tienen observación
+suficiente. Los guardrails evitan optimizar AOV aislado, cambios de precio sin
+diagnóstico, promociones engañosas y acciones irreversibles.
+
+La migración `20261028130000_f5_p04_offer_pricing.sql` se aplicó en el proyecto
+de `.env.local` (`kopcblejsxpkxoykldyh`). La verificación recorrió cinco
+organizaciones: `5 succeeded`, `0 failed`, `VALIDATION_REQUIRED` por evidencia
+insuficiente y cleanup confirmado a cero. F5 sigue abierta; el siguiente bloque
+habilitado es `5.05`, retención, CRM, lifecycle y LTV.
+
+### Addendum de avance F5/P05 — 2026-09-17
+
+`5.05` queda hecho con contrato de retención/CRM/lifecycle, validator,
+migración, runtime, worker, workflow manual, endpoint y panel. El runtime lee
+clientes y pedidos Shopify, margen disponible, configuración de Klaviyo y
+eventos de consentimiento. Declara repeat y lifecycle solo cuando están
+observados, pero conserva `UNKNOWN` para cohortes, churn, LTV, suscripciones,
+incrementalidad y customer quality. Los guardrails impiden tratar más mensajes
+como retención, Revenue atribuido como incrementalidad o un descuento como
+solución a una mala experiencia.
+
+La migración `20261028140000_f5_p05_retention_crm.sql` se aplicó en el proyecto
+de `.env.local` (`kopcblejsxpkxoykldyh`). La verificación contó directamente las
+filas producidas por el motor: cinco organizaciones, cinco filas, `5 succeeded`,
+`0 failed` y disposición `BLOCKED` por precondiciones no demostradas; el cleanup
+quedó a cero. F5 sigue abierta; el siguiente bloque habilitado es `5.06`, unit
+economics y rentabilidad.
+
+### Addendum de avance F5/P06 — 2026-09-17
+
+`5.06` queda hecho con contrato de unit economics, validator, migración,
+runtime, worker, workflow manual, endpoint y panel. El motor usa las RPC
+Shopify reales de ventas, margen y resumen financiero en una ventana de 90 días.
+Expone el waterfall observado sin confundir `net_profit` con contribution, y
+conserva `UNKNOWN` para CAC, payback, cash, cohortes, segmentación, escenarios
+y comparabilidad cuando faltan fuentes o definiciones tenant-scoped.
+
+La migración `20261028150000_f5_p06_unit_economics.sql` se aplicó en el proyecto
+de desarrollo de `.env.local` (`kopcblejsxpkxoykldyh`) y no quedan migraciones
+pendientes. La verificación recorrió cinco organizaciones: `5 succeeded`, `0
+failed`, cinco filas `VALIDATION_REQUIRED` contadas directamente y cleanup a
+cero. F5 sigue abierta; el siguiente bloque habilitado es `5.07`, producto,
+catálogo e inventario.
+
+### Addendum de avance F5/P07 — 2026-09-17
+
+`5.07` queda hecho con contrato de producto/inventario, validator, migración,
+runtime, worker, workflow manual, endpoint y panel. El motor usa catálogo y
+variantes del tenant, stock Shopify, ventas y margen en una ventana de 90 días.
+Declara la cobertura observada sin convertir stockout en compra, stock absoluto
+en overstock ni baja venta en racionalización. Reposición, forecast, proveedor,
+calidad, precisión, demand/supply alignment y escenarios siguen `UNKNOWN` sin
+evidencia específica.
+
+La migración `20261028160000_f5_p07_product_inventory.sql` se aplicó en el
+proyecto de desarrollo de `.env.local` (`kopcblejsxpkxoykldyh`). La verificación
+recorrió cinco organizaciones: `5 succeeded`, `0 failed`, cinco filas
+`BLOCKED` contadas directamente y cleanup a cero. F5 sigue abierta; el
+siguiente bloque habilitado es `5.08`, operaciones, fulfillment y customer
+experience.
+
+### Addendum de avance F5/P08 — 2026-09-17
+
+`5.08` queda hecho con contrato de operaciones/fulfillment/CX, validator,
+migración, runtime, worker, workflow manual, endpoint y panel. El motor usa
+las RPC reales `shopify_delivery_times` y `shopify_sales_summary`, más el
+conteo tenant-scoped de `shopify_returns`, para declarar cobertura de pedidos,
+preparación, fulfillment, tránsito, promesa y puntualidad medible. Mantiene
+`UNKNOWN` para SLA, backlog, capacidad, soporte, WISMO, recuperación de servicio
+y customer experience sin fuente específica; no confunde un retraso con una
+causa ni atribuye el problema al carrier por defecto.
+
+La migración `20261028170000_f5_p08_operations_cx.sql` se aplicó en el proyecto
+de desarrollo de `.env.local` (`kopcblejsxpkxoykldyh`). La verificación recorrió
+cinco organizaciones: `5 succeeded`, `0 failed`, cinco filas
+`VALIDATION_REQUIRED` contadas directamente y cleanup a cero. F5 sigue abierta;
+el siguiente bloque habilitado es `5.09`, datos, tracking y experimentación.
+
+### Addendum de avance F5/P09 — 2026-09-18
+
+`5.09` queda hecho con contrato de datos/tracking/experimentación, validator,
+migración, runtime, worker, workflow manual, endpoint y panel. El motor usa las
+fuentes reales `shopify_sales_summary`, `shopify_funnel_summary` y
+`shopify_sales_daily` para declarar cobertura de pedidos, sesiones, funnel y
+baseline. Mantiene `UNKNOWN` para calidad, semántica de eventos, identidad,
+reconciliación, atribución, causalidad y capacidad experimental cuando no hay
+evidencia específica; no confunde atribución con incrementalidad ni datos
+observados con datos fiables.
+
+La migración `20261028180000_f5_p09_measurement_experimentation.sql` se aplicó
+en el proyecto de desarrollo de `.env.local` (`kopcblejsxpkxoykldyh`). La
+verificación recorrió cinco organizaciones: `5 succeeded`, `0 failed`, cinco
+filas `VALIDATION_REQUIRED` contadas directamente y cleanup a cero. F5 sigue
+abierta; el siguiente bloque habilitado es `5.10`, escalabilidad y eliminación
+de constraints.
+
+### Addendum de avance F5/P10 — 2026-09-18
+
+`5.10` queda hecho con contrato de escalabilidad y constraints, validator,
+migración, runtime, worker, workflow manual, endpoint y panel. El motor usa las
+fuentes reales `shopify_sales_summary`, `shopify_margin_summary`,
+`shopify_stock_summary`, `shopify_delivery_times` y `shopify_sales_daily` para
+declarar demanda, throughput y cobertura operativa. No infiere capacidad,
+headroom ni bottleneck del volumen actual: esos puntos siguen `UNKNOWN` hasta
+que exista evidencia de capacidad y margen disponible. La UI muestra esa
+separación como cobertura ordenada y está preparada para que la misma salida
+alimente las cards y el `InsightsMenu` de IA existente, con enlaces profundos a
+la card concreta; no se mezcla con las notificaciones generales.
+
+La migración `20261028190000_f5_p10_scalability.sql` se aplicó en el proyecto de
+desarrollo de `.env.local` (`kopcblejsxpkxoykldyh`). La verificación recorrió
+cinco organizaciones: `5 succeeded`, `0 failed`, cinco filas
+`VALIDATION_REQUIRED` contadas directamente y cleanup a cero. F5 sigue abierta;
+el siguiente bloque habilitado es `5.11`, recovery, crisis y playbooks
+transversales.
+
+### Cierre F5/P11 y conexión transversal de InsightsMenu — 2026-09-18
+
+F5 queda cerrada con P11/5.11 hecho. `domain_extension.recovery_crisis` ya tiene
+contrato, validator, motor, worker, workflow, endpoint y pantalla; el runtime
+lee fuentes reales de Shopify y conserva `UNKNOWN` cuando no puede demostrar
+crisis, severidad, blast radius, continuidad, containment, estabilización o
+causa raíz.
+
+Además se completó el canal común de IA para toda la familia de playbooks: el
+`InsightsMenu` del header es independiente de las notificaciones normales,
+consulta un feed tenant-scoped que conserva el último assessment por dominio y
+lleva al consultor al ancla exacta `#insight-*` de la card. Esto no es una
+decisión exclusiva de F5/P11: es el adaptador transversal que deben reutilizar
+las fases anteriores y las siguientes. El feed actual consume los assessments
+de playbooks F5; las salidas F3/F4 que todavía no tienen ese shape se
+incorporarán mediante este mismo seam, sin inventar diagnósticos retrospectivos.
+La verificación local sembró un
+assessment temporal, lo leyó en las cinco organizaciones y lo borró al
+terminar; `5 succeeded`, `0 failed`.
+
+F5 queda cerrada; la siguiente fase habilitada por el índice es F6, benchmarks
+y guardrails.
+
+### Addendum F6/P00 — 2026-09-18
+
+F6/P00 queda hecho con el framework universal de benchmarks y guardrails. El
+contrato distingue referencia, contexto, economics, guardrails, evidencia y
+confianza; el runtime observa fuentes Shopify e histórico propio cuando existe,
+pero deja `UNKNOWN` en comparabilidad, benchmark externo, materialidad y
+confianza no demostradas. Benchmark no se convierte en objetivo, diagnóstico,
+prioridad ni playbook.
+
+La migración `20261029090000_f6_p00_benchmark_guardrails.sql` se aplicó con
+`.env.local` en `kopcblejsxpkxoykldyh`. La verificación sembró un template
+temporal, ejecutó cinco organizaciones (`5 succeeded`, `0 failed`), obtuvo cinco
+`VALIDATION_REQUIRED` y limpió todas las filas temporales. La pantalla enlaza
+con `#insight-benchmark-guardrails` y reutiliza `InsightsMenu`, independiente de
+las notificaciones normales.
+
+La siguiente rebanada habilitada es F6/P01, contextualización y cohortes
+comparables.
+
+### Addendum F6/P01 — 2026-09-18
+
+F6/P01 queda hecho con contrato, validator, motor, persistencia, worker,
+workflow, endpoint y pantalla de contexto y cohortes comparables. La salida
+separa la métrica observada de la referencia utilizada, comprueba que la
+cohorte dependa de la métrica y conserva las limitaciones de definición,
+muestra, mix y temporalidad. Con las fuentes actuales de Shopify se observa
+métrica, muestra e histórico cuando existen, pero no se inventan segmentos,
+peer groups, comparabilidad ni confianza.
+
+La migración `20261029100000_f6_p01_cohort_context.sql` se aplicó con
+`.env.local` en el proyecto de desarrollo `kopcblejsxpkxoykldyh`. La
+verificación sembró un template temporal, ejecutó cinco organizaciones
+(`5 succeeded`, `0 failed`), obtuvo cinco `VALIDATION_REQUIRED` y limpió todas
+las filas temporales. La pantalla enlaza con `#insight-cohort-context` y
+reutiliza `InsightsMenu`, independiente de las notificaciones normales.
+
+P01 queda hecho. La siguiente rebanada habilitada es F6/P02.
+
+### Addendum F6/P02 — 2026-09-18
+
+F6/P02 queda hecho con contrato, validator, motor, persistencia, worker,
+workflow, endpoint y pantalla de calidad, suficiencia y fiabilidad de datos.
+La salida reutiliza las evaluaciones D01 y las fuentes Shopify para separar
+dato observado de evidencia utilizable: una cobertura o frescura observada no
+se convierte automáticamente en definición correcta, reconciliación,
+causalidad ni confianza alta.
+
+La migración `20261029110000_f6_p02_data_quality_reliability.sql` se aplicó con
+`.env.local` en el proyecto de desarrollo `kopcblejsxpkxoykldyh`. La
+verificación sembró un template temporal, ejecutó cinco organizaciones
+(`5 succeeded`, `0 failed`), obtuvo cinco `VALIDATION_REQUIRED` y limpió todas
+las filas temporales. La pantalla enlaza con
+`#insight-data-quality-reliability` y reutiliza `InsightsMenu`, independiente
+de las notificaciones normales y de la pantalla operativa D01.
+
+P02 queda hecho. La siguiente rebanada habilitada es F6/P03.
+
+### Addendum F6/P03 — 2026-09-18
+
+F6/P03 queda hecho con contrato, validator, motor, persistencia, worker,
+workflow, endpoint y pantalla de benchmarks y guardrails de adquisición y
+generación de demanda. La salida separa pedidos nuevos/recurrentes,
+economics, calidad de cliente e inventario de las afirmaciones que requieren
+gasto, CAC, canal, demanda generada, maduración o incrementalidad. No se
+confunde tráfico con demanda ni atribución con causalidad.
+
+La migración `20261029120000_f6_p03_acquisition_demand.sql` se aplicó con
+`.env.local` en el proyecto de desarrollo `kopcblejsxpkxoykldyh`. La
+verificación sembró un template temporal, ejecutó cinco organizaciones
+(`5 succeeded`, `0 failed`), obtuvo cinco `VALIDATION_REQUIRED` y limpió todas
+las filas temporales. La pantalla enlaza con `#insight-acquisition-demand` y
+reutiliza `InsightsMenu`, independiente de las notificaciones normales.
+
+P03 queda hecho. La siguiente rebanada habilitada es F6/P04.
+
+### Addendum F6/P04 — 2026-09-18
+
+F6/P04 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de benchmarks y guardrails de Paid Media. Se
+mantiene separado de F5.02 con el dominio `PAID_MEDIA_BENCHMARKS` para no
+mezclar el playbook operativo con la capa de evaluación contextual.
+
+La salida recorre spend/delivery, respuesta, tráfico, post-click, adquisición,
+revenue, economics, atribución y guardrails. El motor no convierte ROAS en
+beneficio, atribución en incrementalidad ni promedio en eficiencia marginal, y
+conserva `UNKNOWN` cuando faltan objetivo, contexto, mix, escala, causalidad o
+límites del tenant. La card enlaza con
+`#insight-paid-media-benchmarks` desde `InsightsMenu`, separado de las
+notificaciones normales.
+
+La migración `20261029130000_f6_p04_paid_media_benchmarks.sql` y la verificación
+de cinco organizaciones se ejecutaron con `.env.local`: `5 succeeded`, `0
+failed`, cinco `VALIDATION_REQUIRED` y cleanup completo. La siguiente rebanada
+habilitada es F6/P05.
+
+### Addendum F6/P05 — 2026-09-18
+
+F6/P05 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de benchmarks y guardrails de conversión/CRO.
+Se mantiene separado de F5.03 mediante `CONVERSION_CRO_BENCHMARKS`. La salida
+comprueba definición y denominador, mezcla de tráfico, funnel, economics,
+returns, oferta, inventario y operaciones según las fuentes disponibles, y no
+confunde una caída de CVR con una causa, un experimento válido ni una
+oportunidad totalmente recuperable.
+
+La migración `20261029140000_f6_p05_conversion_cro_benchmarks.sql` se aplicó
+con `.env.local`. La verificación temporal recorrió cinco organizaciones
+(`5 succeeded`, `0 failed`), obtuvo cinco `VALIDATION_REQUIRED` conservadores
+por `problem_refs` desconocidos y limpió todas las filas sembradas. La card
+queda anclada en `#insight-conversion-cro-benchmarks` y conectada al
+`InsightsMenu`, independiente de las notificaciones normales.
+
+P05 queda hecho. La siguiente rebanada habilitada es F6/P06.
+
+### Addendum F6/P06 — 2026-09-18
+
+F6/P06 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de benchmarks y guardrails de oferta, pricing,
+merchandising y AOV. Se mantiene separado de F5.04 mediante
+`OFFER_PRICING_BENCHMARKS`: evalúa evidencia y guardrails, pero no cambia
+precios, asigna promociones ni reordena productos automáticamente.
+
+La salida descompone AOV en pedidos, revenue y UPT cuando existe evidencia,
+contrasta contribution, funnel, product mix, promociones, returns, inventario
+y merchandising, y conserva `UNKNOWN` para pricing, elasticidad,
+incrementalidad, customer quality y comparabilidad no medidos. La migración
+`20261029150000_f6_p06_offer_pricing_benchmarks.sql` se aplicó con
+`.env.local`; la verificación recorrió cinco organizaciones (`5 succeeded`,
+`0 failed`), obtuvo cinco `VALIDATION_REQUIRED` conservadores y limpió todas
+las filas temporales. La card está anclada en
+`#insight-offer-pricing-benchmarks` y conectada al `InsightsMenu`.
+
+P06 queda hecho. La siguiente rebanada habilitada es F6/P07.
+
+### Addendum F6/P07 — 2026-09-18
+
+F6/P07 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de benchmarks y guardrails de retención, CRM y
+LTV. Se mantiene separado de F5.05 mediante `RETENTION_CRM_BENCHMARKS`.
+La salida observa identidad, base de clientes, repeat, contribution,
+configuración CRM, consentimiento e histórico; no declara ciclo natural,
+cohortes maduras, churn, LTV o incrementalidad sin evidencia compatible.
+
+La migración `20261029160000_f6_p07_retention_crm_benchmarks.sql` se aplicó con
+`.env.local`. La verificación recorrió cinco organizaciones (`5 succeeded`,
+`0 failed`), obtuvo cinco `VALIDATION_REQUIRED` conservadores y limpió todas
+las filas temporales. La card está anclada en
+`#insight-retention-crm-benchmarks` y conectada al `InsightsMenu`.
+
+P07 queda hecho. La siguiente rebanada habilitada es F6/P08.
+
+### Addendum F6/P08 — 2026-09-18
+
+F6/P08 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de benchmarks y guardrails de unit economics y
+rentabilidad. Se mantiene separado de F5.06 mediante
+`UNIT_ECONOMICS_BENCHMARKS`. La salida distingue revenue, descuentos, refunds,
+COGS, costes variables, costes fijos y gross profit; no llama contribution al
+net profit ni inventa CAC, payback, cash o escenarios.
+
+La migración `20261029170000_f6_p08_unit_economics_benchmarks.sql` se aplicó
+con `.env.local`; la verificación recorrió cinco organizaciones (`5
+succeeded`, `0 failed`), obtuvo cinco `VALIDATION_REQUIRED` y limpió todas las
+filas temporales. La card está anclada en
+`#insight-unit-economics-benchmarks` y conectada al `InsightsMenu`.
+
+P08 queda hecho. La siguiente rebanada habilitada es F6/P09.
+
+### Addendum F6/P09 — 2026-09-18
+
+F6/P09 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de benchmarks y guardrails de operaciones y CX.
+Se mantiene separado de F5.08 mediante `OPERATIONS_CX_BENCHMARKS`. La salida
+valida promesa y timestamps antes de juzgar delivery; no inventa capacidad,
+backlog, support, CX ni coste desde una media de tiempos.
+
+La migración `20261029180000_f6_p09_operations_cx_benchmarks.sql` se aplicó con
+`.env.local`; la verificación recorrió cinco organizaciones (`5 succeeded`,
+`0 failed`), obtuvo cinco `VALIDATION_REQUIRED` y limpió todas las filas
+temporales. La card está anclada en
+`#insight-operations-cx-benchmarks` y conectada al `InsightsMenu`.
+
+P09 queda hecho. La siguiente rebanada habilitada es F6/P10.
+
+### Addendum F6/P10 — 2026-09-18
+
+F6/P10 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de benchmarks y guardrails de inventario. El
+dominio `PRODUCT_INVENTORY_BENCHMARKS` se mantiene separado de F5.07. La
+salida observa stock, available-to-sell, demanda, velocity, stockouts, margen e
+histórico, y deja `UNKNOWN` para coverage, forecast, aging, accuracy, lead time,
+supplier y replenishment sin evidencia compatible.
+
+La migración `20261029190000_f6_p10_product_inventory_benchmarks.sql` se aplicó
+con `.env.local`; la verificación recorrió cinco organizaciones (`5
+succeeded`, `0 failed`), obtuvo cinco `VALIDATION_REQUIRED` conservadores y
+limpió todas las filas temporales. La card está anclada en
+`#insight-product-inventory-benchmarks` y conectada al `InsightsMenu`.
+
+P10 queda hecho. La siguiente rebanada habilitada es F6/P11.
+
+### Addendum F6/P11 — 2026-09-18
+
+F6/P11 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de escalabilidad. El dominio
+`SCALABILITY_BENCHMARKS` no reutiliza la conclusión de F5.10: mide cobertura de
+objetivo, economics, inventario, operaciones e histórico sin inventar headroom,
+bottleneck, cash, peak capacity ni scale state.
+
+La migración `20261029200000_f6_p11_scalability_benchmarks.sql` se aplicó con
+`.env.local`; la verificación recorrió cinco organizaciones (`5 succeeded`, `0
+failed`), obtuvo cinco `VALIDATION_REQUIRED` y limpió todas las filas
+temporales. La card está anclada en `#insight-scalability-benchmarks` y
+conectada al `InsightsMenu`.
+
+P11 queda hecho. La siguiente rebanada habilitada es F6/P12.
+
+### Addendum F6/P12 — 2026-09-18
+
+F6/P12 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de anomalías y red flags. El dominio
+`ANOMALIES_RED_FLAGS` registra observación, fuentes e histórico, pero no declara
+anomalía, pattern ni alerta sin baseline, desviación, relación esperada y
+validación de tracking.
+
+La migración `20261029210000_f6_p12_anomalies_red_flags.sql` se aplicó con
+`.env.local`; la verificación recorrió cinco organizaciones (`5 succeeded`, `0
+failed`), obtuvo cinco `VALIDATION_REQUIRED` y limpió todas las filas
+temporales. La card está anclada en `#insight-anomalies-red-flags` y conectada al
+`InsightsMenu`.
+
+P12 queda hecho. La siguiente rebanada habilitada es F6/P13.
+
+### Addendum F6/P13 — 2026-09-18
+
+F6/P13 queda hecho con contrato, validator, motor puro, persistencia, worker,
+workflow, endpoint y pantalla de confianza e incertidumbre. El dominio
+`BENCHMARK_CONFIDENCE` separa claim, evidencia, scope, data, comparator,
+pattern, cause e intervention; no calcula un score global ni convierte
+confidence en autorización.
+
+La migración `20261029220000_f6_p13_benchmark_confidence.sql` se aplicó con
+`.env.local`; la verificación recorrió cinco organizaciones (`5 succeeded`, `0
+failed`), obtuvo cinco `VALIDATION_REQUIRED` y limpió todas las filas
+temporales. La card está anclada en `#insight-benchmark-confidence` y conectada
+al `InsightsMenu`.
+
+F6 queda cerrada completa (`P00`–`P13`) en contrato, motor y pixel. Antes de
+abrir F7 se establece una pausa transversal obligatoria para adaptar y verificar
+el consumo por Copiloto de F3, F4, F5 y F6. F7 sigue siendo la siguiente fase
+planificada, pero no se abre hasta cerrar esta auditoria de integracion.
+
+### Pausa transversal Copiloto-first — 2026-09-18
+
+El producto se construye para que el Copiloto consulte diagnosticos,
+priorizaciones, playbooks y benchmarks con procedencia, aislamiento por
+organizacion y semantica conservadora. `InsightsMenu` ya proporciona el salto
+desde el indicador de IA hasta la card concreta y sigue separado de las
+notificaciones normales; no sustituye a la tool o al adaptador que alimenta el
+razonamiento del agente.
+
+Antes de F7 se revisara fase a fase que cada bloque de F3–F6 tenga consumidor
+de Copiloto declarado, contexto/tool de lectura, `allowed_tools` y version del
+agente cuando corresponda, tests de aislamiento y una pregunta representativa
+verificada con datos reales. La auditoria puede cerrar varios bloques mediante
+un adaptador comun; no se crearan tools de escritura por defecto. Las acciones
+seguiran pasando por propuesta, aprobacion, idempotencia y auditoria.

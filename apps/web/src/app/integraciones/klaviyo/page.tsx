@@ -13,8 +13,6 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  Field,
-  Input,
   LoadingBlock,
   Select,
 } from "@/components/ui";
@@ -24,7 +22,6 @@ import {
   ConnectionPicker,
   LastErrorBanner,
   ProviderStatusCard,
-  Steps,
   readErr,
   storesByConnection,
   useIntegrations,
@@ -123,7 +120,6 @@ function KlaviyoIntegrationPage({
   const connectionId = connection?.id ?? null;
   const { metrics, setMetrics, reports, metricsError, reportsError, loading } =
     useKlaviyoConfig(organization?.id ?? null, connectionId);
-  const [apiKey, setApiKey] = useState("");
   const [savingMetric, setSavingMetric] = useState(false);
   const [metricSaveError, setMetricSaveError] = useState<string | null>(null);
   // El Select guarda al cambiar y no habia ninguna confirmacion: ni visual ni
@@ -204,8 +200,7 @@ function KlaviyoIntegrationPage({
       <ProviderStatusCard provider={klaviyo}>
         <p className="mt-3 text-sm leading-6 text-muted">
           Importa campañas, flujos, listas y métricas de email/SMS, y publica en
-          tu cuenta las plantillas aprobadas en Marketing. Puedes conectar por
-          OAuth o pegando una API key privada.
+          tu cuenta las plantillas aprobadas en Marketing.
         </p>
       </ProviderStatusCard>
 
@@ -225,10 +220,8 @@ function KlaviyoIntegrationPage({
       !connection.scopes.includes("templates:write") ? (
         <Banner tone="warn">
           Esta conexión puede leer, pero no publicar plantillas. Para enviar a
-          Klaviyo las piezas aprobadas en Marketing, dale{" "}
-          <span className="font-medium">Full access</span> al permiso{" "}
-          <span className="font-medium">Templates</span> de la API key (o vuelve
-          a autorizar por OAuth) y conéctala de nuevo.
+          Klaviyo las piezas aprobadas en Marketing, vuelve a autorizar por
+          OAuth aceptando todos los permisos.
         </Banner>
       ) : null}
 
@@ -236,9 +229,9 @@ function KlaviyoIntegrationPage({
         {configured ? (
           <div className="space-y-2">
             <p className="text-sm text-muted">
-              Opción recomendada: autoriza con tu cuenta de Klaviyo. Si
-              conectaste antes de que existiera el envío de plantillas, vuelve a
-              autorizar: el permiso de plantillas no estaba en aquel consentimiento.
+              Autoriza con tu cuenta de Klaviyo. Si conectaste antes de que
+              existiera el envío de plantillas, vuelve a autorizar: el permiso
+              de plantillas no estaba en aquel consentimiento.
             </p>
             <Button
               type="button"
@@ -253,57 +246,12 @@ function KlaviyoIntegrationPage({
             </Button>
           </div>
         ) : (
-          <Banner tone="warn">
-            OAuth de Klaviyo no está configurado en el servidor. Puedes conectar
-            con una API key privada mientras tanto.
+          <Banner tone="danger">
+            OAuth de Klaviyo no está configurado en el servidor
+            (KLAVIYO_CLIENT_ID/SECRET/REDIRECT_URI). Configúralo para poder
+            conectar.
           </Banner>
         )}
-
-        <div className="mt-4">
-        <Field label="Conectar con API key privada">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              aria-label="API key privada de Klaviyo"
-              type="password"
-              autoComplete="off"
-              placeholder="pk_..."
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-            <Button
-              type="button"
-              onClick={() => void actions.connectKlaviyoApiKey(apiKey)}
-              disabled={pending === "klaviyo-key" || !apiKey.trim()}
-            >
-              {pending === "klaviyo-key"
-                ? "Conectando..."
-                : connection
-                  ? "Actualizar key"
-                  : "Conectar"}
-            </Button>
-          </div>
-        </Field>
-        </div>
-        <Steps
-          items={[
-            <>
-              En Klaviyo entra en{" "}
-              <span className="font-medium">Settings → API keys</span>.
-            </>,
-            <>
-              Crea una <span className="font-medium">Private API Key</span> con
-              permiso de lectura (Read) para Campaigns, Flows, Metrics, Lists y
-              Segments.
-            </>,
-            <>
-              En <span className="font-medium">Templates</span> dale{" "}
-              <span className="font-medium">Full access</span> (lectura y
-              escritura): es lo que permite publicar en tu cuenta las plantillas
-              aprobadas en Marketing. Solo con lectura, el resto funciona igual.
-            </>,
-            <>Pégala arriba y pulsa Conectar.</>,
-          ]}
-        />
         {actionError ? (
           <Banner className="mt-3" tone="danger">
             {actionError}

@@ -21,3 +21,4 @@ ops-health-findings.json
 .env*
 !.env.example
 !deploy/.env.production.example
+klaviyo-backup-codes.txt

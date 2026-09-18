@@ -40,6 +40,29 @@ import { listConsultantPlaybookRuns } from "./playbook-api.js";
 import { listConsultantAcquisitionRuns } from "./acquisition-api.js";
 import { listConsultantPaidMediaRuns } from "./paid-media-api.js";
 import { listConsultantConversionRuns } from "./conversion-api.js";
+import { listConsultantOfferPricingRuns } from "./offer-pricing-api.js";
+import { listConsultantRetentionCrmRuns } from "./retention-crm-api.js";
+import { listConsultantUnitEconomicsRuns } from "./unit-economics-api.js";
+import { listConsultantProductInventoryRuns } from "./product-inventory-api.js";
+import { listConsultantOperationsCxRuns } from "./operations-cx-api.js";
+import { listConsultantMeasurementExperimentationRuns } from "./measurement-experimentation-api.js";
+import { listConsultantScalabilityRuns } from "./scalability-constraints-api.js";
+import { listConsultantRecoveryCrisisRuns } from "./recovery-crisis-api.js";
+import { listConsultantAiPlaybookInsights } from "./ai-playbook-insights-api.js";
+import { listConsultantBenchmarkGuardrailsRuns } from "./benchmark-guardrails-api.js";
+import { listConsultantCohortContextRuns } from "./cohort-context-api.js";
+import { listConsultantDataQualityReliabilityRuns } from "./data-quality-reliability-api.js";
+import { listConsultantAcquisitionDemandRuns } from "./acquisition-demand-api.js";
+import { listConsultantPaidMediaBenchmarksRuns } from "./paid-media-benchmarks-api.js";
+import { listConsultantConversionCroBenchmarksRuns } from "./conversion-cro-benchmarks-api.js";
+import { listConsultantOfferPricingBenchmarksRuns } from "./offer-pricing-benchmarks-api.js";
+import { listConsultantRetentionCrmBenchmarksRuns } from "./retention-crm-benchmarks-api.js";
+import { listConsultantUnitEconomicsBenchmarksRuns } from "./unit-economics-benchmarks-api.js";
+import { listConsultantOperationsCxBenchmarksRuns } from "./operations-cx-benchmarks-api.js";
+import { listConsultantProductInventoryBenchmarksRuns } from "./product-inventory-benchmarks-api.js";
+import { listConsultantScalabilityBenchmarksRuns } from "./scalability-benchmarks-api.js";
+import { listConsultantAnomaliesRedFlagsRuns } from "./anomalies-red-flags-api.js";
+import { listConsultantBenchmarkConfidenceRuns } from "./benchmark-confidence-api.js";
 import { listAccountActions } from "./actions.js";
 import {
   addMarketingDraftNote,
@@ -329,6 +352,7 @@ import {
 import { getAgentEvalReadiness } from "./agent-eval-readiness.js";
 import {
   createKnowledgeDocument,
+  updateKnowledgeDocument,
   listKnowledgeDocuments,
   getKnowledgeDocument,
   searchKnowledge,
@@ -2257,6 +2281,43 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/v1/consultant/acquisition", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantAcquisitionRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
   app.get("/v1/consultant/paid-media", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantPaidMediaRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
   app.get("/v1/consultant/conversion", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantConversionRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/offer-pricing", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantOfferPricingRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/retention-crm", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantRetentionCrmRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/unit-economics", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantUnitEconomicsRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/product-inventory", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantProductInventoryRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/operations-cx", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantOperationsCxRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/measurement-experimentation", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantMeasurementExperimentationRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/scalability", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantScalabilityRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/recovery-crisis", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantRecoveryCrisisRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/ai-playbook-insights", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const query = request.query as { organizationId?: string };
+    const result = await listConsultantAiPlaybookInsights(
+      env,
+      authorization,
+      auth.context,
+      query.organizationId,
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+   app.get("/v1/consultant/benchmark-guardrails", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantBenchmarkGuardrailsRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/cohort-context", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantCohortContextRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/data-quality-reliability", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantDataQualityReliabilityRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/acquisition-demand", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantAcquisitionDemandRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/paid-media-benchmarks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantPaidMediaBenchmarksRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/conversion-cro-benchmarks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantConversionCroBenchmarksRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/offer-pricing-benchmarks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantOfferPricingBenchmarksRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/retention-crm-benchmarks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantRetentionCrmBenchmarksRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/unit-economics-benchmarks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantUnitEconomicsBenchmarksRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/operations-cx-benchmarks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantOperationsCxBenchmarksRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/product-inventory-benchmarks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantProductInventoryBenchmarksRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/scalability-benchmarks", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantScalabilityBenchmarksRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/anomalies-red-flags", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantAnomaliesRedFlagsRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/benchmark-confidence", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantBenchmarkConfidenceRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
 
   // F3/D07. Declarar una relacion causal propia de una tienda. Es lo que
   // desbloquea el bloque: el grafo global trae cinco aristas, y todo lo demas
@@ -6714,6 +6775,37 @@ export async function buildApp(): Promise<FastifyInstance> {
       }
 
       return reply.code(201).send(result.data);
+    },
+  );
+
+  // Reescribe un documento existente (mismo titulo, contenido nuevo): re-embebe
+  // y sube version, en vez de acumular un documento distinto cada vez que se
+  // corrige una respuesta (cuestionario de tienda, perfil editable).
+  app.patch<{
+    Params: { organizationId: string; documentId: string };
+    Body: { content?: string };
+  }>(
+    "/v1/organizations/:organizationId/knowledge/documents/:documentId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const result = await updateKnowledgeDocument(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.documentId,
+        request.body ?? {},
+      );
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
     },
   );
 

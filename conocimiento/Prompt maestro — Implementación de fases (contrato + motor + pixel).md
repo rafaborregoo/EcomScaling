@@ -41,6 +41,43 @@ misma sesion que el contrato del bloque**, no en una pasada posterior "cuando to
 no toca todavia (por ejemplo, el motor de un bloque depende de senales que otro bloque aun no
 emite), se anota como recorte con fecha y el bloque que lo desbloquea — no se deja implicito.
 
+## Regla transversal: Copiloto primero
+
+EcomScaling se construye para que el Copiloto pueda razonar con datos verificables y llevar al
+consultor hasta el punto exacto de la aplicacion. Por eso la pantalla no es el final del bloque:
+cada bloque debe declarar tambien **como lo consume el Copiloto**, aunque la respuesta sea que aun
+no lo consume porque no escribe datos o porque el contrato no permite exponerlo.
+
+Esta regla se aplica hacia atras a los bloques ya marcados `hecho` y hacia delante a todas las
+fases. No reabre silenciosamente un bloque cerrado: la deuda de integracion se anota como tarea
+transversal y se cierra con su propia verificacion.
+
+Para cada bloque, durante la misma sesion de implementacion o de auditoria, comprueba:
+
+- **Contexto o tool de lectura:** el Copiloto tiene una fuente estable, tenant-scoped y con
+  procedencia para leer el resultado. Puede ser una tool nueva, una extension de una tool
+  existente o un adaptador de contexto; se escribe cual de las tres es.
+- **Semantica conservadora:** se preservan `UNKNOWN`, `NOT_ASSESSABLE`, `UNRESOLVED`, `ABSTAIN`,
+  `BLOCKED` y `VALIDATION_REQUIRED`. La IA no puede convertir ausencia de evidencia en falso,
+  confianza en autorizacion ni benchmark en objetivo.
+- **Trazabilidad:** el contexto incluye, cuando existan, `as_of`, alcance, `source_refs`,
+  `reason_codes`, desconocidos, requisitos de validacion y condiciones de parada. No se vuelca
+  payload crudo ni contexto no confiable sin sanearlo.
+- **Permisos:** la tool entra en `allowed_tools` y en una nueva version del agente solo cuando
+  corresponda. La lectura no concede escritura; cualquier propuesta o mutacion sigue el circuito
+  existente de aprobacion, idempotencia y auditoria.
+- **Pixel conectado:** si el resultado genera un hallazgo visible, `InsightsMenu` es el canal de
+  IA separado de las notificaciones normales y enlaza con el ancla exacta de la card. El panel de
+  diagnostico sigue siendo la vista ordenada y completa; el menu es el acceso contextual.
+- **Prueba del agente:** hay un test de contrato/contexto, aislamiento entre organizaciones y
+  comportamiento ante datos desconocidos. La verificacion real incluye una pregunta o lectura
+  representativa y confirma que el Copiloto cita el resultado correcto sin inventar el que falta.
+
+Un bloque no esta completamente integrado si tiene contrato, motor y pantalla pero el Copiloto no
+puede leerlo y tampoco existe una razon escrita para no exponerlo. En ese caso el bloque puede
+seguir siendo `hecho` en el indice de contrato/motor/pixel, pero queda una tarea de integracion
+abierta que bloquea la apertura de la siguiente fase cuando afecte al consumidor comun.
+
 ## El procedimiento por bloque
 
 Sigue este orden. Es el que uso `D07`, `D08` y `D09` en fase 3 y funciono; saltarse pasos es lo
@@ -74,7 +111,8 @@ que produjo los bugs de la seccion siguiente.
    el agregado de cartera, no caso a caso (apartado 9 del plan maestro). Un bloque que se aparte de
    esto lo escribe y dice por que. Sigue `ADR-0020` (tokens, escala de 8pt, HeroUI v3 nativo, una
    fuente, blanco dominante) y "UI sin subtextos": nada de texto de ayuda que no evite un error o
-   una consecuencia real.
+   una consecuencia real. La card que alimente al Copiloto debe tener ancla estable y entrada en
+   `InsightsMenu`, separado de las notificaciones normales.
 6. **Verifica contra datos reales en el proyecto de test**, nunca solo con los tests unitarios:
    siembra filas minimas con `execute_sql`, corre el motor, **cuenta las filas resultantes
    directamente** (no confies en lo que el motor dice que hizo — ver el bug de idempotencia mas

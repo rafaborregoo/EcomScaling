@@ -372,6 +372,168 @@ export async function createKnowledgeDocument(
   };
 }
 
+/**
+ * Actualiza el contenido de un documento existente (mismo titulo, contenido
+ * nuevo): re-chunkea y re-embebe desde cero -- los chunks viejos no sirven
+ * para un contenido distinto -- y sube `version`. Pensado para conocimiento
+ * que se reescribe con el tiempo (perfil de la tienda / cuestionario) en vez
+ * de acumular un documento nuevo cada vez que se corrige una respuesta.
+ */
+export async function updateKnowledgeDocument(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  documentId: string,
+  payload: { content?: unknown },
+) {
+  const targetOrganizationId =
+    organizationId === "global" ? null : organizationId;
+  const access = requireKnowledgeManager(context, targetOrganizationId);
+  if (access.ok === false) {
+    return access;
+  }
+
+  const embeddings = requireEmbeddings(env);
+  if (embeddings.ok === false) {
+    return embeddings;
+  }
+
+  const content =
+    typeof payload.content === "string" ? payload.content.trim() : "";
+  if (!content) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "content_requerido",
+    };
+  }
+
+  const chunks = chunkText(content);
+  if (chunks.length === 0) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "contenido_vacio_tras_chunking",
+    };
+  }
+
+  const vectors = await embedChunksInOrder(chunks, embeddings.provider);
+  const supabase = createServiceClient(env);
+  const checksum = crypto.createHash("sha256").update(content).digest("hex");
+
+  const existingQuery = supabase
+    .from("knowledge_documents")
+    .select("id, version")
+    .eq("id", documentId);
+  const { data: existing, error: existingError } = await (
+    targetOrganizationId === null
+      ? existingQuery.is("organization_id", null)
+      : existingQuery.eq("organization_id", targetOrganizationId)
+  ).maybeSingle();
+
+  if (existingError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "knowledge_document_load_failed",
+      detail: existingError.message,
+    };
+  }
+  if (!existing) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "knowledge_document_not_found",
+    };
+  }
+
+  const { data: document, error: documentError } = await supabase
+    .from("knowledge_documents")
+    .update({
+      content,
+      checksum,
+      embedding_model: embeddings.provider.model,
+      version: existing.version + 1,
+    })
+    .eq("id", documentId)
+    .select("id, title, visibility, audience, version")
+    .single();
+
+  if (documentError || !document) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "knowledge_document_update_failed",
+      detail: documentError?.message,
+    };
+  }
+
+  const { error: deleteChunksError } = await supabase
+    .from("knowledge_chunks")
+    .delete()
+    .eq("document_id", documentId);
+
+  if (deleteChunksError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "knowledge_chunks_delete_failed",
+      detail: deleteChunksError.message,
+    };
+  }
+
+  const { error: chunksError } = await supabase.from("knowledge_chunks").insert(
+    chunks.map((chunk, index) => ({
+      document_id: document.id,
+      organization_id: targetOrganizationId,
+      chunk_index: index,
+      content: chunk,
+      token_count: Math.ceil(chunk.length / 4),
+      embedding: JSON.stringify(vectors[index]),
+    })),
+  );
+
+  if (chunksError) {
+    // Sin chunks el documento no sirve: se marca archivado en vez de dejar
+    // contenido nuevo sin retrieval detras (mismo criterio que al crear).
+    await supabase
+      .from("knowledge_documents")
+      .update({ status: "archived" })
+      .eq("id", document.id);
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "knowledge_chunks_insert_failed",
+      detail: chunksError.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId: targetOrganizationId,
+    actorUserId: context.user.id,
+    action: "knowledge.update_document",
+    entityType: "knowledge_document",
+    entityId: document.id,
+    newData: {
+      version: document.version,
+      chunk_count: chunks.length,
+    },
+  });
+
+  return {
+    ok: true as const,
+    data: {
+      document_id: document.id,
+      title: document.title,
+      visibility: document.visibility,
+      audience: document.audience,
+      version: document.version,
+      chunk_count: chunks.length,
+      embedding_model: embeddings.provider.model,
+    },
+  };
+}
+
 export async function listKnowledgeDocuments(
   env: ApiEnv,
   authorization: string,

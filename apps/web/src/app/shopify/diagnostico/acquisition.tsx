@@ -68,6 +68,7 @@ export function AcquisitionPlaybookPanel() {
   const profile = current?.result?.selected_instance?.domain_extension?.acquisition;
   return (
     <Card
+      id="insight-acquisition"
       title="Adquisición y demanda F5.01"
       description="Distingue demanda cualificada de tráfico y conserva la incertidumbre de canal, audiencia, economics y capacidad."
     >

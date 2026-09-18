@@ -24,6 +24,29 @@ import { PlaybookFrameworkPanel } from "./playbook";
 import { AcquisitionPlaybookPanel } from "./acquisition";
 import { PaidMediaPlaybookPanel } from "./paid-media";
 import { ConversionCroPlaybookPanel } from "./conversion";
+import { OfferPricingPlaybookPanel } from "./offer-pricing";
+import { RetentionCrmPlaybookPanel } from "./retention-crm";
+import { UnitEconomicsPlaybookPanel } from "./unit-economics";
+import { ProductInventoryPlaybookPanel } from "./product-inventory";
+import { OperationsCxPlaybookPanel } from "./operations-cx";
+import { MeasurementExperimentationPlaybookPanel } from "./measurement-experimentation";
+import { ScalabilityPlaybookPanel } from "./scalability";
+import { PlaybookDiagnosticOverviewPanel } from "./playbook-overview";
+import { RecoveryCrisisPlaybookPanel } from "./recovery-crisis";
+import { BenchmarkGuardrailsPanel } from "./benchmark-guardrails";
+import { CohortContextPanel } from "./cohort-context";
+import { DataQualityReliabilityPanel } from "./data-quality-reliability";
+import { AcquisitionDemandPanel } from "./acquisition-demand";
+import { PaidMediaBenchmarksPanel } from "./paid-media-benchmarks";
+import { ConversionCroBenchmarksPanel } from "./conversion-cro-benchmarks";
+import { OfferPricingBenchmarksPanel } from "./offer-pricing-benchmarks";
+import { RetentionCrmBenchmarksPanel } from "./retention-crm-benchmarks";
+import { UnitEconomicsBenchmarksPanel } from "./unit-economics-benchmarks";
+import { OperationsCxBenchmarksPanel } from "./operations-cx-benchmarks";
+import { ProductInventoryBenchmarksPanel } from "./product-inventory-benchmarks";
+import { ScalabilityBenchmarksPanel } from "./scalability-benchmarks";
+import { AnomaliesRedFlagsPanel } from "./anomalies-red-flags";
+import { BenchmarkConfidencePanel } from "./benchmark-confidence";
 import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
 import { SeverityPanel } from "./severity-panel";
@@ -531,9 +554,32 @@ function ShopifyDiagnosticoView({
           <FeasibilityPanel />
           <F4DimensionsPanel />
           <PlaybookFrameworkPanel />
+          <PlaybookDiagnosticOverviewPanel />
           <AcquisitionPlaybookPanel />
           <PaidMediaPlaybookPanel />
           <ConversionCroPlaybookPanel />
+          <OfferPricingPlaybookPanel />
+          <RetentionCrmPlaybookPanel />
+          <UnitEconomicsPlaybookPanel />
+          <ProductInventoryPlaybookPanel />
+          <OperationsCxPlaybookPanel />
+          <MeasurementExperimentationPlaybookPanel />
+          <ScalabilityPlaybookPanel />
+          <RecoveryCrisisPlaybookPanel />
+          <BenchmarkGuardrailsPanel />
+          <CohortContextPanel />
+          <DataQualityReliabilityPanel />
+          <AcquisitionDemandPanel />
+          <PaidMediaBenchmarksPanel />
+          <ConversionCroBenchmarksPanel />
+          <OfferPricingBenchmarksPanel />
+          <RetentionCrmBenchmarksPanel />
+          <UnitEconomicsBenchmarksPanel />
+          <OperationsCxBenchmarksPanel />
+          <ProductInventoryBenchmarksPanel />
+          <ScalabilityBenchmarksPanel />
+          <AnomaliesRedFlagsPanel />
+          <BenchmarkConfidencePanel />
           <PrioritizationPanel />
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">
