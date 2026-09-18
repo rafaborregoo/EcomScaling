@@ -5,9 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiUrl } from "@/lib/bootstrap";
 import {
+  BrandLogo,
   Button,
   Card,
-  cn,
   ErrorBlock,
   EYEBROW,
   Field,
@@ -135,7 +135,7 @@ function AccesoContent() {
   return (
     <main className="grid min-h-dvh bg-white text-foreground lg:grid-cols-2">
       <aside className="hidden flex-col justify-between border-r border-separator p-10 lg:flex">
-        <p className={cn(EYEBROW, "text-accent")}>EcomScaling</p>
+        <BrandLogo />
         <Heading level={2} size="lg" className="max-w-xl">
           Activa tu cuenta con el código que te dio tu consultor.
         </Heading>

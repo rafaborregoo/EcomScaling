@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Card, EYEBROW, Heading, Link } from "@/components/ui";
+import { BrandLogo, Card, Heading, Link } from "@/components/ui";
 
 export const metadata: Metadata = {
   title: "Política de privacidad — EcomScaling IA",
@@ -13,7 +13,7 @@ export default function PrivacyPolicyPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-4 py-12 sm:px-6">
       <header className="flex flex-col gap-2">
-        <p className={EYEBROW}>EcomScaling IA</p>
+        <BrandLogo />
         <Heading level={1} size="lg">Política de privacidad</Heading>
         <p className="text-sm text-muted">Última actualización: {LAST_UPDATED}</p>
       </header>

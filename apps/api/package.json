@@ -68,6 +68,8 @@
     "./scalability-benchmarks-engine": { "types": "./dist/src/scalability-benchmarks-engine.d.ts", "default": "./dist/src/scalability-benchmarks-engine.js" },
     "./anomalies-red-flags-engine": { "types": "./dist/src/anomalies-red-flags-engine.d.ts", "default": "./dist/src/anomalies-red-flags-engine.js" },
     "./benchmark-confidence-engine": { "types": "./dist/src/benchmark-confidence-engine.d.ts", "default": "./dist/src/benchmark-confidence-engine.js" },
+    "./intervention-eligibility-engine": { "types": "./dist/src/intervention-eligibility-engine.d.ts", "default": "./dist/src/intervention-eligibility-engine.js" },
+    "./intervention-matching-engine": { "types": "./dist/src/intervention-matching-engine.d.ts", "default": "./dist/src/intervention-matching-engine.js" },
     "./adversarial-engine": {
       "types": "./dist/src/adversarial-engine.d.ts",
       "default": "./dist/src/adversarial-engine.js"
@@ -193,6 +195,7 @@
     "test:scalability-benchmarks": "tsx --test --test-force-exit src/scalability-benchmarks-engine.test.ts",
     "test:anomalies-red-flags": "tsx --test --test-force-exit src/anomalies-red-flags-engine.test.ts",
     "test:benchmark-confidence": "tsx --test --test-force-exit src/benchmark-confidence-engine.test.ts",
+    "test:intervention-eligibility": "tsx --test --test-force-exit src/intervention-eligibility-engine.test.ts src/intervention-matching-engine.test.ts src/decision-playbook-chat-context.test.ts src/ai-playbook-insights-api.test.ts",
     "test:finance": "tsx --test --test-force-exit src/billing-finance.test.ts",
     "test:markdown": "tsx --test --test-force-exit src/strategic-plan-markdown.test.ts",
     "test": "npm run test:unit",

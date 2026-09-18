@@ -8,10 +8,10 @@ import { readApiError } from "@/lib/api-error";
 import {
   Badge,
   Banner,
+  BrandLogo,
   Button,
   Card,
   ErrorBlock,
-  EYEBROW,
   Heading,
   Input,
   LoadingBlock,
@@ -149,7 +149,7 @@ function PlanesContent() {
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-12">
       <div className="mb-8">
-        <p className={EYEBROW}>EcomScaling</p>
+        <BrandLogo />
         <Heading level={1}>Elige tu plan</Heading>
       </div>
 

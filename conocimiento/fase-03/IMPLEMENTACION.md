@@ -3881,3 +3881,33 @@ las limitaciones reales. La prueba en `.env.local` encadeno D07 -> D08 -> D09
 cleanup a cero. El bloque queda en **hecho** dentro del alcance de su contrato.
 
 La verificación real se ejecutó con `.env.local` sobre `kopcblejsxpkxoykldyh`: seis señales sembradas, una evaluación temporal y una transición D13, una salida D14 con 11 validadores y degradación explícita por falta de causa/evidencia. El `finally` comprobó cero filas residuales después de borrar el caso y sus dependencias. Los tests de contratos quedan en 579 en verde. D13 y D14 pasan a **hecho**; F4 queda habilitada.
+
+## Addendum de auditoría Copiloto-first F3-F6 — 2026-09-18
+
+La auditoría transversal queda cerrada antes de abrir F7. La decisión es usar
+un adaptador de contexto común en `apps/api/src/decision-playbook-chat-context.ts`:
+
+- D00-D11 se exponen mediante el snapshot resumido del caso y sus campos de
+  calidad, alcance, hallazgo, causa, severidad, trayectoria, confianza y
+  limitaciones; D00 sigue siendo contrato-only.
+- D12 y D13 se leen de sus filas `current`, conservando el riesgo de falso
+  diagnóstico, la revisión red-team, la trayectoria desconocida y la
+  insuficiencia temporal.
+- D14 se lee como salida versionada, con estado de finalización, componentes
+  bloqueantes, confianza y datos faltantes. No se presenta como causa,
+  prioridad ni autorización de acción.
+- F4 conserva contexto, decisión, `ABSTAIN`, `VALIDATION_REQUIRED`,
+  `reason_codes` y `as_of`; F5/F6 conserva `source_refs`, facts tri-state,
+  evidencia y versiones de fuente. Todas las lecturas fijan `organization_id`
+  en la query y vuelven a filtrarlo en memoria.
+- `a09_copiloto_consultor` queda activo en la versión `v8`, con prompt `v4`,
+  `allowed_tools` de lectura y `required_before_publish`. `UNKNOWN` no se
+  interpreta como falso y confidence nunca autoriza una mutación.
+- `InsightsMenu` recibe el feed F3 cuando D12/D13/D14 requieren revisión y
+  navega a `#insight-d12-adversarial`, `#insight-d13-temporal` y
+  `#insight-d14-output`, separado de la campana de notificaciones.
+
+La prueba transaccional contra `.env.local` sembró dos organizaciones reales,
+un caso D12/D13/D14 por tenant, leyó solo el tenant solicitado, obtuvo los tres
+dominios F3, confirmó que existía una fila del otro tenant y terminó con
+rollback. La comprobación posterior dejó casos, salidas y revisiones a cero.

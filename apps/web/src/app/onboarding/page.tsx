@@ -13,14 +13,15 @@ import {
   passwordConfirmationState,
 } from "@/lib/password-policy";
 import {
+  BrandLogo,
   Button,
   Card,
+  cn,
   ErrorBlock,
   EYEBROW,
   Field,
   Input,
   LoadingBlock,
-  cn,
 } from "@/components/ui";
 
 // El onboarding solo cubre contraseña y perfil. Las integraciones se conectan
@@ -82,7 +83,7 @@ export default function OnboardingPage() {
   return (
     <main className="min-h-dvh bg-white text-foreground">
       <header className="border-b border-separator px-6 py-4">
-        <p className={cn(EYEBROW, "text-accent")}>EcomScaling</p>
+        <BrandLogo />
       </header>
 
       <div className="mx-auto flex max-w-lg flex-col gap-6 px-6 py-10">

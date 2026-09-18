@@ -15,10 +15,10 @@ import {
 } from "@/lib/password-policy";
 import {
   Banner,
+  BrandLogo,
   Button,
   Card,
   ErrorBlock,
-  EYEBROW,
   Field,
   Heading,
   Input,
@@ -130,7 +130,7 @@ function RegistroContent() {
   return (
     <main className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center gap-6 px-4 py-12">
       <div>
-        <p className={EYEBROW}>EcomScaling</p>
+        <BrandLogo />
         <Heading level={1}>Crea tu cuenta</Heading>
         {inviteCode ? (
           <p className="mt-2 text-sm text-muted">

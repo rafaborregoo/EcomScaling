@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { apiFetch } from "@/lib/bootstrap";
 import {
-  insightSpotsFromPlaybookAssessments,
+  insightSpotsFromAiAssessments,
   insightSpotsFor,
   totalInsightCount,
   type InsightScope,
@@ -53,7 +53,7 @@ export function InsightsMenu({ scope }: { scope: InsightScope }) {
         return response.json() as Promise<{ assessments: PlaybookInsightAssessment[] }>;
       })
       .then((payload) => {
-        if (!cancelled) setPlaybookSpots(insightSpotsFromPlaybookAssessments(scope, payload.assessments));
+        if (!cancelled) setPlaybookSpots(insightSpotsFromAiAssessments(scope, payload.assessments));
       })
       .catch(() => {
         if (!cancelled) setPlaybookSpots([]);
@@ -62,7 +62,7 @@ export function InsightsMenu({ scope }: { scope: InsightScope }) {
     return () => {
       cancelled = true;
     };
-  }, [scope.isConsultant, scope.organizationId]);
+  }, [scope.isConsultant, scope.organizationId, scope.connectionId]);
 
   const staticSpots = insightSpotsFor(scope);
   const spots = [

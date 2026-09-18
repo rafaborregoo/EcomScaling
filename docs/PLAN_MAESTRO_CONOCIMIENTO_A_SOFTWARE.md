@@ -974,3 +974,58 @@ agente cuando corresponda, tests de aislamiento y una pregunta representativa
 verificada con datos reales. La auditoria puede cerrar varios bloques mediante
 un adaptador comun; no se crearan tools de escritura por defecto. Las acciones
 seguiran pasando por propuesta, aprobacion, idempotencia y auditoria.
+
+### Cierre de la pausa Copiloto-first — 2026-09-18
+
+La auditoria F3-F6 queda cerrada. El consumidor primario es A09, activo como
+`v8` con prompt `v4`. El adaptador común
+`loadDecisionPlaybookContextBlocks` entrega el snapshot del caso D00-D11, las
+revisiones D12/D13, la salida D14, el contexto y salida decisional de F4 y los
+playbooks/benchmarks F5/F6 con `organization_id`, procedencia, `as_of`,
+`source_refs`, facts tri-state y estados de abstención.
+
+Las queries fijan el tenant y aplican un segundo filtro en memoria. Los tests
+cubren unknowns, aislamiento, contexto no confiable, permisos y navegación de
+`InsightsMenu`. D12/D13/D14 disponen además de feed de IA con anclas exactas,
+separado de las notificaciones normales. La prueba transaccional real sobre
+`.env.local` sembró dos tenants, obtuvo los tres dominios F3 para el tenant
+solicitado y terminó con rollback y cero filas residuales.
+
+Con esta pausa cerrada, F7 queda desbloqueada para una siguiente decisión de
+trabajo; no se abre ni se implementa automáticamente en esta auditoria.
+
+### Apertura y cierre F7/P01 - 2026-09-18
+
+La primera rebanada de F7 queda abierta y `7.01` queda hecha con contrato,
+motor puro probado, runtime persistente, worker, workflow, API y panel. El
+bloque evalúa la elegibilidad de cada candidato del catálogo activo, pero no
+prioriza, no selecciona ni autoriza ejecución. Las conclusiones no demostradas
+conservan `UNKNOWN` y el run se expone al Copiloto con `organization_id`,
+`as_of`, `source_refs`, `reason_codes` y unknowns.
+
+La migración `20261030100000_f7_p01_intervention_eligibility.sql` se aplicó y
+verificó con `.env.local`; el smoke real dejó `VALIDATION_REQUIRED`, una
+evaluación persistida, aislamiento tenant y cero filas tras cleanup. La card
+está anclada en `#insight-intervention-eligibility` y conectada al
+`InsightsMenu` separado de las notificaciones normales.
+
+La siguiente rebanada habilitada es `7.02`. Los bloques `7.15`, `7.17` y `7.18`
+siguen pendientes de su destilación/implementación y no se consideran cerrados
+por este avance.
+
+### Cierre F7/P02 - 2026-09-18
+
+F7/P02 queda hecho con contrato, motor puro probado, runtime persistente,
+worker, workflow, endpoint, panel y consumo Copiloto-first. El matching solo
+mantiene candidatos cuya cadena `problema -> driver -> causa -> mecanismo ->
+palanca -> intervención` puede trazarse; cuando falta el problema upstream, la
+salida es `VALIDATION_REQUIRED` y no se inventa encaje causal.
+
+La migración `20261030200000_f7_p02_intervention_matching.sql` se aplicó con
+`.env.local`; el smoke real confirmó aislamiento tenant, cero selección y
+cleanup a cero. La card está anclada en
+`#insight-intervention-matching` y conectada al `InsightsMenu` separado de las
+notificaciones normales.
+
+La siguiente rebanada habilitada es `7.03`. Los bloques `7.15`, `7.17` y `7.18`
+siguen pendientes y no se consideran cerrados por este avance.

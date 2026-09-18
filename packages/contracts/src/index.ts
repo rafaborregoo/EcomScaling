@@ -293,3 +293,5 @@ export * from "./scalability-benchmarks.js";
 export * from "./anomalies-red-flags.js";
 export * from "./benchmark-confidence.js";
 export * from "./operations-cx.js";
+export * from "./intervention-eligibility.js";
+export * from "./intervention-matching.js";

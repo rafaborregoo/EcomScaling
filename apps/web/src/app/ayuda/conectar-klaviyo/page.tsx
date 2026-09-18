@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Card, EYEBROW, Heading, Link } from "@/components/ui";
+import { BrandLogo, Card, Heading, Link } from "@/components/ui";
 
 // Articulo publico de ayuda que pide el formulario de registro de apps de
 // Klaviyo (campo "Articulo n.o 1"). No cuelga de ningun menu del panel: es
@@ -15,7 +15,7 @@ export default function ConnectKlaviyoArticlePage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-4 py-12 sm:px-6">
       <header className="flex flex-col gap-2">
-        <p className={EYEBROW}>EcomScaling IA</p>
+        <BrandLogo />
         <Heading level={1} size="lg">
           Conecta Klaviyo con EcomScaling
         </Heading>

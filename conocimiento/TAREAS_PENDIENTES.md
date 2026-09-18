@@ -13,36 +13,50 @@ que es el checklist canonico del piloto. Aqui solo lo de esta linea de trabajo.
 ## Integracion transversal Copiloto-first — bloqueante antes de F7
 
 El producto se esta construyendo para que el Copiloto consulte y explique los
-resultados. F3, F4, F5 y F6 ya tienen avances de contrato, motor y pantallas, y
-parte del camino comun ya existe (`decision-playbook-chat-context.ts` e
-`InsightsMenu`), pero la auditoria por bloque todavia no esta cerrada. Esta
-deuda no se resuelve creando escrituras automaticas: el Copiloto debe leer
-evidencia y proponer con los controles existentes.
+resultados. La auditoria transversal F3-F6 queda cerrada el 2026-09-18 con un
+adaptador de contexto comun, el feed de `InsightsMenu` y el prompt versionado
+de A09. Esta deuda no se resuelve creando escrituras automaticas: el Copiloto
+lee evidencia y propone con los controles existentes.
 
-- [ ] **Inventariar F3 bloque a bloque (D01–D14).** Declarar para cada uno la
+- [x] **Inventariar F3 bloque a bloque (D01–D14).** Declarar para cada uno la
       tool o adaptador de contexto, los campos que puede leer, el agente y la
       version/`allowed_tools`; dejar motivo explicito en D00 y en cualquier
       bloque que aun no deba exponerse.
-- [ ] **Auditar F4 y F5.** Confirmar que decisiones y playbooks llegan al
+- [x] **Auditar F4 y F5.** Confirmar que decisiones y playbooks llegan al
       Copiloto con `organization_id`, `as_of`, `source_refs`, `reason_codes`,
       `UNKNOWN`, `ABSTAIN`, `BLOCKED` y `VALIDATION_REQUIRED` sin perder
       semantica.
-- [ ] **Auditar F6.** Renombrar el contexto que hoy se presenta como F5 para
+- [x] **Auditar F6.** Renombrar el contexto que hoy se presenta como F5 para
       incluir benchmarks y guardrails, enriquecer el resumen con facts/unknowns
       y decidir si hace falta una tool de lectura especifica para assessments F6.
-- [ ] **Alinear prompt y permisos.** Dejar escrito que `UNKNOWN` no es falso,
+- [x] **Alinear prompt y permisos.** Dejar escrito que `UNKNOWN` no es falso,
       confidence no autoriza ejecucion y toda mutacion pasa por propuesta,
       aprobacion, idempotencia y auditoria; actualizar `allowed_tools` solo con
       una version identificable del agente.
-- [ ] **Probar el camino del agente.** Añadir tests de contrato/contexto,
+- [x] **Probar el camino del agente.** Añadir tests de contrato/contexto,
       aislamiento entre organizaciones y una pregunta representativa con datos
       reales usando `.env.local`; comprobar tambien el salto de `InsightsMenu`
       al ancla exacta de cada card. La campana de notificaciones permanece
       separada.
-- [ ] **Cerrar la pausa antes de abrir F7.** Documentar la auditoria en el
+- [x] **Cerrar la pausa antes de abrir F7.** Documentar la auditoria en el
       plan maestro, el indice y la bitacora de la fase correspondiente. Puede
       resolverse con un adaptador comun; no hace falta una tool distinta por
       bloque si se conserva procedencia y semantica.
+
+### Cierre de la auditoria Copiloto-first — 2026-09-18
+
+Las casillas anteriores quedan resueltas por el adaptador común y no por una
+tool nueva por bloque: el snapshot del caso cubre D00-D11, D12/D13 se leen de
+sus revisiones actuales y D14 de la salida versionada. A09 v8 consume el
+contexto con prompt v4 y mantiene sus permisos de lectura y aprobación.
+
+La verificación unitaria cubre contrato, unknowns, aislamiento tenant y
+navegación. El smoke test transaccional sobre `.env.local` creó dos casos reales
+en dos organizaciones, leyó solo un tenant, obtuvo D12/D13/D14, comprobó que
+existían filas del otro tenant y terminó con rollback; la comprobación posterior
+dejó `diagnostic_cases`, `diagnostic_outputs`, `diagnostic_robustness` y
+`temporal_diagnoses` a cero. F7 queda desbloqueable, pero no se abre en esta
+auditoría.
 
 ---
 
@@ -656,3 +670,31 @@ F6/P12 queda hecho. El siguiente bloque habilitado es F6/P13.
 - [x] ~~Conectar P13 con `InsightsMenu`.~~ Card `#insight-benchmark-confidence` y entrada de overview registrados.
 
 F6 queda cerrada completa (`P00`–`P13`). F7 puede abrirse en una sesión posterior.
+
+### Apertura y cierre F7/P01 - 2026-09-18
+
+- [x] ~~Implementar `7.01`, elegibilidad de una intervención.~~ Contrato,
+  migración, motor puro con tests, runtime tenant-bound, worker, workflow,
+  endpoint y panel. No prioriza ni selecciona candidatos.
+- [x] ~~Adaptar `7.01` al Copiloto y `InsightsMenu`.~~ Contexto de solo lectura
+  con procedencia, unknowns y aislamiento por organización; card anclada en
+  `#insight-intervention-eligibility`, separada de las notificaciones normales.
+- [x] ~~Verificar con `.env.local`.~~ Smoke real con un candidato temporal:
+  `VALIDATION_REQUIRED`, `tenant_match: true`, `no_selection: true` y cleanup
+  a cero; la migración no deja pendientes.
+
+F7/P01 queda hecho. El siguiente bloque habilitado es F7/P02 (`7.02`).
+
+### Cierre F7/P02 - 2026-09-18
+
+- [x] ~~Implementar `7.02`, matching problema-intervención.~~ Contrato,
+  migración, motor puro con tests, runtime tenant-bound, worker, workflow,
+  endpoint y panel. La cadena causal es explícita y no hay ranking ni selección.
+- [x] ~~Adaptar `7.02` al Copiloto y `InsightsMenu`.~~ Contexto de solo lectura
+  con problema, mecanismo, palanca, señales, procedencia y unknowns; card
+  anclada en `#insight-intervention-matching`.
+- [x] ~~Verificar con `.env.local`.~~ Smoke real conservador:
+  `VALIDATION_REQUIRED`, `tenant_match: true`, `matched_count: 0`,
+  `no_selection: true` y cleanup a cero; no quedan migraciones pendientes.
+
+F7/P02 queda hecho. El siguiente bloque habilitado es F7/P03 (`7.03`).

@@ -32,5 +32,5 @@ export function AdversarialPanel() {
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
   if (!reviews) return null;
   const groups = groupReviewsByCase(reviews);
-  return <Card title="¿Podría estar engañándonos el diagnóstico?" description="D12 intenta refutar la interpretación completa. Los candidatos siguen siendo posibilidades; solo la evidencia los puede promover o descartar.">{groups.length === 0 ? <EmptyState title="Sin revisiones adversariales" hint="Aparecen al ejecutar el motor D12 sobre un caso abierto." /> : <div className="space-y-6">{groups.map((group) => <div key={group.caseId}>{group.reviews.map((review) => <Review key={review.id} review={review} />)}</div>)}</div>}</Card>;
+  return <Card id="insight-d12-adversarial" title="¿Podría estar engañándonos el diagnóstico?" description="D12 intenta refutar la interpretación completa. Los candidatos siguen siendo posibilidades; solo la evidencia los puede promover o descartar.">{groups.length === 0 ? <EmptyState title="Sin revisiones adversariales" hint="Aparecen al ejecutar el motor D12 sobre un caso abierto." /> : <div className="space-y-6">{groups.map((group) => <div key={group.caseId}>{group.reviews.map((review) => <Review key={review.id} review={review} />)}</div>)}</div>}</Card>;
 }

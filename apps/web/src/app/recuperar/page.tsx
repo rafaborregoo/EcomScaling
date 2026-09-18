@@ -5,10 +5,10 @@ import Link from "next/link";
 import { getSupabaseClient } from "@/lib/supabase";
 import {
   Banner,
+  BrandLogo,
   Button,
   Card,
   ErrorBlock,
-  EYEBROW,
   Field,
   Heading,
   Input,
@@ -50,7 +50,7 @@ export default function RecuperarPage() {
   return (
     <main className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center gap-6 px-4 py-12">
       <div>
-        <p className={EYEBROW}>EcomScaling</p>
+        <BrandLogo />
         <Heading level={1}>Recupera tu acceso</Heading>
       </div>
 

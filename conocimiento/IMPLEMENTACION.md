@@ -10,7 +10,7 @@ Procedimiento, definition of done y criterio de reparto:
 Este indice dice **que** esta hecho. El **como y por que** de cada bloque va en
 la bitacora de su fase, `fase-XX/IMPLEMENTACION.md` Ã¢â‚¬â€ decisiones tomadas,
 alternativas descartadas, recortes y despliegue. Abiertas hasta ahora:
-[fase-03](fase-03/IMPLEMENTACION.md).
+[fase-03](fase-03/IMPLEMENTACION.md) y [fase-07](fase-07/IMPLEMENTACION.md).
 
 **Se actualiza en el mismo commit que implementa el bloque, nunca despues.**
 
@@ -48,12 +48,13 @@ procedencia (`as_of`, `source_refs`, `reason_codes`), estados conservadores y
 version/`allowed_tools` cuando aplique. `InsightsMenu` es el acceso de IA a la
 card exacta y permanece separado de las notificaciones normales; no sustituye
 al contexto que necesita el agente para razonar. Los bloques historicos que ya
-estan en `hecho` conservan ese estado de contrato/motor/pixel, pero su auditoria
-Copiloto-first queda registrada como deuda transversal hasta cerrarse.
+estan en `hecho` conservan ese estado de contrato/motor/pixel; la auditoria
+Copiloto-first F3-F6 queda cerrada el 2026-09-18 mediante el adaptador comun,
+el prompt A09 v4/v8 y el feed de `InsightsMenu` con sus anclas exactas.
 
-**129 bloques**: 18 en la ola 1, 4 sin destilar. **11 en `hecho`** (`D01`, `D02`,
-`D03`, `D04`, `D05`, `D06`, `D07`, `D08`, `D09`, `D10` y `D11`, con las tres
-patas); los otros 4 de la fase 3 siguen en `contrato`, a la espera de motor y pantalla.
+**129 bloques**: 18 en la ola 1, 4 sin destilar. **13 en `hecho`** (`D01`, `D02`,
+`D03`, `D04`, `D05`, `D06`, `D07`, `D08`, `D09`, `D10`, `D11`, `7.01` y `7.02`, con las
+tres patas); los otros 4 de la fase 3 siguen en `contrato`, a la espera de motor y pantalla.
 
 ## fase-03 Ã¢â‚¬â€ Sistema de diagnostico
 
@@ -137,8 +138,8 @@ falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 
 | Bloque | Tema | Capas | Ola | Estado | Codigo |
 | --- | --- | --- | --- | --- | --- |
-| `7.01` | Elegibilidad de una intervencion | `CRPET` | **1** | pendiente | Ã¢â‚¬â€ |
-| `7.02` | Matching problema intervencion | `CRPET` | **1** | pendiente | Ã¢â‚¬â€ |
+| `7.01` | Elegibilidad de una intervencion | `CRPET` | **1** | **hecho** | contrato `packages/contracts/src/intervention-eligibility.ts` + migracion `20261030100000_f7_p01_intervention_eligibility.sql` + motor puro/runtime `apps/api/src/intervention-eligibility-engine.ts` + worker/workflow + API/pantalla; contexto Copiloto y feed `InsightsMenu`; verificado con `.env.local` y cleanup confirmado |
+| `7.02` | Matching problema intervencion | `CRPET` | **1** | **hecho** | contrato `packages/contracts/src/intervention-matching.ts` + migracion `20261030200000_f7_p02_intervention_matching.sql` + motor puro/runtime `apps/api/src/intervention-matching-engine.ts` + worker/workflow + API/pantalla; contexto Copiloto y feed `InsightsMenu`; verificado con `.env.local` y cleanup confirmado |
 | `7.03` | Priorizacion entre intervenciones | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
 | `7.04` | Impacto esperado | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |
 | `7.05` | Esfuerzo coste y recursos | `CRPET` | Ã¢â‚¬â€ | pendiente | Ã¢â‚¬â€ |

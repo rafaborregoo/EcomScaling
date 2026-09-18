@@ -47,6 +47,8 @@ import { ProductInventoryBenchmarksPanel } from "./product-inventory-benchmarks"
 import { ScalabilityBenchmarksPanel } from "./scalability-benchmarks";
 import { AnomaliesRedFlagsPanel } from "./anomalies-red-flags";
 import { BenchmarkConfidencePanel } from "./benchmark-confidence";
+import { InterventionEligibilityPanel } from "./intervention-eligibility";
+import { InterventionMatchingPanel } from "./intervention-matching";
 import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
 import { SeverityPanel } from "./severity-panel";
@@ -580,6 +582,8 @@ function ShopifyDiagnosticoView({
           <ScalabilityBenchmarksPanel />
           <AnomaliesRedFlagsPanel />
           <BenchmarkConfidencePanel />
+      <InterventionEligibilityPanel organizationId={selectedOrganizationId} />
+      <InterventionMatchingPanel organizationId={selectedOrganizationId} />
           <PrioritizationPanel />
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">

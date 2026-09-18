@@ -377,10 +377,9 @@ contrato, motor, runtime, persistencia, worker, API, panel y entrada en
 
 ## Nota transversal posterior al cierre — Copiloto-first
 
-El cierre anterior acredita contrato, motor y pixel de F6. Antes de abrir F7
-queda pendiente la auditoría común de consumo por Copiloto: el contexto actual
-ya lee los assessments tenant-scoped y `InsightsMenu` ya enlaza cada card, pero
-hay que confirmar por bloque la semántica de benchmarks, `UNKNOWN`,
-`VALIDATION_REQUIRED`, procedencia, permisos y aislamiento. Esta auditoría se
-coordina en `conocimiento/TAREAS_PENDIENTES.md`; no convierte F6 en un motor de
-escritura ni autoriza cambios automáticos.
+La auditoría común queda cerrada el 2026-09-18. El adaptador de contexto lee
+los assessments F6 tenant-scoped y conserva facts tri-state, evidencia,
+versiones de fuente, `UNKNOWN` y `VALIDATION_REQUIRED`; `InsightsMenu` enlaza
+cada card y permanece separado de las notificaciones. El prompt A09 v4/v8
+mantiene lectura y aprobación obligatoria antes de publicar. F6 no se convierte
+en un motor de escritura ni autoriza cambios automáticos.

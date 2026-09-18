@@ -6,11 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
 import {
   Banner,
+  BrandLogo,
   Button,
   Card,
-  cn,
   ErrorBlock,
-  EYEBROW,
   Field,
   Heading,
   Input,
@@ -73,7 +72,7 @@ function LoginPageContent() {
     <main className="grid min-h-dvh bg-white text-foreground lg:grid-cols-2">
       {/* Panel de marca (oculto en móvil) */}
       <aside className="hidden flex-col justify-between border-r border-separator p-10 lg:flex">
-        <p className={cn(EYEBROW, "text-accent")}>EcomScaling IA</p>
+        <BrandLogo />
         <div>
           <Heading level={2} size="lg" className="max-w-xl">
             El centro operativo para escalar tiendas ecommerce.
@@ -91,7 +90,7 @@ function LoginPageContent() {
           title="Inicia sesión"
           description="Accede al centro operativo de tu organización."
         >
-          <p className={cn(EYEBROW, "text-accent lg:hidden")}>EcomScaling IA</p>
+          <BrandLogo className="lg:hidden" />
 
           <div
             className="mt-4 grid grid-cols-2 gap-2"

@@ -50,9 +50,16 @@ export type PlaybookInsightAssessment = {
   disposition: string;
   unresolved_unknowns?: string[];
   reason_codes?: string[];
+  case_id?: string;
+  store_id?: string | null;
 };
 
 const PLAYBOOK_INSIGHT_META: Record<string, { slug: string; label: string; location: string }> = {
+  F3_D12_ADVERSARIAL: { slug: "d12-adversarial", label: "Confusores", location: "Diagnóstico · F3.D12" },
+  F3_D13_TEMPORAL: { slug: "d13-temporal", label: "Trayectoria", location: "Diagnóstico · F3.D13" },
+  F3_D14_OUTPUT: { slug: "d14-output", label: "Salida diagnóstica", location: "Diagnóstico · F3.D14" },
+  F7_01_ELIGIBILITY: { slug: "intervention-eligibility", label: "Elegibilidad", location: "Diagnóstico · F7.01" },
+  F7_02_MATCHING: { slug: "intervention-matching", label: "Matching causal", location: "Diagnóstico · F7.02" },
   ACQUISITION: { slug: "acquisition", label: "Adquisición", location: "Diagnóstico · F5.01" },
   PAID_MEDIA: { slug: "paid-media", label: "Paid media", location: "Diagnóstico · F5.02" },
   CONVERSION: { slug: "conversion", label: "Conversión / CRO", location: "Diagnóstico · F5.03" },
@@ -84,7 +91,7 @@ function playbookInsightSeverity(disposition: string): MetricInsight["severity"]
   return disposition === "BLOCKED" || disposition === "REASSESS_DIAGNOSIS" ? "high" : "medium";
 }
 
-export function insightSpotsFromPlaybookAssessments(
+export function insightSpotsFromAiAssessments(
   scope: InsightScope,
   assessments: PlaybookInsightAssessment[],
 ): InsightSpot[] {
@@ -92,11 +99,14 @@ export function insightSpotsFromPlaybookAssessments(
   return assessments.flatMap((assessment) => {
     const meta = PLAYBOOK_INSIGHT_META[assessment.domain];
     if (!meta || !["BLOCKED", "VALIDATION_REQUIRED", "REASSESS_DIAGNOSIS", "REPRIORITIZE"].includes(assessment.disposition)) return [];
+    if (assessment.store_id && assessment.store_id !== scope.connectionId) return [];
+    if (assessment.store_id && !scope.connectionId) return [];
     const unknowns = assessment.unresolved_unknowns ?? [];
     const reasons = assessment.reason_codes ?? [];
     const pending = [...unknowns, ...reasons].filter(Boolean);
+    const prefix = assessment.domain.startsWith("F3_") ? "diagnostic" : "playbook";
     return [{
-      id: `playbook-${meta.slug}`,
+      id: `${prefix}-${meta.slug}`,
       label: meta.label,
       href: `/shopify/diagnostico#insight-${meta.slug}`,
       location: meta.location,
@@ -111,6 +121,13 @@ export function insightSpotsFromPlaybookAssessments(
       }],
     }];
   });
+}
+
+export function insightSpotsFromPlaybookAssessments(
+  scope: InsightScope,
+  assessments: PlaybookInsightAssessment[],
+): InsightSpot[] {
+  return insightSpotsFromAiAssessments(scope, assessments);
 }
 
 export function insightAnchorId(spotId: string) {

@@ -18,6 +18,7 @@ import {
   Avatar,
   AsyncState,
   Breadcrumbs,
+  BrandLogo,
   Button,
   CloseIcon,
   CompassIcon,
@@ -54,7 +55,6 @@ import { InsightsMenu } from "@/components/insights-menu";
 
 type PortalShellProps = {
   title: string;
-  eyebrow?: string;
   children: (bootstrap: BootstrapResponse, token: string) => ReactNode;
 };
 
@@ -443,7 +443,6 @@ function clearPortalSession() {
 
 function PortalShellContent({
   title,
-  eyebrow = "EcomScaling IA",
   children,
 }: PortalShellProps) {
   const pathname = usePathname();
@@ -1205,9 +1204,7 @@ function PortalShellContent({
               />
             </button>
             <div className="min-w-0 flex-1 text-center">
-              <p className="truncate text-[0.7rem] leading-tight text-muted">
-                {eyebrow}
-              </p>
+              <BrandLogo className="mx-auto h-3 w-auto" />
               <p className="truncate text-[0.95rem] font-semibold leading-tight">
                 {title}
               </p>
@@ -1257,9 +1254,7 @@ function PortalShellContent({
         <div className="grid min-h-dvh lg:grid-cols-[232px_1fr]">
           <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-separator bg-white px-3 py-5 text-foreground lg:flex">
             <div>
-              <p className="px-2 text-sm font-semibold tracking-tight">
-                {eyebrow}
-              </p>
+              <BrandLogo className="ml-2 h-5 w-auto" />
               <div className="mt-6">{navigation}</div>
             </div>
             {accountBlock}
