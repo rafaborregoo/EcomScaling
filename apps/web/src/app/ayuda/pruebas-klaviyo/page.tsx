@@ -78,8 +78,8 @@ export default function KlaviyoTestInstructionsPage() {
         </ol>
         <p className="mt-3">
           <strong>Resultado esperado:</strong> la tarjeta de Klaviyo pasa de
-          "Conectar" a mostrar el estado conectado, sin errores. La primera
-          sincronización arranca sola en segundo plano.
+          &quot;Conectar&quot; a mostrar el estado conectado, sin errores. La
+          primera sincronización arranca sola en segundo plano.
         </p>
       </Card>
 
