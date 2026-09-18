@@ -1,5 +1,6 @@
 export { cn } from "./cn";
 export { EYEBROW } from "./typography";
+export { BrandLogo } from "./brand-logo";
 export { Avatar } from "./avatar";
 export type { BreadcrumbItem } from "./breadcrumbs";
 export { Breadcrumbs } from "./breadcrumbs";
