@@ -1,18 +1,35 @@
-name: F6 P12 anomalies and red flags
+name: anomalies-red-flags-p12
+
 on:
   workflow_dispatch:
   schedule:
     - cron: "5 5 * * *"
+
 jobs:
-  evaluate:
+  anomalies-red-flags:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+      SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+      SHOPIFY_REDIRECT_URI: ${{ secrets.SHOPIFY_REDIRECT_URI }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_ENV_GUARD: production
+      REDIS_URL: ${{ secrets.REDIS_URL }}
+      API_URL: ${{ secrets.API_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with:
+          node-version: 22
+          cache: npm
       - run: npm ci
-      - run: npm run build --workspace=@ecomscaling/contracts && npm run build --workspace=@ecomscaling/config && npm run build --workspace=@ecomscaling/observability && npm run build --workspace=@ecomscaling/api && npm run start:anomalies-red-flags --workspace=@ecomscaling/worker
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - run: npm run build --workspace=@ecomscaling/contracts
+      - run: npm run build --workspace=@ecomscaling/config
+      - run: npm run build --workspace=@ecomscaling/observability
+      - run: npm run build --workspace=@ecomscaling/api
+      - run: npm run start:anomalies-red-flags --workspace=@ecomscaling/worker
