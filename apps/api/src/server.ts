@@ -65,6 +65,7 @@ import { listConsultantAnomaliesRedFlagsRuns } from "./anomalies-red-flags-api.j
 import { listConsultantBenchmarkConfidenceRuns } from "./benchmark-confidence-api.js";
 import { listConsultantInterventionEligibilityRuns } from "./intervention-eligibility-api.js";
 import { listConsultantInterventionMatchingRuns } from "./intervention-matching-api.js";
+import { listConsultantInterventionPrioritizationRuns } from "./intervention-prioritization-api.js";
 import { listAccountActions } from "./actions.js";
 import {
   addMarketingDraftNote,
@@ -252,7 +253,11 @@ import {
   updateTaskStatus,
 } from "./operations.js";
 import { listAlertRules, upsertAlertRule } from "./alert-rules.js";
-import { getAuditLog, getPlatformErrors } from "./platform-logs.js";
+import {
+  getAuditLog,
+  getPlatformErrors,
+  retryPlatformSyncError,
+} from "./platform-logs.js";
 import { getClientConsultant } from "./client-autonomy.js";
 import {
   listConsultantPartners,
@@ -2322,6 +2327,7 @@ export async function buildApp(): Promise<FastifyInstance> {
    app.get("/v1/consultant/benchmark-confidence", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const result = await listConsultantBenchmarkConfidenceRuns(env, authorization, auth.context); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
    app.get("/v1/consultant/intervention-eligibility", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const query = request.query as { organizationId?: string }; const result = await listConsultantInterventionEligibilityRuns(env, authorization, auth.context, query.organizationId); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
    app.get("/v1/consultant/intervention-matching", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const query = request.query as { organizationId?: string }; const result = await listConsultantInterventionMatchingRuns(env, authorization, auth.context, query.organizationId); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
+   app.get("/v1/consultant/intervention-prioritization", async (request, reply) => { const auth = await resolveAuthContext(env, request.headers.authorization); if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error); const authorization = request.headers.authorization; if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" }); const query = request.query as { organizationId?: string }; const result = await listConsultantInterventionPrioritizationRuns(env, authorization, auth.context, query.organizationId); if (isServiceFailure(result)) return sendServiceFailure(reply, result); return result.data; });
 
   // F3/D07. Declarar una relacion causal propia de una tienda. Es lo que
   // desbloquea el bloque: el grafo global trae cinco aristas, y todo lo demas
@@ -2732,6 +2738,22 @@ export async function buildApp(): Promise<FastifyInstance> {
         env,
         auth.context,
         request.query ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { runId: string } }>(
+    "/v1/admin/sync-errors/:runId/retry",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await retryPlatformSyncError(
+        env,
+        auth.context,
+        request.params.runId,
       );
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;

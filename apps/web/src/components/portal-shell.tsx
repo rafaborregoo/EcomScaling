@@ -181,7 +181,9 @@ const platformAdminNavGroups: NavGroup[] = [
       // porque el consultor no la gestiona -- el gestiona la de su cliente.
       { href: "/admin/conocimiento", label: "Metodología" },
       { href: "/admin/observabilidad", label: "Observabilidad" },
-      { href: "/admin/logs", label: "Auditoría y errores" },
+      { href: "/admin/logs/auditoria", label: "Auditoría" },
+      { href: "/admin/logs/errores-sync", label: "Errores de sync" },
+      { href: "/admin/logs/errores-agentes", label: "Errores de agentes" },
       { href: "/admin/finanzas", label: "Finanzas" },
       { href: "/admin/facturacion", label: "Facturación" },
     ],

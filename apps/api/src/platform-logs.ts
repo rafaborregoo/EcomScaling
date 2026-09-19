@@ -15,6 +15,9 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
 import type { AuthContext } from "./auth-context.js";
+import { triggerKlaviyoSync } from "./klaviyo.js";
+import { triggerShopifySync } from "./shopify.js";
+import { triggerMetaSync } from "./meta.js";
 
 type ApiEnv = LoadedApiEnv;
 
@@ -294,4 +297,54 @@ export async function getPlatformErrors(
       },
     },
   };
+}
+
+/**
+ * Relanza un sync caído desde /admin/logs/errores-sync, sin tener que ir a
+ * la ficha de la integración. Reutiliza los trigger*Sync de cada proveedor
+ * (ya aceptan platform_admin en su chequeo de permisos); solo hace falta
+ * resolver `organization_id` + `provider` a partir del run que fallo.
+ */
+export async function retryPlatformSyncError(
+  env: ApiEnv,
+  context: AuthContext,
+  runId: string,
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const { data: run, error } = await supabase
+    .from("integration_sync_runs")
+    .select("id, organization_id, provider")
+    .eq("id", runId)
+    .maybeSingle();
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "sync_run_load_failed",
+      detail: error.message,
+    };
+  }
+  if (!run) {
+    return { ok: false as const, statusCode: 404, error: "sync_run_not_found" };
+  }
+
+  const organizationId = run.organization_id as string;
+  switch (run.provider as string) {
+    case "klaviyo":
+      return triggerKlaviyoSync(env, context, organizationId);
+    case "shopify":
+      return triggerShopifySync(env, context, organizationId);
+    case "meta_ads":
+      return triggerMetaSync(env, context, organizationId);
+    default:
+      return {
+        ok: false as const,
+        statusCode: 400,
+        error: "sync_retry_unsupported_provider",
+        message: `No hay reintento manual para el proveedor "${run.provider}" todavía.`,
+      };
+  }
 }
