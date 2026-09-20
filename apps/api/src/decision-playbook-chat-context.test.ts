@@ -119,7 +119,7 @@ test("el contexto del Copiloto conserva abstención, incertidumbre y trazabilida
     ],
   });
 
-  assert.equal(blocks.length, 21);
+  assert.equal(blocks.length, 22);
   assert.deepEqual(summarizeDecisionOutput({ decision_status: "ABSTAIN", result: {} }).status, "ABSTAIN");
   assert.deepEqual(
     summarizePlaybookRun({
@@ -142,6 +142,7 @@ test("el contexto del Copiloto conserva abstención, incertidumbre y trazabilida
   assert.match(blocks[11]?.label ?? "", /F7\.08/);
   assert.match(blocks[12]?.label ?? "", /F7\.09/);
   assert.match(blocks[13]?.label ?? "", /F7\.10/);
+  assert.match(blocks[21]?.label ?? "", /F8\.02/);
 });
 
 test("F7.01 entrega al Copiloto elegibilidad sin convertirla en seleccion", () => {
