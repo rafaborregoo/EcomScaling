@@ -1,6 +1,6 @@
 -- =============================================================================
 -- SCHEMA GENERADO DESDE MIGRACIONES REALES -- fuente ejecutable de verdad.
--- Regenerado desde supabase/migrations (264 archivos).
+-- Regenerado desde supabase/migrations (283 archivos).
 -- No editar este archivo a mano: anadir una migracion nueva y regenerar.
 -- =============================================================================
 
@@ -25183,6 +25183,52 @@ create policy "constraint_tests_select_staff" on public.constraint_tests
   using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
 
 -- =============================================================================
+-- Migracion: 20260920182834_f8_p02_hitl_approval_assessments.sql
+-- =============================================================================
+-- F8.02: evaluación auditable de autonomía y HITL.
+-- La tabla registra la decisión de supervisión; no concede permiso de ejecución.
+create table if not exists public.hitl_approval_assessment_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  action_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null,
+  input_fingerprint text not null,
+  disposition text not null,
+  autonomy_level text not null,
+  approval_requirement text not null,
+  approval_state text not null,
+  approval_gate boolean not null,
+  execution_state text not null,
+  input_envelope jsonb not null,
+  result jsonb not null,
+  unresolved_unknowns jsonb not null default '[]'::jsonb,
+  reason_codes jsonb not null default '[]'::jsonb,
+  source_refs jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  constraint hitl_approval_assessment_runs_unique_input unique (organization_id, input_fingerprint),
+  constraint hitl_approval_assessment_runs_disposition check (disposition in ('AUTONOMY_AVAILABLE', 'APPROVAL_REQUIRED', 'ESCALATION_REQUIRED', 'HUMAN_ONLY', 'VALIDATION_REQUIRED')),
+  constraint hitl_approval_assessment_runs_execution_authority check ((result ->> 'execution_authorized') = 'false')
+);
+
+create index if not exists hitl_approval_assessment_runs_org_idx on public.hitl_approval_assessment_runs (organization_id, evaluated_at desc);
+create index if not exists hitl_approval_assessment_runs_disposition_idx on public.hitl_approval_assessment_runs (organization_id, disposition);
+create index if not exists hitl_approval_assessment_runs_action_idx on public.hitl_approval_assessment_runs (organization_id, action_id);
+
+alter table public.hitl_approval_assessment_runs enable row level security;
+
+drop policy if exists "hitl_approval_assessment_runs_select_consultants" on public.hitl_approval_assessment_runs;
+create policy "hitl_approval_assessment_runs_select_consultants" on public.hitl_approval_assessment_runs
+for select to authenticated
+using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+grant select on public.hitl_approval_assessment_runs to authenticated;
+
+comment on table public.hitl_approval_assessment_runs is 'F8.02: evaluación tenant-scoped de HITL/autonomía; approval no equivale a ejecución y execution_authorized siempre es false.';
+
+-- =============================================================================
 -- Migracion: 20260921090000_f3_d10_severidad_e_impacto.sql
 -- =============================================================================
 -- FASE 3 / D10 — Severidad e impacto.
@@ -33065,3 +33111,742 @@ create policy intervention_matching_runs_consultant_read
   );
 
 grant select on public.intervention_matching_runs to authenticated;
+
+-- =============================================================================
+-- Migracion: 20261030300000_f7_p03_intervention_prioritization.sql
+-- =============================================================================
+-- F7/P03 — priorización cualitativa entre intervenciones elegibles y causalmente emparejadas.
+-- No calcula score, no crea tareas y no concede autorización de ejecución.
+
+create table if not exists public.intervention_prioritization_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(40) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint intervention_prioritization_runs_disposition_check check (
+    disposition in ('PRIORITY_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_PRIORIZABLE_CANDIDATES')
+  )
+);
+
+comment on table public.intervention_prioritization_runs is
+  'F7/P03: comparación cualitativa de intervenciones; una prioridad no autoriza ejecución.';
+comment on column public.intervention_prioritization_runs.result is
+  'Decisión explicable NOW/LATER/DO_NOT_DO, sin score ni fórmula económica.';
+
+create unique index if not exists intervention_prioritization_runs_input_uidx
+  on public.intervention_prioritization_runs (organization_id, input_fingerprint);
+create index if not exists intervention_prioritization_runs_org_evaluated_idx
+  on public.intervention_prioritization_runs (organization_id, evaluated_at desc);
+
+alter table public.intervention_prioritization_runs enable row level security;
+grant select on public.intervention_prioritization_runs to authenticated;
+
+drop policy if exists intervention_prioritization_runs_tenant_select on public.intervention_prioritization_runs;
+create policy intervention_prioritization_runs_tenant_select
+  on public.intervention_prioritization_runs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261030400000_f7_p04_intervention_impact.sql
+-- =============================================================================
+-- F7/P04 — impacto esperado de una intervencion, trazable y cualitativo.
+-- No es resultado garantizado, no calcula ROI/score/forecast y no autoriza ejecucion.
+
+create table if not exists public.intervention_impact_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(40) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint intervention_impact_runs_disposition_check check (
+    disposition in ('IMPACTS_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_IMPACT_CANDIDATES')
+  )
+);
+
+comment on table public.intervention_impact_runs is
+  'F7/P04: expectativa cualitativa trazable de una intervencion; no es garantia ni autorizacion de ejecucion.';
+comment on column public.intervention_impact_runs.result is
+  'Cadena Intervencion -> mecanismo -> leading indicator -> KPI -> outcome, con incertidumbre explicita y sin ROI ni forecast.';
+
+create unique index if not exists intervention_impact_runs_input_uidx
+  on public.intervention_impact_runs (organization_id, input_fingerprint);
+create index if not exists intervention_impact_runs_org_evaluated_idx
+  on public.intervention_impact_runs (organization_id, evaluated_at desc);
+
+alter table public.intervention_impact_runs enable row level security;
+grant select on public.intervention_impact_runs to authenticated;
+
+drop policy if exists intervention_impact_runs_tenant_select on public.intervention_impact_runs;
+create policy intervention_impact_runs_tenant_select
+  on public.intervention_impact_runs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261030500000_f7_p05_intervention_feasibility.sql
+-- =============================================================================
+-- F7/P05 — factibilidad de recursos, coste y esfuerzo de una intervencion.
+-- Coste, esfuerzo y capacidad permanecen separados. No calcula score, ROI ni autoriza ejecucion.
+
+create table if not exists public.intervention_feasibility_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(40) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint intervention_feasibility_runs_disposition_check check (
+    disposition in ('FEASIBILITY_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_FEASIBILITY_CANDIDATES')
+  )
+);
+
+comment on table public.intervention_feasibility_runs is
+  'F7/P05: factibilidad cualitativa de recursos, coste y esfuerzo; no es un presupuesto ni una autorizacion.';
+comment on column public.intervention_feasibility_runs.result is
+  'Traza recurso requerido -> disponibilidad -> bottleneck/gap -> factibilidad -> adaptacion, sin score ni formula de coste.';
+
+create unique index if not exists intervention_feasibility_runs_input_uidx
+  on public.intervention_feasibility_runs (organization_id, input_fingerprint);
+create index if not exists intervention_feasibility_runs_org_evaluated_idx
+  on public.intervention_feasibility_runs (organization_id, evaluated_at desc);
+
+alter table public.intervention_feasibility_runs enable row level security;
+grant select on public.intervention_feasibility_runs to authenticated;
+
+drop policy if exists intervention_feasibility_runs_tenant_select on public.intervention_feasibility_runs;
+create policy intervention_feasibility_runs_tenant_select
+  on public.intervention_feasibility_runs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261030600000_f7_p06_intervention_risk.sql
+-- =============================================================================
+-- F7/P06 — evaluación cualitativa de riesgo, exposición, reversibilidad y coste del error.
+-- Mantiene ejes separados; no calcula risk score/probabilidades ni autoriza ejecución.
+
+create table if not exists public.intervention_risk_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(50) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint intervention_risk_runs_disposition_check check (
+    disposition in ('RISK_ASSESSMENTS_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_RISK_CANDIDATES')
+  )
+);
+
+comment on table public.intervention_risk_runs is
+  'F7/P06: riesgo cualitativo y trazable de una intervencion; no es un score, una probabilidad ni una autorizacion.';
+comment on column public.intervention_risk_runs.result is
+  'Traza upside -> downside -> exposicion -> reversibilidad -> evidencia -> inaction risk -> de-risking, con coste del error separado.';
+
+create unique index if not exists intervention_risk_runs_input_uidx
+  on public.intervention_risk_runs (organization_id, input_fingerprint);
+create index if not exists intervention_risk_runs_org_evaluated_idx
+  on public.intervention_risk_runs (organization_id, evaluated_at desc);
+
+alter table public.intervention_risk_runs enable row level security;
+grant select on public.intervention_risk_runs to authenticated;
+
+drop policy if exists intervention_risk_runs_tenant_select on public.intervention_risk_runs;
+create policy intervention_risk_runs_tenant_select
+  on public.intervention_risk_runs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261030700000_f7_p07_intervention_sequencing.sql
+-- =============================================================================
+-- F7/P07 — camino condicional de secuenciación y dependencias.
+-- No es un DAG, scheduler, plan de proyecto ni autorización de ejecución.
+
+create table if not exists public.intervention_sequencing_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(40) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint intervention_sequencing_runs_disposition_check check (
+    disposition in ('SEQUENCES_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_SEQUENCE_CANDIDATES')
+  )
+);
+
+comment on table public.intervention_sequencing_runs is
+  'F7/P07: secuenciacion cualitativa con prerequisites, blockers, gates y ramas; no es scheduler ni autorizacion.';
+comment on column public.intervention_sequencing_runs.result is
+  'Traza prioridad -> prerequisite -> blocker/unlock -> gate -> next/branch/wait/parallel, sin fechas, owners ni tareas.';
+
+create unique index if not exists intervention_sequencing_runs_input_uidx
+  on public.intervention_sequencing_runs (organization_id, input_fingerprint);
+create index if not exists intervention_sequencing_runs_org_evaluated_idx
+  on public.intervention_sequencing_runs (organization_id, evaluated_at desc);
+
+alter table public.intervention_sequencing_runs enable row level security;
+grant select on public.intervention_sequencing_runs to authenticated;
+
+drop policy if exists intervention_sequencing_runs_tenant_select on public.intervention_sequencing_runs;
+create policy intervention_sequencing_runs_tenant_select
+  on public.intervention_sequencing_runs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261030800000_f7_p08_intervention_test_execute.sql
+-- =============================================================================
+-- F7/P08 — decisión cualitativa entre fijar, ejecutar, testear, pilotar,
+-- recopilar evidencia, esperar o no proceder.
+-- No es una plataforma de experimentación, scheduler ni autorización.
+
+create table if not exists public.intervention_test_execute_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(40) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint intervention_test_execute_runs_disposition_check check (
+    disposition in ('DECISIONS_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_DECISION_CANDIDATES')
+  )
+);
+
+comment on table public.intervention_test_execute_runs is
+  'F7/P08: decision cualitativa test vs execute; no lanza tests, cambia produccion ni autoriza ejecucion.';
+comment on column public.intervention_test_execute_runs.result is
+  'Mode, hypothesis, learning question, outcome, guardrails and handoff; sin sample size, porcentajes, scheduler ni permisos.';
+
+create unique index if not exists intervention_test_execute_runs_input_uidx
+  on public.intervention_test_execute_runs (organization_id, input_fingerprint);
+create index if not exists intervention_test_execute_runs_org_evaluated_idx
+  on public.intervention_test_execute_runs (organization_id, evaluated_at desc);
+
+alter table public.intervention_test_execute_runs enable row level security;
+grant select on public.intervention_test_execute_runs to authenticated;
+
+drop policy if exists intervention_test_execute_runs_tenant_select on public.intervention_test_execute_runs;
+create policy intervention_test_execute_runs_tenant_select
+  on public.intervention_test_execute_runs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261030900000_f7_p09_intervention_intensity.sql
+-- =============================================================================
+-- F7/P09 — intensidad cualitativa multidimensional.
+-- No fija porcentajes, caps, ramps, asignacion de presupuesto ni ejecucion.
+
+create table if not exists public.intervention_intensity_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(50) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint intervention_intensity_runs_disposition_check check (disposition in ('INTENSITY_PROFILES_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_INTENSITY_CANDIDATES'))
+);
+
+comment on table public.intervention_intensity_runs is 'F7/P09: magnitude, scope, velocity, duration, limiter y ramp cualitativos; no es un bet-sizing automatico ni autorizacion.';
+comment on column public.intervention_intensity_runs.result is 'Perfil multidimensional y condiciones de increase/maintain/decrease/stop, sin porcentajes universales ni ejecucion.';
+create unique index if not exists intervention_intensity_runs_input_uidx on public.intervention_intensity_runs (organization_id, input_fingerprint);
+create index if not exists intervention_intensity_runs_org_evaluated_idx on public.intervention_intensity_runs (organization_id, evaluated_at desc);
+alter table public.intervention_intensity_runs enable row level security;
+grant select on public.intervention_intensity_runs to authenticated;
+drop policy if exists intervention_intensity_runs_tenant_select on public.intervention_intensity_runs;
+create policy intervention_intensity_runs_tenant_select on public.intervention_intensity_runs for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261031000000_f7_p10_maturity_recommendations.sql
+-- =============================================================================
+-- F7/P10 — recomendaciones adaptadas a madurez, capability y readiness.
+-- No persiste scores, thresholds ni clasificaciones derivadas de revenue.
+
+create table if not exists public.maturity_recommendation_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(60) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint maturity_recommendation_runs_disposition_check check (
+    disposition in ('MATURITY_RECOMMENDATIONS_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_MATURITY_CANDIDATES')
+  )
+);
+
+comment on table public.maturity_recommendation_runs is 'F7/P10: adapta una intervención a madurez funcional, readiness, capabilities y complejidad absorbible; no puntúa ni autoriza ejecución.';
+comment on column public.maturity_recommendation_runs.result is 'Incluye now/later, not-yet, capability previa, complejidad suficiente y maturity unlock.';
+
+create unique index if not exists maturity_recommendation_runs_input_uidx
+  on public.maturity_recommendation_runs (organization_id, input_fingerprint);
+create index if not exists maturity_recommendation_runs_org_evaluated_idx
+  on public.maturity_recommendation_runs (organization_id, evaluated_at desc);
+
+alter table public.maturity_recommendation_runs enable row level security;
+grant select on public.maturity_recommendation_runs to authenticated;
+drop policy if exists maturity_recommendation_runs_tenant_select on public.maturity_recommendation_runs;
+create policy maturity_recommendation_runs_tenant_select
+  on public.maturity_recommendation_runs
+  for select to authenticated
+  using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261031100000_f7_p11_constraint_recommendations.sql
+-- =============================================================================
+-- F7/P11 — recomendaciones factibles bajo restricciones reales.
+-- No persiste scores, thresholds, optimizer state ni asignaciones automáticas.
+
+create table if not exists public.constraint_recommendation_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null default now(),
+  input_fingerprint varchar(80) not null,
+  disposition varchar(60) not null,
+  candidate_count integer not null default 0,
+  primary_priority_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}',
+  reason_codes text[] not null default '{}',
+  source_refs text[] not null default '{}',
+  constraint constraint_recommendation_runs_disposition_check check (
+    disposition in ('CONSTRAINT_RECOMMENDATIONS_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_CONSTRAINT_CANDIDATES')
+  )
+);
+
+comment on table public.constraint_recommendation_runs is 'F7/P11: adapta la recomendacion teorica a restricciones, capacidad de exito y alternativas declaradas; no asigna recursos ni ejecuta cambios.';
+comment on column public.constraint_recommendation_runs.result is 'Incluye binding constraint, respuesta remove/reduce/replace/reallocate/resequence/delay, accion factible, deferred action y next constraint.';
+
+create unique index if not exists constraint_recommendation_runs_input_uidx on public.constraint_recommendation_runs (organization_id, input_fingerprint);
+create index if not exists constraint_recommendation_runs_org_evaluated_idx on public.constraint_recommendation_runs (organization_id, evaluated_at desc);
+
+alter table public.constraint_recommendation_runs enable row level security;
+grant select on public.constraint_recommendation_runs to authenticated;
+drop policy if exists constraint_recommendation_runs_tenant_select on public.constraint_recommendation_runs;
+create policy constraint_recommendation_runs_tenant_select on public.constraint_recommendation_runs for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+-- =============================================================================
+-- Migracion: 20261031110000_f7_p12_recommendation_portfolio.sql
+-- =============================================================================
+create table if not exists public.recommendation_portfolio_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null,
+  input_fingerprint text not null,
+  disposition text not null check (disposition in ('PORTFOLIO_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_PORTFOLIO_CANDIDATES')),
+  candidate_count integer not null default 0,
+  primary_candidate_id text,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}'::text[],
+  reason_codes text[] not null default '{}'::text[],
+  source_refs text[] not null default '{}'::text[],
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists recommendation_portfolio_runs_org_fingerprint_idx on public.recommendation_portfolio_runs(organization_id, input_fingerprint);
+create index if not exists recommendation_portfolio_runs_org_evaluated_idx on public.recommendation_portfolio_runs(organization_id, evaluated_at desc);
+
+alter table public.recommendation_portfolio_runs enable row level security;
+drop policy if exists recommendation_portfolio_runs_consultant_read on public.recommendation_portfolio_runs;
+create policy recommendation_portfolio_runs_consultant_read on public.recommendation_portfolio_runs
+  for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+comment on table public.recommendation_portfolio_runs is 'F7.12: cartera minima y coherente de recomendaciones; no asigna recursos ni autoriza ejecucion.';
+
+-- =============================================================================
+-- Migracion: 20261031120000_f7_p13_dynamic_decisions.sql
+-- =============================================================================
+create table if not exists public.dynamic_decision_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null,
+  input_fingerprint text not null,
+  disposition text not null check (disposition in ('DECISIONS_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_DECISION_UNITS')),
+  unit_count integer not null default 0,
+  overall_decision text not null,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}'::text[],
+  reason_codes text[] not null default '{}'::text[],
+  source_refs text[] not null default '{}'::text[],
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists dynamic_decision_runs_org_fingerprint_idx on public.dynamic_decision_runs(organization_id, input_fingerprint);
+create index if not exists dynamic_decision_runs_org_evaluated_idx on public.dynamic_decision_runs(organization_id, evaluated_at desc);
+
+alter table public.dynamic_decision_runs enable row level security;
+drop policy if exists dynamic_decision_runs_consultant_read on public.dynamic_decision_runs;
+create policy dynamic_decision_runs_consultant_read on public.dynamic_decision_runs
+  for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+grant select on public.dynamic_decision_runs to authenticated;
+comment on table public.dynamic_decision_runs is 'F7.13: actualiza stop/continue/scale/rollback con evidencia; nunca ejecuta transiciones automaticamente.';
+
+-- =============================================================================
+-- Migracion: 20261031130000_f7_p14_restraint_decisions.sql
+-- =============================================================================
+create table if not exists public.restraint_decision_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null,
+  input_fingerprint text not null,
+  disposition text not null check (disposition in ('DECISION_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_DECISION_CONTEXT')),
+  decision text not null,
+  scope text not null,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}'::text[],
+  reason_codes text[] not null default '{}'::text[],
+  source_refs text[] not null default '{}'::text[],
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists restraint_decision_runs_org_fingerprint_idx on public.restraint_decision_runs(organization_id, input_fingerprint);
+create index if not exists restraint_decision_runs_org_evaluated_idx on public.restraint_decision_runs(organization_id, evaluated_at desc);
+
+alter table public.restraint_decision_runs enable row level security;
+drop policy if exists restraint_decision_runs_consultant_read on public.restraint_decision_runs;
+create policy restraint_decision_runs_consultant_read on public.restraint_decision_runs
+  for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+grant select on public.restraint_decision_runs to authenticated;
+comment on table public.restraint_decision_runs is 'F7.14: decide no-action, wait, gather evidence, act small o act; no monitorizacion ni ejecucion automatica.';
+
+-- =============================================================================
+-- Migracion: 20261031140000_f7_p15_expected_outcomes.sql
+-- =============================================================================
+create table if not exists public.expected_outcome_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null,
+  input_fingerprint text not null,
+  disposition text not null check (disposition in ('OUTCOME_CRITERIA_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_OUTCOME_CONTEXT')),
+  scope text not null,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}'::text[],
+  reason_codes text[] not null default '{}'::text[],
+  source_refs text[] not null default '{}'::text[],
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists expected_outcome_runs_org_fingerprint_idx on public.expected_outcome_runs(organization_id, input_fingerprint);
+create index if not exists expected_outcome_runs_org_evaluated_idx on public.expected_outcome_runs(organization_id, evaluated_at desc);
+
+alter table public.expected_outcome_runs enable row level security;
+drop policy if exists expected_outcome_runs_consultant_read on public.expected_outcome_runs;
+create policy expected_outcome_runs_consultant_read on public.expected_outcome_runs
+  for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+grant select on public.expected_outcome_runs to authenticated;
+comment on table public.expected_outcome_runs is 'F7.15: outcome esperado y criterios de exito; no monitoriza ni evalua automaticamente KPIs.';
+
+-- =============================================================================
+-- Migracion: 20261031150000_f7_p17_recommendation_confidence.sql
+-- =============================================================================
+create table if not exists public.recommendation_confidence_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null,
+  input_fingerprint text not null,
+  disposition text not null check (disposition in ('CONFIDENCE_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_CONFIDENCE_CONTEXT')),
+  scope text not null,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}'::text[],
+  reason_codes text[] not null default '{}'::text[],
+  source_refs text[] not null default '{}'::text[],
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists recommendation_confidence_runs_org_fingerprint_idx on public.recommendation_confidence_runs(organization_id, input_fingerprint);
+create index if not exists recommendation_confidence_runs_org_evaluated_idx on public.recommendation_confidence_runs(organization_id, evaluated_at desc);
+
+alter table public.recommendation_confidence_runs enable row level security;
+drop policy if exists recommendation_confidence_runs_consultant_read on public.recommendation_confidence_runs;
+create policy recommendation_confidence_runs_consultant_read on public.recommendation_confidence_runs
+  for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+grant select on public.recommendation_confidence_runs to authenticated;
+comment on table public.recommendation_confidence_runs is 'F7.17: confianza multidimensional y compromiso cualitativo; no score, no probabilidades ni ejecucion automatica.';
+
+-- =============================================================================
+-- Migracion: 20261031160000_f7_p18_recommendation_communication.sql
+-- =============================================================================
+create table if not exists public.recommendation_communication_runs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  context_id text not null,
+  decision_cycle_id text not null,
+  as_of timestamptz not null,
+  evaluated_at timestamptz not null,
+  input_fingerprint text not null,
+  disposition text not null check (disposition in ('COMMUNICATION_AVAILABLE', 'VALIDATION_REQUIRED', 'NO_RECOMMENDATION_CONTEXT')),
+  scope text not null,
+  primary_recommendation text not null,
+  input_envelope jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  unresolved_unknowns text[] not null default '{}'::text[],
+  reason_codes text[] not null default '{}'::text[],
+  source_refs text[] not null default '{}'::text[],
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists recommendation_communication_runs_org_fingerprint_idx on public.recommendation_communication_runs(organization_id, input_fingerprint);
+create index if not exists recommendation_communication_runs_org_evaluated_idx on public.recommendation_communication_runs(organization_id, evaluated_at desc);
+
+alter table public.recommendation_communication_runs enable row level security;
+drop policy if exists recommendation_communication_runs_consultant_read on public.recommendation_communication_runs;
+create policy recommendation_communication_runs_consultant_read on public.recommendation_communication_runs
+  for select to authenticated using (private.is_platform_admin() or private.is_assigned_consultant(organization_id));
+
+comment on table public.recommendation_communication_runs is 'F7.18: decision-support communication of recommendations; no execution authorization.';
+
+-- =============================================================================
+-- Migracion: 20261101090000_ai_a09_structured_chat_output.sql
+-- =============================================================================
+-- El chat conserva `answer` para compatibilidad, pero desde v5 puede entregar
+-- bloques verificables para que la UI no tenga que interpretar prosa libre.
+insert into public.prompt_versions (code, version, content, checksum)
+select
+  'a09_copiloto_consultor_system',
+  'v5',
+  content || $$
+
+10. STRUCTURED OUTPUT
+Ademas de answer, devuelve siempre que sea posible:
+- summary: una frase ejecutiva que no anada datos nuevos.
+- findings: de cero a tres objetos {title, detail, impact}; cada detail debe estar respaldado por una source.
+- recommendation: la recomendacion prioritaria, sin ejecutar cambios.
+- next_action: el siguiente paso concreto y el modulo donde lo ejecuta el humano.
+- proposed_writes: solo cuando el consultor pida convertir una recomendacion en tarea; usa objetos {kind, title, description, priority, rationale, evidence}. Siempre quedan pendientes de aprobacion humana.
+Si no hay evidencia suficiente para un bloque, omitelo y explica la limitacion en warnings. answer sigue siendo la respuesta completa y debe poder leerse aunque los bloques no existan.$$,
+  encode(sha256('a09_copiloto_consultor_system_v5'::bytea), 'hex')
+from public.prompt_versions
+where code = 'a09_copiloto_consultor_system' and version = 'v4'
+on conflict (code, version) do update set
+  content = excluded.content,
+  checksum = excluded.checksum;
+
+do $$
+declare
+  v_definition_id uuid;
+  v_model text;
+  v_allowed_tools jsonb;
+  v_approval_mode text;
+begin
+  select d.id, v.model, v.allowed_tools, v.approval_mode
+    into v_definition_id, v_model, v_allowed_tools, v_approval_mode
+  from public.agent_definitions d
+  join public.agent_versions v on v.definition_id = d.id
+  where d.code = 'a09_copiloto_consultor'
+    and v.is_active = true
+  order by v.version desc
+  limit 1;
+
+  if v_definition_id is null then
+    raise exception 'No active a09_copiloto_consultor version found';
+  end if;
+
+  update public.agent_versions
+  set is_active = false
+  where definition_id = v_definition_id and is_active = true;
+
+  insert into public.agent_versions (
+    definition_id, version, model, prompt_code, prompt_version,
+    allowed_tools, approval_mode, is_active
+  ) values (
+    v_definition_id, 'v9', v_model, 'a09_copiloto_consultor_system', 'v5',
+    coalesce(v_allowed_tools, '[]'::jsonb), coalesce(v_approval_mode, 'none'), true
+  )
+  on conflict (definition_id, version) do update set
+    model = excluded.model,
+    prompt_code = excluded.prompt_code,
+    prompt_version = excluded.prompt_version,
+    allowed_tools = excluded.allowed_tools,
+    approval_mode = excluded.approval_mode,
+    is_active = true;
+end $$;
+
+-- =============================================================================
+-- Migracion: 20261101100000_ai_a09_action_result.sql
+-- =============================================================================
+-- A09: conservar el resultado de una aprobacion para que el copiloto pueda
+-- reconstruirlo al recargar una conversacion, no solo durante el click.
+alter table public.agent_approvals
+  add column if not exists tasks_created integer not null default 0;
+
+alter table public.agent_approvals
+  drop constraint if exists agent_approvals_tasks_created_nonnegative;
+
+alter table public.agent_approvals
+  add constraint agent_approvals_tasks_created_nonnegative
+  check (tasks_created >= 0);
+
+-- =============================================================================
+-- Migracion: 20261101110000_ai_a09_feedback.sql
+-- =============================================================================
+-- A09: feedback explícito por respuesta para medir utilidad sin guardar datos
+-- adicionales de la conversación ni convertirlo en una encuesta invasiva.
+create table if not exists public.ai_message_feedback (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  conversation_id uuid not null references public.ai_conversations (id) on delete cascade,
+  message_id uuid not null references public.ai_messages (id) on delete cascade,
+  run_id uuid references public.agent_runs (id) on delete set null,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  rating varchar(20) not null,
+  comment text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint ai_message_feedback_rating check (rating in ('helpful', 'not_helpful')),
+  constraint ai_message_feedback_one_per_user unique (message_id, user_id)
+);
+
+create index if not exists ai_message_feedback_organization_id_idx
+  on public.ai_message_feedback (organization_id);
+create index if not exists ai_message_feedback_conversation_id_idx
+  on public.ai_message_feedback (conversation_id);
+
+drop trigger if exists set_ai_message_feedback_updated_at on public.ai_message_feedback;
+create trigger set_ai_message_feedback_updated_at
+before update on public.ai_message_feedback
+for each row execute function private.set_updated_at();
+
+alter table public.ai_message_feedback enable row level security;
+
+drop policy if exists "ai_message_feedback_select_own" on public.ai_message_feedback;
+create policy "ai_message_feedback_select_own" on public.ai_message_feedback
+for select to authenticated
+using (user_id = (select auth.uid()) and private.can_access_org(organization_id));
+
+drop policy if exists "ai_message_feedback_insert_own" on public.ai_message_feedback;
+create policy "ai_message_feedback_insert_own" on public.ai_message_feedback
+for insert to authenticated
+with check (
+  user_id = (select auth.uid())
+  and private.can_access_org(organization_id)
+  and exists (
+    select 1 from public.ai_conversations c
+    where c.id = conversation_id and c.user_id = (select auth.uid())
+  )
+  and exists (
+    select 1 from public.ai_messages m
+    where m.id = message_id and m.conversation_id = conversation_id and m.role = 'assistant'
+  )
+);
+
+drop policy if exists "ai_message_feedback_update_own" on public.ai_message_feedback;
+create policy "ai_message_feedback_update_own" on public.ai_message_feedback
+for update to authenticated
+using (user_id = (select auth.uid()))
+with check (
+  user_id = (select auth.uid())
+  and private.can_access_org(organization_id)
+  and exists (
+    select 1 from public.ai_conversations c
+    where c.id = conversation_id and c.user_id = (select auth.uid())
+  )
+  and exists (
+    select 1 from public.ai_messages m
+    where m.id = message_id and m.conversation_id = conversation_id and m.role = 'assistant'
+  )
+);
+
+grant select, insert, update on public.ai_message_feedback to authenticated;
