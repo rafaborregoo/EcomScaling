@@ -718,8 +718,8 @@ export const campaignPlanJsonSchema = {
 
 // ---------------------------------------------------------------------------
 // Contrato de salida A09 - copiloto del consultor (AI-05)
-// Chat de solo lectura: sin findings/severidad ni proposed_writes (nunca
-// escribe en el dominio), solo respuesta + fuentes citadas.
+// Chat de solo lectura: puede proponer una escritura, pero nunca la ejecuta.
+// Las propuestas pasan por la misma aprobación humana que el resto de agentes.
 // ---------------------------------------------------------------------------
 
 export const chatOutputSchema = z.object({
@@ -727,6 +727,19 @@ export const chatOutputSchema = z.object({
   sources: z.array(agentSourceSchema),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
+  summary: z.string().optional(),
+  findings: z
+    .array(
+      z.object({
+        title: z.string(),
+        detail: z.string(),
+        impact: z.enum(["low", "medium", "high"]).optional(),
+      }),
+    )
+    .optional(),
+  recommendation: z.string().optional(),
+  next_action: z.string().optional(),
+  proposed_writes: z.array(agentProposedWriteSchema).optional(),
 });
 
 export type ChatOutput = z.infer<typeof chatOutputSchema>;
@@ -764,6 +777,77 @@ export const chatJsonSchema = {
       items: { type: "string" },
       description:
         "Avisos: p. ej. datos incompletos o pregunta fuera del alcance de las tools disponibles.",
+    },
+    summary: {
+      type: "string",
+      description:
+        "Resumen ejecutivo de una frase, sin introducir datos nuevos.",
+    },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "detail"],
+        properties: {
+          title: { type: "string" },
+          detail: { type: "string" },
+          impact: { type: "string", enum: ["low", "medium", "high"] },
+        },
+      },
+      description: "Hasta tres hallazgos respaldados por sources.",
+    },
+    recommendation: {
+      type: "string",
+      description: "Recomendación concreta, sin ejecutar ninguna escritura.",
+    },
+    next_action: {
+      type: "string",
+      description: "Siguiente acción y módulo donde la ejecuta el humano.",
+    },
+    proposed_writes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "kind",
+          "title",
+          "description",
+          "priority",
+          "rationale",
+          "evidence",
+        ],
+        properties: {
+          kind: { type: "string", enum: ["task", "note"] },
+          title: { type: "string" },
+          description: { type: "string" },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "urgent"],
+          },
+          rationale: { type: "string" },
+          evidence: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["label", "value", "period", "source"],
+              properties: {
+                label: { type: "string" },
+                value: { type: "string" },
+                period: { type: ["string", "null"] },
+                source: {
+                  type: "string",
+                  enum: ["shopify", "klaviyo", "meta", "instagram", "interno"],
+                },
+              },
+            },
+          },
+        },
+      },
+      description:
+        "Cambios propuestos, siempre pendientes de aprobación humana.",
     },
   },
 } as const;
@@ -3003,7 +3087,11 @@ export class VoyageContextualEmbeddingProvider implements EmbeddingProvider {
       }>;
     };
 
-    return flattenContextualEmbeddings(payload.data, texts.length, this.dimensions);
+    return flattenContextualEmbeddings(
+      payload.data,
+      texts.length,
+      this.dimensions,
+    );
   }
 }
 

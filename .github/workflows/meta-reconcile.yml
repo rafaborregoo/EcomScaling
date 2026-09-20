@@ -10,10 +10,6 @@ on:
   # shopify-reconcile a diario (02:00 Europe/Madrid, repeatable de BullMQ).
   # Encender ademas shopify-reconcile.yml duplicaria el sync y el gasto de
   # rate limit contra la Admin API.
-  schedule:
-    # Reconciliacion diaria: Meta reatribuye conversiones dias despues del clic,
-    # asi que el sync incremental reconsulta una ventana movil de 28 dias.
-    - cron: "17 3 * * *"
 
 permissions:
   contents: read

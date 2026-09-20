@@ -2914,8 +2914,7 @@ export async function upsertOrganizationMember(
   const userId = body.user_id?.trim();
   if (
     !userId ||
-    !body.role ||
-    !MEMBER_ROLES.includes(body.role as MemberRole)
+    (body.role !== undefined && !MEMBER_ROLES.includes(body.role as MemberRole))
   ) {
     return {
       ok: false as const,
@@ -2947,13 +2946,27 @@ export async function upsertOrganizationMember(
     .eq("organization_id", organizationId)
     .eq("user_id", userId)
     .maybeSingle();
+
+  // `role` solo es obligatorio al dar de alta. Desactivar a quien ya es
+  // miembro (PUT {user_id, is_active:false}) no tiene por que repetir su rol:
+  // exigirlo siempre dejaba el boton "Quitar" de /consultor devolviendo 400
+  // en todos los casos, porque no manda `role`.
+  const role = body.role ?? (previous?.role as MemberRole | undefined);
+  if (!role) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_member_payload",
+    };
+  }
+
   const { data: member, error } = await supabase
     .from("organization_members")
     .upsert(
       {
         organization_id: organizationId,
         user_id: userId,
-        role: body.role,
+        role,
         is_active: body.is_active ?? true,
         invited_by: context.user.id,
         invited_at: previous?.invited_at ?? new Date().toISOString(),
@@ -6132,6 +6145,163 @@ export async function listAdminClients(env: ApiEnv, context: AuthContext) {
         consultants: consultantsByOrg.get(org.id as string) ?? [],
         plan: planByOrg.get(org.id as string) ?? null,
       })),
+    },
+  };
+}
+
+/**
+ * Ficha 360 de un cliente para /admin/clientes/:id: todo lo que un consultor
+ * mira antes de hablar con el cliente en una sola llamada, en vez de saltar
+ * entre /consultores, /logs y la ficha de cada integracion. Junta lo que ya
+ * lee `listAdminClients` (org + plan) con integraciones de los 3 proveedores
+ * (no solo Shopify, a diferencia de `listOrganizationStores`) y sus ultimos
+ * syncs, y quien tiene acceso (miembros + consultores, como `getOrganizationAccess`
+ * pero sin `available_profiles`, que aqui no hace falta).
+ */
+export async function getClientOverview(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const access = requirePlatformAdmin(context);
+  if (access.ok === false) return access;
+
+  const supabase = createServiceClient(env);
+  const [
+    { data: organization, error: organizationError },
+    { data: subscription, error: subscriptionError },
+    { data: members, error: membersError },
+    { data: assignments, error: assignmentsError },
+    { data: connections, error: connectionsError },
+    { data: syncRuns, error: syncRunsError },
+    { data: pendingInvite },
+  ] = await Promise.all([
+    supabase
+      .from("organizations")
+      .select(
+        "id, display_name, slug, status, timezone, currency_code, created_at",
+      )
+      .eq("id", organizationId)
+      .maybeSingle(),
+    supabase
+      .from("service_subscriptions")
+      .select("organization_id, plan_code, store_limit, status, ends_at")
+      .eq("organization_id", organizationId)
+      .in("status", ["trial", "active"])
+      .maybeSingle(),
+    supabase
+      .from("organization_members")
+      .select("id, user_id, role, is_active, joined_at")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("consultant_assignments")
+      .select("consultant_user_id, is_primary")
+      .eq("organization_id", organizationId)
+      .eq("is_active", true),
+    supabase
+      .from("integration_connections")
+      .select(
+        "id, provider, provider_account_name, status, connected_at, last_sync_at",
+      )
+      .eq("organization_id", organizationId)
+      .order("connected_at", { ascending: false }),
+    supabase
+      .from("integration_sync_runs")
+      .select(
+        "id, provider, sync_type, status, error_message, started_at, finished_at",
+      )
+      .eq("organization_id", organizationId)
+      .order("started_at", { ascending: false })
+      .limit(15),
+    // Para poder regenerarle el enlace de acceso al owner cuando el correo del
+    // alta se perdio o caduco, sin tener que ir a buscar el id de la invitacion.
+    supabase
+      .from("client_invites")
+      .select("id, email, expires_at")
+      .eq("organization_id", organizationId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (organizationError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "client_overview_load_failed",
+      detail: organizationError.message,
+    };
+  }
+  if (!organization) {
+    return { ok: false as const, statusCode: 404, error: "organization_not_found" };
+  }
+  if (
+    subscriptionError ||
+    membersError ||
+    assignmentsError ||
+    connectionsError ||
+    syncRunsError
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "client_overview_load_failed",
+      detail:
+        subscriptionError?.message ??
+        membersError?.message ??
+        assignmentsError?.message ??
+        connectionsError?.message ??
+        syncRunsError?.message,
+    };
+  }
+
+  const userIds = [
+    ...new Set([
+      ...(members ?? []).map((m) => m.user_id as string),
+      ...(assignments ?? []).map((a) => a.consultant_user_id as string),
+    ]),
+  ];
+  const { data: profiles, error: profilesError } = userIds.length
+    ? await supabase.from("profiles").select("id, full_name").in("id", userIds)
+    : { data: [], error: null };
+  if (profilesError) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "client_overview_load_failed",
+      detail: profilesError.message,
+    };
+  }
+  const nameById = new Map(
+    (profiles ?? []).map((p) => [p.id as string, p.full_name as string | null]),
+  );
+
+  return {
+    ok: true as const,
+    data: {
+      organization,
+      plan: subscription
+        ? {
+            plan_code: subscription.plan_code as string,
+            store_limit: subscription.store_limit as number | null,
+            status: subscription.status as string,
+            ends_at: subscription.ends_at as string | null,
+          }
+        : null,
+      members: (members ?? []).map((m) => ({
+        ...m,
+        full_name: nameById.get(m.user_id as string) ?? null,
+      })),
+      consultants: (assignments ?? []).map((a) => ({
+        user_id: a.consultant_user_id as string,
+        full_name: nameById.get(a.consultant_user_id as string) ?? null,
+        is_primary: Boolean(a.is_primary),
+      })),
+      integrations: connections ?? [],
+      recent_syncs: syncRuns ?? [],
+      pending_invite: pendingInvite ?? null,
     },
   };
 }

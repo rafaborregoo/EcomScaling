@@ -13,6 +13,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { displayValue } from "@/lib/display-labels";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import {
   AsyncState,
   Avatar,
@@ -289,8 +290,15 @@ function PriorityQueue({
 }
 
 function AccessPanel({ organizationId }: { organizationId: string }) {
-  const [access, setAccess] = useState<OrganizationAccess | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const accessQuery = useCachedQuery<OrganizationAccess>(
+    `/v1/consultant/organizations/${organizationId}/access`,
+  );
+  const access = accessQuery.data ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? (accessQuery.error
+    ? "No se pudo cargar el acceso del cliente. Revisa la conexión e inténtalo de nuevo."
+    : null);
+  const setError = setActionError;
   const [memberUserId, setMemberUserId] = useState("");
   const [memberRole, setMemberRole] = useState("member");
   const [consultantUserId, setConsultantUserId] = useState("");
@@ -298,27 +306,10 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const loadAccess = useCallback(async () => {
-    try {
-      const response = await apiFetch(
-        `/v1/consultant/organizations/${organizationId}/access`,
-      );
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      setAccess((await response.json()) as OrganizationAccess);
-      setError(null);
-    } catch {
-      setError(
-        "No se pudo cargar el acceso del cliente. Revisa la conexión e inténtalo de nuevo.",
-      );
-    }
-  }, [organizationId]);
-
-  useEffect(() => {
-    void loadAccess();
-  }, [loadAccess]);
+  const loadAccess = useCallback(() => {
+    setActionError(null);
+    accessQuery.reload();
+  }, [accessQuery.reload]);
 
   async function saveMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -737,36 +728,23 @@ function StoresPanel({
   onEditingChange: (editing: boolean) => void;
   onOrganizationUpdated: () => void;
 }) {
-  const [stores, setStores] = useState<OrganizationStore[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const storesQuery = useCachedQuery<{
+    stores?: OrganizationStore[];
+  }>(`/v1/consultant/organizations/${organization.id}/stores`);
+  const stores = storesQuery.data?.stores ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? (storesQuery.error
+    ? "No se pudieron cargar las tiendas. Revisa la conexión e inténtalo de nuevo."
+    : null);
+  const setError = setActionError;
+  const reloadStores = useCallback(() => {
+    setActionError(null);
+    storesQuery.reload();
+  }, [storesQuery.reload]);
   const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
   const [restoringStoreId, setRestoringStoreId] = useState<string | null>(null);
   const [confirmDeleteStore, setConfirmDeleteStore] =
     useState<OrganizationStore | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const response = await apiFetch(
-          `/v1/consultant/organizations/${organization.id}/stores`,
-        );
-        if (!response.ok) {
-          setError(await readApiError(response));
-          return;
-        }
-        const payload = (await response.json()) as {
-          stores: OrganizationStore[];
-        };
-        setStores(payload.stores);
-        setError(null);
-      } catch {
-        setError(
-          "No se pudieron cargar las tiendas. Revisa la conexión e inténtalo de nuevo.",
-        );
-      }
-    }
-    void load();
-  }, [organization.id]);
 
   async function confirmStoreDeletion() {
     if (!confirmDeleteStore) {
@@ -779,9 +757,7 @@ function StoresPanel({
         { method: "DELETE" },
       );
       if (response.ok) {
-        setStores((current) =>
-          (current ?? []).filter((store) => store.id !== confirmDeleteStore.id),
-        );
+        reloadStores();
         setConfirmDeleteStore(null);
       } else {
         setError(await readApiError(response));
@@ -803,11 +779,7 @@ function StoresPanel({
         { method: "POST" },
       );
       if (response.ok) {
-        setStores((current) =>
-          (current ?? []).map((store) =>
-            store.id === storeId ? { ...store, status: "connected" } : store,
-          ),
-        );
+        reloadStores();
       } else {
         setError(await readApiError(response));
       }
@@ -1216,20 +1188,23 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
 }
 
 function ConsultantPanel({
-  token,
   isPlatformAdmin,
   canManageStores,
 }: {
-  token: string;
   isPlatformAdmin: boolean;
   canManageStores: boolean;
 }) {
   const { setOrganizationId } = useActiveOrganization();
-  const [organizations, setOrganizations] = useState<ConsultantOrganization[]>(
-    [],
+  const organizationsQuery = useCachedQuery<{
+    organizations?: ConsultantOrganization[];
+  }>("/v1/consultant/organizations");
+  const organizations = (organizationsQuery.data?.organizations ?? []).filter(
+    (organization) => !organization.is_own_store,
   );
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const error = organizationsQuery.error
+    ? "No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo."
+    : null;
+  const isLoading = organizationsQuery.isLoading;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   // FE-07: sin buscador, encontrar un cliente concreto entre muchos exigia
@@ -1237,36 +1212,9 @@ function ConsultantPanel({
   // navegador sobre la lista ya cargada (no una request nueva).
   const [searchQuery, setSearchQuery] = useState("");
 
-  async function load() {
-    setIsLoading(true);
-    try {
-      const response = await apiFetch("/v1/consultant/organizations");
-
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-
-      const payload = (await response.json()) as {
-        organizations: ConsultantOrganization[];
-      };
-      // Las tiendas propias del consultor vienen en la misma lista (las
-      // necesitan integraciones, agenda y planificacion), pero esta pantalla
-      // es la cartera: aqui "Clientes" son clientes.
-      setOrganizations(payload.organizations.filter((o) => !o.is_own_store));
-      setError(null);
-    } catch {
-      setError(
-        "No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void load();
-  }, [token]);
+  const load = useCallback(() => {
+    organizationsQuery.reload();
+  }, [organizationsQuery.reload]);
 
   if (isLoading) {
     return <AsyncState status="loading" loadingLabel="Cargando clientes..." />;
@@ -1435,9 +1383,7 @@ function ConsultantPanel({
                                 id === row.id ? null : id,
                               );
                               setEditingId((id) => (id === row.id ? null : id));
-                              setOrganizations((prev) =>
-                                prev.filter((org) => org.id !== row.id),
-                              );
+                              void load();
                             }}
                           />
                         </span>
@@ -1515,11 +1461,15 @@ function ObjectiveTypesCard({
   organizations: ConsultantOrganization[];
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [definitions, setDefinitions] = useState<ObjectiveDefinition[] | null>(
-    null,
-  );
-  const [builtins, setBuiltins] = useState<ObjectiveBuiltin[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const definitionsQuery = useCachedQuery<{
+    definitions?: ObjectiveDefinition[];
+    builtins?: ObjectiveBuiltin[];
+  }>(isOpen ? "/v1/consultant/objective-definitions" : null);
+  const definitions = definitionsQuery.data?.definitions ?? null;
+  const builtins = definitionsQuery.data?.builtins ?? [];
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? definitionsQuery.error;
+  const setError = setActionError;
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // Alta
@@ -1531,31 +1481,16 @@ function ObjectiveTypesCard({
   const [scope, setScope] = useState("all");
   const [isSaving, setIsSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const response = await apiFetch("/v1/consultant/objective-definitions");
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      const payload = (await response.json()) as {
-        definitions: ObjectiveDefinition[];
-        builtins: ObjectiveBuiltin[];
-      };
-      setDefinitions(payload.definitions);
-      setBuiltins(payload.builtins);
-      setError(null);
-      if (!metricKey && payload.builtins[0]) {
-        setMetricKey(payload.builtins[0].key);
-      }
-    } catch {
-      setError("No se pudieron cargar los tipos de objetivo. Reintenta.");
-    }
-  }, [metricKey]);
+  const load = useCallback(() => {
+    setActionError(null);
+    definitionsQuery.reload();
+  }, [definitionsQuery.reload]);
 
   useEffect(() => {
-    if (isOpen && definitions === null) void load();
-  }, [isOpen, definitions, load]);
+    if (isOpen && !metricKey && builtins[0]) {
+      setMetricKey(builtins[0].key);
+    }
+  }, [builtins, isOpen, metricKey]);
 
   async function createDefinition(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1588,8 +1523,7 @@ function ObjectiveTypesCard({
       }
       toast.success("Tipo de objetivo creado.");
       setLabel("");
-      setDefinitions(null);
-      await load();
+      load();
     } catch {
       setError("No se pudo crear el tipo de objetivo. Reintenta.");
     } finally {
@@ -1612,8 +1546,7 @@ function ObjectiveTypesCard({
         setError(await readApiError(response));
         return;
       }
-      setDefinitions(null);
-      await load();
+      load();
     } catch {
       setError("No se pudo actualizar el tipo de objetivo. Reintenta.");
     } finally {
@@ -1632,8 +1565,7 @@ function ObjectiveTypesCard({
         setError(await readApiError(response));
         return;
       }
-      setDefinitions(null);
-      await load();
+      load();
     } catch {
       setError("No se pudo borrar el tipo de objetivo. Reintenta.");
     } finally {
@@ -1877,9 +1809,8 @@ function ObjectiveTypesCard({
 export default function ConsultantPage() {
   return (
     <PortalShell title="Clientes">
-      {(bootstrap, token) => (
+      {(bootstrap) => (
         <ConsultantPanel
-          token={token}
           isPlatformAdmin={bootstrap.profile.platform_role === "platform_admin"}
           canManageStores={["consultant", "platform_admin"].includes(
             bootstrap.profile.platform_role,
@@ -1889,4 +1820,3 @@ export default function ConsultantPage() {
     </PortalShell>
   );
 }
-

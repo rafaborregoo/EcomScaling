@@ -26,7 +26,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
 
       - name: Install dependencies
@@ -34,6 +34,12 @@ jobs:
 
       - name: Verify safe test surface
         run: node scripts/assert-safe-test-surface.mjs
+
+      # Los workflows programados ejecutan tests y artefactos compilados de
+      # distintos workspaces. Este guard evita reintroducir fallos por ejecutar
+      # un test o un worker antes de compilar sus dependencias.
+      - name: Verify benchmark workflow build order
+        run: node scripts/assert-benchmark-workflow-build-order.mjs
 
       - name: Verify SQL gateway hardening
         run: node scripts/assert-sql-gateway-hardening.mjs

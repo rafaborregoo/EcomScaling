@@ -27,7 +27,11 @@ export type ShopifyOverview = {
   scope_catalog: Array<{
     scope: string;
     area: string;
-    status: "active_ingestion" | "authorized_pending_ingestion" | "metric_source" | "special_access";
+    status:
+      | "active_ingestion"
+      | "authorized_pending_ingestion"
+      | "metric_source"
+      | "special_access";
     fields: string[];
     enables: string[];
   }>;
@@ -48,7 +52,8 @@ export type ShopifyOverview = {
     description: string;
     status: "active" | "planned";
     scopes: string[];
-    sync_scope: "catalog" | "inventory" | "orders" | "refunds" | "customers" | null;
+    sync_scope:
+      "catalog" | "inventory" | "orders" | "refunds" | "customers" | null;
     count: number;
   }>;
   samples: {
@@ -113,7 +118,10 @@ export type ShopifyOverview = {
  * compartido entre /shopify (negocio) y /shopify/diagnostico (tecnico) para
  * no duplicar el fetch, el polling durante sync y el disparo manual de sync.
  */
-export function useShopifyOverview(organizationId: string | undefined, connectionId: string) {
+export function useShopifyOverview(
+  organizationId: string | undefined,
+  connectionId: string,
+) {
   const [overview, setOverview] = useState<ShopifyOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -121,51 +129,67 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  const load = useCallback(async (options: { initial?: boolean } = {}) => {
-    if (!organizationId) {
-      setError("No hay organización activa.");
-      setIsLoading(false);
-      return;
-    }
+  const load = useCallback(
+    async (options: { initial?: boolean } = {}) => {
+      if (!organizationId) {
+        setError("No hay organización activa.");
+        setIsLoading(false);
+        return;
+      }
 
-    if (options.initial) {
-      setIsLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    setError(null);
+      if (options.initial) {
+        setIsLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
+      setError(null);
 
-    const connectionParam = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
-    let response: Response;
-    try {
-      response = await apiFetch(
-        `/v1/organizations/${organizationId}/shopify/overview${connectionParam}`,
-      );
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "No se pudo cargar el diagnóstico de Shopify.",
-      );
+      const connectionParam = connectionId
+        ? `?connectionId=${encodeURIComponent(connectionId)}`
+        : "";
+      let response: Response;
+      try {
+        response = await apiFetch(
+          `/v1/organizations/${organizationId}/shopify/overview${connectionParam}`,
+          options.initial ? undefined : { cache: "no-store" },
+        );
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "No se pudo cargar el diagnóstico de Shopify.",
+        );
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        } | null;
+        setError(
+          [
+            body?.error ?? `HTTP ${response.status}`,
+            body?.message,
+            body?.detail,
+          ]
+            .filter(Boolean)
+            .join(" - "),
+        );
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
+      setOverview((await response.json()) as ShopifyOverview);
       setIsLoading(false);
       setIsRefreshing(false);
-      return;
-    }
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string; message?: string; detail?: string }
-        | null;
-      setError([body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - "));
-      setIsLoading(false);
-      setIsRefreshing(false);
-      return;
-    }
-
-    setOverview((await response.json()) as ShopifyOverview);
-    setIsLoading(false);
-    setIsRefreshing(false);
-  }, [organizationId, connectionId]);
+    },
+    [organizationId, connectionId],
+  );
 
   const triggerSync = useCallback(async () => {
     if (!organizationId) {
@@ -175,7 +199,9 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
     setIsSyncing(true);
     setSyncError(null);
 
-    const connectionParam = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
+    const connectionParam = connectionId
+      ? `?connectionId=${encodeURIComponent(connectionId)}`
+      : "";
     let response: Response;
     try {
       response = await apiFetch(
@@ -193,10 +219,16 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
     }
 
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string; message?: string; detail?: string }
-        | null;
-      setSyncError([body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail].filter(Boolean).join(" - "));
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        message?: string;
+        detail?: string;
+      } | null;
+      setSyncError(
+        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
+          .filter(Boolean)
+          .join(" - "),
+      );
       setIsSyncing(false);
       return;
     }
@@ -210,7 +242,10 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
   }, [load]);
 
   useEffect(() => {
-    if (overview?.connection?.status !== "syncing" && overview?.sync_runs[0]?.status !== "running") {
+    if (
+      overview?.connection?.status !== "syncing" &&
+      overview?.sync_runs[0]?.status !== "running"
+    ) {
       return;
     }
 
@@ -221,5 +256,14 @@ export function useShopifyOverview(organizationId: string | undefined, connectio
     return () => window.clearInterval(interval);
   }, [load, overview?.connection?.status, overview?.sync_runs]);
 
-  return { overview, isLoading, isRefreshing, error, reload: load, isSyncing, syncError, triggerSync };
+  return {
+    overview,
+    isLoading,
+    isRefreshing,
+    error,
+    reload: load,
+    isSyncing,
+    syncError,
+    triggerSync,
+  };
 }

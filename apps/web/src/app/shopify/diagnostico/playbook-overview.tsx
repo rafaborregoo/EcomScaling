@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/bootstrap";
-import { readApiError } from "@/lib/api-error";
-import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import { useCachedQueriesSettled } from "@/lib/use-cached-query";
+import { Badge, Card, LoadingBlock } from "@/components/ui";
 
 const DOMAINS = [
   ["playbooks", "Framework universal"],
@@ -35,7 +33,12 @@ const DOMAINS = [
 ] as const;
 
 type Run = { disposition: string; unresolved_unknowns?: string[] };
-type DomainSummary = { key: string; label: string; disposition: string; unknowns: number };
+type DomainSummary = {
+  key: string;
+  label: string;
+  disposition: string;
+  unknowns: number;
+};
 
 function tone(disposition: string) {
   if (disposition === "READY_FOR_RECOMMENDATION") return "success" as const;
@@ -44,47 +47,107 @@ function tone(disposition: string) {
 }
 
 function barClass(disposition: string) {
-  return disposition === "BLOCKED" ? "bg-danger" : disposition === "READY_FOR_RECOMMENDATION" ? "bg-success" : "bg-warn";
+  return disposition === "BLOCKED"
+    ? "bg-danger"
+    : disposition === "READY_FOR_RECOMMENDATION"
+      ? "bg-success"
+      : "bg-warn";
 }
 
 export function PlaybookDiagnosticOverviewPanel() {
-  const [summaries, setSummaries] = useState<DomainSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const keys = DOMAINS.map(([key]) => `/v1/consultant/${key}`);
+  const { data: payloads, errors } = useCachedQueriesSettled<{
+    assessments?: Run[];
+  }>(keys);
+  const summaries: DomainSummary[] | null = payloads
+    ? DOMAINS.map(([key, label], index) => {
+        const current = payloads[index]?.assessments?.[0];
+        return {
+          key,
+          label,
+          disposition: errors[index]
+            ? "NO_DISPONIBLE"
+            : (current?.disposition ?? "SIN_EVALUACION"),
+          unknowns: current?.unresolved_unknowns?.length ?? 0,
+        };
+      })
+    : null;
+  if (!summaries)
+    return <LoadingBlock label="Ordenando diagnósticos de los playbooks..." />;
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all(DOMAINS.map(async ([key, label]) => {
-      try {
-        const response = await apiFetch(`/v1/consultant/${key}`);
-        if (!response.ok) throw new Error(await readApiError(response));
-        const payload = await response.json() as { assessments?: Run[] };
-        const current = payload.assessments?.[0];
-        return { key, label, disposition: current?.disposition ?? "SIN_EVALUACION", unknowns: current?.unresolved_unknowns?.length ?? 0 };
-      } catch {
-        return { key, label, disposition: "NO_DISPONIBLE", unknowns: 0 };
-      }
-    })).then((next) => { if (!cancelled) setSummaries(next); })
-      .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "No se pudo cargar el resumen de diagnósticos."); });
-    return () => { cancelled = true; };
-  }, []);
-
-  if (error) return <ErrorBlock>{error}</ErrorBlock>;
-  if (!summaries) return <LoadingBlock label="Ordenando diagnósticos de los playbooks..." />;
-
-  const attention = summaries.filter((item) => ["BLOCKED", "VALIDATION_REQUIRED", "REASSESS_DIAGNOSIS", "REPRIORITIZE"].includes(item.disposition)).length;
-  const ready = summaries.filter((item) => item.disposition === "READY_FOR_RECOMMENDATION").length;
+  const attention = summaries.filter((item) =>
+    [
+      "BLOCKED",
+      "VALIDATION_REQUIRED",
+      "REASSESS_DIAGNOSIS",
+      "REPRIORITIZE",
+    ].includes(item.disposition),
+  ).length;
+  const ready = summaries.filter(
+    (item) => item.disposition === "READY_FOR_RECOMMENDATION",
+  ).length;
 
   return (
-    <Card id="insight-diagnostic-overview" title="Mapa de diagnóstico IA" description="Una lectura transversal de todos los playbooks: cada fila enlaza con su card de detalle y conserva los huecos de evidencia para el Copiloto.">
+    <Card
+      id="insight-diagnostic-overview"
+      title="Mapa de diagnóstico IA"
+      description="Una lectura transversal de todos los playbooks: cada fila enlaza con su card de detalle y conserva los huecos de evidencia para el Copiloto."
+    >
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded border border-default-200 p-3"><p className="text-muted text-xs">Bloques revisados</p><p className="mt-1 text-xl font-semibold">{summaries.length}</p></div>
-        <div className="rounded border border-default-200 p-3"><p className="text-muted text-xs">Requieren atención</p><p className="mt-1 text-xl font-semibold text-warn-deep">{attention}</p></div>
-        <div className="rounded border border-default-200 p-3"><p className="text-muted text-xs">Listos para recomendar</p><p className="mt-1 text-xl font-semibold text-success">{ready}</p></div>
+        <div className="rounded border border-default-200 p-3">
+          <p className="text-muted text-xs">Bloques revisados</p>
+          <p className="mt-1 text-xl font-semibold">{summaries.length}</p>
+        </div>
+        <div className="rounded border border-default-200 p-3">
+          <p className="text-muted text-xs">Requieren atención</p>
+          <p className="mt-1 text-xl font-semibold text-warn-deep">
+            {attention}
+          </p>
+        </div>
+        <div className="rounded border border-default-200 p-3">
+          <p className="text-muted text-xs">Listos para recomendar</p>
+          <p className="mt-1 text-xl font-semibold text-success">{ready}</p>
+        </div>
       </div>
-      <div className="space-y-3" role="list" aria-label="Estado de diagnósticos IA">
+      <div
+        className="space-y-3"
+        role="list"
+        aria-label="Estado de diagnósticos IA"
+      >
         {summaries.map((item) => {
-          const width = item.disposition === "SIN_EVALUACION" || item.disposition === "NO_DISPONIBLE" ? 12 : item.disposition === "READY_FOR_RECOMMENDATION" ? 100 : 66;
-          return <div key={item.key} role="listitem" className="grid gap-2 sm:grid-cols-[12rem_1fr_auto] sm:items-center"><span className="text-sm">{item.label}</span><div className="h-2 rounded bg-default-100" aria-hidden="true"><div className={`h-2 rounded ${barClass(item.disposition)}`} style={{ width: `${width}%` }} /></div><Badge tone={item.disposition === "SIN_EVALUACION" || item.disposition === "NO_DISPONIBLE" ? "neutral" : tone(item.disposition)}>{item.disposition}{item.unknowns ? ` · ${item.unknowns} huecos` : ""}</Badge></div>;
+          const width =
+            item.disposition === "SIN_EVALUACION" ||
+            item.disposition === "NO_DISPONIBLE"
+              ? 12
+              : item.disposition === "READY_FOR_RECOMMENDATION"
+                ? 100
+                : 66;
+          return (
+            <div
+              key={item.key}
+              role="listitem"
+              className="grid gap-2 sm:grid-cols-[12rem_1fr_auto] sm:items-center"
+            >
+              <span className="text-sm">{item.label}</span>
+              <div className="h-2 rounded bg-default-100" aria-hidden="true">
+                <div
+                  className={`h-2 rounded ${barClass(item.disposition)}`}
+                  style={{ width: `${width}%` }}
+                />
+              </div>
+              <Badge
+                tone={
+                  item.disposition === "SIN_EVALUACION" ||
+                  item.disposition === "NO_DISPONIBLE"
+                    ? "neutral"
+                    : tone(item.disposition)
+                }
+              >
+                {item.disposition}
+                {item.unknowns ? ` · ${item.unknowns} huecos` : ""}
+              </Badge>
+            </div>
+          );
         })}
       </div>
     </Card>

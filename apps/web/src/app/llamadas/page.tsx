@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
 import { isSummaryCurrentForTranscript } from "./summary-visibility";
 import { callStage, type CallStage } from "./call-stage";
@@ -789,41 +790,41 @@ function CallDetail({
     (summary) => summary.status === "pending_approval",
   );
 
-  useEffect(() => {
-    if (!hasPendingSummary || !organizationId) return;
-    let cancelled = false;
-    apiFetch(`/v1/organizations/${organizationId}/strategic-plan`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (cancelled || !data?.plan) return;
-        type PlanMilestone = { id: string; name: string; position: number };
-        type PlanPhase = {
+  const planQuery = useCachedQuery<{
+    plan?: {
+      strategic_plan_phases?: Array<{
+        name: string;
+        position: number;
+        strategic_plan_milestones?: Array<{
+          id: string;
           name: string;
           position: number;
-          strategic_plan_milestones: PlanMilestone[];
-        };
-        setMilestoneOptions(
-          ((data.plan.strategic_plan_phases ?? []) as PlanPhase[])
+        }>;
+      }>;
+    };
+  }>(
+    hasPendingSummary && organizationId
+      ? `/v1/organizations/${organizationId}/strategic-plan`
+      : null,
+  );
+
+  useEffect(() => {
+    const phases = planQuery.data?.plan?.strategic_plan_phases ?? [];
+    setMilestoneOptions(
+      phases
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .flatMap((phase) =>
+          (phase.strategic_plan_milestones ?? [])
             .slice()
             .sort((a, b) => a.position - b.position)
-            .flatMap((phase) =>
-              (phase.strategic_plan_milestones ?? [])
-                .slice()
-                .sort((a, b) => a.position - b.position)
-                .map((milestone) => ({
-                  value: milestone.id,
-                  label: `${phase.name} · ${milestone.name}`,
-                })),
-            ),
-        );
-      })
-      .catch(() => {
-        /* sin plan o error: se aprueba sin enlazar al camino */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [hasPendingSummary, organizationId]);
+            .map((milestone) => ({
+              value: milestone.id,
+              label: `${phase.name} · ${milestone.name}`,
+            })),
+        ),
+    );
+  }, [planQuery.data]);
 
   const previousSummaries = priorCalls
     .filter((other) => other.id !== call.id)
@@ -1780,44 +1781,17 @@ type ConsultantCallRow = {
 
 function ConsultantCallsView() {
   const { setOrganizationId } = useActiveOrganization();
-  const [data, setData] = useState<{
+  const callsQuery = useCachedQuery<{
     calls: ConsultantCallRow[];
     organizations: Array<{ id: string; display_name: string }>;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  }>("/v1/consultant/calls");
+  const data = callsQuery.data ?? null;
+  const error = callsQuery.error
+    ? "No se pudieron cargar las llamadas. Revisa la conexión e inténtalo de nuevo."
+    : null;
+  const isLoading = callsQuery.isLoading;
   const [clientFilter, setClientFilter] = useState("all");
   const [onlyPending, setOnlyPending] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    apiFetch("/v1/consultant/calls")
-      .then(async (response) => {
-        if (cancelled) return;
-        if (!response.ok) {
-          setError(await readApiError(response));
-          return;
-        }
-        setData(
-          (await response.json()) as {
-            calls: ConsultantCallRow[];
-            organizations: Array<{ id: string; display_name: string }>;
-          },
-        );
-        setError(null);
-      })
-      .catch(() => {
-        if (!cancelled)
-          setError("No se pudieron cargar las llamadas por un error de red.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   if (isLoading && !data) {
     return (

@@ -1,4 +1,86 @@
 "use client";
-import {useEffect,useState} from "react";import{apiFetch}from"@/lib/bootstrap";import{readApiError}from"@/lib/api-error";import{Badge,Card,ErrorBlock,LoadingBlock}from"@/components/ui";
-const dimensions=[ ["P07","Riesgo y reversibilidad","/v1/consultant/risk","risk_assessment"],["P08","Allocation económica","/v1/consultant/allocation","allocation_assessment"],["P09","Strategic fit","/v1/consultant/strategic-fit","strategic_assessment"],["P10","Ranking","/v1/consultant/ranking","ranking_status"],["P11","Portfolio","/v1/consultant/portfolio","portfolio_status"],["P12","Salida decisional","/v1/consultant/decision-outputs","decision_status"]] as const;
-type Row=Record<string,unknown>;export function F4DimensionsPanel(){const[values,setValues]=useState<Record<string,Row[]|null>>({});const[error,setError]=useState<string|null>(null);useEffect(()=>{let cancelled=false;Promise.all(dimensions.map(async([key,,url])=>{const r=await apiFetch(url);if(!r.ok)throw new Error(await readApiError(r));const j=await r.json() as{assessments:Row[]};return[key,j.assessments] as const;})).then(entries=>{if(!cancelled)setValues(Object.fromEntries(entries));}).catch(e=>{if(!cancelled)setError(e instanceof Error?e.message:"No se pudieron cargar las dimensiones de F4.");});return()=>{cancelled=true;};},[]);if(error)return<ErrorBlock>{error}</ErrorBlock>;if(Object.keys(values).length<dimensions.length)return<LoadingBlock label="Cargando dimensiones de decisión F4..."/>;return<Card title="Dimensiones finales F4" description="Riesgo, allocation, fit, ranking, portfolio y salida decisional permanecen separados y auditables."><div className="grid gap-4 md:grid-cols-2">{dimensions.map(([key,title,,field])=>{const rows=values[key]??[];const item=rows[0];const value=item?.[field];return<article key={key} className="border-default-200 rounded border p-4"><div className="flex items-center justify-between gap-2"><span className="text-muted text-xs">{key}</span><Badge tone={value==="UNKNOWN"||value==="ABSTAIN"||value==="VALIDATION_REQUIRED"?"warn":"neutral"}>{String(value??"sin datos")}</Badge></div><p className="mt-2 text-sm font-medium">{title}</p><p className="text-muted mt-1 text-xs">{rows.length?`${rows.length} snapshot(s)`:"Todavía no hay snapshots"}. La salida no sustituye revisión humana.</p></article>;})}</div></Card>;}
+import { useCachedQueries } from "@/lib/use-cached-query";
+import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+const dimensions = [
+  ["P07", "Riesgo y reversibilidad", "/v1/consultant/risk", "risk_assessment"],
+  [
+    "P08",
+    "Allocation económica",
+    "/v1/consultant/allocation",
+    "allocation_assessment",
+  ],
+  [
+    "P09",
+    "Strategic fit",
+    "/v1/consultant/strategic-fit",
+    "strategic_assessment",
+  ],
+  ["P10", "Ranking", "/v1/consultant/ranking", "ranking_status"],
+  ["P11", "Portfolio", "/v1/consultant/portfolio", "portfolio_status"],
+  [
+    "P12",
+    "Salida decisional",
+    "/v1/consultant/decision-outputs",
+    "decision_status",
+  ],
+] as const;
+type Row = Record<string, unknown>;
+export function F4DimensionsPanel() {
+  const keys = dimensions.map(([, , url]) => url);
+  const { data: batches, error } = useCachedQueries<{ assessments: Row[] }>(
+    keys,
+  );
+  const values = batches
+    ? Object.fromEntries(
+        dimensions.map(([key], index) => [
+          key,
+          batches[index]?.assessments ?? [],
+        ]),
+      )
+    : {};
+  if (error) return <ErrorBlock>{error}</ErrorBlock>;
+  if (Object.keys(values).length < dimensions.length)
+    return <LoadingBlock label="Cargando dimensiones de decisión F4..." />;
+  return (
+    <Card
+      title="Dimensiones finales F4"
+      description="Riesgo, allocation, fit, ranking, portfolio y salida decisional permanecen separados y auditables."
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        {dimensions.map(([key, title, , field]) => {
+          const rows = values[key] ?? [];
+          const item = rows[0];
+          const value = item?.[field];
+          return (
+            <article
+              key={key}
+              className="border-default-200 rounded border p-4"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted text-xs">{key}</span>
+                <Badge
+                  tone={
+                    value === "UNKNOWN" ||
+                    value === "ABSTAIN" ||
+                    value === "VALIDATION_REQUIRED"
+                      ? "warn"
+                      : "neutral"
+                  }
+                >
+                  {String(value ?? "sin datos")}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm font-medium">{title}</p>
+              <p className="text-muted mt-1 text-xs">
+                {rows.length
+                  ? `${rows.length} snapshot(s)`
+                  : "Todavía no hay snapshots"}
+                . La salida no sustituye revisión humana.
+              </p>
+            </article>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}

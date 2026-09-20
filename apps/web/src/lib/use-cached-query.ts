@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 
 // Caché de datos de página estilo stale-while-revalidate, en el mismo espíritu
@@ -21,9 +21,10 @@ const FRESH_MS = 30_000;
 async function fetchJson(key: string): Promise<unknown> {
   const response = await apiFetch(key);
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as
-      | { error?: string; message?: string }
-      | null;
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+    } | null;
     throw new Error(body?.error || body?.message || `HTTP ${response.status}`);
   }
   return response.json();
@@ -110,7 +111,6 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
 
   const reload = useCallback(() => {
     if (!key) return;
-    cache.delete(key);
     setError(null);
     setIsValidating(true);
     run(key)
@@ -134,6 +134,168 @@ export function useCachedQuery<T>(key: string | null): CachedQuery<T> {
     // devolvia `isLoading: true` para siempre: sin datos, sin error y sin nada
     // que los fuera a traer. La pantalla se quedaba girando y parecia lentitud.
     isLoading: key !== null && data === undefined && error === null,
+    isValidating,
+    reload,
+  };
+}
+
+/**
+ * Variante para paneles que componen una vista a partir de varios GETs
+ * independientes (por ejemplo el mapa de playbooks y las dimensiones F4).
+ * Mantiene una entrada por URL, deduplica peticiones en vuelo y conserva el
+ * mismo stale-while-revalidate que `useCachedQuery`, sin llamar hooks dentro
+ * de un `map`.
+ */
+export function useCachedQueries<T>(keys: string[]): CachedQuery<T[]> {
+  const keySignature = keys.join("\u0000");
+  const stableKeys = useMemo(
+    () => [...new Set(keys.filter(Boolean))],
+    [keySignature],
+  );
+  const [, forceRender] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+
+  useEffect(() => {
+    if (stableKeys.length === 0) return;
+    let cancelled = false;
+    const staleKeys = stableKeys.filter((key) => {
+      const entry = cache.get(key);
+      return !entry || Date.now() - entry.at >= FRESH_MS;
+    });
+    if (staleKeys.length === 0) return;
+
+    setIsValidating(true);
+    Promise.all(staleKeys.map((key) => run(key)))
+      .then(() => {
+        if (cancelled) return;
+        setError(null);
+        forceRender((n) => n + 1);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          setError(
+            reason instanceof Error ? reason.message : "No se pudo cargar.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsValidating(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [forceRender, keySignature, stableKeys]);
+
+  const hasAllData = stableKeys.every((key) => cache.has(key));
+  const data = hasAllData
+    ? (stableKeys.map((key) => cache.get(key)?.data) as T[])
+    : undefined;
+
+  const reload = useCallback(() => {
+    if (stableKeys.length === 0) return;
+    setError(null);
+    setIsValidating(true);
+    Promise.all(stableKeys.map((key) => run(key)))
+      .then(() => {
+        setError(null);
+        forceRender((n) => n + 1);
+      })
+      .catch((reason: unknown) => {
+        setError(
+          reason instanceof Error ? reason.message : "No se pudo cargar.",
+        );
+      })
+      .finally(() => setIsValidating(false));
+  }, [forceRender, stableKeys]);
+
+  return {
+    data,
+    error,
+    isLoading: stableKeys.length > 0 && data === undefined && error === null,
+    isValidating,
+    reload,
+  };
+}
+
+/**
+ * Igual que `useCachedQueries`, pero conserva los resultados que sí llegan
+ * cuando uno de los endpoints falla. Es útil para mapas de diagnóstico: un
+ * dominio no disponible no debe ocultar los otros 24 ni convertir toda la
+ * tarjeta en un error global.
+ */
+export function useCachedQueriesSettled<T>(
+  keys: string[],
+): CachedQuery<Array<T | undefined>> & { errors: Array<string | null> } {
+  const keySignature = keys.join("\u0000");
+  const stableKeys = useMemo(
+    () => [...new Set(keys.filter(Boolean))],
+    [keySignature],
+  );
+  const [, forceRender] = useState(0);
+  const [errors, setErrors] = useState<Array<string | null>>([]);
+  const [isValidating, setIsValidating] = useState(false);
+  const [hasSettled, setHasSettled] = useState(false);
+
+  const load = useCallback(
+    (force = false) => {
+      if (stableKeys.length === 0) return;
+      if (force) stableKeys.forEach((key) => cache.delete(key));
+      const pending = stableKeys.filter((key) => {
+        const entry = cache.get(key);
+        return !entry || Date.now() - entry.at >= FRESH_MS;
+      });
+      if (pending.length === 0) {
+        setHasSettled(true);
+        return;
+      }
+
+      setIsValidating(true);
+      Promise.all(
+        pending.map(async (key) => {
+          try {
+            await run(key);
+            return null;
+          } catch (reason: unknown) {
+            return reason instanceof Error
+              ? reason.message
+              : "No se pudo cargar.";
+          }
+        }),
+      )
+        .then((pendingErrors) => {
+          setErrors((previous) => {
+            const next = [...previous];
+            pending.forEach((key, index) => {
+              const position = stableKeys.indexOf(key);
+              next[position] = pendingErrors[index];
+            });
+            return next;
+          });
+          setHasSettled(true);
+          forceRender((n) => n + 1);
+        })
+        .finally(() => setIsValidating(false));
+    },
+    [forceRender, stableKeys],
+  );
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const data = hasSettled
+    ? stableKeys.map((key) => cache.get(key)?.data as T | undefined)
+    : undefined;
+  const reload = useCallback(() => load(true), [load]);
+  const firstError = errors.find(Boolean) ?? null;
+
+  return {
+    data,
+    error: firstError,
+    errors,
+    isLoading: stableKeys.length > 0 && data === undefined && !firstError,
     isValidating,
     reload,
   };

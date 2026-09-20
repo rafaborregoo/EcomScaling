@@ -7,8 +7,6 @@ on:
   # autorizacion OAuth que nadie termino, y esas filas ocupan cupo de tiendas
   # del plan. Sin disparador, el limite se agota solo a base de pestanas
   # cerradas a medias y hay que limpiarlo a mano contra la base.
-  schedule:
-    - cron: "7 3 * * *"
 
 permissions:
   contents: read

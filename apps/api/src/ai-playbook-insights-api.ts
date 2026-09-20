@@ -164,6 +164,167 @@ export function f7MatchingAssessmentsFromRows(
     }));
 }
 
+export function f7PrioritizationAssessmentsFromRows(
+  rows: Record<string, unknown>[],
+): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "PRIORITY_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_03_PRIORITIZATION",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7ImpactAssessmentsFromRows(
+  rows: Record<string, unknown>[],
+): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "IMPACTS_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_04_IMPACT",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7FeasibilityAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows.filter((row) => String(row.disposition ?? "") !== "FEASIBILITY_AVAILABLE").map((row) => ({ domain: "F7_05_FEASIBILITY", disposition: "VALIDATION_REQUIRED", evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: stringArray(row.reason_codes) }));
+}
+
+export function f7RiskAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows.filter((row) => String(row.disposition ?? "") !== "RISK_ASSESSMENTS_AVAILABLE").map((row) => ({ domain: "F7_06_RISK", disposition: "VALIDATION_REQUIRED", evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: stringArray(row.reason_codes) }));
+}
+
+export function f7SequencingAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows.filter((row) => String(row.disposition ?? "") !== "SEQUENCES_AVAILABLE").map((row) => ({ domain: "F7_07_SEQUENCING", disposition: "VALIDATION_REQUIRED", evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: stringArray(row.reason_codes) }));
+}
+
+export function f7TestExecuteAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows.filter((row) => {
+    if (String(row.disposition ?? "") !== "DECISIONS_AVAILABLE") return true;
+    const result = row.result && typeof row.result === "object" ? row.result as Record<string, unknown> : {};
+    const candidates = Array.isArray(result.candidate_evaluations) ? result.candidate_evaluations : [];
+    return candidates.some((candidate) => candidate && typeof candidate === "object" && String((candidate as Record<string, unknown>).recommended_mode ?? "") !== "DIRECT_EXECUTION");
+  }).map((row) => ({ domain: "F7_08_TEST_EXECUTE", disposition: "VALIDATION_REQUIRED", evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: stringArray(row.reason_codes) }));
+}
+
+export function f7IntensityAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows.filter((row) => String(row.disposition ?? "") !== "INTENSITY_PROFILES_AVAILABLE").map((row) => ({ domain: "F7_09_INTENSITY", disposition: "VALIDATION_REQUIRED", evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: stringArray(row.reason_codes) }));
+}
+
+export function f7MaturityAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "MATURITY_RECOMMENDATIONS_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_10_MATURITY",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7ConstraintAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "CONSTRAINT_RECOMMENDATIONS_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_11_CONSTRAINTS",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7PortfolioAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "PORTFOLIO_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_12_PORTFOLIO",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7DynamicDecisionAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "DECISIONS_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_13_DYNAMIC_DECISION",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7RestraintDecisionAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "DECISION_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_14_RESTRAINT_DECISION",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7ExpectedOutcomeAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "OUTCOME_CRITERIA_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_15_EXPECTED_OUTCOME",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7RecommendationConfidenceAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "CONFIDENCE_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_17_RECOMMENDATION_CONFIDENCE",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f7RecommendationCommunicationAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => String(row.disposition ?? "") !== "COMMUNICATION_AVAILABLE")
+    .map((row) => ({
+      domain: "F7_18_RECOMMENDATION_COMMUNICATION",
+      disposition: "VALIDATION_REQUIRED",
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
+export function f8HitlApprovalAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => ["APPROVAL_REQUIRED", "ESCALATION_REQUIRED", "HUMAN_ONLY", "VALIDATION_REQUIRED"].includes(String(row.disposition ?? "")))
+    .map((row) => ({
+      domain: "F8_02_HITL_APPROVAL",
+      disposition: String(row.disposition),
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.reason_codes),
+    }));
+}
+
 export async function listConsultantAiPlaybookInsights(
   env: ApiEnv,
   authorization: string,
@@ -176,7 +337,7 @@ export async function listConsultantAiPlaybookInsights(
   if (!organizationId) return { ok: true as const, data: { assessments: [] } };
 
   const supabase = createUserScopedClient(env, authorization.slice("Bearer ".length)) as any;
-  const [playbookResult, outputResult, robustnessResult, temporalResult, eligibilityResult, matchingResult] = await Promise.all([
+  const [playbookResult, outputResult, robustnessResult, temporalResult, eligibilityResult, matchingResult, prioritizationResult, impactResult, feasibilityResult, riskResult, sequencingResult, testExecuteResult, intensityResult, maturityResult, constraintResult, portfolioResult, dynamicDecisionResult, restraintDecisionResult, expectedOutcomeResult, recommendationConfidenceResult, recommendationCommunicationResult, hitlApprovalResult] = await Promise.all([
     supabase
       .from("playbook_framework_runs")
       .select("organization_id, domain, disposition, unresolved_unknowns, reason_codes, evaluated_at")
@@ -216,9 +377,105 @@ export async function listConsultantAiPlaybookInsights(
       .eq("organization_id", organizationId)
       .order("evaluated_at", { ascending: false })
       .limit(30),
+    supabase
+      .from("intervention_prioritization_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("intervention_impact_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("intervention_feasibility_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("intervention_risk_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("intervention_sequencing_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("intervention_test_execute_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("intervention_intensity_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("maturity_recommendation_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("constraint_recommendation_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("recommendation_portfolio_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("dynamic_decision_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("restraint_decision_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("expected_outcome_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("recommendation_confidence_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("recommendation_communication_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("hitl_approval_assessment_runs")
+      .select("organization_id, disposition, unresolved_unknowns, reason_codes, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
   ]);
 
-  const error = playbookResult.error ?? outputResult.error ?? robustnessResult.error ?? temporalResult.error ?? eligibilityResult.error ?? matchingResult.error;
+  const error = playbookResult.error ?? outputResult.error ?? robustnessResult.error ?? temporalResult.error ?? eligibilityResult.error ?? matchingResult.error ?? prioritizationResult.error ?? impactResult.error ?? feasibilityResult.error ?? riskResult.error ?? sequencingResult.error ?? testExecuteResult.error ?? intensityResult.error ?? maturityResult.error ?? constraintResult.error ?? portfolioResult.error ?? dynamicDecisionResult.error ?? restraintDecisionResult.error ?? expectedOutcomeResult.error ?? recommendationConfidenceResult.error ?? recommendationCommunicationResult.error ?? hitlApprovalResult.error;
   if (error) {
     return {
       ok: false as const,
@@ -242,6 +499,22 @@ export async function listConsultantAiPlaybookInsights(
         ),
         ...f7AssessmentsFromRows(tenantRows(eligibilityResult.data, organizationId)),
         ...f7MatchingAssessmentsFromRows(tenantRows(matchingResult.data, organizationId)),
+        ...f7PrioritizationAssessmentsFromRows(tenantRows(prioritizationResult.data, organizationId)),
+        ...f7ImpactAssessmentsFromRows(tenantRows(impactResult.data, organizationId)),
+        ...f7FeasibilityAssessmentsFromRows(tenantRows(feasibilityResult.data, organizationId)),
+        ...f7RiskAssessmentsFromRows(tenantRows(riskResult.data, organizationId)),
+        ...f7SequencingAssessmentsFromRows(tenantRows(sequencingResult.data, organizationId)),
+        ...f7TestExecuteAssessmentsFromRows(tenantRows(testExecuteResult.data, organizationId)),
+        ...f7IntensityAssessmentsFromRows(tenantRows(intensityResult.data, organizationId)),
+        ...f7MaturityAssessmentsFromRows(tenantRows(maturityResult.data, organizationId)),
+        ...f7ConstraintAssessmentsFromRows(tenantRows(constraintResult.data, organizationId)),
+        ...f7PortfolioAssessmentsFromRows(tenantRows(portfolioResult.data, organizationId)),
+        ...f7DynamicDecisionAssessmentsFromRows(tenantRows(dynamicDecisionResult.data, organizationId)),
+        ...f7RestraintDecisionAssessmentsFromRows(tenantRows(restraintDecisionResult.data, organizationId)),
+        ...f7ExpectedOutcomeAssessmentsFromRows(tenantRows(expectedOutcomeResult.data, organizationId)),
+        ...f7RecommendationConfidenceAssessmentsFromRows(tenantRows(recommendationConfidenceResult.data, organizationId)),
+        ...f7RecommendationCommunicationAssessmentsFromRows(tenantRows(recommendationCommunicationResult.data, organizationId)),
+        ...f8HitlApprovalAssessmentsFromRows(tenantRows(hitlApprovalResult.data, organizationId)),
       ]),
     },
   };

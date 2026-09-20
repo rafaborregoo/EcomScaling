@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalCandidate, decideAgentOutput } from "./ai-runtime.js";
+import {
+  approvalCandidate,
+  decideAgentOutput,
+  submitConsultantChatFeedback,
+} from "./ai-runtime.js";
 import type { AuthContext } from "./auth-context.js";
 
 const organizationId = "org-approval-guards";
@@ -141,5 +145,22 @@ test("una organizacion sin membership no puede alcanzar el guard de decision", a
     ok: false,
     statusCode: 403,
     error: "organization_access_denied",
+  });
+});
+
+test("el feedback solo acepta las dos señales de utilidad", async () => {
+  const result = await submitConsultantChatFeedback(
+    env,
+    context("consultant"),
+    organizationId,
+    "message-id",
+    "maybe",
+    undefined,
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    statusCode: 400,
+    error: "invalid_feedback_rating",
   });
 });

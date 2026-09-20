@@ -426,7 +426,16 @@ let bootstrapCache: {
   bootstrap: BootstrapResponse;
   actions: AccountAction[];
   token: string;
+  at: number;
 } | null = null;
+
+// Ventana en la que un remontaje NO vuelve a pedir la cuenta. Sin esto, cada
+// remontaje del shell costaba 2 peticiones (bootstrap + actions) y, al
+// reasignar `bootstrap`, arrastraba a los efectos que cuelgan de el y a los
+// de la pagina: una veintena de peticiones por vuelta. Con React Strict Mode
+// montando dos veces en desarrollo, una sola visita al dashboard se comia
+// casi todo el limite de 120/min.
+const BOOTSTRAP_FRESH_MS = 30_000;
 
 // `bootstrapCache` y la cache de paginas son variables de modulo, y el login
 // entra al portal con navegacion de cliente (router.push, sin recarga): sin
@@ -485,6 +494,10 @@ function PortalShellContent({
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(
     bootstrapCache?.bootstrap ?? null,
   );
+  // Identidad estable de la cuenta cargada, para que los efectos que solo
+  // necesitan saber "hay sesion y es esta" no se re-disparen cada vez que
+  // `bootstrap` se reasigna con un objeto nuevo de contenido identico.
+  const bootstrapUserId = bootstrap?.user.id ?? null;
   const [actions, setActions] = useState<AccountAction[]>(
     bootstrapCache?.actions ?? [],
   );
@@ -557,7 +570,10 @@ function PortalShellContent({
   // Numerito de mensajes sin leer en el nav. Se refresca al navegar (abrir
   // /mensajes marca como leído en el servidor) y cada 60 s.
   useEffect(() => {
-    if (!bootstrap) return;
+    // Depende del id, no del objeto: `bootstrap` se reasigna con un objeto
+    // nuevo en cada carga de la cuenta, y con el objeto en la lista estos
+    // numeritos se volvian a pedir cada vez aunque la cuenta fuera la misma.
+    if (!bootstrapUserId) return;
     let cancelled = false;
     const refresh = async () => {
       try {
@@ -590,13 +606,13 @@ function PortalShellContent({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [bootstrap, pathname]);
+  }, [bootstrapUserId, pathname]);
 
   // Numerito de tareas nuevas en el nav. Son las notificaciones sin leer que
   // apuntan a /tareas: hoy solo las genera el consultor al aprobar propuestas
   // de la IA, que es justo lo que el cliente tiene que ver que le ha llegado.
   useEffect(() => {
-    if (!bootstrap) return;
+    if (!bootstrapUserId) return;
     let cancelled = false;
     const refresh = async () => {
       try {
@@ -620,7 +636,7 @@ function PortalShellContent({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [bootstrap, pathname]);
+  }, [bootstrapUserId, pathname]);
 
   // Tiendas Shopify de la organización activa, para el selector global de
   // tienda del header. Se recarga cada vez que cambia la organización, via
@@ -699,6 +715,15 @@ function PortalShellContent({
     let cancelled = false;
 
     async function load() {
+      // Remontaje con la cuenta recien cargada: el estado ya se sembro con
+      // `bootstrapCache`, asi que volver a pedirla no cambiaria nada en
+      // pantalla y si dispara toda la cascada. Las 401 las sigue cubriendo
+      // `apiFetch`, que refresca el token en cualquier otra peticion.
+      if (bootstrapCache && Date.now() - bootstrapCache.at < BOOTSTRAP_FRESH_MS) {
+        setIsLoading(false);
+        return;
+      }
+
       try {
         // FE-01: si ya habia una sesion guardada (aunque `getAccessToken`
         // no pudiera refrescarla), es una sesion expirada -- distinto de
@@ -749,6 +774,7 @@ function PortalShellContent({
           bootstrap: payload,
           actions: accountActions,
           token: accessToken,
+          at: Date.now(),
         };
 
         // Organización activa global: la URL (?organizationId=...) gana sobre
@@ -808,7 +834,12 @@ function PortalShellContent({
     return () => {
       cancelled = true;
     };
-  }, [organizationIdFromUrl, router]);
+    // `router` solo se usa para navegar (replace a /login y /onboarding),
+    // nunca como dato. Tenerlo en la lista re-disparaba la carga de la cuenta
+    // cada vez que el router cambiaba de identidad, y cada vuelta arrastraba a
+    // los efectos que dependen de `bootstrap` y a los de la pagina.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizationIdFromUrl]);
 
   function selectOrganization(organizationId: string) {
     setActiveOrganizationId(organizationId);
@@ -1253,10 +1284,19 @@ function PortalShellContent({
           </div>
         ) : null}
 
-        <div className="grid min-h-dvh lg:grid-cols-[232px_1fr]">
+        <div
+          className={[
+            "grid min-h-dvh",
+            isCopilotOpen
+              ? "lg:grid-cols-[232px_minmax(0,1fr)_26rem]"
+              : "lg:grid-cols-[232px_minmax(0,1fr)]",
+          ].join(" ")}
+        >
           <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-separator bg-white px-3 py-5 text-foreground lg:flex">
             <div>
-              <BrandLogo className="ml-2 h-5 w-auto" />
+              <div className="flex h-8 items-center">
+                <BrandLogo className="ml-2 h-5 w-auto" />
+              </div>
               <div className="mt-6">{navigation}</div>
             </div>
             {accountBlock}
@@ -1270,7 +1310,7 @@ function PortalShellContent({
               general" (sin cliente) como estado por defecto. Un cliente
               normal solo lo ve si pertenece a mas de una organizacion. Al
               elegir un cliente/tienda todo se scopea a el. */}
-            <div className="sticky top-0 z-20 hidden items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10">
+            <div className="sticky top-0 z-20 hidden h-12 items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10">
               {clientSelectNode}
               {/* El selector de tienda solo aporta con >=2 tiendas. Con una
                 sola, "Todas" y esa tienda son lo mismo. */}
@@ -1400,6 +1440,35 @@ function PortalShellContent({
               </ActiveOrganizationContext.Provider>
             </div>
           </section>
+          {/* En escritorio CopilotPanel se convierte en un rail del grid: el
+              contenido conserva su columna y no queda detrás de un backdrop.
+              En móvil el propio componente elige el drawer accesible. */}
+          {isCopilotOpen ? (
+            <CopilotPanel
+              organizationId={activeOrganizationId}
+              organizations={bootstrap.memberships.map((membership) => ({
+                id: membership.organization_id,
+                name:
+                  membership.organization?.display_name ??
+                  membership.organization_id,
+              }))}
+              view={{
+                route: pathname,
+                title,
+                storeId: activeConnectionId || undefined,
+                storeLabel:
+                  shopifyConnections.find(
+                    (connection) => connection.id === activeConnectionId,
+                  )?.provider_account_id ?? undefined,
+                summary: moduleSummary,
+              }}
+              ask={copilotAsk}
+              onClose={() => {
+                setIsCopilotOpen(false);
+                setCopilotAsk(null);
+              }}
+            />
+          ) : null}
         </div>
 
         {/* Barra de navegación inferior (solo móvil): app nativa en web. */}
@@ -1453,7 +1522,10 @@ function PortalShellContent({
         {bootstrap.memberships.length > 0 ? (
           <>
             <Button
-              className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 sm:right-6 lg:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]"
+              className={[
+                "fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 sm:right-6 lg:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]",
+                isCopilotOpen ? "lg:hidden" : "",
+              ].join(" ")}
               aria-expanded={isCopilotOpen}
               aria-controls="copilot-panel"
               onClick={() => {
@@ -1465,32 +1537,6 @@ function PortalShellContent({
             >
               {isCopilotOpen ? "Cerrar Consultor IA" : "Consultor IA"}
             </Button>
-            {isCopilotOpen ? (
-              <CopilotPanel
-                organizationId={activeOrganizationId}
-                organizations={bootstrap.memberships.map((membership) => ({
-                  id: membership.organization_id,
-                  name:
-                    membership.organization?.display_name ??
-                    membership.organization_id,
-                }))}
-                view={{
-                  route: pathname,
-                  title,
-                  storeId: activeConnectionId || undefined,
-                  storeLabel:
-                    shopifyConnections.find(
-                      (connection) => connection.id === activeConnectionId,
-                    )?.provider_account_id ?? undefined,
-                  summary: moduleSummary,
-                }}
-                ask={copilotAsk}
-                onClose={() => {
-                  setIsCopilotOpen(false);
-                  setCopilotAsk(null);
-                }}
-              />
-            ) : null}
           </>
         ) : null}
       </main>

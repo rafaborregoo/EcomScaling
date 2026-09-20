@@ -60,6 +60,18 @@ const PLAYBOOK_INSIGHT_META: Record<string, { slug: string; label: string; locat
   F3_D14_OUTPUT: { slug: "d14-output", label: "Salida diagnóstica", location: "Diagnóstico · F3.D14" },
   F7_01_ELIGIBILITY: { slug: "intervention-eligibility", label: "Elegibilidad", location: "Diagnóstico · F7.01" },
   F7_02_MATCHING: { slug: "intervention-matching", label: "Matching causal", location: "Diagnóstico · F7.02" },
+  F7_03_PRIORITIZATION: { slug: "intervention-prioritization", label: "Prioridad de intervención", location: "Diagnóstico · F7.03" },
+  F7_04_IMPACT: { slug: "intervention-impact", label: "Impacto esperado", location: "Diagnóstico · F7.04" },
+  F7_05_FEASIBILITY: { slug: "intervention-feasibility", label: "Factibilidad de recursos", location: "Diagnóstico · F7.05" },
+  F7_06_RISK: { slug: "intervention-risk", label: "Riesgo y reversibilidad", location: "Diagnóstico · F7.06" },
+  F7_07_SEQUENCING: { slug: "intervention-sequencing", label: "Secuenciación y dependencias", location: "Diagnóstico · F7.07" },
+  F7_08_TEST_EXECUTE: { slug: "intervention-test-execute", label: "Experimentar vs ejecutar", location: "Diagnóstico · F7.08" },
+  F7_09_INTENSITY: { slug: "intervention-intensity", label: "Intensidad de intervención", location: "Diagnóstico · F7.09" },
+  F7_10_MATURITY: { slug: "maturity-recommendations", label: "Recomendaciones por madurez", location: "Diagnóstico · F7.10" },
+  F7_11_CONSTRAINTS: { slug: "constraint-recommendations", label: "Recomendaciones bajo restricciones", location: "Diagnóstico · F7.11" },
+  F7_12_PORTFOLIO: { slug: "recommendation-portfolio", label: "Portafolio de recomendaciones", location: "Diagnóstico · F7.12" },
+  F7_13_DYNAMIC_DECISION: { slug: "dynamic-decision", label: "Decisión dinámica", location: "Diagnóstico · F7.13" },
+  F7_14_RESTRAINT_DECISION: { slug: "restraint-decision", label: "No-action / Wait / Evidence", location: "Diagnóstico · F7.14" },
   ACQUISITION: { slug: "acquisition", label: "Adquisición", location: "Diagnóstico · F5.01" },
   PAID_MEDIA: { slug: "paid-media", label: "Paid media", location: "Diagnóstico · F5.02" },
   CONVERSION: { slug: "conversion", label: "Conversión / CRO", location: "Diagnóstico · F5.03" },
@@ -87,8 +99,15 @@ const PLAYBOOK_INSIGHT_META: Record<string, { slug: string; label: string; locat
   BENCHMARK_CONFIDENCE: { slug: "benchmark-confidence", label: "Confianza / incertidumbre", location: "Diagnóstico · F6.13" },
 };
 
+Object.assign(PLAYBOOK_INSIGHT_META, {
+  F7_15_EXPECTED_OUTCOME: { slug: "expected-outcome", label: "Expected outcome / criterios", location: "Diagnóstico · F7.15" },
+  F7_17_RECOMMENDATION_CONFIDENCE: { slug: "recommendation-confidence", label: "Confianza calibrada", location: "Diagnóstico · F7.17" },
+  F7_18_RECOMMENDATION_COMMUNICATION: { slug: "recommendation-communication", label: "Comunicación de recomendaciones", location: "Diagnóstico · F7.18" },
+  F8_02_HITL_APPROVAL: { slug: "hitl-approval", label: "Aprobación humana", location: "Diagnóstico · F8.02" },
+});
+
 function playbookInsightSeverity(disposition: string): MetricInsight["severity"] {
-  return disposition === "BLOCKED" || disposition === "REASSESS_DIAGNOSIS" ? "high" : "medium";
+  return disposition === "BLOCKED" || disposition === "REASSESS_DIAGNOSIS" || disposition === "HUMAN_ONLY" ? "high" : "medium";
 }
 
 export function insightSpotsFromAiAssessments(
@@ -98,7 +117,7 @@ export function insightSpotsFromAiAssessments(
   if (!scope.organizationId || !scope.isConsultant) return [];
   return assessments.flatMap((assessment) => {
     const meta = PLAYBOOK_INSIGHT_META[assessment.domain];
-    if (!meta || !["BLOCKED", "VALIDATION_REQUIRED", "REASSESS_DIAGNOSIS", "REPRIORITIZE"].includes(assessment.disposition)) return [];
+    if (!meta || !["BLOCKED", "VALIDATION_REQUIRED", "REASSESS_DIAGNOSIS", "REPRIORITIZE", "APPROVAL_REQUIRED", "ESCALATION_REQUIRED", "HUMAN_ONLY"].includes(assessment.disposition)) return [];
     if (assessment.store_id && assessment.store_id !== scope.connectionId) return [];
     if (assessment.store_id && !scope.connectionId) return [];
     const unknowns = assessment.unresolved_unknowns ?? [];

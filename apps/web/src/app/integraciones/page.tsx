@@ -6,6 +6,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { useModuleSummary } from "@/components/module-summary";
 import {
   AsyncState,
@@ -500,37 +501,15 @@ const INTEGRATION_ATTENTION = [
 
 function ConsultantIntegrationsView() {
   const { setOrganizationId } = useActiveOrganization();
-  const [data, setData] = useState<ConsultantIntegrationsData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const integrationsQuery = useCachedQuery<ConsultantIntegrationsData>(
+    "/v1/consultant/integrations",
+  );
+  const data = integrationsQuery.data;
+  const error = integrationsQuery.error
+    ? "No se pudieron cargar las integraciones de la cartera. Revisa la conexion e intentalo de nuevo."
+    : null;
+  const isLoading = integrationsQuery.isLoading;
   const [onlyIssues, setOnlyIssues] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    apiFetch("/v1/consultant/integrations")
-      .then(async (response) => {
-        if (cancelled) return;
-        if (!response.ok) {
-          setError(await readApiError(response));
-          return;
-        }
-        setData((await response.json()) as ConsultantIntegrationsData);
-        setError(null);
-      })
-      .catch(() => {
-        if (!cancelled)
-          setError(
-            "No se pudieron cargar las integraciones por un error de red.",
-          );
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   if (isLoading && !data) {
     return (

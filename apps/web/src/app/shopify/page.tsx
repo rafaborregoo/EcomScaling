@@ -1,17 +1,12 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { formatMoney } from "@/lib/money";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { useShopifyOverview } from "@/hooks/use-shopify-overview";
 import { ModuleSummary } from "@/components/module-summary";
 import { ShopifyInsightsSections } from "./insights-sections";
@@ -222,8 +217,6 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setConnectionId: setSelectedConnectionId,
   } = useActiveConnection();
   const [hasAppliedUrlSelection, setHasAppliedUrlSelection] = useState(false);
-  const [metrics, setMetrics] = useState<ShopifyMetrics | null>(null);
-  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [periodDays, setPeriodDays] = useState<number | "all">(30);
   const [costSku, setCostSku] = useState("");
   const [costUnitCost, setCostUnitCost] = useState("");
@@ -240,6 +233,21 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
     bootstrap.profile.platform_role,
   );
 
+  const metricsParams = new URLSearchParams({ days: String(periodDays) });
+  if (selectedConnectionId) {
+    metricsParams.set("connectionId", selectedConnectionId);
+  }
+  const metricsQuery = useCachedQuery<ShopifyMetrics>(
+    organization
+      ? `/v1/organizations/${organization.id}/shopify/metrics?${metricsParams.toString()}`
+      : null,
+  );
+  const metrics = metricsQuery.data ?? null;
+  const metricsError = metricsQuery.error
+    ? "No se pudieron cargar las métricas de Shopify. Revisa la conexión e inténtalo de nuevo."
+    : null;
+  const loadMetrics = metricsQuery.reload;
+
   const {
     overview,
     isLoading,
@@ -250,43 +258,6 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
     syncError,
     triggerSync,
   } = useShopifyOverview(organization?.id, selectedConnectionId);
-
-  const loadMetrics = useCallback(async () => {
-    if (!organization) {
-      return;
-    }
-
-    setMetricsError(null);
-
-    const params = new URLSearchParams({ days: String(periodDays) });
-    if (selectedConnectionId) {
-      params.set("connectionId", selectedConnectionId);
-    }
-
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/shopify/metrics?${params.toString()}`,
-      );
-
-      if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-        detail?: string;
-      } | null;
-      setMetricsError(
-        [body?.error ?? `HTTP ${response.status}`, body?.message, body?.detail]
-          .filter(Boolean)
-          .join(" - "),
-      );
-        return;
-      }
-
-      setMetrics((await response.json()) as ShopifyMetrics);
-    } catch {
-      setMetricsError("No se pudieron cargar las métricas de Shopify. Revisa la conexión e inténtalo de nuevo.");
-    }
-  }, [organization, periodDays, selectedConnectionId]);
 
   async function saveCost(event: FormEvent) {
     event.preventDefault();
@@ -376,10 +347,6 @@ function ShopifyBusinessView({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // Las metricas ya agregan bien sin connectionId; el unico que no sabe
   // agregar es el overview, y eso se resuelve abajo diciendolo en pantalla en
   // vez de cambiando la seleccion del usuario a su espalda.
-
-  useEffect(() => {
-    void loadMetrics();
-  }, [loadMetrics]);
 
   if (isLoading) {
     return (

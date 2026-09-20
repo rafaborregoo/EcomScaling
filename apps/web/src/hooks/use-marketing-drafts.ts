@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { apiFetch } from "@/lib/bootstrap";
-import { readApiError } from "@/lib/api-error";
+import { useCallback, useState } from "react";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import type { TemplateDesign } from "@/app/marketing/template-design";
 import type { PieceThread } from "@/app/marketing/piece-analysis";
 
@@ -74,42 +73,23 @@ export type MarketingDraft = {
 };
 
 export function useMarketingDrafts(organizationId: string, canView: boolean) {
-  const [drafts, setDrafts] = useState<MarketingDraft[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const key =
+    organizationId && canView
+      ? `/v1/organizations/${organizationId}/marketing/drafts`
+      : null;
+  const query = useCachedQuery<{ drafts?: MarketingDraft[] }>(key);
 
-  const reload = useCallback(async () => {
-    if (!organizationId || !canView) {
-      setDrafts([]);
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/marketing/drafts`,
-      );
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      const payload = (await response.json()) as {
-        drafts?: MarketingDraft[];
-      };
-      setDrafts(payload.drafts ?? []);
-    } catch {
-      setError(
-        "No se pudieron cargar los borradores por un error de red. Reintenta.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [canView, organizationId]);
+  const reload = useCallback(() => {
+    setManualError(null);
+    query.reload();
+  }, [query.reload]);
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  return { drafts, isLoading, error, setError, reload };
+  return {
+    drafts: query.data?.drafts ?? [],
+    isLoading: query.isLoading,
+    error: manualError ?? query.error,
+    setError: setManualError,
+    reload,
+  };
 }

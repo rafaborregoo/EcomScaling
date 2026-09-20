@@ -88,9 +88,9 @@ auditoría.
       no.
 - [ ] **Commits.** Hay ficheros sin commitear y la instruccion es no hacer
       commits ni push. Cuando quieras, dime y los preparo.
-- [ ] **Destilar los 4 bloques que siguen sin capas** (`7.15`, `7.17`, `7.18`,
-      `8.12`): solo tienen corpus maestro, hay que pasarlos por el
-      prompt maestro. Tres de ellos bloquean la ola 1.
+- [ ] **Destilar el bloque que sigue sin capas** (`8.12`): `7.15`, `7.17` y
+      `7.18` ya están implementados end-to-end y documentados; `8.12` queda
+      fuera de F7.
 
 ---
 
@@ -698,3 +698,132 @@ F7/P01 queda hecho. El siguiente bloque habilitado es F7/P02 (`7.02`).
   `no_selection: true` y cleanup a cero; no quedan migraciones pendientes.
 
 F7/P02 queda hecho. El siguiente bloque habilitado es F7/P03 (`7.03`).
+
+### Cierre F7/P03 - 2026-09-18
+
+- [x] ~~Implementar `7.03`, priorizacion entre intervenciones.~~ Contrato,
+  motor puro con tests, runtime que consume F7.01/F7.02, migracion, worker,
+  workflow, endpoint y panel. No usa score ni autoriza ejecucion.
+- [x] ~~Adaptar `7.03` al Copiloto y `InsightsMenu`.~~ El contexto expone la
+  prioridad principal, alternativas, motivos, unknowns y
+  `execution_authorized: false`; la entrada navega a
+  `#insight-intervention-prioritization`.
+- [x] ~~Verificar con `.env.local`.~~ Smoke real con template y runs upstream
+  temporales: `PRIORITY_AVAILABLE`, `tenant_match: true`, principal unica y
+  `execution_authorized: false`; cleanup de templates y runs a cero.
+
+F7/P03 queda hecho. El siguiente bloque habilitado es F7/P04 (`7.04`).
+
+### Cierre F7/P04 - 2026-09-19
+
+- [x] ~~Implementar `7.04`, impacto esperado.~~ Contrato cualitativo, motor puro con tests, runtime tenant-bound, persistencia RLS, worker y workflow.
+- [x] ~~Exponer F7.04 en el consultor.~~ API, panel `#insight-intervention-impact`, contexto Copiloto, feed `InsightsMenu` y view-model.
+- [x] ~~Verificar con datos reales usando `.env.local`.~~ Seed temporal, `IMPACTS_AVAILABLE`, traza/magnitud/guardrail verificados y cleanup a cero.
+
+F7/P04 queda hecho. El siguiente bloque habilitado es F7/P05 (`7.05`).
+
+### Cierre F7/P05 - 2026-09-19
+
+- [x] ~~Implementar `7.05`, factibilidad de recursos.~~ Contrato cualitativo, coste/esfuerzo/capacidad separados, motor puro con tests, runtime tenant-bound, persistencia RLS, worker y workflow.
+- [x] ~~Exponer F7.05 en el consultor.~~ API, panel `#insight-intervention-feasibility`, contexto Copiloto, feed `InsightsMenu` y view-model.
+- [x] ~~Verificar con datos reales usando `.env.local`.~~ Seed temporal, `FEASIBILITY_AVAILABLE`/`FEASIBLE_NOW`, primary y guardrails verificados; cleanup a cero.
+
+F7/P05 queda hecho. El siguiente bloque habilitado es F7/P06 (`7.06`).
+
+### Cierre F7/P06 - 2026-09-19
+
+- [x] ~~Implementar `7.06`, riesgo, reversibilidad y coste del error.~~ Contrato cualitativo con ejes separados, motor puro con tests, runtime tenant-bound, persistencia RLS, worker y workflow.
+- [x] ~~Exponer F7.06 en el consultor.~~ API, panel `#insight-intervention-risk`, contexto Copiloto, feed `InsightsMenu` y view-model.
+- [x] ~~Verificar con datos reales usando `.env.local`.~~ Seed temporal de template y runs upstream, `RISK_ASSESSMENTS_AVAILABLE`/`RISK_ACCEPTABLE_WITH_GUARDRAILS`, sin score/probabilidades ni autorización, cleanup a cero.
+
+F7/P06 queda hecho. El siguiente bloque habilitado es F7/P07 (`7.07`).
+
+### Cierre F7/P07 - 2026-09-19
+
+- [x] ~~Implementar `7.07`, secuenciación y dependencias.~~ Contrato de camino condicional, prerequisitos, bloqueadores, gates, ramas, paralelismo explícito, `NOT YET` y espera; motor puro con tests, runtime tenant-bound, migración, worker y workflow. No es scheduler ni plan de tareas.
+- [x] ~~Exponer `7.07` en el consultor.~~ API, panel `#insight-intervention-sequencing`, contexto Copiloto, feed `InsightsMenu` y view-model; la salida conserva `execution_authorized: false`.
+- [x] ~~Verificar con `.env.local`.~~ Smoke real con template y runs upstream temporales: `SEQUENCES_AVAILABLE`, camino `NOW/THEN`, gate y aislamiento tenant confirmados; cleanup a cero.
+
+F7/P07 queda hecho. El siguiente bloque habilitado es F7/P08 (`7.08`).
+
+### Cierre F7/P08 - 2026-09-19
+
+- [x] ~~Implementar `7.08`, experimentar vs ejecutar directamente.~~ Contrato de modos `FIX`, `DIRECT_EXECUTION`, `TEST`, `PILOT`, `GATHER_EVIDENCE`, `WAIT_OBSERVE` y `DO_NOT_PROCEED`; motor puro con tests, runtime tenant-bound, migración, worker y workflow. No lanza experimentos ni autoriza cambios.
+- [x] ~~Exponer `7.08` en el consultor.~~ API, panel `#insight-intervention-test-execute`, contexto Copiloto, feed `InsightsMenu` y view-model; hipótesis, outcomes, guardrails y handoff quedan visibles.
+- [x] ~~Verificar con `.env.local`.~~ Smoke real con secuencia upstream y template temporales: `DECISIONS_AVAILABLE`, modo `TEST`, hipótesis y decisión posterior confirmados; ausencia de campos de ejecución y cleanup a cero.
+
+F7/P08 queda hecho. El siguiente bloque habilitado es F7/P09 (`7.09`).
+
+## Cierre F7/P09 — intensidad de la intervencion — 2026-09-20
+
+- [x] Contrato, motor puro con tests, runtime tenant-bound, migracion, worker, workflow, API y panel de consultor implementados.
+- [x] Copiloto y `InsightsMenu` conectados mediante contexto y feed de solo lectura, con ancla `#insight-intervention-intensity`.
+- [x] Verificado en `.env.local`: `INTENSITY_PROFILES_AVAILABLE`, `INCREASE` multidimensional y cleanup real a cero; `db:push:dry` sin pendientes.
+
+F7/P09 queda hecho. La siguiente tarea habilitada es F7/P10 (`7.10`).
+
+## Cierre F7/P10 — recomendaciones por madurez — 2026-09-20
+
+- [x] Contrato y motor puro con tests: madurez funcional, readiness, capabilities existentes/faltantes, now/later, not-yet, reset local, complejidad absorbible, evidence standard y maturity unlock; sin score ni proxy de revenue/tooling.
+- [x] Runtime tenant-bound desde F7.09 y D03, persistencia idempotente, migración `20261031000000_f7_p10_maturity_recommendations.sql`, worker y workflow.
+- [x] API, panel `#insight-maturity-recommendations`, Copiloto y `InsightsMenu` conectados en solo lectura.
+- [x] Verificado con `.env.local`: `MATURITY_RECOMMENDATIONS_AVAILABLE`, `BUILD_CAPABILITY_FIRST`, `LATER`, capability previa, aislamiento y cleanup real a cero; `db:push:dry` sin pendientes.
+
+F7/P10 queda hecho. La siguiente tarea habilitada es F7/P11 (`7.11`).
+
+### Cierre F7/P11 — 2026-09-20
+
+- [x] ~~Implementar 7.11, recomendaciones bajo restricciones.~~ Contrato, motor puro con tests, runtime tenant-bound desde F7.10, migración, worker, workflow, endpoint y panel; la recomendación se adapta al binding constraint y protege la capacidad de éxito sin inventar scores ni asignar recursos.
+- [x] ~~Adaptar 7.11 al Copiloto e `InsightsMenu`.~~ El contexto conserva intervención ideal, acción factible, respuesta a la restricción, acción diferida, activation trigger y next constraint; la card mantiene el ancla `#insight-constraint-recommendations` y está separada de notificaciones normales.
+- [x] ~~Verificar con `.env.local`.~~ Smoke real temporal con plantilla y run upstream: `CONSTRAINT_RECOMMENDATIONS_AVAILABLE`, `REDUCE_SCOPE`, outcome ajustado y cleanup a cero; `db:push:dry` sin pendientes.
+
+F7/P11 queda hecho. El siguiente bloque habilitado es F7/P12 (`7.12`).
+
+### Cierre F7/P12 - 2026-09-20
+
+- [x] ~~Implementar `7.12`, portafolio de recomendaciones.~~ Contrato, motor puro con tests, runtime desde F7.11, migración, worker, workflow, endpoint y panel. Construye la cartera mínima suficiente y explicita Primary, Enabling, Supporting, Parallel, Deferred y exclusiones.
+- [x] ~~Adaptar `7.12` al Copiloto e `InsightsMenu`.~~ Contexto de solo lectura con roles, Primary, diferidos, secuencia, carga agregada, riesgo y narrativa; card anclada en `#insight-recommendation-portfolio`, separada de notificaciones normales y sin autorización de ejecución.
+- [x] ~~Verificar con `.env.local`.~~ Smoke real temporal: `PORTFOLIO_AVAILABLE`, Primary persistida, aislamiento tenant, `execution_authorized: false` y cleanup a cero; `db:push:dry` sin pendientes.
+
+F7/P12 queda hecho. La siguiente tarea habilitada es F7/P13 (`7.13`).
+### Cierre F7/P13 - 2026-09-20
+
+- [x] Contrato `dynamic-decision`, motor puro TDD y reglas de evidencia para `STOP`, `CONTINUE`, `SCALE` y `ROLLBACK`.
+- [x] Runtime desde `recommendation_portfolio_runs`, persistencia idempotente, migración `20261031120000_f7_p13_dynamic_decisions.sql`, worker, workflow y API.
+- [x] Panel de diagnóstico, ancla `#insight-dynamic-decision`, feed de `InsightsMenu` y bloque Copiloto; lectura consultiva con `execution_authorized: false`.
+- [x] Smoke real con `.env.local`: `DECISIONS_AVAILABLE` / `SCALE`, persistencia, aislamiento y cleanup a cero; `db:push:dry` sin pendientes.
+
+F7/P13 queda hecho. F7/P14 es el siguiente bloque abierto.
+### Cierre F7/P14 - 2026-09-20
+
+- [x] Contrato `restraint-decision` y motor TDD para `NO_ACTION`, `WAIT`, `GATHER_EVIDENCE`, `ACT_SMALL` y `ACT`.
+- [x] Runtime desde `dynamic_decision_runs`, persistencia idempotente, migración `20261031130000_f7_p14_restraint_decisions.sql`, worker, workflow y API.
+- [x] Panel `#insight-restraint-decision`, feed de `InsightsMenu` y bloque Copiloto; no se convierte en monitor, research agent, scheduler ni ejecución automática.
+- [x] Smoke real con `.env.local`: `DECISION_AVAILABLE / WAIT`, persistencia, aislamiento, cleanup a cero y `db:push:dry` sin pendientes.
+
+F7/P14 queda hecho. F7/P15 es el siguiente bloque abierto.
+### Cierre F7/P15 - 2026-09-20
+
+- [x] ~~Implementar `7.15`, expected outcome y success criteria.~~ Contrato, motor puro TDD, runtime desde F7.14, persistencia idempotente, migración, worker, workflow, API, panel y seam Copiloto-first.
+- [x] ~~Adaptar `7.15` al Copiloto e `InsightsMenu`.~~ La tesis causal, outcomes por capas, criterio primario, guardrails y consecuencias de decisión navegan a `#insight-expected-outcome`; no es promesa, monitor ni ejecución.
+- [x] ~~Verificar con datos reales usando `.env.local`.~~ Smoke temporal con `OUTCOME_CRITERIA_AVAILABLE`, fila persistida y cleanup a cero; 802 contratos, tests API/web y builds pasan.
+- [x] ~~Aplicar migraciones.~~ Desarrollo sin pendientes; producción tiene aplicadas `20261031120000_f7_p13_dynamic_decisions.sql`, `20261031130000_f7_p14_restraint_decisions.sql` y `20261031140000_f7_p15_expected_outcomes.sql`; dry-run de producción sin pendientes.
+
+F7/P15 queda hecho. F7.17 y F7.18 son los siguientes bloques abiertos; F7 permanece abierta hasta cerrar ambos.
+### Cierre F7/P17 - 2026-09-20
+
+- [x] ~~Implementar `7.17`, confianza de la recomendación.~~ Contrato, motor puro TDD, runtime desde F7.15, persistencia idempotente, migración, worker, workflow, API, panel y seam Copiloto-first.
+- [x] ~~Adaptar `7.17` al Copiloto e `InsightsMenu`.~~ Se muestran dimensiones separadas, driver, incertidumbre principal, compromiso y forma de recomendación; no se crea un score ni se autoriza ejecución.
+- [x] ~~Verificar con datos reales usando `.env.local`.~~ Smoke temporal con `CONFIDENCE_AVAILABLE`, fila persistida y cleanup a cero; 807 contratos, API/web, typechecks y builds pasan.
+- [x] ~~Aplicar migración.~~ Desarrollo y producción sin pendientes; producción tiene aplicada `20261031150000_f7_p17_recommendation_confidence.sql`.
+
+F7/P17 queda hecho. F7.18 es el siguiente bloque abierto; F7 permanece abierta hasta cerrarlo.
+
+### Cierre F7/P18 - 2026-09-20
+
+- [x] ~~Implementar `7.18`, comunicación de recomendaciones.~~ Contrato, motor puro TDD, runtime desde F7.17/F7.15, persistencia idempotente, migración, worker, workflow, API, panel y seam Copiloto-first.
+- [x] ~~Adaptar `7.18` al Copiloto e `InsightsMenu`.~~ La recomendación principal aparece primero y conserva por qué, por qué ahora, exclusiones, outcome condicional, riesgo, hechos, inferencias, incertidumbre, señal de éxito y siguiente decisión; no es ejecución ni autorización.
+- [x] ~~Verificar con datos reales usando `.env.local`.~~ Smoke temporal con `COMMUNICATION_AVAILABLE`, fila persistida, recomendación principal correcta y cleanup a cero; tests de contrato/API/Copiloto/UI, typechecks y builds pasan.
+- [x] ~~Aplicar migración.~~ Desarrollo y producción tienen aplicada `20261031160000_f7_p18_recommendation_communication.sql`; ambos dry-runs quedan sin pendientes.
+
+F7/P18 queda hecho. F7 queda cerrada completa; F8 puede abrirse cuando corresponda.

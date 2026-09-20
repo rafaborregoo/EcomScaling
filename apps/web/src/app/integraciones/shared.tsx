@@ -6,15 +6,11 @@
 // mezclados; aqui se centraliza la carga, las acciones OAuth/retry y los
 // bloques visuales reutilizables.
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { useState, type ReactNode } from "react";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import {
   Badge,
   Banner,
@@ -308,42 +304,19 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
     null;
   const organizationId = organization?.id ?? null;
 
-  const [payload, setPayload] = useState<IntegrationsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const integrationsQuery = useCachedQuery<IntegrationsResponse>(
+    organizationId
+      ? `/v1/organizations/${organizationId}/integrations`
+      : null,
+  );
+  const payload = integrationsQuery.data ?? null;
+  const error = organizationId
+    ? integrationsQuery.error
+    : "No hay organización activa.";
+  const isLoading = organizationId ? integrationsQuery.isLoading : false;
+  const reload = integrationsQuery.reload;
   const [pending, setPending] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    if (!organizationId) {
-      setPayload(null);
-      setError("No hay organización activa.");
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/integrations`,
-      );
-      if (!response.ok) {
-        setError(await readErr(response));
-        return;
-      }
-      setPayload((await response.json()) as IntegrationsResponse);
-      setError(null);
-    } catch {
-      setError(
-        "No se pudo cargar el estado de las integraciones por un error de red. Reintenta.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organizationId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
 
   async function withPending(key: string, fn: () => Promise<void>) {
     setPending(key);
@@ -404,7 +377,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
           setActionError(await readErr(response));
           return;
         }
-        await reload();
+        reload();
       }),
     // Descartar un intento de OAuth que nadie termino. Reusa el endpoint de
     // borrado de tienda: el backend distingue el intento (borrado inmediato,
@@ -421,7 +394,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
           setActionError(await readErr(response));
           return;
         }
-        await reload();
+        reload();
       }),
     retrySync: (provider: "shopify" | "klaviyo", connectionId: string) =>
       withPending(`retry-${provider}`, async () => {
@@ -433,7 +406,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
           setActionError(await readErr(response));
           return;
         }
-        await reload();
+        reload();
       }),
   };
 
@@ -572,34 +545,17 @@ export {
  * y las subpaginas de Meta y Klaviyo, que necesitan saber sobre que tienda
  * estan escribiendo. */
 export function useStoreScope(organizationId: string | null) {
-  const [scope, setScope] = useState<StoreScope | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const scopeQuery = useCachedQuery<StoreScope>(
+    organizationId
+      ? `/v1/organizations/${organizationId}/store-scope`
+      : null,
+  );
 
-  const reload = useCallback(async () => {
-    if (!organizationId) {
-      setScope(null);
-      return;
-    }
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/store-scope`,
-      );
-      if (!response.ok) {
-        setError(await readErr(response));
-        return;
-      }
-      setScope((await response.json()) as StoreScope);
-      setError(null);
-    } catch {
-      setError("No se pudo cargar la asignación de tiendas. Reintenta.");
-    }
-  }, [organizationId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  return { scope, error, reload };
+  return {
+    scope: scopeQuery.data ?? null,
+    error: scopeQuery.error,
+    reload: scopeQuery.reload,
+  };
 }
 
 /** Cual de las N conexiones del proveedor se esta viendo y configurando.

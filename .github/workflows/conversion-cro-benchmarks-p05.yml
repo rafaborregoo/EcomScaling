@@ -2,8 +2,6 @@ name: Conversion CRO benchmarks P05
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "35 3 * * *"
 
 jobs:
   run:
@@ -28,6 +26,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run build --workspace=@ecomscaling/contracts
       - run: npm run test:conversion-cro-benchmarks --workspace=@ecomscaling/api
       - run: npm run build --workspace=@ecomscaling/api
       - run: npm run build --workspace=@ecomscaling/worker

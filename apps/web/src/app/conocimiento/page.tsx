@@ -1,16 +1,11 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import { ModuleSummary } from "@/components/module-summary";
@@ -77,12 +72,21 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       bootstrap.profile.platform_role,
     ) || ["owner", "manager"].includes(activeMembership?.role ?? "");
 
-  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const documentsQuery = useCachedQuery<{
+    documents?: KnowledgeDocument[];
+  }>(
+    organizationId
+      ? `/v1/organizations/${organizationId}/knowledge/documents`
+      : null,
+  );
+  const documents = documentsQuery.data?.documents ?? [];
   const [documentView, setDocumentView] = useState<"workspace" | "memory">(
     "workspace",
   );
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const isLoading = organizationId !== null && documentsQuery.isLoading;
+  const error = documentsQuery.error
+    ? "No se pudieron cargar los documentos. Revisa la conexión e inténtalo de nuevo."
+    : null;
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   // Quién puede leer lo que se sube. `consultant_only` no llega nunca al
@@ -105,45 +109,7 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const loadDocuments = useCallback(async () => {
-    if (!organizationId) {
-      setDocuments([]);
-      setError(null);
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/knowledge/documents`,
-      );
-
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-
-      const payload = (await response.json()) as {
-        documents: KnowledgeDocument[];
-      };
-      setDocuments(payload.documents);
-      setError(null);
-    } catch {
-      setError(
-        "No se pudieron cargar los documentos por un error de red. Reintenta.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organizationId]);
-
-  useEffect(() => {
-    // Este efecto sincroniza la vista con el endpoint remoto al montar; no es
-    // una actualización derivada de otro estado local.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadDocuments();
-  }, [loadDocuments]);
+  const loadDocuments = documentsQuery.reload;
 
   const workspaceDocuments = documents.filter(
     (document) => document.origin === "human_authored",
@@ -654,39 +620,16 @@ const KNOWLEDGE_STALE_DAYS = 30;
 
 function ConsultantKnowledgeView() {
   const { setOrganizationId } = useActiveOrganization();
-  const [rows, setRows] = useState<ConsultantKnowledgeRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const knowledgeQuery = useCachedQuery<{
+    portfolio?: ConsultantKnowledgeRow[];
+  }>("/v1/consultant/knowledge");
+  const rows = knowledgeQuery.data?.portfolio ?? null;
+  const error = knowledgeQuery.error
+    ? "No se pudo cargar el conocimiento. Revisa la conexión e inténtalo de nuevo."
+    : null;
+  const isLoading = knowledgeQuery.isLoading;
   // Capture the reference time once per mounted view; render stays pure.
   const [currentTime] = useState(() => Date.now());
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    apiFetch("/v1/consultant/knowledge")
-      .then(async (response) => {
-        if (cancelled) return;
-        if (!response.ok) {
-          setError(await readApiError(response));
-          return;
-        }
-        const payload = (await response.json()) as {
-          portfolio: ConsultantKnowledgeRow[];
-        };
-        setRows(payload.portfolio);
-        setError(null);
-      })
-      .catch(() => {
-        if (!cancelled)
-          setError("No se pudo cargar el conocimiento por un error de red.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   if (isLoading && !rows) {
     return (

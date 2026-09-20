@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { RunTraceDetail } from "./run-trace";
-import { apiFetch } from "@/lib/bootstrap";
-import { readApiError } from "@/lib/api-error";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import {
   AsyncState,
   Badge,
@@ -155,32 +154,9 @@ function reasonSummary(byReason: Record<string, number>) {
 }
 
 function OrchestratorPanel() {
-  const [data, setData] = useState<OrchestratorPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const response = await apiFetch("/v1/admin/ai-orchestrator");
-        if (!alive) return;
-        if (!response.ok) {
-          setError(await readApiError(response));
-          return;
-        }
-        setData((await response.json()) as OrchestratorPayload);
-        setError(null);
-      } catch {
-        if (alive) setError("No se pudo cargar el estado del orquestador.");
-      } finally {
-        if (alive) setIsLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const { data, error, isLoading } = useCachedQuery<OrchestratorPayload>(
+    "/v1/admin/ai-orchestrator",
+  );
 
   if (isLoading) {
     return (
@@ -380,9 +356,9 @@ function topAgentsLabel(agents: AgentUsage[]) {
 }
 
 function ObservabilidadPanel() {
-  const [data, setData] = useState<ObservabilityPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data, error, isLoading } = useCachedQuery<ObservabilityPayload>(
+    "/v1/admin/observability",
+  );
   const [groupBy, setGroupBy] = useState<GroupBy>("agent");
   const [orgFilter, setOrgFilter] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
@@ -390,27 +366,6 @@ function ObservabilidadPanel() {
   const [storeFilter, setStoreFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await apiFetch("/v1/admin/observability");
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      setData((await response.json()) as ObservabilityPayload);
-      setError(null);
-    } catch {
-      setError("No se pudo cargar la observabilidad. Revisa la conexión e inténtalo de nuevo.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const filteredRuns = useMemo(() => {
     if (!data) return [];

@@ -1,0 +1,30 @@
+name: recommendation-portfolio-f7-p12
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: recommendation-portfolio-f7-p12
+  cancel-in-progress: false
+
+jobs:
+  recommendation-portfolio:
+    name: Build recommendation portfolio
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @ecomscaling/contracts
+      - run: npm run build -w @ecomscaling/api
+      - run: npm run build -w @ecomscaling/worker
+      - run: npm run start:recommendation-portfolio --workspace=@ecomscaling/worker

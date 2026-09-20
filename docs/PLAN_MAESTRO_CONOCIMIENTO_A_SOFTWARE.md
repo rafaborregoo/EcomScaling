@@ -1029,3 +1029,288 @@ notificaciones normales.
 
 La siguiente rebanada habilitada es `7.03`. Los bloques `7.15`, `7.17` y `7.18`
 siguen pendientes y no se consideran cerrados por este avance.
+
+### Cierre F7/P03 - 2026-09-18
+
+F7/P03 queda hecho con contrato cualitativo, motor puro probado, runtime
+tenant-bound que consume elegibilidad y matching, persistencia, worker,
+workflow, endpoint, pantalla y consumo Copiloto-first. La prioridad principal
+solo se expone cuando una candidata domina sin trade-off no resuelto; si faltan
+datos o hay empate cualitativo, el sistema conserva `VALIDATION_REQUIRED`.
+
+No se introduce score, ROI ni pesos arbitrarios. Guardrails fallidos producen
+`DO_NOT_DO`, los unknowns no se convierten en valores bajos y cada salida
+incluye `execution_authorized: false`. `InsightsMenu` enlaza la card exacta de
+F7.03 y permanece separado de las notificaciones normales.
+
+La migracion `20261030300000_f7_p03_intervention_prioritization.sql` se aplico
+con `.env.local`. El smoke real sembro temporalmente un candidato
+`MATCHED`/`ELIGIBLE_NOW`, obtuvo `PRIORITY_AVAILABLE`, confirmo el tenant y la
+ausencia de autorizacion de ejecucion, y termino con cleanup a cero. La
+siguiente rebanada habilitada es F7/P04 (`7.04`).
+
+### Cierre F7/P04 - 2026-09-19
+
+F7/P04 queda hecho. Se implemento la expectativa de impacto de la intervencion
+como una cadena trazable desde mecanismo e indicador lider hasta KPI y outcome,
+con magnitud cualitativa por defecto, incrementabilidad/contrafactual,
+trade-offs, unknowns y guardrails. No se anaden score, ROI, forecast ni
+autorizacion de ejecucion; el contrato conserva `execution_authorized: false`.
+
+El bloque incluye contrato y tests, migracion
+`20261030400000_f7_p04_intervention_impact.sql`, runtime
+`apps/api/src/intervention-impact-engine.ts`, worker/workflow, API y panel
+`#insight-intervention-impact`. El Copiloto recibe F7.04 como bloque separado
+y `InsightsMenu` navega a la card cuando la evidencia exige validacion. La
+verificacion real con `.env.local` persistio un caso `IMPACTS_AVAILABLE` y
+termino con cleanup a cero. F7/P04 se mantiene separado de la evaluacion de
+impacto decisional de F4.
+
+La siguiente rebanada habilitada es F7/P05 (`7.05`); `7.15`, `7.17` y `7.18`
+siguen pendientes.
+
+### Cierre F7/P05 - 2026-09-19
+
+F7/P05 queda hecho. Se implemento la factibilidad de recursos como una
+evaluacion cualitativa que mantiene separadas capacidad, esfuerzo y coste.
+La salida reconstruye recurso requerido -> disponibilidad -> bottleneck/gap ->
+factibilidad -> adaptacion o alternativa. No introduce score, ROI, formula de
+coste, hourly rates ni umbrales universales; los importes sin soporte explicito
+se descartan y el contexto faltante conserva `VALIDATION_REQUIRED`.
+
+El bloque incluye contrato y tests, migracion
+`20261030500000_f7_p05_intervention_feasibility.sql`, runtime
+`apps/api/src/intervention-feasibility-engine.ts`, worker/workflow, API y panel
+`#insight-intervention-feasibility`. El Copiloto recibe F7.05 como bloque
+separado y `InsightsMenu` navega a la card cuando falta contexto. La
+verificacion real con `.env.local` persistio `FEASIBILITY_AVAILABLE` y
+`FEASIBLE_NOW`, sin bottleneck inventado, con `execution_authorized: false` y
+cleanup a cero.
+
+La siguiente rebanada habilitada es F7/P06 (`7.06`); `7.15`, `7.17` y `7.18`
+siguen pendientes.
+
+### Cierre F7/P06 - 2026-09-19
+
+F7/P06 queda hecho con contrato, motor puro probado, runtime persistente,
+worker, workflow, endpoint, pantalla y consumo Copiloto-first. La evaluación
+mantiene separados upside, downside, incertidumbre, exposición, blast radius,
+reversibilidad, evidencia, riesgo de inacción, guardrails, observabilidad y
+coste del error. No calcula `risk score`, probabilidades ni autoriza acciones.
+
+Guardrails duros fallidos y riesgo existencial producen `DO_NOT_PROCEED`; el
+resto se degrada proporcionalmente a mitigación o validación. Claims numéricos
+sin soporte se descartan, y el Copiloto recibe la trazabilidad con
+`execution_authorized: false`. La card está anclada en
+`#insight-intervention-risk` y conectada al `InsightsMenu` separado de las
+notificaciones normales.
+
+La migración `20261030600000_f7_p06_intervention_risk.sql` se aplicó con
+`.env.local`; el smoke real persistió `RISK_ASSESSMENTS_AVAILABLE` y terminó
+con cleanup a cero. La siguiente rebanada habilitada es F7/P07 (`7.07`).
+
+### Cierre F7/P07 - 2026-09-19
+
+F7/P07 queda hecho con contrato, motor puro probado, runtime persistente,
+worker, workflow, endpoint, pantalla y consumo Copiloto-first. La salida
+construye una ruta condicional de decisión a partir de prerequisitos,
+bloqueadores, desbloqueos, gates, ramas, paralelismo explícito, `NOT YET`,
+esperas y condiciones de salida. No es un DAG técnico, scheduler, backlog,
+calendario, asignación de owners ni autorización de ejecución.
+
+La migración `20261030700000_f7_p07_intervention_sequencing.sql` se aplicó con
+`.env.local`; el smoke real persistió `SEQUENCES_AVAILABLE`, confirmó el camino
+`NOW/THEN`, gate, aislamiento tenant y `execution_authorized: false`, y terminó
+con cleanup a cero. La card está anclada en
+`#insight-intervention-sequencing` y conectada al `InsightsMenu` separado de
+las notificaciones normales.
+
+La siguiente rebanada habilitada es F7/P08 (`7.08`).
+
+### Cierre F7/P08 - 2026-09-19
+
+F7/P08 queda hecho con contrato, motor puro probado, runtime persistente,
+worker, workflow, endpoint, pantalla y consumo Copiloto-first. La salida decide
+cualitativamente entre fijar un defecto, ejecutar directamente, testear,
+pilotar, recopilar evidencia, esperar u ordenar no proceder. Conserva
+hipótesis, pregunta de aprendizaje, outcome primario, guardrails, exposición,
+observación, contaminación, fidelidad, transferencia y decisión posterior.
+
+El bloque no calcula sample size, significancia, duración exacta, porcentajes,
+asignación de tráfico ni ganador automático; tampoco lanza experimentos,
+cambia producción o autoriza ejecución. La migración
+`20261030800000_f7_p08_intervention_test_execute.sql` se aplicó con
+`.env.local`; el smoke real persistió `DECISIONS_AVAILABLE` con modo `TEST`,
+confirmó hipótesis, handoff, aislamiento tenant y `execution_authorized: false`,
+y terminó con cleanup a cero. La card está anclada en
+`#insight-intervention-test-execute` y conectada al `InsightsMenu` separado de
+las notificaciones normales.
+
+La siguiente rebanada habilitada es F7/P09 (`7.09`).
+
+### Cierre F7/P09 - 2026-09-20
+
+F7/P09 queda hecho con contrato multidimensional de intensidad, motor puro con
+tests, runtime tenant-bound, persistencia idempotente, worker, workflow, API,
+panel y seam transversal de Copiloto/`InsightsMenu`. La salida separa magnitud,
+scope, velocidad y duracion, explica limiter, rampa y observacion, y conserva
+la abstencion cuando faltan observabilidad, economia marginal o saturacion.
+
+No calcula porcentaje universal, presupuesto, asignacion, rollout, scheduler,
+aprobacion ni ejecucion. `execution_authorized` permanece en `false`. La
+migracion `20261030900000_f7_p09_intervention_intensity.sql` se aplico con
+`.env.local`; el smoke real produjo `INTENSITY_PROFILES_AVAILABLE` con modo
+`INCREASE` y cleanup a cero. Contratos, API y web pasan sus suites enfocadas.
+
+La siguiente rebanada habilitada es F7/P10 (`7.10`).
+
+### Cierre F7/P10 - 2026-09-20
+
+F7/P10 queda hecho con contrato y motor puro de recomendaciones adaptadas a
+madurez, runtime tenant-bound, persistencia idempotente, worker, workflow, API,
+panel y seam transversal de Copiloto/`InsightsMenu`. La salida distingue
+madurez funcional de readiness, separa `NOW/LATER`, emite `NOT YET` y
+`BUILD_CAPABILITY_FIRST` cuando corresponde, detecta reset local y evita
+sofisticación por encima de la capacidad de absorción.
+
+No calcula maturity score, no usa revenue, tamaño o tooling como proxy, no
+cambia organización, no compra herramientas y no autoriza ejecución.
+`execution_authorized` permanece en `false`. La migración
+`20261031000000_f7_p10_maturity_recommendations.sql` se aplicó con
+`.env.local`; el smoke real produjo `MATURITY_RECOMMENDATIONS_AVAILABLE` con
+`BUILD_CAPABILITY_FIRST`/`LATER` y cleanup a cero. Contratos, API, worker y web
+pasan sus verificaciones enfocadas.
+
+La siguiente rebanada habilitada es F7/P11 (`7.11`).
+
+### Cierre F7/P11 - 2026-09-20
+
+F7/P11 queda hecho con contrato, motor puro probado, runtime persistente desde
+F7.10, worker, workflow, endpoint, panel y consumo Copiloto-first. El bloque
+evita la recomendación de mundo ideal: descubre y valida el constraint
+vinculante antes de decidir, distingue hard/soft y temporal/estructural,
+comprueba si el sistema puede absorber un resultado positivo y propone la
+mejor acción factible mediante reducir alcance, reasignar, sustituir,
+resecuenciar, preparar o esperar. Mantiene separadas restricción, riesgo,
+dependencia, guardrail e incertidumbre y no asigna recursos ni ejecuta cambios.
+
+La migración `20261031100000_f7_p11_constraint_recommendations.sql` se aplicó
+con `.env.local`. El smoke real produjo
+`CONSTRAINT_RECOMMENDATIONS_AVAILABLE` con `REDUCE_SCOPE`, outcome ajustado y
+cleanup a cero. Contratos, API, worker y web pasan sus verificaciones enfocadas.
+
+La siguiente rebanada habilitada es F7/P12 (`7.12`).
+
+### Cierre F7/P12 - 2026-09-20
+
+F7/P12 queda implementado end-to-end y Copiloto-first: contrato, motor puro
+con tests, runtime, persistencia, migración, worker, workflow, endpoint, panel,
+feed de InsightsMenu y bloque de contexto del Copiloto. La cartera se construye
+alrededor de una prioridad dominante y conserva Primary, Enabling, Supporting,
+Parallel, Deferred y Excluded; valida interferencias, recursos agregados,
+secuencia, riesgo y simplicidad sin convertirse en optimizer, WIP manager,
+scheduler ni ejecución autónoma.
+
+La migración se aplicó con `.env.local`; el smoke real produjo
+`PORTFOLIO_AVAILABLE` y confirmó cleanup a cero. F7/P12 está hecho; el siguiente
+bloque habilitado es F7/P13 (`7.13`).
+### Cierre F7/P13 - 2026-09-20
+
+F7/P13 queda implementado end-to-end y Copiloto-first. La decisión dinámica
+actualiza una recomendación con evidencia observada y devuelve `STOP`,
+`CONTINUE`, `SCALE` o `ROLLBACK`, también en cartera mixta por unidad. Conserva
+fidelidad, estado previo, causalidad, incrementalidad, guardrails, headroom,
+economía marginal, readiness, reversibilidad, exposición y aprendizaje; si
+faltan datos devuelve `VALIDATION_REQUIRED` y no completa por inferencia.
+
+Incluye contrato, motor puro con tests, runtime desde F7.12, persistencia,
+migración `20261031120000_f7_p13_dynamic_decisions.sql`, worker, workflow,
+endpoint, panel `#insight-dynamic-decision`, feed de `InsightsMenu` y contexto
+del Copiloto. No monitoriza ni ejecuta cambios: `execution_authorized` queda en
+`false`. Smoke real con `.env.local`: `DECISIONS_AVAILABLE` / `SCALE`,
+persistencia y cleanup a cero; desarrollo sin migraciones pendientes. F7/P13
+está hecho; el siguiente bloque es F7/P14.
+### Cierre F7/P14 - 2026-09-20
+
+F7/P14 queda implementado end-to-end y Copiloto-first. El bloque decide si
+conviene `NO_ACTION`, `WAIT`, `GATHER_EVIDENCE`, `ACT_SMALL` o `ACT`, separando
+la materialidad del problema, señal frente a ruido, riesgo de acción y de
+inacción, timing, natural resolution, coste de delay y valor de la información.
+Cuando falta el hecho capaz de cambiar la decisión devuelve
+`VALIDATION_REQUIRED`; no convierte toda incertidumbre en investigación.
+
+Incluye contrato, motor puro con tests, runtime desde F7.13, persistencia,
+migración `20261031130000_f7_p14_restraint_decisions.sql`, worker, workflow,
+endpoint, panel `#insight-restraint-decision`, feed de `InsightsMenu` y bloque
+del Copiloto. No monitoriza, no programa revisiones, no recopila evidencia de
+forma automática y no ejecuta cambios: `execution_authorized` permanece en
+`false`. Smoke real con `.env.local`: `DECISION_AVAILABLE / WAIT`, persistencia
+y cleanup a cero; desarrollo sin migraciones pendientes. F7/P14 está hecho y
+el siguiente bloque es F7/P15.
+### Cierre F7/P15 — 2026-09-20
+
+F7/P15 queda implementado end-to-end y Copiloto-first. Construye una tesis
+causal y expected outcomes por capas, separados de success criteria y de la
+observación posterior. Conserva evidencia de mecanismo, outcome primario,
+guardrails, baseline/contrafactual, incrementalidad, economía, horizonte,
+repetibilidad, escalabilidad, sostenibilidad y condiciones para continuar,
+detener, escalar o revertir. Si faltan hechos decisivos devuelve
+`VALIDATION_REQUIRED`; no inventa magnitudes, no convierte un piloto en
+readiness de escala y no promete resultados.
+
+Incluye contrato, motor puro con 6 tests, runtime desde F7.14, tabla
+`expected_outcome_runs`, migración `20261031140000_f7_p15_expected_outcomes.sql`,
+worker, workflow, endpoint, panel `#insight-expected-outcome`, feed de
+`InsightsMenu` y contexto del Copiloto. `execution_authorized` permanece en
+`false`; la medición y comparación expected-vs-observed pertenecen al flujo
+posterior de observación/aprendizaje.
+
+Verificado con `.env.local`: smoke real temporal, persistencia y cleanup a
+cero; 802/802 contratos, suites API/web, typecheck y builds pasan. Se aplicaron
+en producción las migraciones F7.13, F7.14 y F7.15, y el dry-run final informa
+cero pendientes. F7.17 y F7.18 siguen abiertos; F7 no se cierra hasta que
+ambos estén hechos.
+### Cierre F7/P17 — 2026-09-20
+
+F7/P17 queda implementado end-to-end y Copiloto-first. La IA ya puede
+expresar confianza calibrada sin colapsar diagnóstico, recomendación, impacto,
+riesgo, ejecución, durabilidad, escala y transferencia en una cifra. Conserva
+la evidencia, su integridad, relevancia, consistencia, encaje causal,
+incertidumbre principal, contradicciones y contexto de transferencia; adapta
+el compromiso cualitativo cuando la confianza, el riesgo, la reversibilidad,
+el coste de error/delay y la factibilidad lo exigen.
+
+Incluye contrato, motor puro con tests, runtime desde F7.15, tabla
+`recommendation_confidence_runs`, migración
+`20261031150000_f7_p17_recommendation_confidence.sql`, worker, workflow,
+endpoint, panel `#insight-recommendation-confidence`, feed de `InsightsMenu` y
+contexto del Copiloto. No calcula probabilidades, porcentajes, scores ni
+umbrales universales; tampoco ejecuta, pilota, escala, revierte ni modifica
+presupuestos. `execution_authorized` permanece en `false`.
+
+Verificado con `.env.local`: smoke real, persistencia y cleanup a cero;
+807/807 contratos, API/Copiloto, UI, typecheck y builds pasan. La migración se
+aplicó en desarrollo y producción; ambos dry-runs informan cero pendientes.
+F7.18 sigue abierto y es el siguiente bloque.
+
+### Cierre F7/P18 — 2026-09-20
+
+F7/P18 queda implementado end-to-end y Copiloto-first, cerrando la cadena de
+comunicación del Motor de Recomendaciones. La IA ya presenta una recomendación
+principal antes de la explicación y conserva por qué, por qué ahora, qué no
+hacer, outcome condicional, riesgo, hechos frente a inferencias, incertidumbre
+crítica, señal de éxito, condición invalidante y siguiente decisión. La
+comunicación adapta claridad, alcance y profundidad, pero no degrada el
+razonamiento por audiencia o plan; tampoco ejecuta ni autoriza cambios.
+
+Incluye contrato, motor puro TDD, runtime tenant-bound desde F7.17/F7.15, tabla
+`recommendation_communication_runs`, migración
+`20261031160000_f7_p18_recommendation_communication.sql`, worker, workflow,
+endpoint, panel `#insight-recommendation-communication`, feed de
+`InsightsMenu` y contexto del Copiloto. No inventa ROI, uplift, plazos ni
+certeza; `execution_authorized` permanece en `false`.
+
+Verificado con `.env.local`: smoke real temporal, persistencia y cleanup a
+cero; contratos, API/Copiloto, UI, typechecks y builds pasan. La migración se
+aplicó en desarrollo y producción; ambos dry-runs informan cero pendientes.
+F7 queda cerrada completa y F8 queda habilitada.

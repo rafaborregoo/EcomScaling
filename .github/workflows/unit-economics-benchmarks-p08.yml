@@ -1,8 +1,6 @@
 name: Unit economics benchmarks P08
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "15 4 * * *"
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -24,6 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - run: npm ci
+      - run: npm run build --workspace=@ecomscaling/contracts
       - run: npm run test:unit-economics-benchmarks --workspace=@ecomscaling/api
       - run: npm run build --workspace=@ecomscaling/api
       - run: npm run build --workspace=@ecomscaling/worker

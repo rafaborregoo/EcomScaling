@@ -6,6 +6,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { buildMarketingBrief } from "@/lib/marketing-brief";
 import { formatMoney } from "@/lib/money";
 import { ModuleSummary } from "@/components/module-summary";
@@ -123,6 +124,16 @@ type MarketingIntegrationReadiness = {
   configuration: "configured" | "credentials_missing" | "feature_disabled" | "not_implemented";
   connectionStatus: string | null;
   connectionId: string | null;
+};
+
+type MarketingIntegrationsPayload = {
+  providers?: Array<{
+    id: string;
+    configuration?: {
+      status?: MarketingIntegrationReadiness["configuration"];
+    };
+    connection?: { id?: string; status?: string } | null;
+  }>;
 };
 
 const statusLabel: Record<MarketingDraft["status"], string> = {
@@ -791,10 +802,22 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [versionHistory, setVersionHistory] = useState<MarketingDraftVersion[]>(
     [],
   );
-  const [aiRuntimeStatus, setAiRuntimeStatus] = useState<AiRuntimeStatus | null>(null);
-  const [integrationReadiness, setIntegrationReadiness] = useState<
-    Record<string, MarketingIntegrationReadiness>
-  >({});
+  const aiRuntimeQuery = useCachedQuery<AiRuntimeStatus>("/v1/ai/status");
+  const integrationsQuery = useCachedQuery<MarketingIntegrationsPayload>(
+    organizationId ? `/v1/organizations/${organizationId}/integrations` : null,
+  );
+  const aiRuntimeStatus = aiRuntimeQuery.data ?? null;
+  const integrationReadiness: Record<string, MarketingIntegrationReadiness> =
+    Object.fromEntries(
+      (integrationsQuery.data?.providers ?? []).map((provider) => [
+        provider.id,
+        {
+          configuration: provider.configuration?.status ?? "not_implemented",
+          connectionStatus: provider.connection?.status ?? null,
+          connectionId: provider.connection?.id ?? null,
+        },
+      ]),
+    );
 
   // La lista de borradores es el estado que comparten las tres pestañas, asi
   // que sale del componente a su propio hook (ver use-marketing-drafts.ts):
@@ -904,54 +927,6 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [genMode, design.blocks.length]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void apiFetch("/v1/ai/status")
-      .then(async (response) => {
-        if (!response.ok || cancelled) return;
-        setAiRuntimeStatus((await response.json()) as AiRuntimeStatus);
-      })
-      .catch(() => {
-        // El estado es informativo; no debe impedir preparar la pantalla.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!organizationId) return;
-    void apiFetch(`/v1/organizations/${organizationId}/integrations`)
-      .then(async (response) => {
-        if (!response.ok || cancelled) return;
-        const payload = (await response.json()) as {
-          providers?: Array<{
-            id: string;
-            configuration?: { status?: MarketingIntegrationReadiness["configuration"] };
-            connection?: { id?: string; status?: string } | null;
-          }>;
-        };
-        const next = Object.fromEntries(
-          (payload.providers ?? []).map((provider) => [
-            provider.id,
-            {
-              configuration: provider.configuration?.status ?? "not_implemented",
-              connectionStatus: provider.connection?.status ?? null,
-              connectionId: provider.connection?.id ?? null,
-            },
-          ]),
-        );
-        setIntegrationReadiness(next);
-      })
-      .catch(() => {
-        // La disponibilidad es informativa; no bloquea la creación de briefs.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [organizationId]);
 
 
   async function generateDraft(event: React.FormEvent<HTMLFormElement>) {
@@ -2982,41 +2957,22 @@ function ConsultantMarketingView({
   viewerKind: DraftAuthorKind;
 }) {
   const { setOrganizationId } = useActiveOrganization();
-  const [data, setData] = useState<{
+  const marketingQuery = useCachedQuery<{
     organizations: Array<{ id: string; display_name: string }>;
     drafts: ConsultantMarketingDraft[];
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  }>("/v1/consultant/marketing");
+  const data = marketingQuery.data ?? null;
+  const error = marketingQuery.error
+    ? "No se pudo cargar el marketing de la cartera. Revisa la conexión e inténtalo de nuevo."
+    : null;
+  const isLoading = marketingQuery.isLoading;
   const [clientFilter, setClientFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await apiFetch("/v1/consultant/marketing");
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      setData(
-        (await response.json()) as {
-          organizations: Array<{ id: string; display_name: string }>;
-          drafts: ConsultantMarketingDraft[];
-        },
-      );
-      setError(null);
-    } catch {
-      setError("No se pudo cargar el marketing de la cartera por un error de red.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const load = useCallback(() => {
+    marketingQuery.reload();
+  }, [marketingQuery.reload]);
 
   if (isLoading && !data) {
     return (

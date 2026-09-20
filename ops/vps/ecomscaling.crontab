@@ -1,0 +1,18 @@
+# EcomScaling production workers. The VPS clock is UTC.
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+MAILTO=""
+
+17 3 * * * /opt/ecomscaling/run-worker-job.sh meta-reconcile
+43 */6 * * * /opt/ecomscaling/run-worker-job.sh klaviyo-reconcile
+7 3 * * * /opt/ecomscaling/run-worker-job.sh purge-expired-deletions
+
+35 3 * * * /opt/ecomscaling/run-worker-job.sh conversion-cro-benchmarks
+45 3 * * * /opt/ecomscaling/run-worker-job.sh offer-pricing-benchmarks
+55 3 * * * /opt/ecomscaling/run-worker-job.sh retention-crm-benchmarks
+15 4 * * * /opt/ecomscaling/run-worker-job.sh unit-economics-benchmarks
+25 4 * * * /opt/ecomscaling/run-worker-job.sh operations-cx-benchmarks
+35 4 * * * /opt/ecomscaling/run-worker-job.sh product-inventory-benchmarks
+50 4 * * * /opt/ecomscaling/run-worker-job.sh scalability-benchmarks
+5 5 * * * /opt/ecomscaling/run-worker-job.sh anomalies-red-flags
+20 5 * * * /opt/ecomscaling/run-worker-job.sh benchmark-confidence

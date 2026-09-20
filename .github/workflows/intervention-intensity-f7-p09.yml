@@ -1,0 +1,19 @@
+name: intervention-intensity-f7-p09
+on:
+  workflow_dispatch:
+jobs:
+  intervention-intensity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=@ecomscaling/api --workspace=@ecomscaling/worker
+      - run: npm run start:intervention-intensity --workspace=@ecomscaling/worker

@@ -1,0 +1,22 @@
+name: F7.18 recommendation communication
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "50 4 * * *"
+
+jobs:
+  recommendation-communication:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @ecomscaling/api -w @ecomscaling/worker
+      - run: npm run start:recommendation-communication -w @ecomscaling/worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

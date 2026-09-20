@@ -13,6 +13,7 @@ import { insightAnchorId, insightSpotFor } from "@/lib/insights-registry";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { mapWithConcurrency } from "@/lib/async-concurrency";
 import { formatMoney } from "@/lib/money";
 import { displayValue } from "@/lib/display-labels";
@@ -838,12 +839,21 @@ function AiAgentsPanel({
   const [connectors, setConnectors] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Una sola pregunta (y cacheada) en lugar de nueve 409 seguros: con el
+  // autorun apagado ningun agente tiene nada que contar.
+  const { data: aiStatus } = useCachedQuery<{ agent_autorun?: boolean }>(
+    "/v1/ai/status",
+  );
+  const autorun = aiStatus?.agent_autorun;
 
   const agents = AI_AGENTS.filter(
     (agent) => isConsultant || !agent.consultantOnly,
   );
 
   useEffect(() => {
+    // `undefined` = todavia no sabemos si esta encendido. Preguntar sin
+    // saberlo es justo el abanico que queremos evitar, asi que se espera.
+    if (autorun !== true) return;
     let cancelled = false;
     const params = [
       connectionId ? `connectionId=${encodeURIComponent(connectionId)}` : null,
@@ -912,11 +922,16 @@ function AiAgentsPanel({
     return () => {
       cancelled = true;
     };
-  }, [organizationId, connectionId, days, isConsultant]);
+  }, [organizationId, connectionId, days, isConsultant, autorun]);
 
   return (
     <Card title="Agentes IA">
-      {error ? (
+      {autorun === false ? (
+        <EmptyState
+          title="Los agentes no se ejecutan solos"
+          hint="El autorun está apagado en este entorno. Cada agente sigue lanzándose a mano desde su botón."
+        />
+      ) : error ? (
         <ErrorBlock>{error}</ErrorBlock>
       ) : !snapshots ? (
         <LoadingBlock label="Consultando agentes..." />
@@ -1871,36 +1886,13 @@ function deltaChip(pct: number | null, invert = false) {
 // fila se despliegan las métricas con su cambio vs. el periodo comparado.
 function MetaPortfolioWidget() {
   const [compare, setCompare] = useState("month");
-  const [clients, setClients] = useState<MetaPortfolioClient[] | null>(null);
-  const [backfilling, setBackfilling] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setClients(null);
-    setError(null);
-    apiFetch(`/v1/consultant/meta-portfolio?compare=${compare}`)
-      .then(async (res) => {
-        if (cancelled) return;
-        if (!res.ok) {
-          setError("No se pudo cargar la cartera de Meta Ads.");
-          return;
-        }
-        const payload = (await res.json()) as {
-          clients: MetaPortfolioClient[];
-          backfilling_accounts?: number;
-        };
-        setClients(payload.clients ?? []);
-        setBackfilling(payload.backfilling_accounts ?? 0);
-      })
-      .catch(() => {
-        if (!cancelled)
-          setError("No se pudo cargar la cartera de Meta Ads.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [compare]);
+  const { data, error: loadError } = useCachedQuery<{
+    clients: MetaPortfolioClient[];
+    backfilling_accounts?: number;
+  }>(`/v1/consultant/meta-portfolio?compare=${compare}`);
+  const clients = data?.clients ?? null;
+  const backfilling = data?.backfilling_accounts ?? 0;
+  const error = loadError ? "No se pudo cargar la cartera de Meta Ads." : null;
 
   const chip = (active: boolean) =>
     `text-xs transition-colors ${
@@ -2079,32 +2071,11 @@ function KlaviyoCampaignsWidget({
   onSelectClient: (organizationId: string) => void;
 }) {
   const [range, setRange] = useState("30d");
-  const [clients, setClients] = useState<KlaviyoPortfolioClient[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setClients(null);
-    setError(null);
-    apiFetch(`/v1/consultant/klaviyo-portfolio?window=${range}`)
-      .then(async (res) => {
-        if (cancelled) return;
-        if (!res.ok) {
-          setError("No se pudo cargar el email marketing.");
-          return;
-        }
-        const payload = (await res.json()) as {
-          clients: KlaviyoPortfolioClient[];
-        };
-        setClients(payload.clients ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setError("No se pudo cargar el email marketing.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [range]);
+  const { data, error: loadError } = useCachedQuery<{
+    clients: KlaviyoPortfolioClient[];
+  }>(`/v1/consultant/klaviyo-portfolio?window=${range}`);
+  const clients = data?.clients ?? null;
+  const error = loadError ? "No se pudo cargar el email marketing." : null;
 
   const chip = (active: boolean) =>
     `text-xs transition-colors ${
@@ -2206,37 +2177,12 @@ function GeneralOverview({
 }: {
   onSelectClient: (organizationId: string) => void;
 }) {
-  const [data, setData] = useState<ConsultantOverview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    apiFetch("/v1/consultant/overview?days=30")
-      .then(async (res) => {
-        if (cancelled) return;
-        if (!res.ok) {
-          setError("No se pudo cargar la vista general.");
-          setData(null);
-          return;
-        }
-        setData((await res.json()) as ConsultantOverview);
-        setError(null);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError("No se pudo cargar la vista general por un error de red.");
-          setData(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const {
+    data,
+    error: loadError,
+    isLoading,
+  } = useCachedQuery<ConsultantOverview>("/v1/consultant/overview?days=30");
+  const error = loadError ? "No se pudo cargar la vista general." : null;
 
   if (isLoading && !data) {
     return (
@@ -2476,27 +2422,11 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const { connectionId: activeConnectionId, setConnectionId } =
     useActiveConnection();
-  const [shopifyConnections, setShopifyConnections] = useState<
-    ShopifyConnection[]
-  >([]);
-  const [isLoadingStores, setIsLoadingStores] = useState(false);
   const [metrics, setMetrics] = useState<ShopifyMetrics | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [periodDays, setPeriodDays] = useState<"7" | "30" | "90" | "all">("30");
   const [metaMetrics, setMetaMetrics] = useState<MetaMetrics | null>(null);
-  const [operations, setOperations] = useState<DashboardOperations | null>(
-    null,
-  );
-  const [operationsError, setOperationsError] = useState<string | null>(null);
-  const [isLoadingOperations, setIsLoadingOperations] = useState(false);
-  const [plan, setPlan] = useState<DashboardPlan | null>(null);
-  const [hasFinancialConfig, setHasFinancialConfig] = useState(false);
-  const [financialConfigError, setFinancialConfigError] = useState<
-    string | null
-  >(null);
-  const [isLoadingFinancialConfig, setIsLoadingFinancialConfig] =
-    useState(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>("todo");
   const searchParams = useSearchParams();
 
@@ -2526,39 +2456,53 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
+
+  // Clave null mientras no hay organizacion: `useCachedQuery` no pide nada y
+  // devuelve isLoading=false, igual que hacia el `if (!organization) return`
+  // de los efectos que esto sustituye.
+  const organizationPath = organization
+    ? `/v1/organizations/${organization.id}`
+    : null;
+
+  const {
+    data: operations = null,
+    error: operationsLoadError,
+    isLoading: isLoadingOperations,
+  } = useCachedQuery<DashboardOperations>(
+    organizationPath && `${organizationPath}/operations`,
+  );
+  const operationsError = operationsLoadError
+    ? `No se pudieron cargar las prioridades operativas (${operationsLoadError}).`
+    : null;
+
+  const { data: plan = null } = useCachedQuery<DashboardPlan>(
+    organizationPath && `${organizationPath}/strategic-plan`,
+  );
+
+  // Misma URL que ya pide PortalShell para el selector de tienda del header:
+  // al compartir la cache, la segunda deja de ser una peticion.
+  const { data: storesData, isLoading: isLoadingStores } = useCachedQuery<{
+    connections: ShopifyConnection[];
+  }>(organizationPath && `${organizationPath}/shopify/connections`);
+  const shopifyConnections = storesData?.connections ?? [];
+
+  const {
+    data: financialConfig,
+    error: financialConfigLoadError,
+    isLoading: isLoadingFinancialConfig,
+  } = useCachedQuery<{ settings: object | null }>(
+    organizationPath && `${organizationPath}/financial-config`,
+  );
+  const hasFinancialConfig = financialConfig
+    ? financialConfig.settings !== null
+    : false;
+  const financialConfigError = financialConfigLoadError
+    ? `No se pudo cargar la configuración financiera (${financialConfigLoadError}).`
+    : null;
+
   // Los diagnosticos IA solo admiten 7/30/90 dias (ver ai-runtime.ts); "Todo"
   // no tiene un equivalente razonable para un LLM, asi que cae al default (30).
   const aiDiagnosticDays = periodDays === "all" ? 30 : Number(periodDays);
-
-  useEffect(() => {
-    async function loadStores() {
-      if (!organization) {
-        return;
-      }
-
-      setIsLoadingStores(true);
-      try {
-        const response = await apiFetch(
-          `/v1/organizations/${organization.id}/shopify/connections`,
-        );
-
-        if (response.ok) {
-          const payload = (await response.json()) as {
-            connections: ShopifyConnection[];
-          };
-          setShopifyConnections(payload.connections ?? []);
-        } else {
-          setShopifyConnections([]);
-        }
-      } catch {
-        setShopifyConnections([]);
-      } finally {
-        setIsLoadingStores(false);
-      }
-    }
-
-    void loadStores();
-  }, [organization]);
 
   useEffect(() => {
     async function loadMetrics() {
@@ -2631,87 +2575,6 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
     void loadMetrics();
   }, [organization, periodDays, activeConnectionId]);
-
-  useEffect(() => {
-    async function loadFinancialConfig() {
-      if (!organization) return;
-
-      setIsLoadingFinancialConfig(true);
-      try {
-        const response = await apiFetch(
-          `/v1/organizations/${organization.id}/financial-config`,
-        );
-        if (response.ok) {
-          const payload = (await response.json()) as {
-            settings: object | null;
-          };
-          setHasFinancialConfig(payload.settings !== null);
-          setFinancialConfigError(null);
-        } else {
-          setHasFinancialConfig(false);
-          setFinancialConfigError(
-            `No se pudo cargar la configuracion financiera (HTTP ${response.status}).`,
-          );
-        }
-      } catch {
-        setHasFinancialConfig(false);
-        setFinancialConfigError(
-          "No se pudo cargar la configuración financiera por un error de red. Reintenta.",
-        );
-      } finally {
-        setIsLoadingFinancialConfig(false);
-      }
-    }
-
-    void loadFinancialConfig();
-  }, [organization]);
-
-  useEffect(() => {
-    async function loadOperations() {
-      if (!organization) return;
-
-      setIsLoadingOperations(true);
-      try {
-        const response = await apiFetch(
-          `/v1/organizations/${organization.id}/operations`,
-        );
-        if (response.ok) {
-          setOperations((await response.json()) as DashboardOperations);
-          setOperationsError(null);
-        } else {
-          setOperations(null);
-          setOperationsError(
-            `No se pudieron cargar las prioridades operativas (HTTP ${response.status}).`,
-          );
-        }
-      } catch {
-        setOperations(null);
-        setOperationsError(
-          "No se pudieron cargar las prioridades operativas por un error de red. Reintenta.",
-        );
-      } finally {
-        setIsLoadingOperations(false);
-      }
-    }
-
-    void loadOperations();
-  }, [organization]);
-
-  useEffect(() => {
-    async function loadPlan() {
-      if (!organization) return;
-      try {
-        const response = await apiFetch(
-          `/v1/organizations/${organization.id}/strategic-plan`,
-        );
-        setPlan(response.ok ? ((await response.json()) as DashboardPlan) : null);
-      } catch {
-        setPlan(null);
-      }
-    }
-
-    void loadPlan();
-  }, [organization]);
 
   // La tabla comparativa "Todas las tiendas" solo aporta con 2+ tiendas.
   const showStoresOverview =

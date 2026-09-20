@@ -32,6 +32,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { displayValue } from "@/lib/display-labels";
 import { readApiError } from "@/lib/api-error";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { formatMoney } from "@/lib/money";
 import { ModuleSummary } from "@/components/module-summary";
 import { CaminoProposal } from "@/components/camino-proposal";
@@ -1347,38 +1348,24 @@ function ObjectivesPanel({
   organizationId: string;
   canManage: boolean;
 }) {
-  const [data, setData] = useState<ObjectivesResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const objectivesQuery = useCachedQuery<ObjectivesResponse>(
+    `/v1/organizations/${organizationId}/objectives`,
+  );
+  const data = objectivesQuery.data ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? (objectivesQuery.error
+    ? "No se pudieron cargar los objetivos. Revisa la conexión e inténtalo de nuevo."
+    : null);
+  const setError = setActionError;
+  const isLoading = objectivesQuery.isLoading;
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [savingActualId, setSavingActualId] = useState<string | null>(null);
 
-  const load = useCallback(
-    async (silent = false) => {
-      if (!silent) setIsLoading(true);
-      try {
-        const response = await apiFetch(
-          `/v1/organizations/${organizationId}/objectives`,
-        );
-        if (!response.ok) {
-          setError(await readApiError(response));
-          return;
-        }
-        setData((await response.json()) as ObjectivesResponse);
-        setError(null);
-      } catch {
-        setError("No se pudieron cargar los objetivos. Reintenta.");
-      } finally {
-        if (!silent) setIsLoading(false);
-      }
-    },
-    [organizationId],
-  );
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const load = useCallback(() => {
+    setActionError(null);
+    objectivesQuery.reload();
+  }, [objectivesQuery.reload]);
 
   async function addObjective(payload: {
     metricKey: string;
@@ -1399,7 +1386,7 @@ function ObjectivesPanel({
         return false;
       }
       toast.success("Objetivo guardado.");
-      await load(true);
+      load();
       return true;
     } catch {
       setError("No se pudo guardar el objetivo. Reintenta.");
@@ -1418,7 +1405,7 @@ function ObjectivesPanel({
         setError(await readApiError(response));
         return;
       }
-      await load(true);
+      load();
     } catch {
       setError("No se pudo quitar el objetivo. Reintenta.");
     } finally {
@@ -1441,7 +1428,7 @@ function ObjectivesPanel({
         setError(await readApiError(response));
         return;
       }
-      await load(true);
+      load();
     } catch {
       setError("No se pudo guardar el valor actual. Reintenta.");
     } finally {
@@ -2584,37 +2571,14 @@ const PLAN_HEALTH_META: Record<
 
 function ConsultantPlansView() {
   const { setOrganizationId } = useActiveOrganization();
-  const [rows, setRows] = useState<ConsultantPlanRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    apiFetch("/v1/consultant/plans")
-      .then(async (response) => {
-        if (cancelled) return;
-        if (!response.ok) {
-          setError(await readApiError(response));
-          return;
-        }
-        const payload = (await response.json()) as {
-          portfolio: ConsultantPlanRow[];
-        };
-        setRows(payload.portfolio);
-        setError(null);
-      })
-      .catch(() => {
-        if (!cancelled)
-          setError("No se pudo cargar el estado de los planes por un error de red.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const plansQuery = useCachedQuery<{ portfolio?: ConsultantPlanRow[] }>(
+    "/v1/consultant/plans",
+  );
+  const rows = plansQuery.data?.portfolio ?? null;
+  const error = plansQuery.error
+    ? "No se pudo cargar el estado de los planes. Revisa la conexión e inténtalo de nuevo."
+    : null;
+  const isLoading = plansQuery.isLoading;
 
   if (isLoading && !rows) {
     return (

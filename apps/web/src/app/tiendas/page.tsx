@@ -4,7 +4,6 @@ import {
   type FormEvent,
   type ReactNode,
   useCallback,
-  useEffect,
   useState,
 } from "react";
 import { PortalShell } from "@/components/portal-shell";
@@ -12,6 +11,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { formatMoney } from "@/lib/money";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
 import {
   Avatar,
@@ -213,33 +213,23 @@ function OwnStoreForm({
 
 function OwnStoresCard() {
   const { setOrganizationId } = useActiveOrganization();
-  const [stores, setStores] = useState<OwnStore[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const storesQuery = useCachedQuery<{ stores?: OwnStore[] }>(
+    "/v1/consultant/own-stores",
+  );
+  const stores = storesQuery.data?.stores ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? (storesQuery.error
+    ? "No se pudieron cargar tus tiendas. Revisa la conexión e inténtalo de nuevo."
+    : null);
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OwnStore | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const loadStores = useCallback(async () => {
-    try {
-      const response = await apiFetch("/v1/consultant/own-stores");
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      const payload = (await response.json()) as { stores: OwnStore[] };
-      setStores(payload.stores);
-      setError(null);
-    } catch {
-      setError(
-        "No se pudieron cargar tus tiendas. Revisa la conexión e inténtalo de nuevo.",
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadStores();
-  }, [loadStores]);
+  const loadStores = useCallback(() => {
+    setActionError(null);
+    storesQuery.reload();
+  }, [storesQuery.reload]);
 
   // Tras crear una tienda: la ponemos activa y arrancamos el onboarding de
   // integraciones (conectar Shopify/Meta/Klaviyo) desde /integraciones. Recarga
@@ -264,10 +254,10 @@ function OwnStoresCard() {
         setDeleteTarget(null);
         void loadStores();
       } else {
-        setError(await readApiError(response));
+        setActionError(await readApiError(response));
       }
     } catch {
-      setError("No se pudo borrar la tienda. Reintenta.");
+      setActionError("No se pudo borrar la tienda. Reintenta.");
     } finally {
       setIsDeleting(false);
     }
@@ -410,46 +400,17 @@ function OwnStoresCard() {
 }
 
 function ClientStoresCard({
-  token,
   excludeIds,
 }: {
-  token: string;
   excludeIds: Set<string>;
 }) {
-  const [organizations, setOrganizations] = useState<
-    ConsultantOrganization[] | null
-  >(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const response = await apiFetch("/v1/consultant/organizations");
-        if (!response.ok) {
-          if (!cancelled) setError(await readApiError(response));
-          return;
-        }
-        const payload = (await response.json()) as {
-          organizations: ConsultantOrganization[];
-        };
-        if (!cancelled) {
-          setOrganizations(payload.organizations);
-          setError(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setError(
-            "No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo.",
-          );
-        }
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  const organizationsQuery = useCachedQuery<{
+    organizations?: ConsultantOrganization[];
+  }>("/v1/consultant/organizations");
+  const organizations = organizationsQuery.data?.organizations ?? null;
+  const error = organizationsQuery.error
+    ? "No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo."
+    : null;
 
   const clients = (organizations ?? []).filter(
     (org) => !excludeIds.has(org.id),
@@ -549,7 +510,7 @@ function ClientStoresCard({
 export default function TiendasPage() {
   return (
     <PortalShell title="Mis tiendas">
-      {(bootstrap, token) => {
+      {(bootstrap) => {
         // Las tiendas propias (membership real) no son cartera: se excluyen de
         // "Clientes" aunque el backend las devuelva (p. ej. platform_admin ve
         // todas las organizaciones).
@@ -561,7 +522,7 @@ export default function TiendasPage() {
         return (
           <div className="portal-page space-y-6">
             <OwnStoresCard />
-            <ClientStoresCard token={token} excludeIds={ownStoreIds} />
+            <ClientStoresCard excludeIds={ownStoreIds} />
           </div>
         );
       }}

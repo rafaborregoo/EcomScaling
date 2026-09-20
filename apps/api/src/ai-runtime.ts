@@ -3408,6 +3408,8 @@ async function runGenericDiagnosticAgent(
         usage: {
           input_tokens: turn.inputTokens,
           output_tokens: turn.outputTokens,
+          model_calls: turn.modelCalls,
+          tool_calls: turn.toolCallCount,
           estimated_cost_usd: turn.estimatedCostUsd,
           latency_ms: turn.latencyMs,
         },
@@ -9513,9 +9515,10 @@ export async function decideMarketingContentDraft(
 
 /**
  * A09 (copiloto del consultor, AI-05): una vuelta de chat con sql_select y
- * search_knowledge. Solo lectura (approval_mode 'none' en el seed): nunca
- * escribe en el dominio, asi que no hay aprobacion que pedir (criterio "ver
- * vs escribir" de AI-02). El historial vive en ai_conversations/ai_messages
+ * search_knowledge. Solo lectura (approval_mode 'none' en el seed): puede
+ * devolver proposed_writes, pero esas propuestas quedan pendientes y nunca
+ * escriben en el dominio sin una decision humana (criterio "ver vs escribir"
+ * de AI-02). El historial vive en ai_conversations/ai_messages
  * (DB-11) con RLS propia por usuario. Sin restriccion de rol: cualquier
  * miembro de la organizacion puede preguntar sobre sus propios datos.
  */
@@ -9850,20 +9853,53 @@ export async function runConsultantChatTurn(
       turn.latencyMs,
     );
 
-    const { error: assistantMessageError } = await supabase
-      .from("ai_messages")
-      .insert({
-        conversation_id: activeConversationId,
-        organization_id: organizationId,
-        role: "assistant",
-        content: turn.output.answer,
-        run_id: runId,
-      });
+    const { data: assistantMessage, error: assistantMessageError } =
+      await supabase
+        .from("ai_messages")
+        .insert({
+          conversation_id: activeConversationId,
+          organization_id: organizationId,
+          role: "assistant",
+          content: turn.output.answer,
+          run_id: runId,
+        })
+        .select("id")
+        .single();
 
     if (assistantMessageError) {
       throw new Error(
         `assistant_message_save_failed: ${assistantMessageError.message}`,
       );
+    }
+
+    // Una recomendación del chat solo se convierte en propuesta auditable si
+    // el modelo ha devuelto explícitamente proposed_writes. Se guarda como
+    // pendiente y nunca se materializa aquí; la decisión humana usa el mismo
+    // endpoint que el resto de agentes.
+    const proposedWrites = Array.isArray(turn.output.proposed_writes)
+      ? turn.output.proposed_writes
+      : [];
+    const approvalRequired = proposedWrites.length > 0;
+    let outputId: string | null = null;
+    if (approvalRequired) {
+      const { data: outputRow, error: outputError } = await supabase
+        .from("agent_outputs")
+        .insert({
+          run_id: runId,
+          organization_id: organizationId,
+          schema_version: AGENT_OUTPUT_SCHEMA_VERSION,
+          output: turn.output,
+          approval_required: true,
+          status: "pending_approval",
+        })
+        .select("id")
+        .single();
+      if (outputError || !outputRow) {
+        throw new Error(
+          `chat_proposal_persist_failed: ${outputError?.message}`,
+        );
+      }
+      outputId = outputRow.id;
     }
 
     await supabase
@@ -9882,7 +9918,18 @@ export async function runConsultantChatTurn(
       data: {
         conversation_id: activeConversationId,
         run_id: runId,
+        message_id: assistantMessage?.id ?? null,
+        output_id: outputId,
+        approval_required: approvalRequired,
         output: turn.output,
+        usage: {
+          input_tokens: turn.inputTokens,
+          output_tokens: turn.outputTokens,
+          model_calls: turn.modelCalls,
+          tool_calls: turn.toolCallCount,
+          estimated_cost_usd: turn.estimatedCostUsd,
+          latency_ms: turn.latencyMs,
+        },
         envelope: buildAgentOutputEnvelope({
           runId,
           agentCode: "a09_copiloto_consultor",
@@ -9892,12 +9939,6 @@ export async function runConsultantChatTurn(
           fromCache: false,
           content: turn.output,
         }),
-        usage: {
-          input_tokens: turn.inputTokens,
-          output_tokens: turn.outputTokens,
-          estimated_cost_usd: turn.estimatedCostUsd,
-          latency_ms: turn.latencyMs,
-        },
         // El saldo viaja aqui y no en una peticion aparte: ya hay un viaje al
         // servidor por mensaje, y el numero cambia justo en este momento. Se
         // descuenta lo de este turno sin volver a consultar, que es lo mismo
@@ -10009,7 +10050,7 @@ export async function getConsultantChatMessages(
 
   const { data, error } = await supabase
     .from("ai_messages")
-    .select("id, role, content, created_at")
+    .select("id, role, content, run_id, created_at")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true });
 
@@ -10022,10 +10063,212 @@ export async function getConsultantChatMessages(
     };
   }
 
+  const messages = data ?? [];
+  const messageIds = messages.map((message) => message.id);
+  const runIds = messages
+    .map((message) => message.run_id)
+    .filter((runId): runId is string => typeof runId === "string");
+
+  if (runIds.length === 0) {
+    return {
+      ok: true as const,
+      data: { conversation_id: conversationId, messages },
+    };
+  }
+
+  const [{ data: runs }, { data: outputs }, { data: feedback }] =
+    await Promise.all([
+      supabase
+        .from("agent_runs")
+        .select(
+          "id, input_tokens, output_tokens, model_calls, tool_call_count, estimated_cost_usd, latency_ms",
+        )
+        .eq("organization_id", organizationId)
+        .in("id", runIds),
+      supabase
+        .from("agent_outputs")
+        .select("id, run_id, approval_required, status, output")
+        .eq("organization_id", organizationId)
+        .in("run_id", runIds),
+      supabase
+        .from("ai_message_feedback")
+        .select("message_id, rating, comment")
+        .eq("organization_id", organizationId)
+        .eq("user_id", context.user.id)
+        .in("message_id", messageIds),
+    ]);
+
+  const outputIds = (outputs ?? []).map((output) => output.id);
+  const { data: approvals } = outputIds.length
+    ? await supabase
+        .from("agent_approvals")
+        .select("output_id, tasks_created")
+        .eq("organization_id", organizationId)
+        .in("output_id", outputIds)
+    : { data: [] };
+
+  const runsById = new Map((runs ?? []).map((run) => [run.id, run] as const));
+  const outputsByRunId = new Map(
+    (outputs ?? []).map((output) => [output.run_id, output] as const),
+  );
+  const approvalsByOutputId = new Map(
+    (approvals ?? []).map(
+      (approval) => [approval.output_id, approval] as const,
+    ),
+  );
+  const feedbackByMessageId = new Map(
+    (feedback ?? []).map((item) => [item.message_id, item] as const),
+  );
+
   return {
     ok: true as const,
-    data: { conversation_id: conversationId, messages: data ?? [] },
+    data: {
+      conversation_id: conversationId,
+      messages: messages.map((message) => {
+        if (message.role !== "assistant" || !message.run_id) return message;
+
+        const run = runsById.get(message.run_id);
+        const output = outputsByRunId.get(message.run_id);
+        const structuredOutput =
+          output?.output && typeof output.output === "object"
+            ? (output.output as { proposed_writes?: unknown })
+            : null;
+        const approval = output
+          ? approvalsByOutputId.get(output.id)
+          : undefined;
+        const messageFeedback = feedbackByMessageId.get(message.id);
+
+        return {
+          ...message,
+          ...(output
+            ? {
+                output_id: output.id,
+                approval_required: output.approval_required,
+                approval_status: output.status,
+                proposed_writes: Array.isArray(
+                  structuredOutput?.proposed_writes,
+                )
+                  ? structuredOutput.proposed_writes
+                  : undefined,
+                tasks_created: approval?.tasks_created ?? 0,
+              }
+            : {}),
+          ...(run
+            ? {
+                usage: {
+                  input_tokens: run.input_tokens,
+                  output_tokens: run.output_tokens,
+                  model_calls: run.model_calls,
+                  tool_calls: run.tool_call_count,
+                  estimated_cost_usd: run.estimated_cost_usd,
+                  latency_ms: run.latency_ms,
+                },
+              }
+            : {}),
+          ...(messageFeedback
+            ? {
+                feedback_rating: messageFeedback.rating,
+                feedback_comment: messageFeedback.comment,
+              }
+            : {}),
+        };
+      }),
+    },
   };
+}
+
+export type ConsultantChatFeedbackRating = "helpful" | "not_helpful";
+
+/** Guarda o sustituye el voto del usuario sobre una respuesta del copiloto. */
+export async function submitConsultantChatFeedback(
+  env: ApiEnv,
+  context: AuthContext,
+  organizationId: string,
+  messageId: string,
+  ratingInput: string | undefined,
+  comment: string | undefined,
+) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+
+  if (!ratingInput || !["helpful", "not_helpful"].includes(ratingInput)) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_feedback_rating",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { data: message } = await supabase
+    .from("ai_messages")
+    .select("id, conversation_id, run_id, role")
+    .eq("id", messageId)
+    .eq("organization_id", organizationId)
+    .eq("role", "assistant")
+    .maybeSingle();
+
+  if (!message) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "assistant_message_not_found",
+    };
+  }
+
+  const { data: conversation } = await supabase
+    .from("ai_conversations")
+    .select("id")
+    .eq("id", message.conversation_id)
+    .eq("organization_id", organizationId)
+    .eq("user_id", context.user.id)
+    .maybeSingle();
+
+  if (!conversation) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "conversation_not_found",
+    };
+  }
+
+  const normalizedComment = comment?.trim().slice(0, 500) || null;
+  const { data, error } = await supabase
+    .from("ai_message_feedback")
+    .upsert(
+      {
+        organization_id: organizationId,
+        conversation_id: message.conversation_id,
+        message_id: message.id,
+        run_id: message.run_id,
+        user_id: context.user.id,
+        rating: ratingInput,
+        comment: normalizedComment,
+      },
+      { onConflict: "message_id,user_id" },
+    )
+    .select("message_id, rating, comment, updated_at")
+    .single();
+
+  if (error || !data) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "feedback_save_failed",
+      detail: error?.message,
+    };
+  }
+
+  await recordAuditLog(supabase, {
+    organizationId,
+    actorUserId: context.user.id,
+    action: "ai.chat_feedback",
+    entityType: "ai_message",
+    entityId: message.id,
+    newData: { rating: ratingInput, has_comment: Boolean(normalizedComment) },
+  });
+
+  return { ok: true as const, data };
 }
 
 /**
@@ -10178,13 +10421,17 @@ export async function decideAgentOutput(
     };
   }
 
-  await supabase.from("agent_approvals").insert({
-    output_id: outputId,
-    organization_id: organizationId,
-    decision: decisionInput,
-    decided_by: context.user.id,
-    reason: reason ?? null,
-  });
+  const { data: approval } = await supabase
+    .from("agent_approvals")
+    .insert({
+      output_id: outputId,
+      organization_id: organizationId,
+      decision: decisionInput,
+      decided_by: context.user.id,
+      reason: reason ?? null,
+    })
+    .select("id")
+    .single();
 
   let tasksCreated = 0;
 
@@ -10392,6 +10639,13 @@ export async function decideAgentOutput(
         });
       }
     }
+  }
+
+  if (approval?.id) {
+    await supabase
+      .from("agent_approvals")
+      .update({ tasks_created: tasksCreated })
+      .eq("id", approval.id);
   }
 
   // agent_approvals ya guarda decision/decided_by/reason por output_id -- se

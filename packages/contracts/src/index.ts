@@ -295,3 +295,31 @@ export * from "./benchmark-confidence.js";
 export * from "./operations-cx.js";
 export * from "./intervention-eligibility.js";
 export * from "./intervention-matching.js";
+export * from "./intervention-prioritization.js";
+export * from "./intervention-impact.js";
+export * from "./intervention-feasibility.js";
+export * from "./intervention-risk.js";
+export * from "./intervention-sequencing.js";
+export * from "./intervention-test-execute.js";
+export * from "./intervention-intensity.js";
+export * from "./maturity-recommendations.js";
+
+// FASE 7 / P11: recomendaciones factibles bajo restricciones reales.
+export * from "./constraint-recommendations.js";
+
+// FASE 7 / P12: construcción de un portafolio pequeño y coherente.
+export * from "./recommendation-portfolio.js";
+
+// FASE 7 / P13: decidir stop, continue, scale o rollback con evidencia observada.
+export * from "./dynamic-decision.js";
+
+// FASE 7 / P14: decidir no actuar, esperar o adquirir evidencia antes de comprometerse.
+export * from "./restraint-decision.js";
+
+// FASE 7 / P15: outcome esperado y criterios de éxito observables y falsables.
+export * from "./expected-outcome.js";
+export * from "./recommendation-confidence.js";
+export * from "./recommendation-communication.js";
+
+// FASE 8 / 8.02: autonomía graduada, aprobación humana y separación de estados.
+export * from "./hitl-approval.js";

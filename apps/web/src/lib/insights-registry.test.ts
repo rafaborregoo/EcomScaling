@@ -57,3 +57,84 @@ test("el feed F7.02 enlaza el matching causal con su card", () => {
   );
   assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-intervention-matching");
 });
+
+test("el feed F7.03 enlaza la prioridad con su card", () => {
+  const spots = insightSpotsFromAiAssessments(
+    { organizationId: "org-1", connectionId: "", isConsultant: true },
+    [{ domain: "F7_03_PRIORITIZATION", disposition: "VALIDATION_REQUIRED", reason_codes: ["PRIORITY.ABSTAINED"] }],
+  );
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-intervention-prioritization");
+});
+
+test("el feed F7.04 enlaza la expectativa de impacto con su card", () => {
+  const spots = insightSpotsFromAiAssessments(
+    { organizationId: "org-1", connectionId: "", isConsultant: true },
+    [{ domain: "F7_04_IMPACT", disposition: "VALIDATION_REQUIRED", reason_codes: ["IMPACT.MECHANISM_MISSING"] }],
+  );
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-intervention-impact");
+});
+
+test("el feed F7.05 enlaza la factibilidad con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_05_FEASIBILITY", disposition: "VALIDATION_REQUIRED", reason_codes: ["RESOURCE.CONTEXT_UNKNOWN"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-intervention-feasibility");
+});
+
+test("el feed F7.06 enlaza el riesgo y la reversibilidad con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_06_RISK", disposition: "VALIDATION_REQUIRED", reason_codes: ["REVERSIBILITY.UNKNOWN"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-intervention-risk");
+});
+
+test("el feed F7.07 enlaza la secuenciación con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_07_SEQUENCING", disposition: "VALIDATION_REQUIRED", reason_codes: ["SEQUENCE.PATH_MISSING"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-intervention-sequencing");
+});
+
+test("el feed F7.08 enlaza test vs ejecución con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_08_TEST_EXECUTE", disposition: "VALIDATION_REQUIRED", reason_codes: ["MEASUREMENT.NOT_READY"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-intervention-test-execute");
+});
+
+test("el feed F7.09 enlaza intensidad con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_09_INTENSITY", disposition: "VALIDATION_REQUIRED", reason_codes: ["INTENSITY.OBSERVE_BEFORE_MORE_EXPOSURE"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-intervention-intensity");
+});
+
+test("el feed F7.10 enlaza recomendaciones por madurez con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_10_MATURITY", disposition: "VALIDATION_REQUIRED", reason_codes: ["MATURITY.READINESS_UNKNOWN"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-maturity-recommendations");
+});
+
+test("el feed F7.11 enlaza la recomendación factible con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_11_CONSTRAINTS", disposition: "VALIDATION_REQUIRED", reason_codes: ["CONSTRAINT.BINDING_REQUIRES_VALIDATION"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-constraint-recommendations");
+});
+
+test("el feed F7.12 enlaza la cartera con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_12_PORTFOLIO", disposition: "VALIDATION_REQUIRED", reason_codes: ["PORTFOLIO.PRIMARY_OR_CAPACITY_REQUIRES_VALIDATION"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-recommendation-portfolio");
+});
+
+test("el feed F7.13 enlaza la decisión dinámica con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_13_DYNAMIC_DECISION", disposition: "VALIDATION_REQUIRED", reason_codes: ["DYNAMIC.EVIDENCE_INCOMPLETE"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-dynamic-decision");
+});
+
+test("el feed F7.14 enlaza restraint reasoning con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_14_RESTRAINT_DECISION", disposition: "VALIDATION_REQUIRED", reason_codes: ["RESTRAINT.DECISION_CRITICAL_CONTEXT_UNKNOWN"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-restraint-decision");
+});
+
+test("el feed F7.15 enlaza expected outcome con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_15_EXPECTED_OUTCOME", disposition: "VALIDATION_REQUIRED", reason_codes: ["OUTCOME.DECISION_CONTEXT_UNKNOWN"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-expected-outcome");
+});
+
+test("el feed F7.17 enlaza confianza calibrada con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_17_RECOMMENDATION_CONFIDENCE", disposition: "VALIDATION_REQUIRED", reason_codes: ["CONFIDENCE.EVIDENCE_INVALID"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-recommendation-confidence");
+});
+
+test("el feed F7.18 enlaza comunicación de recomendaciones con su card", () => {
+  const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_18_RECOMMENDATION_COMMUNICATION", disposition: "VALIDATION_REQUIRED", reason_codes: ["COMMUNICATION.DECISION_CONTEXT_UNKNOWN"] }]);
+  assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-recommendation-communication");
+});

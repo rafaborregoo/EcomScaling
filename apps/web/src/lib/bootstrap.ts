@@ -43,10 +43,28 @@ export type BootstrapResponse = {
   }>;
 };
 
-export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+export const apiUrl =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 const SESSION_EXPIRED_REDIRECT = "/login?reason=session_expired";
 let sessionExpiryHandling = false;
+
+// Los paneles del diagnóstico son composiciones de muchos GET independientes.
+// Mantener la deduplicación aquí protege también los paneles antiguos que aún
+// usan un useEffect local y evita que Strict Mode dispare dos veces la misma
+// petición durante el montaje. Solo se cachean respuestas correctas; los 409,
+// 401 y errores de red siguen siendo visibles y no se convierten en datos.
+const API_GET_FRESH_MS = 30_000;
+const apiGetCache = new Map<string, { response: Response; at: number }>();
+const apiGetInflight = new Map<string, Promise<Response>>();
+
+function apiGetKey(path: string, token: string) {
+  return `${token.slice(-32)}:${path}`;
+}
+
+export function invalidateApiGetCache() {
+  apiGetCache.clear();
+}
 
 async function clearExpiredSessionAndRedirect() {
   if (typeof window === "undefined" || sessionExpiryHandling) {
@@ -157,8 +175,13 @@ export async function apiFetch(
   init: RequestInit = {},
   timeoutMs = defaultTimeoutFor(path),
 ) {
-  const blocked = blockedByViewAs((init.method ?? "GET").toUpperCase());
+  const method = (init.method ?? "GET").toUpperCase();
+  const blocked = blockedByViewAs(method);
   if (blocked) return blocked;
+
+  if (method !== "GET" && method !== "HEAD") {
+    invalidateApiGetCache();
+  }
 
   const token = await getAccessToken();
 
@@ -166,44 +189,71 @@ export async function apiFetch(
     throw new Error("No hay sesion activa.");
   }
 
+  const bypassCache = init.cache === "no-store";
+  const cacheKey =
+    method === "GET" && !bypassCache ? apiGetKey(path, token) : null;
+  if (cacheKey) {
+    const cached = apiGetCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < API_GET_FRESH_MS) {
+      return cached.response.clone();
+    }
+    const inFlight = apiGetInflight.get(cacheKey);
+    if (inFlight) {
+      return (await inFlight).clone();
+    }
+  }
+
   const headers = authHeaders(init, token);
 
-  const response = await fetchApiWithTimeout(
-    `${apiUrl}${path}`,
-    {
-      ...init,
-      headers,
-    },
-    timeoutMs,
-  );
+  const request = (async () => {
+    const response = await fetchApiWithTimeout(
+      `${apiUrl}${path}`,
+      {
+        ...init,
+        headers,
+      },
+      timeoutMs,
+    );
 
-  if (response.status !== 401) {
+    if (response.status === 401) {
+      const refreshedToken = await refreshAccessToken();
+      if (!refreshedToken) {
+        void clearExpiredSessionAndRedirect();
+        return response;
+      }
+
+      const retryHeaders = authHeaders(init, refreshedToken);
+      const retryResponse = await fetchApiWithTimeout(
+        `${apiUrl}${path}`,
+        {
+          ...init,
+          headers: retryHeaders,
+        },
+        timeoutMs,
+      );
+
+      if (retryResponse.status === 401) {
+        void clearExpiredSessionAndRedirect();
+      }
+      return retryResponse;
+    }
+
     return response;
+  })();
+
+  if (cacheKey) {
+    apiGetInflight.set(cacheKey, request);
   }
 
-  const refreshedToken = await refreshAccessToken();
-
-  if (!refreshedToken) {
-    void clearExpiredSessionAndRedirect();
+  try {
+    const response = await request;
+    if (cacheKey && response.ok) {
+      apiGetCache.set(cacheKey, { response: response.clone(), at: Date.now() });
+    }
     return response;
+  } finally {
+    if (cacheKey) apiGetInflight.delete(cacheKey);
   }
-
-  const retryHeaders = authHeaders(init, refreshedToken);
-
-  const retryResponse = await fetchApiWithTimeout(
-    `${apiUrl}${path}`,
-    {
-      ...init,
-      headers: retryHeaders,
-    },
-    timeoutMs,
-  );
-
-  if (retryResponse.status === 401) {
-    void clearExpiredSessionAndRedirect();
-  }
-
-  return retryResponse;
 }
 
 export async function fetchBootstrap(token: string) {
@@ -214,9 +264,11 @@ export async function fetchBootstrap(token: string) {
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; message?: string; detail?: string }
-      | null;
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+      detail?: string;
+    } | null;
 
     throw new Error(
       [

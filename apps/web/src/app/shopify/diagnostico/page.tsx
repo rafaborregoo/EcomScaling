@@ -49,6 +49,22 @@ import { AnomaliesRedFlagsPanel } from "./anomalies-red-flags";
 import { BenchmarkConfidencePanel } from "./benchmark-confidence";
 import { InterventionEligibilityPanel } from "./intervention-eligibility";
 import { InterventionMatchingPanel } from "./intervention-matching";
+import { InterventionPrioritizationPanel } from "./intervention-prioritization";
+import { InterventionImpactPanel } from "./intervention-impact";
+import { InterventionFeasibilityPanel } from "./intervention-feasibility";
+import { InterventionRiskPanel } from "./intervention-risk";
+import { InterventionSequencingPanel } from "./intervention-sequencing";
+import { InterventionTestExecutePanel } from "./intervention-test-execute";
+import { InterventionIntensityPanel } from "./intervention-intensity";
+import { MaturityRecommendationsPanel } from "./maturity-recommendations";
+import { ConstraintRecommendationsPanel } from "./constraint-recommendations";
+import { RecommendationPortfolioPanel } from "./recommendation-portfolio";
+import { DynamicDecisionPanel } from "./dynamic-decision";
+import { RestraintDecisionPanel } from "./restraint-decision";
+import { ExpectedOutcomePanel } from "./expected-outcome";
+import { RecommendationConfidencePanel } from "./recommendation-confidence";
+import { RecommendationCommunicationPanel } from "./recommendation-communication";
+import { HitlApprovalPanel } from "./hitl-approval";
 import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
 import { SeverityPanel } from "./severity-panel";
@@ -584,6 +600,22 @@ function ShopifyDiagnosticoView({
           <BenchmarkConfidencePanel />
       <InterventionEligibilityPanel organizationId={selectedOrganizationId} />
       <InterventionMatchingPanel organizationId={selectedOrganizationId} />
+      <InterventionPrioritizationPanel organizationId={selectedOrganizationId} />
+      <InterventionImpactPanel organizationId={selectedOrganizationId} />
+      <InterventionFeasibilityPanel organizationId={selectedOrganizationId} />
+      <InterventionRiskPanel organizationId={selectedOrganizationId} />
+      <InterventionSequencingPanel organizationId={selectedOrganizationId} />
+      <InterventionTestExecutePanel organizationId={selectedOrganizationId} />
+      <InterventionIntensityPanel organizationId={selectedOrganizationId} />
+      <MaturityRecommendationsPanel organizationId={selectedOrganizationId} />
+      <ConstraintRecommendationsPanel organizationId={selectedOrganizationId} />
+      <RecommendationPortfolioPanel organizationId={selectedOrganizationId} />
+      <DynamicDecisionPanel organizationId={selectedOrganizationId} />
+      <RestraintDecisionPanel organizationId={selectedOrganizationId} />
+      <ExpectedOutcomePanel organizationId={selectedOrganizationId} />
+      <RecommendationConfidencePanel organizationId={selectedOrganizationId} />
+      <RecommendationCommunicationPanel organizationId={selectedOrganizationId} />
+      <HitlApprovalPanel organizationId={selectedOrganizationId} />
           <PrioritizationPanel />
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">

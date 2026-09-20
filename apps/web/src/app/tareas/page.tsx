@@ -12,6 +12,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import {
   ProposedTasksList,
   useProposedTasks,
@@ -918,9 +919,15 @@ function ClientSummaryGrid({
 }
 
 function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
-  const [data, setData] = useState<ConsultantOperations | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const operationsQuery = useCachedQuery<ConsultantOperations>(
+    "/v1/consultant/operations",
+  );
+  const data = operationsQuery.data ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? (operationsQuery.error
+    ? "No se pudieron cargar las operaciones. Revisa la conexión e inténtalo de nuevo."
+    : null);
+  const isLoading = operationsQuery.isLoading;
   const [tab, setTab] = useState<"tasks" | "alerts">("tasks");
   const [statusFilter, setStatusFilter] = useState("open");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -939,26 +946,10 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
     pendingByOrg,
   } = useProposedTasks();
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await apiFetch("/v1/consultant/operations");
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      setData((await response.json()) as ConsultantOperations);
-      setError(null);
-    } catch {
-      setError("No se pudieron cargar las operaciones por un error de red.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const load = useCallback(() => {
+    setActionError(null);
+    operationsQuery.reload();
+  }, [operationsQuery.reload]);
 
   async function changeTaskStatus(
     organizationId: string,
@@ -966,7 +957,7 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
     status: string,
   ) {
     setPendingTaskId(taskId);
-    setError(null);
+    setActionError(null);
     try {
       const response = await apiFetch(
         `/v1/organizations/${organizationId}/tasks/${taskId}/status`,
@@ -977,13 +968,13 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
         },
       );
       if (!response.ok) {
-        setError(await readApiError(response));
+        setActionError(await readApiError(response));
         return;
       }
       toast.success(`Tarea marcada como «${STATUS_LABELS[status] ?? status}».`);
       void load();
     } catch {
-      setError("No se pudo actualizar la tarea por un error de red.");
+      setActionError("No se pudo actualizar la tarea por un error de red.");
     } finally {
       setPendingTaskId(null);
     }
@@ -1010,7 +1001,7 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
         },
       );
       if (!response.ok) {
-        setError(await readApiError(response));
+        setActionError(await readApiError(response));
         return;
       }
       setCommentDrafts((drafts) => ({ ...drafts, [taskId]: "" }));
@@ -1018,7 +1009,7 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
       toast.success("Comentario añadido.");
       void load();
     } catch {
-      setError("No se pudo añadir el comentario por un error de red.");
+      setActionError("No se pudo añadir el comentario por un error de red.");
     }
   }
 
@@ -1028,7 +1019,7 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
     status: string,
   ) {
     setPendingAlertId(alertId);
-    setError(null);
+    setActionError(null);
     try {
       const response = await apiFetch(
         `/v1/organizations/${organizationId}/alerts/${alertId}/status`,
@@ -1039,13 +1030,13 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
         },
       );
       if (!response.ok) {
-        setError(await readApiError(response));
+        setActionError(await readApiError(response));
         return;
       }
       toast.success("Estado de la alerta actualizado.");
       void load();
     } catch {
-      setError("No se pudo actualizar la alerta por un error de red.");
+      setActionError("No se pudo actualizar la alerta por un error de red.");
     } finally {
       setPendingAlertId(null);
     }
@@ -1391,9 +1382,18 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     isConsultant ? null : (organization?.id ?? null),
   );
 
-  const [payload, setPayload] = useState<OperationsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const operationsQuery = useCachedQuery<OperationsResponse>(
+    organization
+      ? `/v1/organizations/${organization.id}/operations`
+      : null,
+  );
+  const payload = operationsQuery.data ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? (operationsQuery.error
+    ? "No se pudieron cargar las operaciones. Revisa la conexión e inténtalo de nuevo."
+    : null);
+  const setError = setActionError;
+  const isLoading = organization !== null && operationsQuery.isLoading;
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("open");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -1429,74 +1429,46 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       client.tasks.some((task) => task.pending_approval),
   );
 
-  const loadOperations = useCallback(async () => {
-    if (!organization) {
-      setPayload(null);
-      setError(null);
-      setIsLoading(false);
-      return;
-    }
+  const loadOperations = useCallback(() => {
+    setActionError(null);
+    operationsQuery.reload();
+  }, [operationsQuery.reload]);
 
-    setIsLoading(true);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organization.id}/operations`,
-      );
-
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-
-      setPayload((await response.json()) as OperationsResponse);
-      setError(null);
-    } catch {
-      setError(
-        "No se pudieron cargar las operaciones por un error de red. Reintenta.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organization]);
-
-  useEffect(() => {
-    void loadOperations();
-  }, [loadOperations]);
-
-  useEffect(() => {
-    if (!isCreatingTask || !organization) return;
-    let cancelled = false;
-    apiFetch(`/v1/organizations/${organization.id}/strategic-plan`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (cancelled || !data?.plan) return;
-        type PlanMilestone = { id: string; name: string; position: number };
-        type PlanPhase = {
+  const milestonePlanQuery = useCachedQuery<{
+    plan?: {
+      strategic_plan_phases?: Array<{
+        name: string;
+        position: number;
+        strategic_plan_milestones?: Array<{
+          id: string;
           name: string;
           position: number;
-          strategic_plan_milestones: PlanMilestone[];
-        };
-        const options = ((data.plan.strategic_plan_phases ?? []) as PlanPhase[])
-          .slice()
-          .sort((a, b) => a.position - b.position)
-          .flatMap((phase) =>
-            (phase.strategic_plan_milestones ?? [])
-              .slice()
-              .sort((a, b) => a.position - b.position)
-              .map((milestone) => ({
-                value: milestone.id,
-                label: `${phase.name} · ${milestone.name}`,
-              })),
-          );
-        setMilestoneOptions(options);
-      })
-      .catch(() => {
-        /* sin plan o error: el selector simplemente no aparece */
-      });
-    return () => {
-      cancelled = true;
+        }>;
+      }>;
     };
-  }, [isCreatingTask, organization]);
+  }>(
+    isCreatingTask && organization
+      ? `/v1/organizations/${organization.id}/strategic-plan`
+      : null,
+  );
+
+  useEffect(() => {
+    const phases = milestonePlanQuery.data?.plan?.strategic_plan_phases ?? [];
+    setMilestoneOptions(
+      phases
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .flatMap((phase) =>
+          (phase.strategic_plan_milestones ?? [])
+            .slice()
+            .sort((a, b) => a.position - b.position)
+            .map((milestone) => ({
+              value: milestone.id,
+              label: `${phase.name} · ${milestone.name}`,
+            })),
+        ),
+    );
+  }, [milestonePlanQuery.data]);
 
   async function evaluateRules() {
     if (!organization) {

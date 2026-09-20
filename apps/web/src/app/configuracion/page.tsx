@@ -11,6 +11,7 @@ import { OrganizationIdentity } from "./organization-identity";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
+import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
 import {
   AsyncState,
@@ -43,62 +44,19 @@ type ShopifyOverviewLite = {
   }>;
 };
 
-async function readShopifyOverviewError(response: Response) {
-  const body = (await response.json().catch(() => null)) as {
-    error?: string;
-  } | null;
-  return body?.error ?? `HTTP ${response.status}`;
-}
-
 function ShopifyCoverageSection({
   organizationId,
 }: {
   organizationId: string;
 }) {
-  const [overview, setOverview] = useState<ShopifyOverviewLite | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setIsLoading(true);
-      try {
-        const response = await apiFetch(
-          `/v1/organizations/${organizationId}/shopify/overview`,
-        );
-
-        if (cancelled) {
-          return;
-        }
-
-        if (!response.ok) {
-          setError(await readShopifyOverviewError(response));
-          setOverview(null);
-        } else {
-          setOverview((await response.json()) as ShopifyOverviewLite);
-          setError(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setOverview(null);
-          setError(
-            "No se pudo cargar la cobertura de Shopify por un error de red. Reintenta.",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [organizationId]);
+  const overviewQuery = useCachedQuery<ShopifyOverviewLite>(
+    `/v1/organizations/${organizationId}/shopify/overview`,
+  );
+  const overview = overviewQuery.data ?? null;
+  const error = overviewQuery.error
+    ? "No se pudo cargar la cobertura de Shopify. Revisa la conexión e inténtalo de nuevo."
+    : null;
+  const isLoading = overviewQuery.isLoading;
 
   if (isLoading) {
     return (
@@ -280,9 +238,16 @@ function FinancialConfigSection({
       bootstrap.profile.platform_role,
     ) || ["owner", "manager"].includes(membership?.role ?? "");
 
-  const [config, setConfig] = useState<FinancialConfigResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const configQuery = useCachedQuery<FinancialConfigResponse>(
+    `/v1/organizations/${organizationId}/financial-config`,
+  );
+  const config = configQuery.data ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? (configQuery.error
+    ? "No se pudo cargar la configuración financiera. Revisa la conexión e inténtalo de nuevo."
+    : null);
+  const setError = setActionError;
+  const isLoading = configQuery.isLoading;
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [busyExpenseId, setBusyExpenseId] = useState<string | null>(null);
@@ -314,39 +279,17 @@ function FinancialConfigSection({
   const [ruleCostPerOrder, setRuleCostPerOrder] = useState("");
   const [ruleMinOrderTotal, setRuleMinOrderTotal] = useState("");
 
-  const loadConfig = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await apiFetch(
-        `/v1/organizations/${organizationId}/financial-config`,
-      );
-
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-
-      const data = (await response.json()) as FinancialConfigResponse;
-      setConfig(data);
-      setPaymentFeePct(String(data.settings?.payment_fee_pct ?? ""));
-      setPaymentFeeFixed(String(data.settings?.payment_fee_fixed ?? ""));
-      setDefaultShippingCost(String(data.settings?.default_shipping_cost ?? ""));
-      setError(null);
-    } catch {
-      setError(
-        "No se pudo cargar la configuración financiera por un error de red. Reintenta.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organizationId]);
+  const loadConfig = useCallback(() => {
+    setActionError(null);
+    configQuery.reload();
+  }, [configQuery.reload]);
 
   useEffect(() => {
-    // Sincroniza la pantalla con el endpoint remoto al montar o cambiar de
-    // organizacion; no es estado derivado de otro valor local.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadConfig();
-  }, [loadConfig]);
+    if (!config) return;
+    setPaymentFeePct(String(config.settings?.payment_fee_pct ?? ""));
+    setPaymentFeeFixed(String(config.settings?.payment_fee_fixed ?? ""));
+    setDefaultShippingCost(String(config.settings?.default_shipping_cost ?? ""));
+  }, [config]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -954,51 +897,26 @@ type SettingsTab =
 // nav (/consultor y /tiendas) que no se operan a diario, solo se consultan. Las
 // paginas siguen existiendo; aqui esta el recuento y el acceso.
 function PortfolioSection() {
-  const [counts, setCounts] = useState<{
-    clients: number;
-    stores: number;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [clientsResponse, storesResponse] = await Promise.all([
-          apiFetch("/v1/consultant/organizations"),
-          apiFetch("/v1/consultant/own-stores"),
-        ]);
-        if (cancelled) return;
-        if (!clientsResponse.ok) {
-          setError(await readApiError(clientsResponse));
-          return;
-        }
-        if (!storesResponse.ok) {
-          setError(await readApiError(storesResponse));
-          return;
-        }
-        const clients = (await clientsResponse.json()) as {
-          organizations: Array<{ is_own_store?: boolean }>;
-        };
-        const stores = (await storesResponse.json()) as { stores: unknown[] };
-        if (cancelled) return;
-        setCounts({
+  const clientsQuery = useCachedQuery<{
+    organizations?: Array<{ is_own_store?: boolean }>;
+  }>("/v1/consultant/organizations");
+  const storesQuery = useCachedQuery<{ stores?: unknown[] }>(
+    "/v1/consultant/own-stores",
+  );
+  const counts =
+    clientsQuery.data && storesQuery.data
+      ? {
           // Sin filtrar, las tiendas propias se contarian dos veces: aqui y
           // en la tarjeta de al lado.
-          clients: clients.organizations.filter((o) => !o.is_own_store).length,
-          stores: stores.stores.length,
-        });
-        setError(null);
-      } catch {
-        if (!cancelled) {
-          setError("No se pudo cargar la cartera. Revisa la conexión.");
+          clients: (clientsQuery.data.organizations ?? []).filter(
+            (organization) => !organization.is_own_store,
+          ).length,
+          stores: (storesQuery.data.stores ?? []).length,
         }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      : null;
+  const error = clientsQuery.error || storesQuery.error
+    ? "No se pudo cargar la cartera. Revisa la conexión."
+    : null;
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">

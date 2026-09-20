@@ -8,8 +8,6 @@ on:
   #
   # Meta y Shopify siguen apagados (mismos ficheros, misma fecha): esos son otra
   # decision.
-  schedule:
-    - cron: "43 */6 * * *"
 
 permissions:
   contents: read

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -10,6 +11,7 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
+  Link,
   List,
   LoadingBlock,
   Select,
@@ -44,11 +46,14 @@ function AuditPanel() {
   const [area, setArea] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // La ficha de /admin/clientes enlaza aqui ya filtrado por su cliente.
+  const organizationId = useSearchParams().get("organizationId") ?? "";
 
   const load = useCallback(
     async (before?: string) => {
       const params = new URLSearchParams({ limit: "50" });
       if (area) params.set("action", area);
+      if (organizationId) params.set("organizationId", organizationId);
       if (before) params.set("before", before);
       try {
         const response = await apiFetch(`/v1/admin/audit-log?${params}`);
@@ -69,7 +74,7 @@ function AuditPanel() {
         setError("No se pudo cargar la auditoría por un error de red.");
       }
     },
-    [area],
+    [area, organizationId],
   );
 
   useEffect(() => {
@@ -82,15 +87,24 @@ function AuditPanel() {
   return (
     <Card
       title="Quién hizo qué"
-      description="Cada acción con consecuencias queda registrada aquí: altas, cambios de rol, ediciones de cliente, conocimiento y configuración."
+      description={
+        organizationId
+          ? `Solo las acciones sobre ${entries?.[0]?.organization_name ?? "este cliente"}.`
+          : "Cada acción con consecuencias queda registrada aquí: altas, cambios de rol, ediciones de cliente, conocimiento y configuración."
+      }
       actions={
-        <Select
-          className="w-52"
-          aria-label="Filtrar por área"
-          value={area}
-          onChange={setArea}
-          options={AUDIT_AREAS}
-        />
+        <div className="flex items-center gap-3">
+          {organizationId ? (
+            <Link href="/admin/logs/auditoria">Ver todos los clientes</Link>
+          ) : null}
+          <Select
+            className="w-52"
+            aria-label="Filtrar por área"
+            value={area}
+            onChange={setArea}
+            options={AUDIT_AREAS}
+          />
+        </div>
       }
     >
       {entries === null ? (

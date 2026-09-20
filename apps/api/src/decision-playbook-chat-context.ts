@@ -259,6 +259,326 @@ export function summarizeInterventionMatchingRun(row: unknown): Row {
   };
 }
 
+export function summarizeInterventionPrioritizationRun(row: unknown): Row {
+  const item = record(row);
+  const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations)
+    ? result.candidate_evaluations.slice(0, 50).map((candidate) => {
+      const value = record(candidate);
+      return {
+        candidate_id: text(value.candidate_id, "unknown_candidate"),
+        priority_tier: text(value.priority_tier),
+        reason_codes: strings(value.reason_codes),
+        unknowns: strings(value.unresolved_unknowns),
+      };
+    })
+    : [];
+  return {
+    disposition: text(item.disposition ?? result.disposition),
+    candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length,
+    primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id),
+    candidates,
+    unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
+    reason_codes: strings(item.reason_codes ?? result.reason_codes),
+    source_refs: strings(item.source_refs ?? result.source_refs),
+    as_of: text(item.as_of, "unknown_date"),
+    execution_authorized: false,
+    selection: "primary priority only; F7.03 no autoriza ejecución",
+  };
+}
+
+export function summarizeInterventionImpactRun(row: unknown): Row {
+  const item = record(row);
+  const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations)
+    ? result.candidate_evaluations.slice(0, 50).map((candidate) => {
+      const value = record(candidate);
+      const trace = record(value.impact_trace);
+      return {
+        candidate_id: text(value.candidate_id, "unknown_candidate"),
+        disposition: text(value.disposition),
+        primary_effect: text(value.primary_effect),
+        impact_trace: {
+          mechanism_refs: strings(trace.mechanism_refs),
+          leading_indicator_refs: strings(trace.leading_indicator_refs),
+          business_outcome_refs: strings(trace.business_outcome_refs),
+          economic_outcome_refs: strings(trace.economic_outcome_refs),
+        },
+        magnitude_qualitative: text(value.magnitude_qualitative),
+        magnitude_value: typeof value.magnitude_value === "number" ? value.magnitude_value : null,
+        time_to_signal: text(value.time_to_signal),
+        durability: text(value.durability),
+        estimate_basis: text(value.estimate_basis),
+        incrementality: text(value.incrementality),
+        secondary_effects: strings(value.secondary_effects),
+        negative_effects: strings(value.negative_effects),
+        tradeoffs: strings(value.tradeoffs),
+        assumptions: strings(value.assumptions),
+        unknowns: strings(value.unresolved_unknowns),
+        reason_codes: strings(value.reason_codes),
+      };
+    })
+    : [];
+  return {
+    disposition: text(item.disposition ?? result.disposition),
+    candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length,
+    primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id),
+    candidates,
+    unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
+    reason_codes: strings(item.reason_codes ?? result.reason_codes),
+    source_refs: strings(item.source_refs ?? result.source_refs),
+    as_of: text(item.as_of, "unknown_date"),
+    execution_authorized: false,
+    selection: "expected impact only; F7.04 no garantiza resultado ni autoriza ejecucion",
+  };
+}
+
+export function summarizeInterventionFeasibilityRun(row: unknown): Row {
+  const item = record(row);
+  const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations)
+    ? result.candidate_evaluations.slice(0, 50).map((candidate) => {
+      const value = record(candidate);
+      const trace = record(value.resource_trace);
+      const cost = record(value.cost_profile);
+      const effort = record(value.effort_profile);
+      return {
+        candidate_id: text(value.candidate_id, "unknown_candidate"),
+        disposition: text(value.disposition),
+        resource_trace: { required_resources: strings(trace.required_resources), available_resources: strings(trace.available_resources), bottleneck_resources: strings(trace.bottleneck_resources), capability_gaps: strings(trace.capability_gaps), contention_refs: strings(trace.contention_refs) },
+        cost_profile: { direct: text(cost.direct), recurring: text(cost.recurring), maintenance: text(cost.maintenance), opportunity: text(cost.opportunity), numeric_amounts: [] },
+        effort_profile: { complexity: text(effort.complexity), workload: text(effort.workload), coordination: text(effort.coordination) },
+        time_requirement: record(value.time_requirement),
+        success_capacity: record(value.success_capacity),
+        adaptations: Array.isArray(value.adaptations) ? value.adaptations.slice(0, 20) : [],
+        alternatives: Array.isArray(value.alternatives) ? value.alternatives.slice(0, 20) : [],
+        recurring_burden: strings(value.recurring_burden),
+        reversibility: text(value.reversibility),
+        unknowns: strings(value.unresolved_unknowns),
+        reason_codes: strings(value.reason_codes),
+      };
+    })
+    : [];
+  return { disposition: text(item.disposition ?? result.disposition), candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length, primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id), candidates, unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "resource feasibility only; F7.05 no contrata, compra, asigna ni autoriza ejecucion" };
+}
+
+export function summarizeInterventionRiskRun(row: unknown): Row {
+  const item = record(row);
+  const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations)
+    ? result.candidate_evaluations.slice(0, 50).map((candidate) => {
+      const value = record(candidate);
+      const radius = record(value.blast_radius);
+      const reversal = record(value.reversibility_profile);
+      const cost = record(value.cost_of_error);
+      const trace = record(value.risk_trace);
+      return {
+        candidate_id: text(value.candidate_id, "unknown_candidate"),
+        disposition: text(value.disposition),
+        upside: strings(value.potential_upside),
+        downside: strings(value.potential_downside),
+        exposure: { scope: strings(radius.scope), level: text(radius.level) },
+        reversibility: reversal,
+        cost_of_error: cost,
+        failure_modes: strings(value.failure_modes),
+        inaction_risk: strings(value.inaction_risk ?? trace.inaction_risk),
+        recommended_commitment: text(value.recommended_commitment),
+        de_risking_actions: strings(value.de_risking_actions ?? trace.de_risking),
+        risk_tradeoff: record(value.risk_tradeoff),
+        unknowns: strings(value.unresolved_unknowns),
+        reason_codes: strings(value.reason_codes),
+      };
+    })
+    : [];
+  return {
+    disposition: text(item.disposition ?? result.disposition),
+    candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length,
+    primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id),
+    candidates,
+    unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
+    reason_codes: strings(item.reason_codes ?? result.reason_codes),
+    source_refs: strings(item.source_refs ?? result.source_refs),
+    as_of: text(item.as_of, "unknown_date"),
+    execution_authorized: false,
+    selection: "risk review only; F7.06 no calcula risk score ni autoriza ejecucion",
+  };
+}
+
+export function summarizeInterventionSequencingRun(row: unknown): Row {
+  const item = record(row);
+  const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations)
+    ? result.candidate_evaluations.slice(0, 50).map((candidate) => {
+      const value = record(candidate);
+      const path = record(value.decision_path);
+      return {
+        candidate_id: text(value.candidate_id, "unknown_candidate"),
+        disposition: text(value.disposition),
+        strategic_intervention: text(value.strategic_intervention),
+        prerequisites: Array.isArray(value.prerequisites) ? value.prerequisites.slice(0, 30) : [],
+        blockers: strings(value.current_blockers),
+        sequence_steps: Array.isArray(value.sequence_steps) ? value.sequence_steps.slice(0, 30) : [],
+        gates: Array.isArray(value.gates) ? value.gates.slice(0, 30) : [],
+        now: strings(path.now),
+        why_first: strings(path.why_first),
+        then: strings(path.then),
+        if_branches: strings(path.if_branches),
+        if_not_branches: strings(path.if_not_branches),
+        parallel: strings(path.parallel),
+        not_yet: strings(path.not_yet),
+        wait: strings(path.wait),
+        exit_conditions: strings(path.exit_conditions),
+        unknowns: strings(value.unresolved_unknowns),
+        reason_codes: strings(value.reason_codes),
+      };
+    })
+    : [];
+  return {
+    disposition: text(item.disposition ?? result.disposition),
+    candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length,
+    primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id),
+    candidates,
+    unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
+    reason_codes: strings(item.reason_codes ?? result.reason_codes),
+    source_refs: strings(item.source_refs ?? result.source_refs),
+    as_of: text(item.as_of, "unknown_date"),
+    execution_authorized: false,
+    selection: "decision path only; F7.07 no crea tareas, fechas, owners ni autoriza ejecucion",
+  };
+}
+
+export function summarizeInterventionTestExecuteRun(row: unknown): Row {
+  const item = record(row);
+  const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations)
+    ? result.candidate_evaluations.slice(0, 50).map((candidate) => {
+      const value = record(candidate);
+      const path = record(value.decision_path);
+      const outcome = record(value.outcome_interpretation);
+      return {
+        candidate_id: text(value.candidate_id, "unknown_candidate"),
+        candidate_intervention: text(value.candidate_intervention),
+        recommended_mode: text(value.recommended_mode),
+        rationale: strings(value.rationale),
+        hypothesis: text(value.hypothesis),
+        learning_question: text(value.learning_question),
+        primary_outcome: text(value.primary_outcome),
+        guardrail_outcomes: strings(value.guardrail_outcomes),
+        measurement_requirement: text(value.measurement_requirement),
+        exposure_mode: text(value.exposure_mode),
+        pilot_scope: text(value.pilot_scope),
+        observation_requirement: text(value.observation_requirement),
+        observation_state: text(value.observation_state),
+        evidence_reuse: text(value.evidence_reuse),
+        transferability_caveat: text(value.transferability_caveat),
+        experiment_cost: text(value.experiment_cost),
+        experimentability: text(value.experimentability),
+        contamination: strings(value.contamination),
+        decision_after_result: strings(value.decision_after_result),
+        why_now: strings(path.why_now),
+        why_not_direct: strings(path.why_not_direct),
+        why_not_test: strings(path.why_not_test),
+        preconditions: strings(path.preconditions),
+        after_result: strings(path.after_result),
+        handoff: strings(path.handoff),
+        positive: strings(outcome.positive),
+        negative: strings(outcome.negative),
+        inconclusive: strings(outcome.inconclusive),
+        unknowns: strings(value.unresolved_unknowns),
+        reason_codes: strings(value.reason_codes),
+      };
+    })
+    : [];
+  return {
+    disposition: text(item.disposition ?? result.disposition),
+    candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length,
+    primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id),
+    candidates,
+    unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
+    reason_codes: strings(item.reason_codes ?? result.reason_codes),
+    source_refs: strings(item.source_refs ?? result.source_refs),
+    as_of: text(item.as_of, "unknown_date"),
+    execution_authorized: false,
+    selection: "mode decision only; F7.08 no lanza tests, cambia produccion ni autoriza ejecucion",
+  };
+}
+
+export function summarizeInterventionIntensityRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations) ? result.candidate_evaluations.slice(0, 50).map((candidate) => { const value = record(candidate); const path = record(value.decision_path); return { candidate_id: text(value.candidate_id, "unknown_candidate"), selected_intervention: text(value.selected_intervention), recommended_mode: text(value.recommended_mode), magnitude: text(value.magnitude), scope: text(value.scope), velocity: text(value.velocity), duration: text(value.duration), bet_size: text(value.bet_size), minimum_effective_exposure: text(value.minimum_effective_exposure), maximum_safe_exposure: text(value.maximum_safe_exposure), current_limiter: text(value.current_limiter), ramp_logic: strings(value.ramp_logic), observation_requirement: text(value.observation_requirement), escalation_condition: strings(value.escalation_condition), reduction_condition: strings(value.reduction_condition), strategic_meaning_shift: text(value.strategic_meaning_shift), why_this_size: strings(path.why_this_size), limiter: strings(path.limiter), next_observation: strings(path.next_observation), if_improves: strings(path.if_improves), if_deteriorates: strings(path.if_deteriorates), if_capacity_tightens: strings(path.if_capacity_tightens), handoff: strings(path.handoff), unknowns: strings(value.unresolved_unknowns), reason_codes: strings(value.rationale) }; }) : [];
+  return { disposition: text(item.disposition ?? result.disposition), candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length, primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id), candidates, unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "intensity profile only; F7.09 no fija porcentajes, presupuestos ni autoriza ejecucion" };
+}
+
+export function summarizeMaturityRecommendationRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations) ? result.candidate_evaluations.slice(0, 50).map((candidate) => { const value = record(candidate); return { candidate_id: text(value.candidate_id, "unknown_candidate"), selected_intervention: text(value.selected_intervention), functional_maturity: text(value.functional_maturity), recommended_mode: text(value.recommended_mode), complexity_decision: text(value.complexity_decision), timing_fit: text(value.timing_fit), current_recommendation: text(value.current_recommendation), deferred_recommendation: text(value.deferred_recommendation), not_yet_reason: text(value.not_yet_reason), missing_capability: text(value.missing_capability), capability_building_recommendation: text(value.capability_building_recommendation), maturity_unlock: strings(value.maturity_unlock), evidence_standard: text(value.evidence_standard), unknowns: strings(value.unresolved_unknowns), reason_codes: strings(value.rationale) }; }) : [];
+  return { disposition: text(item.disposition ?? result.disposition), candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length, primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id), candidates, unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "maturity-adjusted recommendation only; F7.10 no puntúa madurez, no usa revenue/tooling como proxy y no autoriza ejecución" };
+}
+
+export function summarizeConstraintRecommendationRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations) ? result.candidate_evaluations.slice(0, 50).map((candidate) => { const value = record(candidate); return { candidate_id: text(value.candidate_id, "unknown_candidate"), desired_intervention: text(value.desired_intervention), binding_constraint: text(value.binding_constraint), recommended_mode: text(value.recommended_mode), feasibility_disposition: text(value.feasibility_disposition), timing_fit: text(value.timing_fit), best_feasible_recommendation: text(value.best_feasible_recommendation), minimum_viable_intervention: text(value.minimum_viable_intervention), alternative_mechanism: text(value.alternative_mechanism), enabling_recommendation: text(value.enabling_recommendation), deferred_action: text(value.deferred_action), activation_trigger: text(value.activation_trigger), expected_outcome_adjustment: text(value.expected_outcome_adjustment), feasibility_confidence: text(value.feasibility_confidence), next_constraint_to_monitor: text(value.next_constraint_to_monitor), unknowns: strings(value.unresolved_unknowns), reason_codes: strings(value.rationale) }; }) : [];
+  return { disposition: text(item.disposition ?? result.disposition), candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length, primary_priority_candidate_id: text(item.primary_priority_candidate_id ?? result.primary_priority_candidate_id), candidates, unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "constraint-adjusted recommendation only; F7.11 no asigna recursos, no cambia budgets/capacidad y no autoriza ejecución" };
+}
+
+export function summarizeRecommendationPortfolioRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  const candidates = Array.isArray(result.candidate_evaluations) ? result.candidate_evaluations.slice(0, 50).map((candidate) => { const value = record(candidate); return { candidate_id: text(value.candidate_id, "unknown_candidate"), role: text(value.role), selection_status: text(value.selection_status), role_reason: text(value.role_reason), sequence_position: text(value.sequence_position), intervention: text(value.intervention), expected_outcome: text(value.expected_outcome), shared_resources: strings(value.shared_resources), dependencies: strings(value.dependencies), unknowns: strings(value.unresolved_unknowns), reason_codes: strings(value.rationale) }; }) : [];
+  return { disposition: text(item.disposition ?? result.disposition), candidate_count: typeof item.candidate_count === "number" ? item.candidate_count : candidates.length, primary_candidate_id: text(item.primary_candidate_id ?? result.primary_candidate_id), dominant_priority: text(result.dominant_priority), strategic_objective: text(result.strategic_objective), portfolio_feasibility: text(result.portfolio_feasibility), portfolio_risk: text(result.portfolio_risk), portfolio_narrative: text(result.portfolio_narrative), active_candidate_ids: strings(result.active_candidate_ids), deferred_candidate_ids: strings(result.deferred_candidate_ids), excluded_candidate_ids: strings(result.excluded_candidate_ids), explicit_exclusions: strings(result.explicit_exclusions), sequence: strings(result.sequence), conditional_branches: strings(result.conditional_branches), aggregate_resource_load: strings(result.aggregate_resource_load), candidates, unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "portfolio roles and sequencing only; F7.12 no optimiza, no asigna recursos, no fija WIP y no autoriza ejecucion" };
+}
+
+export function summarizeDynamicDecisionRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  const units = Array.isArray(result.unit_decisions) ? result.unit_decisions.slice(0, 50).map((unit) => { const value = record(unit); return { unit_id: text(value.unit_id, "unknown_unit"), decision: text(value.decision), decision_qualifiers: strings(value.decision_qualifiers), decision_scope: text(value.decision_scope), rationale: text(value.rationale), why_not_alternatives: strings(value.why_not_alternatives), current_exposure_recommendation: text(value.current_exposure_recommendation), scale_direction: text(value.scale_direction), scale_limit: text(value.scale_limit), stop_scope: text(value.stop_scope), rollback_target: text(value.rollback_target), fix_forward_alternative: text(value.fix_forward_alternative), observation_focus: strings(value.observation_focus), next_evidence_needed: strings(value.next_evidence_needed), decision_trigger: text(value.decision_trigger), resource_reallocation_implication: text(value.resource_reallocation_implication), portfolio_consequence: text(value.portfolio_consequence), learning_capture: text(value.learning_capture), decision_confidence: text(value.decision_confidence), unknowns: strings(value.unresolved_unknowns), quality_flags: strings(value.quality_flags) }; }) : [];
+  return { disposition: text(item.disposition ?? result.disposition), overall_decision: text(item.overall_decision ?? result.overall_decision), unit_count: typeof item.unit_count === "number" ? item.unit_count : units.length, units, stop_unit_ids: strings(result.stop_unit_ids), continue_unit_ids: strings(result.continue_unit_ids), scale_unit_ids: strings(result.scale_unit_ids), rollback_unit_ids: strings(result.rollback_unit_ids), next_evidence_needed: strings(result.next_evidence_needed), portfolio_implications: strings(result.portfolio_implications), learning_capture: strings(result.learning_capture), unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "decision update only; F7.13 no monitoriza, no hace rollback, no cambia budgets y no autoriza ejecucion" };
+}
+
+export function summarizeRestraintDecisionRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  return { disposition: text(item.disposition ?? result.disposition), decision: text(item.decision ?? result.decision), scope: text(item.scope ?? result.scope), rationale: text(result.rationale), what_we_know: strings(result.what_we_know), what_we_do_not_know: strings(result.what_we_do_not_know), what_not_to_change: strings(result.what_not_to_change), wait_reason: text(result.wait_reason), review_condition: text(result.review_condition), future_trigger: strings(result.future_trigger), decision_critical_question: text(result.decision_critical_question), evidence_needed: strings(result.evidence_needed), evidence_path: strings(result.evidence_path), completion_condition: text(result.completion_condition), action_after_evidence: strings(result.action_after_evidence), cost_of_delay_consideration: text(result.cost_of_delay_consideration), confidence_limitation: text(result.confidence_limitation), status_quo_assessment: text(result.status_quo_assessment), action_risk: text(result.action_risk), inaction_risk: text(result.inaction_risk), decision_sufficiency: text(result.decision_sufficiency), information_value: text(result.information_value), collection_cost: text(result.collection_cost), delay_cost: text(result.delay_cost), portfolio_consequence: text(result.portfolio_consequence), learning_capture: text(result.learning_capture), unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "restraint decision only; F7.14 no monitoriza, no investiga automáticamente, no programa revisiones y no ejecuta cambios" };
+}
+
+export function summarizeExpectedOutcomeRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  return { disposition: text(item.disposition ?? result.disposition), scope: text(item.scope ?? result.scope), causal_thesis: text(result.causal_thesis), recommendation: text(result.recommendation), mechanism_outcome: strings(result.mechanism_outcome), behavior_system_outcome: strings(result.behavior_system_outcome), business_outcome: strings(result.business_outcome), strategic_outcome: strings(result.strategic_outcome), direction: text(result.direction), magnitude: text(result.magnitude), outcome_confidence: text(result.outcome_confidence), outcome_horizon: text(result.outcome_horizon), direct_outcome: strings(result.direct_outcome), indirect_outcome: strings(result.indirect_outcome), known_downside: strings(result.known_downside), primary_success_criterion: text(result.primary_success_criterion), mechanism_evidence: strings(result.mechanism_evidence), guardrails: strings(result.guardrails), materiality: text(result.materiality), baseline_counterfactual: text(result.baseline_counterfactual), incrementality: text(result.incrementality), economic_meaning: text(result.economic_meaning), sustainability: text(result.sustainability), repeatability: text(result.repeatability), scalability: text(result.scalability), durability: text(result.durability), adoption_fidelity: text(result.adoption_fidelity), maintenance_cost: text(result.maintenance_cost), failure_evidence: strings(result.failure_evidence), ambiguous_evidence: strings(result.ambiguous_evidence), scale_criterion: text(result.scale_criterion), continue_criterion: text(result.continue_criterion), stop_criterion: text(result.stop_criterion), rollback_criterion: text(result.rollback_criterion), evaluation_level: text(result.evaluation_level), completion_condition: text(result.completion_condition), graduation_condition: text(result.graduation_condition), quality_flags: strings(result.quality_flags), unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "expected outcome and criteria only; F7.15 no monitoriza, no evalua KPIs automaticamente, no emite alertas y no ejecuta cambios" };
+}
+
+export function summarizeRecommendationConfidenceRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  return { disposition: text(item.disposition ?? result.disposition), scope: text(item.scope ?? result.scope), recommendation: text(result.recommendation), diagnosis_confidence: text(result.diagnosis_confidence), cause_confidence: text(result.cause_confidence), recommendation_confidence: text(result.recommendation_confidence), mechanism_confidence: text(result.mechanism_confidence), impact_direction_confidence: text(result.impact_direction_confidence), impact_magnitude_confidence: text(result.impact_magnitude_confidence), risk_confidence: text(result.risk_confidence), attribution_confidence: text(result.attribution_confidence), execution_confidence: text(result.execution_confidence), temporal_confidence: text(result.temporal_confidence), durability_confidence: text(result.durability_confidence), scale_confidence: text(result.scale_confidence), transferability_confidence: text(result.transferability_confidence), main_confidence_driver: text(result.main_confidence_driver), main_uncertainty: text(result.main_uncertainty), contradictory_evidence: strings(result.contradictory_evidence), confidence_rationale: text(result.confidence_rationale), commitment_scope: text(result.commitment_scope), commitment_magnitude: text(result.commitment_magnitude), commitment_velocity: text(result.commitment_velocity), commitment_duration: text(result.commitment_duration), recommendation_form: text(result.recommendation_form), action_implication: text(result.action_implication), layer_update: text(result.layer_update), layer_update_effect: text(result.layer_update_effect), evidence_integrity: text(result.evidence_integrity), transfer_context: text(result.transfer_context), quality_flags: strings(result.quality_flags), unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "confidence calibration only; F7.17 no percentages, no score, no automatic update and no execution" };
+}
+
+export function summarizeRecommendationCommunicationRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  return { disposition: text(item.disposition ?? result.disposition), scope: text(item.scope ?? result.scope), primary_recommendation: text(item.primary_recommendation ?? result.primary_recommendation), reason: text(result.reason), why_now: text(result.why_now), what_not_to_do: strings(result.what_not_to_do), expected_outcome: text(result.expected_outcome), main_risk: text(result.main_risk), main_uncertainty: text(result.main_uncertainty), priority_role: text(result.priority_role), recommendation_strength: text(result.recommendation_strength), recommendation_stage: text(result.recommendation_stage), value_type: text(result.value_type), temporary_or_structural: text(result.temporary_or_structural), audience: text(result.audience), confidence_language: text(result.confidence_language), fact_evidence: strings(result.fact_evidence), inference_evidence: strings(result.inference_evidence), strongest_evidence: strings(result.strongest_evidence), conflicting_evidence: strings(result.conflicting_evidence), success_signal: text(result.success_signal), invalidating_condition: text(result.invalidating_condition), next_decision: text(result.next_decision), sequence: strings(result.sequence), dependencies: strings(result.dependencies), constraints: strings(result.constraints), commitment_scope: text(result.commitment_scope), commitment_magnitude: text(result.commitment_magnitude), commitment_velocity: text(result.commitment_velocity), commitment_duration: text(result.commitment_duration), action_implication: text(result.action_implication), quality_flags: strings(result.quality_flags), unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), reason_codes: strings(item.reason_codes ?? result.reason_codes), source_refs: strings(item.source_refs ?? result.source_refs), as_of: text(item.as_of, "unknown_date"), execution_authorized: false, selection: "solo comunicación; F7.18 comprime decisión, no ejecuta ni autoriza cambios" };
+}
+
+export function summarizeHitlApprovalRun(row: unknown): Row {
+  const item = record(row);
+  const result = record(item.result);
+  return {
+    action_id: text(item.action_id ?? result.action_id),
+    disposition: text(item.disposition ?? result.disposition),
+    autonomy_level: text(item.autonomy_level ?? result.autonomy_level),
+    approval_requirement: text(item.approval_requirement ?? result.approval_requirement),
+    approval_gate: item.approval_gate === true || result.approval_gate === true,
+    approval_state: text(item.approval_state ?? result.approval_state),
+    approval_freshness: text(result.approval_freshness),
+    execution_state: text(item.execution_state ?? result.execution_state),
+    escalation_required: result.escalation_required === true,
+    escalation_reasons: strings(result.escalation_reasons),
+    required_approver_type: text(result.required_approver_type),
+    required_approval_tier: text(result.required_approval_tier),
+    approval_scope: text(result.approval_scope),
+    unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
+    reason_codes: strings(item.reason_codes ?? result.reason_codes),
+    source_refs: strings(item.source_refs ?? result.source_refs),
+    as_of: text(item.as_of, "unknown_date"),
+    execution_authorized: false,
+    selection: "HITL F8.02 decide supervisión y gate; nunca confunde aprobación con ejecución",
+  };
+}
+
 export function buildDecisionPlaybookContextBlocks(input: {
   decisionContext?: unknown;
   decisionOutput?: unknown;
@@ -269,6 +589,22 @@ export function buildDecisionPlaybookContextBlocks(input: {
   temporalDiagnoses?: unknown[];
   interventionEligibilityRuns?: unknown[];
   interventionMatchingRuns?: unknown[];
+  interventionPrioritizationRuns?: unknown[];
+  interventionImpactRuns?: unknown[];
+  interventionFeasibilityRuns?: unknown[];
+  interventionRiskRuns?: unknown[];
+  interventionSequencingRuns?: unknown[];
+  interventionTestExecuteRuns?: unknown[];
+  interventionIntensityRuns?: unknown[];
+  maturityRecommendationRuns?: unknown[];
+  constraintRecommendationRuns?: unknown[];
+  recommendationPortfolioRuns?: unknown[];
+  dynamicDecisionRuns?: unknown[];
+  restraintDecisionRuns?: unknown[];
+  expectedOutcomeRuns?: unknown[];
+  recommendationConfidenceRuns?: unknown[];
+  recommendationCommunicationRuns?: unknown[];
+  hitlApprovalRuns?: unknown[];
 }): ConsultantChatContextBlock[] {
   const blocks: ConsultantChatContextBlock[] = [];
   const diagnosticOutputs = input.diagnosticOutputs ?? [];
@@ -356,6 +692,119 @@ export function buildDecisionPlaybookContextBlocks(input: {
       ? matchingRuns.map(summarizeInterventionMatchingRun)
       : "sin_evaluaciones_de_matching; no inventar encaje causal ni candidatos",
   });
+  const prioritizationRuns = input.interventionPrioritizationRuns ?? [];
+  blocks.push({
+    label:
+      "F7.03 PRIORIZACIÓN (prioridad principal cualitativa; no es autorización de ejecución)",
+    data: prioritizationRuns.length
+      ? prioritizationRuns.map(summarizeInterventionPrioritizationRun)
+      : "sin_evaluaciones_de_priorizacion; no inventar una prioridad entre intervenciones",
+  });
+  const impactRuns = input.interventionImpactRuns ?? [];
+  blocks.push({
+    label: "F7.04 IMPACTO ESPERADO (expectativa trazable; no es garantía ni autorización de ejecución)",
+    data: impactRuns.length
+      ? impactRuns.map(summarizeInterventionImpactRun)
+      : "sin_evaluaciones_de_impacto_esperado; no inventar impacto, magnitud ni resultado",
+  });
+  const feasibilityRuns = input.interventionFeasibilityRuns ?? [];
+  blocks.push({
+    label: "F7.05 FACTIBILIDAD (recursos, coste y esfuerzo separados; no es presupuesto ni autorización)",
+    data: feasibilityRuns.length
+      ? feasibilityRuns.map(summarizeInterventionFeasibilityRun)
+      : "sin_evaluaciones_de_factibilidad; no inventar capacidad, coste, esfuerzo ni bottleneck",
+  });
+  const riskRuns = input.interventionRiskRuns ?? [];
+  blocks.push({
+    label: "F7.06 RIESGO Y REVERSIBILIDAD (ejes cualitativos separados; no es score ni autorizacion)",
+    data: riskRuns.length
+      ? riskRuns.map(summarizeInterventionRiskRun)
+      : "sin_evaluaciones_de_riesgo; no inventar downside, exposicion, reversibilidad ni coste del error",
+  });
+  const sequencingRuns = input.interventionSequencingRuns ?? [];
+  blocks.push({
+    label: "F7.07 SECUENCIACIÓN Y DEPENDENCIAS (camino condicional; no es plan de tareas ni autorización)",
+    data: sequencingRuns.length
+      ? sequencingRuns.map(summarizeInterventionSequencingRun)
+      : "sin_evaluaciones_de_secuenciacion; no inventar prerequisites, blockers, gates ni parallel tracks",
+  });
+  const testExecuteRuns = input.interventionTestExecuteRuns ?? [];
+  blocks.push({
+    label: "F7.08 TEST VS EXECUTE (modo cualitativo; no lanza experimentos ni autoriza ejecución)",
+    data: testExecuteRuns.length
+      ? testExecuteRuns.map(summarizeInterventionTestExecuteRun)
+      : "sin_evaluaciones_de_test_vs_execute; no inventar modo, hipotesis, evidencia ni autorizacion",
+  });
+  const intensityRuns = input.interventionIntensityRuns ?? [];
+  blocks.push({
+    label: "F7.09 INTENSIDAD (magnitude/scope/velocity/duration; no es presupuesto ni autorización)",
+    data: intensityRuns.length
+      ? intensityRuns.map(summarizeInterventionIntensityRun)
+      : "sin_evaluaciones_de_intensidad; no inventar magnitud, scope, velocity, duration ni limiter",
+  });
+  const maturityRecommendationRuns = input.maturityRecommendationRuns ?? [];
+  blocks.push({
+    label: "F7.10 RECOMENDACIONES POR MADUREZ (now/later y capability previa; no es score ni autorización)",
+    data: maturityRecommendationRuns.length
+      ? maturityRecommendationRuns.map(summarizeMaturityRecommendationRun)
+      : "sin_evaluaciones_de_madurez; no inventar readiness, capability faltante ni complejidad absorbible",
+  });
+  const constraintRecommendationRuns = input.constraintRecommendationRuns ?? [];
+  blocks.push({
+    label: "F7.11 RECOMENDACIONES BAJO RESTRICCIONES (binding constraint y acción factible; no es allocator ni autorización)",
+    data: constraintRecommendationRuns.length
+      ? constraintRecommendationRuns.map(summarizeConstraintRecommendationRun)
+      : "sin_evaluaciones_de_restricciones; no inventar binding constraint, capacidad de éxito ni adaptación",
+  });
+  const recommendationPortfolioRuns = input.recommendationPortfolioRuns ?? [];
+  blocks.push({
+    label: "F7.12 PORTAFOLIO DE RECOMENDACIONES (roles, cartera minima y diferidos; no es optimizer ni autorizacion)",
+    data: recommendationPortfolioRuns.length
+      ? recommendationPortfolioRuns.map(summarizeRecommendationPortfolioRun)
+      : "sin_evaluaciones_de_portafolio; no inventar Primary, roles, capacidad agregada ni exclusiones",
+  });
+  const dynamicDecisionRuns = input.dynamicDecisionRuns ?? [];
+  blocks.push({
+    label: "F7.13 STOP / CONTINUE / SCALE / ROLLBACK (actualización de decisión; no ejecuta cambios)",
+    data: dynamicDecisionRuns.length
+      ? dynamicDecisionRuns.map(summarizeDynamicDecisionRun)
+      : "sin_evaluaciones_de_decision_dinamica; no inventar outcome, fidelidad, rollback ni readiness",
+  });
+  const restraintDecisionRuns = input.restraintDecisionRuns ?? [];
+  blocks.push({
+    label: "F7.14 NO-ACTION / WAIT / GATHER EVIDENCE (decisión de exposición; no ejecuta cambios)",
+    data: restraintDecisionRuns.length
+      ? restraintDecisionRuns.map(summarizeRestraintDecisionRun)
+      : "sin_evaluaciones_de_restraint_decision; no inventar timing, coste de espera, frontera de decisión ni evidencia necesaria",
+  });
+  const expectedOutcomeRuns = input.expectedOutcomeRuns ?? [];
+  blocks.push({
+    label: "F7.15 EXPECTED OUTCOME Y SUCCESS CRITERIA (tesis y criterios observables; no monitoriza)",
+    data: expectedOutcomeRuns.length
+      ? expectedOutcomeRuns.map(summarizeExpectedOutcomeRun)
+      : "sin_evaluaciones_de_expected_outcome; no inventar magnitud, criterio de éxito, guardrail o readiness de escala",
+  });
+  const recommendationConfidenceRuns = input.recommendationConfidenceRuns ?? [];
+  blocks.push({
+    label: "F7.17 CONFIANZA CALIBRADA (dimensiones separadas; no es score ni autorización)",
+    data: recommendationConfidenceRuns.length
+      ? recommendationConfidenceRuns.map(summarizeRecommendationConfidenceRun)
+      : "sin_evaluaciones_de_confianza; no inventar certeza, score, porcentaje ni compromiso",
+  });
+  const recommendationCommunicationRuns = input.recommendationCommunicationRuns ?? [];
+  blocks.push({
+    label: "F7.18 COMUNICACIÓN DE RECOMENDACIONES (decisión primero; no es ejecución ni autorización)",
+    data: recommendationCommunicationRuns.length
+      ? recommendationCommunicationRuns.map(summarizeRecommendationCommunicationRun)
+      : "sin_evaluaciones_de_comunicacion; no inventar recomendación principal, why now, outcome, riesgo ni siguiente decisión",
+  });
+  const hitlApprovalRuns = input.hitlApprovalRuns ?? [];
+  blocks.push({
+    label: "F8.02 HITL Y APROBACIÓN (gate y autonomía; no es ejecución)",
+    data: hitlApprovalRuns.length
+      ? hitlApprovalRuns.map(summarizeHitlApprovalRun)
+      : "sin_evaluaciones_hitl; no inventar autoridad, aprobación, autonomía ni permiso de ejecución",
+  });
   return blocks;
 }
 
@@ -370,7 +819,7 @@ export async function loadDecisionPlaybookContextBlocks(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<ConsultantChatContextBlock[]> {
-  const [diagnosticCaseResult, diagnosticOutputResult, robustnessResult, temporalResult, contextResult, outputResult, playbookResult, eligibilityResult, matchingResult] = await Promise.all([
+  const [diagnosticCaseResult, diagnosticOutputResult, robustnessResult, temporalResult, contextResult, outputResult, playbookResult, eligibilityResult, matchingResult, prioritizationResult, impactResult, feasibilityResult, riskResult, sequencingResult, testExecuteResult, intensityResult, maturityRecommendationResult, constraintRecommendationResult, recommendationPortfolioResult, dynamicDecisionResult, restraintDecisionResult, expectedOutcomeResult, recommendationConfidenceResult, recommendationCommunicationResult, hitlApprovalResult] = await Promise.all([
     supabase
       .from("diagnostic_cases")
       .select(
@@ -447,6 +896,102 @@ export async function loadDecisionPlaybookContextBlocks(
       .eq("organization_id", organizationId)
       .order("evaluated_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("intervention_prioritization_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("intervention_impact_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("intervention_feasibility_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("intervention_risk_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("intervention_sequencing_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("intervention_test_execute_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("intervention_intensity_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("maturity_recommendation_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("constraint_recommendation_runs")
+      .select("organization_id, disposition, candidate_count, primary_priority_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("recommendation_portfolio_runs")
+      .select("organization_id, disposition, candidate_count, primary_candidate_id, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("dynamic_decision_runs")
+      .select("organization_id, disposition, unit_count, overall_decision, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("restraint_decision_runs")
+      .select("organization_id, disposition, decision, scope, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("expected_outcome_runs")
+      .select("organization_id, disposition, scope, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("recommendation_confidence_runs")
+      .select("organization_id, disposition, scope, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("recommendation_communication_runs")
+      .select("organization_id, disposition, scope, primary_recommendation, as_of, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("hitl_approval_assessment_runs")
+      .select("organization_id, action_id, as_of, evaluated_at, disposition, autonomy_level, approval_requirement, approval_state, approval_gate, execution_state, unresolved_unknowns, reason_codes, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
   ]);
 
   const blocks = buildDecisionPlaybookContextBlocks({
@@ -477,6 +1022,54 @@ export async function loadDecisionPlaybookContextBlocks(
     interventionMatchingRuns: matchingResult.error
       ? []
       : tenantRows(matchingResult.data, organizationId),
+    interventionPrioritizationRuns: prioritizationResult.error
+      ? []
+      : tenantRows(prioritizationResult.data, organizationId),
+    interventionImpactRuns: impactResult.error
+      ? []
+      : tenantRows(impactResult.data, organizationId),
+    interventionFeasibilityRuns: feasibilityResult.error
+      ? []
+      : tenantRows(feasibilityResult.data, organizationId),
+    interventionRiskRuns: riskResult.error
+      ? []
+      : tenantRows(riskResult.data, organizationId),
+    interventionSequencingRuns: sequencingResult.error
+      ? []
+      : tenantRows(sequencingResult.data, organizationId),
+    interventionTestExecuteRuns: testExecuteResult.error
+      ? []
+      : tenantRows(testExecuteResult.data, organizationId),
+    interventionIntensityRuns: intensityResult.error
+      ? []
+      : tenantRows(intensityResult.data, organizationId),
+    maturityRecommendationRuns: maturityRecommendationResult.error
+      ? []
+      : tenantRows(maturityRecommendationResult.data, organizationId),
+    constraintRecommendationRuns: constraintRecommendationResult.error
+      ? []
+      : tenantRows(constraintRecommendationResult.data, organizationId),
+    recommendationPortfolioRuns: recommendationPortfolioResult.error
+      ? []
+      : tenantRows(recommendationPortfolioResult.data, organizationId),
+    dynamicDecisionRuns: dynamicDecisionResult.error
+      ? []
+      : tenantRows(dynamicDecisionResult.data, organizationId),
+    restraintDecisionRuns: restraintDecisionResult.error
+      ? []
+      : tenantRows(restraintDecisionResult.data, organizationId),
+    expectedOutcomeRuns: expectedOutcomeResult.error
+      ? []
+      : tenantRows(expectedOutcomeResult.data, organizationId),
+    recommendationConfidenceRuns: recommendationConfidenceResult.error
+      ? []
+      : tenantRows(recommendationConfidenceResult.data, organizationId),
+    recommendationCommunicationRuns: recommendationCommunicationResult.error
+      ? []
+      : tenantRows(recommendationCommunicationResult.data, organizationId),
+    hitlApprovalRuns: hitlApprovalResult.error
+      ? []
+      : tenantRows(hitlApprovalResult.data, organizationId),
   });
   if (diagnosticCaseResult.error || diagnosticOutputResult.error || robustnessResult.error || temporalResult.error) {
     blocks[0] = unavailableBlock(
@@ -505,6 +1098,56 @@ export async function loadDecisionPlaybookContextBlocks(
     blocks[5] = unavailableBlock(
       blocks[5]?.label ?? "F7.02 MATCHING",
     );
+  }
+  if (prioritizationResult.error) {
+    blocks[6] = unavailableBlock(
+      blocks[6]?.label ?? "F7.03 PRIORIZACIÓN",
+    );
+  }
+  if (impactResult.error) {
+    blocks[7] = unavailableBlock(blocks[7]?.label ?? "F7.04 IMPACTO ESPERADO");
+  }
+  if (feasibilityResult.error) {
+    blocks[8] = unavailableBlock(blocks[8]?.label ?? "F7.05 FACTIBILIDAD");
+  }
+  if (riskResult.error) {
+    blocks[9] = unavailableBlock(blocks[9]?.label ?? "F7.06 RIESGO Y REVERSIBILIDAD");
+  }
+  if (sequencingResult.error) {
+    blocks[10] = unavailableBlock(blocks[10]?.label ?? "F7.07 SECUENCIACIÓN Y DEPENDENCIAS");
+  }
+  if (testExecuteResult.error) {
+    blocks[11] = unavailableBlock(blocks[11]?.label ?? "F7.08 TEST VS EXECUTE");
+  }
+  if (intensityResult.error) {
+    blocks[12] = unavailableBlock(blocks[12]?.label ?? "F7.09 INTENSIDAD");
+  }
+  if (maturityRecommendationResult.error) {
+    blocks[13] = unavailableBlock(blocks[13]?.label ?? "F7.10 RECOMENDACIONES POR MADUREZ");
+  }
+  if (constraintRecommendationResult.error) {
+    blocks[14] = unavailableBlock(blocks[14]?.label ?? "F7.11 RECOMENDACIONES BAJO RESTRICCIONES");
+  }
+  if (recommendationPortfolioResult.error) {
+    blocks[15] = unavailableBlock(blocks[15]?.label ?? "F7.12 PORTAFOLIO DE RECOMENDACIONES");
+  }
+  if (dynamicDecisionResult.error) {
+    blocks[16] = unavailableBlock(blocks[16]?.label ?? "F7.13 STOP / CONTINUE / SCALE / ROLLBACK");
+  }
+  if (restraintDecisionResult.error) {
+    blocks[17] = unavailableBlock(blocks[17]?.label ?? "F7.14 NO-ACTION / WAIT / GATHER EVIDENCE");
+  }
+  if (expectedOutcomeResult.error) {
+    blocks[18] = unavailableBlock(blocks[18]?.label ?? "F7.15 EXPECTED OUTCOME Y SUCCESS CRITERIA");
+  }
+  if (recommendationConfidenceResult.error) {
+    blocks[19] = unavailableBlock(blocks[19]?.label ?? "F7.17 CONFIANZA CALIBRADA");
+  }
+  if (recommendationCommunicationResult.error) {
+    blocks[20] = unavailableBlock(blocks[20]?.label ?? "F7.18 COMUNICACIÓN DE RECOMENDACIONES");
+  }
+  if (hitlApprovalResult.error) {
+    blocks[21] = unavailableBlock(blocks[21]?.label ?? "F8.02 HITL Y APROBACIÓN");
   }
   return blocks;
 }
