@@ -2,8 +2,6 @@ name: decision-impact-p04
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 5 * * *"
 
 jobs:
   verify-and-run:

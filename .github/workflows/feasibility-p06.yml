@@ -1,8 +1,6 @@
 name: feasibility-p06
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "37 5 * * *"
 jobs:
   verify-and-run:
     runs-on: ubuntu-latest

@@ -1,8 +1,6 @@
 name: Retention CRM benchmarks P07
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "55 3 * * *"
 jobs:
   run:
     runs-on: ubuntu-latest

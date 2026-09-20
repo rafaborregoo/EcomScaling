@@ -1,8 +1,6 @@
 name: Operations CX benchmarks P09
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "25 4 * * *"
 jobs:
   run:
     runs-on: ubuntu-latest

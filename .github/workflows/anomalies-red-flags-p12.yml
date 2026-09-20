@@ -2,8 +2,6 @@ name: anomalies-red-flags-p12
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "5 5 * * *"
 
 jobs:
   anomalies-red-flags:

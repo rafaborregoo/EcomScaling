@@ -2,8 +2,6 @@ name: scalability-benchmarks-p11
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "50 4 * * *"
 
 jobs:
   scalability-benchmarks:

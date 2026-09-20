@@ -1,8 +1,6 @@
 name: Unit economics benchmarks P08
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "15 4 * * *"
 jobs:
   run:
     runs-on: ubuntu-latest

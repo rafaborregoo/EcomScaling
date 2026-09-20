@@ -1,8 +1,6 @@
 name: Offer pricing benchmarks P06
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "45 3 * * *"
 jobs:
   run:
     runs-on: ubuntu-latest
