@@ -66,7 +66,7 @@ export const hitlPreApprovalSchema = z.object({
   conditions: refs,
   scope: text,
   limits: refs,
-  valid_until: z.string().datetime().nullable(),
+  valid_until: z.string().datetime({ offset: true }).nullable(),
   revoked: z.boolean(),
 });
 
@@ -91,8 +91,8 @@ export const hitlExistingApprovalSchema = z.object({
   approved_scope: text,
   approved_version: text,
   conditions: refs,
-  valid_until: z.string().datetime().nullable(),
-  approved_at: z.string().datetime().nullable(),
+  valid_until: z.string().datetime({ offset: true }).nullable(),
+  approved_at: z.string().datetime({ offset: true }).nullable(),
   freshness_ok: z.boolean(),
   authority_valid: z.boolean(),
   revoked: z.boolean(),
@@ -155,7 +155,7 @@ export const hitlApprovalResultSchema = z.object({
   approval_package: hitlApprovalPackageSchema,
   approval_scope: text,
   approval_conditions: refs,
-  approval_valid_until: z.string().datetime().nullable(),
+  approval_valid_until: z.string().datetime({ offset: true }).nullable(),
   approval_freshness: z.enum(["NOT_APPLICABLE", "CURRENT", "STALE", "UNKNOWN"]),
   revocation_status: z.enum(["NOT_APPLICABLE", "ACTIVE", "REVOKED", "UNKNOWN"]),
   escalation_required: z.boolean(),
@@ -234,4 +234,3 @@ export function evaluateHitlApproval(raw: HitlApprovalInput, evaluatedAt = new D
   };
   return hitlApprovalResultSchema.parse(result);
 }
-
