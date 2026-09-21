@@ -22,7 +22,9 @@ const components: Components = {
     </h3>
   ),
   p: ({ children }) => (
-    <p className="mb-3 text-sm leading-6 text-foreground last:mb-0">{children}</p>
+    <p className="mb-3 text-sm leading-6 text-foreground last:mb-0">
+      {children}
+    </p>
   ),
   ul: ({ children }) => (
     <ul className="mb-3 list-disc space-y-1 pl-5 text-sm leading-6 text-foreground">
@@ -54,7 +56,7 @@ const components: Components = {
     </pre>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="mb-3 border-l-2 border-separator pl-3 text-sm text-muted">
+    <blockquote className="mb-3 rounded-md border border-separator bg-surface-subtle p-3 text-sm text-muted">
       {children}
     </blockquote>
   ),
@@ -70,7 +72,9 @@ const components: Components = {
     </th>
   ),
   td: ({ children }) => (
-    <td className="border-b border-separator px-2 py-1 text-muted">{children}</td>
+    <td className="border-b border-separator px-2 py-1 text-muted">
+      {children}
+    </td>
   ),
 };
 

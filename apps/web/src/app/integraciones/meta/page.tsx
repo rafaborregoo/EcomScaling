@@ -211,7 +211,7 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
       />
 
       <Card
-        className="border-l-4 border-l-channel-meta"
+        className="border border-channel-meta"
         title={
           meta.connection
             ? "Renueva el acceso a Meta"
@@ -272,7 +272,7 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {meta.connection ? (
         <Card
-          className="border-l-4 border-l-channel-meta"
+          className="border border-channel-meta"
           title="Elige las cuentas que quieres analizar"
           description="Solo traeremos datos de las cuentas marcadas. Puedes cambiar esta selección cuando lo necesites."
         >

@@ -14,6 +14,8 @@ import {
   Button,
   Card,
   ErrorBlock,
+  IconChevronLeft,
+  IconChevronRight,
   Link,
   LoadingBlock,
   Select,
@@ -90,7 +92,9 @@ const LS = {
 
 function readLs(key: string): string | null {
   try {
-    return typeof window === "undefined" ? null : window.localStorage.getItem(key);
+    return typeof window === "undefined"
+      ? null
+      : window.localStorage.getItem(key);
   } catch {
     return null;
   }
@@ -109,10 +113,10 @@ const chipClass = (active: boolean) =>
   }`;
 
 const toneClass: Record<Entry["tone"], string> = {
-  danger: "border-l-2 border-danger bg-danger/5",
-  warn: "border-l-2 border-warn bg-warn/5",
-  accent: "border-l-2 border-accent bg-accent/5",
-  muted: "border-l-2 border-separator bg-surface",
+  danger: "border border-danger/30 bg-danger/5",
+  warn: "border border-warn/30 bg-warn/5",
+  accent: "border border-accent/30 bg-accent/5",
+  muted: "border border-separator bg-surface",
 };
 
 function windowFor(view: View, cursor: Date): { from: Date; to: Date } {
@@ -224,7 +228,7 @@ function EntryRow({
     <Link
       href={entry.href}
       onClick={() => onSelectClient?.(entry.orgId)}
-      className={`block rounded px-2 py-1 text-left text-xs hover:opacity-80 ${toneClass[entry.tone]}`}
+      className={`block rounded-md px-2 py-1.5 text-left text-xs hover:opacity-80 ${toneClass[entry.tone]}`}
     >
       <span className="flex items-baseline gap-1">
         {entry.time ? (
@@ -343,7 +347,8 @@ export function ConsultantAgenda({
   }, [from, to, scope]);
 
   const byDay = useMemo(
-    () => (data ? buildEntries(data, showMilestones) : new Map<string, Entry[]>()),
+    () =>
+      data ? buildEntries(data, showMilestones) : new Map<string, Entry[]>(),
     [data, showMilestones],
   );
   const showOrg = scope === "all" || scope === "own";
@@ -439,9 +444,7 @@ export function ConsultantAgenda({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-separator pb-3">
         <div className="flex items-center gap-1 sm:gap-2">
           <Button size="sm" variant="ghost" onClick={() => move(-1)}>
-            <span className="sm:hidden" aria-hidden>
-              ‹
-            </span>
+            <IconChevronLeft aria-hidden className="sm:hidden" />
             <span className="sr-only sm:not-sr-only">Anterior</span>
           </Button>
           <Button
@@ -452,9 +455,7 @@ export function ConsultantAgenda({
             Hoy
           </Button>
           <Button size="sm" variant="ghost" onClick={() => move(1)}>
-            <span className="sm:hidden" aria-hidden>
-              ›
-            </span>
+            <IconChevronRight aria-hidden className="sm:hidden" />
             <span className="sr-only sm:not-sr-only">Siguiente</span>
           </Button>
         </div>

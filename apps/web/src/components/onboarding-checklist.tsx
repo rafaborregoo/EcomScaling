@@ -8,17 +8,14 @@ import {
 
 function StepState({ state }: { state: ChecklistStepState }) {
   const copy = {
-    done: { label: "Listo", tone: "success" as const, marker: "✓" },
-    current: { label: "Siguiente", tone: "brand" as const, marker: "→" },
-    waiting: { label: "En espera", tone: "neutral" as const, marker: "·" },
-    ready: { label: "Preparado", tone: "neutral" as const, marker: "○" },
+    done: { label: "Listo", tone: "success" as const },
+    current: { label: "Siguiente", tone: "brand" as const },
+    waiting: { label: "En espera", tone: "neutral" as const },
+    ready: { label: "Preparado", tone: "neutral" as const },
   }[state];
 
   return (
     <Badge tone={copy.tone} title={copy.label}>
-      <span aria-hidden="true" className="mr-1 font-mono">
-        {copy.marker}
-      </span>
       {copy.label}
     </Badge>
   );
@@ -75,10 +72,10 @@ export function OnboardingChecklist({
       : "Ver integraciones";
 
   return (
-    <CollapsibleSection title="Ruta de activación: pon tu tienda en marcha">
+    <CollapsibleSection title="Activa tu tienda" defaultOpen>
       <p className="text-sm leading-6 text-muted">
-        Sigue el orden que protege la calidad de tus decisiones: primero datos
-        propios, después adquisición y retención.
+        Conecta tus datos y configura los costes antes de revisar adquisición y
+        retención.
       </p>
       <p id="onboarding-checklist-description" className="sr-only">
         El estado de cada paso se actualiza con los datos disponibles de tu organización.
@@ -95,7 +92,7 @@ export function OnboardingChecklist({
             aria-current={step.state === "current" ? "step" : undefined}
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-xs text-muted">0{index + 1}</span>
+              <span className="text-xs font-medium text-muted">Paso {index + 1}</span>
               <StepState state={step.state} />
             </div>
             <h3 className="mt-3 text-sm font-semibold text-foreground">{step.title}</h3>

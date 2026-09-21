@@ -51,7 +51,6 @@ import {
   Dropdown,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   Field,
   GripVerticalIcon,
   IconChevronDown,
@@ -157,7 +156,10 @@ const OBJECTIVE_PERIOD_LABELS: Record<string, string> = {
   yearly: "anual",
 };
 
-function formatObjectiveValue(value: number, unit: ObjectiveCatalogEntry["unit"]) {
+function formatObjectiveValue(
+  value: number,
+  unit: ObjectiveCatalogEntry["unit"],
+) {
   if (unit === "money") return formatMoney(value);
   if (unit === "pct") return `${value.toFixed(1)}%`;
   if (unit === "ratio") return `${value.toFixed(2)}x`;
@@ -662,7 +664,10 @@ function MilestoneNode({
             >
               {milestone.name}
             </span>
-            <Chevron className="shrink-0 text-[0.6rem] text-muted" aria-hidden />
+            <Chevron
+              className="shrink-0 text-[0.6rem] text-muted"
+              aria-hidden
+            />
           </button>
         </div>
 
@@ -695,8 +700,14 @@ function SortablePhase({
   phase: Phase;
   children: (handleProps: Record<string, unknown>) => ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: phase.id });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: phase.id });
   return (
     <li
       ref={setNodeRef}
@@ -715,8 +726,14 @@ function SortableMilestone({
   milestone: Milestone;
   children: (handleProps: Record<string, unknown>) => ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: milestone.id });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: milestone.id });
   return (
     <li
       ref={setNodeRef}
@@ -886,7 +903,11 @@ function NameDescriptionForm({
           </Field>
         ) : null}
         <div className="flex gap-2">
-          <Button type="submit" size="sm" disabled={isSubmitting || !name.trim()}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={isSubmitting || !name.trim()}
+          >
             {isSubmitting ? "Guardando..." : submitLabel}
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
@@ -918,7 +939,9 @@ function TaskListItem({
             type="button"
             onClick={onToggleDone}
             aria-pressed={done}
-            aria-label={done ? "Reabrir la tarea" : "Marcar la tarea como hecha"}
+            aria-label={
+              done ? "Reabrir la tarea" : "Marcar la tarea como hecha"
+            }
             title={done ? "Reabrir" : "Marcar hecha"}
             className={[
               "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
@@ -1030,7 +1053,9 @@ function MilestoneInternalNotes({
 
   return (
     <div className="mt-2 border-t border-separator pt-2">
-      <p className={EYEBROW}>Notas internas (solo consultores)</p>
+      <p className="text-sm font-semibold text-foreground">
+        Notas internas (solo consultores)
+      </p>
       {error ? (
         <p className="mt-1 text-xs text-danger">{error}</p>
       ) : notes === null ? (
@@ -1057,7 +1082,11 @@ function MilestoneInternalNotes({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <Button type="submit" size="sm" disabled={isSubmitting || !draft.trim()}>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={isSubmitting || !draft.trim()}
+        >
           Añadir
         </Button>
       </form>
@@ -1085,11 +1114,12 @@ function ObjectiveCard({
   onRemove: () => void;
   onSetActual: (value: number) => void;
 }) {
-  const statusInfo: Record<Objective["status"], { label: string; tone: Tone }> = {
-    cumplido: { label: "Cumplido", tone: "success" },
-    en_curso: { label: "En curso", tone: "brand" },
-    sin_datos: { label: "Sin datos", tone: "neutral" },
-  };
+  const statusInfo: Record<Objective["status"], { label: string; tone: Tone }> =
+    {
+      cumplido: { label: "Cumplido", tone: "success" },
+      en_curso: { label: "En curso", tone: "brand" },
+      sin_datos: { label: "Sin datos", tone: "neutral" },
+    };
   const info = statusInfo[objective.status];
   const progress = objective.progress_pct;
   // Objetivo de valor manual: el "actual" lo teclea el consultor aqui mismo,
@@ -1104,7 +1134,7 @@ function ObjectiveCard({
     <div className="rounded-md border border-separator p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className={EYEBROW}>
+          <p className="text-sm font-semibold text-foreground">
             Objetivo{" "}
             {OBJECTIVE_PERIOD_LABELS[objective.period] ?? objective.period}
             {isManual ? " · manual" : ""}
@@ -1353,9 +1383,11 @@ function ObjectivesPanel({
   );
   const data = objectivesQuery.data ?? null;
   const [actionError, setActionError] = useState<string | null>(null);
-  const error = actionError ?? (objectivesQuery.error
-    ? "No se pudieron cargar los objetivos. Revisa la conexión e inténtalo de nuevo."
-    : null);
+  const error =
+    actionError ??
+    (objectivesQuery.error
+      ? "No se pudieron cargar los objetivos. Revisa la conexión e inténtalo de nuevo."
+      : null);
   const setError = setActionError;
   const isLoading = objectivesQuery.isLoading;
   const [isAdding, setIsAdding] = useState(false);
@@ -1495,7 +1527,9 @@ function ObjectivesPanel({
         <AddObjectiveModal
           isOpen={isAdding}
           catalog={data.catalog}
-          existingKeys={data.objectives.map((objective) => objective.metric_key)}
+          existingKeys={data.objectives.map(
+            (objective) => objective.metric_key,
+          )}
           onClose={() => setIsAdding(false)}
           onSubmit={addObjective}
         />
@@ -2043,7 +2077,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       {organizationId ? (
-        <ObjectivesPanel organizationId={organizationId} canManage={canManage} />
+        <ObjectivesPanel
+          organizationId={organizationId}
+          canManage={canManage}
+        />
       ) : null}
 
       {/* El camino lo puede dibujar el consultor a mano o proponerlo la IA.
@@ -2161,278 +2198,345 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 items={phases.map((p) => p.id)}
                 strategy={verticalListSortingStrategy}
               >
-            <ol className="space-y-6">
-              {phases.map((phase) => {
-                const milestones = phase.strategic_plan_milestones
-                  .slice()
-                  .sort((a, b) => a.position - b.position);
-                const isEditingPhase = editingPhaseId === phase.id;
-                const isAddingMilestone = addingMilestonePhaseId === phase.id;
-                const phaseDone = milestones.filter((m) =>
-                  ["completed", "skipped"].includes(m.status),
-                ).length;
-                const phaseOpen =
-                  expandedPhases[phase.id] ?? phase.status === "active";
-                return (
-                  <SortablePhase key={phase.id} phase={phase}>
-                    {(phaseHandle) => (
-                      <>
-                    <PhaseNode
-                      phase={phase}
-                      canManage={canManage}
-                      isEditing={isEditingPhase}
-                      onEdit={() =>
-                        setEditingPhaseId(isEditingPhase ? null : phase.id)
-                      }
-                      handleProps={phaseHandle}
-                      isOpen={phaseOpen}
-                      onToggle={() =>
-                        setExpandedPhases((current) => ({
-                          ...current,
-                          [phase.id]: !phaseOpen,
-                        }))
-                      }
-                      doneCount={phaseDone}
-                      totalCount={milestones.length}
-                    />
+                <ol className="space-y-6">
+                  {phases.map((phase) => {
+                    const milestones = phase.strategic_plan_milestones
+                      .slice()
+                      .sort((a, b) => a.position - b.position);
+                    const isEditingPhase = editingPhaseId === phase.id;
+                    const isAddingMilestone =
+                      addingMilestonePhaseId === phase.id;
+                    const phaseDone = milestones.filter((m) =>
+                      ["completed", "skipped"].includes(m.status),
+                    ).length;
+                    const phaseOpen =
+                      expandedPhases[phase.id] ?? phase.status === "active";
+                    return (
+                      <SortablePhase key={phase.id} phase={phase}>
+                        {(phaseHandle) => (
+                          <>
+                            <PhaseNode
+                              phase={phase}
+                              canManage={canManage}
+                              isEditing={isEditingPhase}
+                              onEdit={() =>
+                                setEditingPhaseId(
+                                  isEditingPhase ? null : phase.id,
+                                )
+                              }
+                              handleProps={phaseHandle}
+                              isOpen={phaseOpen}
+                              onToggle={() =>
+                                setExpandedPhases((current) => ({
+                                  ...current,
+                                  [phase.id]: !phaseOpen,
+                                }))
+                              }
+                              doneCount={phaseDone}
+                              totalCount={milestones.length}
+                            />
 
-                    {isEditingPhase ? (
-                      <div className="ml-12 mt-2">
-                        <NameDescriptionForm
-                          initialName={phase.name}
-                          initialDescription={phase.description ?? ""}
-                          submitLabel="Guardar"
-                          onCancel={() => setEditingPhaseId(null)}
-                          onSubmit={async (payload) => {
-                            if (await editPhase(phase.id, payload)) {
-                              setEditingPhaseId(null);
-                            }
-                          }}
-                        />
-                      </div>
-                    ) : null}
-
-                    {phaseOpen ? (
-                    <div
-                      id={phasePanelId(phase.id)}
-                      className="relative ml-5 mt-3"
-                    >
-                      {milestones.length > 0 ? (
-                        <TreeTrunk size={TREE_NODE_SIZE.milestone} />
-                      ) : null}
-                      <DndContext
-                        sensors={sensors}
-                        collisionDetection={closestCenter}
-                        onDragEnd={(event) =>
-                          handleMilestoneDragEnd(phase.id, event)
-                        }
-                      >
-                        <SortableContext
-                          items={milestones.map((m) => m.id)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                      <ol className="space-y-2.5">
-                        {milestones.map((milestone, milestoneIndex) => {
-                          const isMilestoneExpanded =
-                            expandedMilestoneId === milestone.id;
-                          const isEditingMilestone =
-                            editingMilestoneId === milestone.id;
-                          const isAddingTask =
-                            addingTaskMilestoneId === milestone.id;
-                          const tasks = milestone.milestone_task_links
-                            .map((link) => link.tasks)
-                            .filter((task): task is MilestoneTask =>
-                              Boolean(task),
-                            );
-                          return (
-                            <SortableMilestone
-                              key={milestone.id}
-                              milestone={milestone}
-                            >
-                              {(milestoneHandle) => (
-                                <>
-                              <MilestoneNode
-                                numberLabel={`${phase.position}.${milestoneIndex + 1}`}
-                                milestone={milestone}
-                                canManage={canManage}
-                                isFocus={focusMilestone?.id === milestone.id}
-                                isExpanded={isMilestoneExpanded}
-                                onToggleExpand={() =>
-                                  setExpandedMilestoneId(
-                                    isMilestoneExpanded ? null : milestone.id,
-                                  )
-                                }
-                                onToggleComplete={() =>
-                                  toggleMilestoneComplete(milestone)
-                                }
-                                isEditing={isEditingMilestone}
-                                handleProps={milestoneHandle}
-                                onAction={(action) => {
-                                  if (action === "start") {
-                                    void changeMilestoneStatus(
-                                      milestone.id,
-                                      "in_progress",
-                                    );
-                                  } else if (action === "skip") {
-                                    void changeMilestoneStatus(
-                                      milestone.id,
-                                      "skipped",
-                                    );
-                                  } else {
-                                    setEditingMilestoneId(
-                                      isEditingMilestone ? null : milestone.id,
-                                    );
-                                  }
-                                }}
-                              />
-
-                              {isEditingMilestone ? (
-                                <div className="ml-11 mt-2">
-                                  <NameDescriptionForm
-                                    initialName={milestone.name}
-                                    initialDescription={
-                                      milestone.description ?? ""
-                                    }
-                                    initialTargetDate={
-                                      milestone.target_date ?? ""
-                                    }
-                                    showTargetDate
-                                    submitLabel="Guardar"
-                                    onCancel={() => setEditingMilestoneId(null)}
-                                    onSubmit={async (payload) => {
-                                      if (
-                                        await editMilestone(
-                                          milestone.id,
-                                          payload,
-                                        )
-                                      ) {
-                                        setEditingMilestoneId(null);
-                                      }
-                                    }}
-                                  />
-                                </div>
-                              ) : null}
-
-                              {isMilestoneExpanded ? (
-                                <div
-                                  id={milestonePanelId(milestone.id)}
-                                  className="ml-11 mt-2 space-y-2"
-                                >
-                                  {/* La fecha objetivo ya no se repite aqui:
-                                      vive en la fila del hito, visible sin
-                                      desplegar. */}
-                                  {milestone.description ? (
-                                    <p className="text-xs text-muted">
-                                      {milestone.description}
-                                    </p>
-                                  ) : null}
-                                  {tasks.length > 0 ? (
-                                    <ul className="flex flex-wrap gap-1.5">
-                                      {tasks.map((task, taskIndex) => (
-                                        <li key={task.id}>
-                                          <TaskListItem
-                                            numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`}
-                                            task={task}
-                                            canManage={canManage}
-                                            onToggleDone={() =>
-                                              toggleTaskDone(task)
-                                            }
-                                          />
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  ) : null}
-                                  {canManage ? (
-                                    isAddingTask ? (
-                                      <AddTaskForm
-                                        onCancel={() =>
-                                          setAddingTaskMilestoneId(null)
-                                        }
-                                        onSubmit={async (payload) => {
-                                          if (
-                                            await addMilestoneTask(
-                                              milestone.id,
-                                              payload,
-                                            )
-                                          ) {
-                                            setAddingTaskMilestoneId(null);
-                                          }
-                                        }}
-                                      />
-                                    ) : (
-                                      <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onClick={() =>
-                                          setAddingTaskMilestoneId(
-                                            milestone.id,
-                                          )
-                                        }
-                                      >
-                                        <PlusIcon aria-hidden />
-                                        Tarea
-                                      </Button>
-                                    )
-                                  ) : null}
-                                  {isConsultantView ? (
-                                    <MilestoneInternalNotes
-                                      organizationId={organization?.id ?? ""}
-                                      milestoneId={milestone.id}
-                                    />
-                                  ) : null}
-                                </div>
-                              ) : null}
-                                </>
-                              )}
-                            </SortableMilestone>
-                          );
-                        })}
-                      </ol>
-                        </SortableContext>
-                      </DndContext>
-                      <ol className="mt-2.5">
-                        {canManage ? (
-                          <li>
-                            {isAddingMilestone ? (
-                              <div className="ml-1">
+                            {isEditingPhase ? (
+                              <div className="ml-12 mt-2">
                                 <NameDescriptionForm
-                                  initialName=""
-                                  initialDescription=""
-                                  initialTargetDate=""
-                                  showTargetDate
-                                  submitLabel="Crear hito"
-                                  onCancel={() =>
-                                    setAddingMilestonePhaseId(null)
-                                  }
+                                  initialName={phase.name}
+                                  initialDescription={phase.description ?? ""}
+                                  submitLabel="Guardar"
+                                  onCancel={() => setEditingPhaseId(null)}
                                   onSubmit={async (payload) => {
-                                    if (
-                                      await addMilestone(phase.id, payload)
-                                    ) {
-                                      setAddingMilestonePhaseId(null);
+                                    if (await editPhase(phase.id, payload)) {
+                                      setEditingPhaseId(null);
                                     }
                                   }}
                                 />
                               </div>
-                            ) : (
-                              <TreeAddNode
-                                size={TREE_NODE_SIZE.milestone}
-                                label="Añadir hito"
-                                onClick={() =>
-                                  setAddingMilestonePhaseId(phase.id)
-                                }
-                              />
-                            )}
-                          </li>
-                        ) : null}
-                      </ol>
-                    </div>
-                    ) : null}
-                      </>
-                    )}
-                  </SortablePhase>
-                );
-              })}
-            </ol>
+                            ) : null}
+
+                            {phaseOpen ? (
+                              <div
+                                id={phasePanelId(phase.id)}
+                                className="relative ml-5 mt-3"
+                              >
+                                {milestones.length > 0 ? (
+                                  <TreeTrunk size={TREE_NODE_SIZE.milestone} />
+                                ) : null}
+                                <DndContext
+                                  sensors={sensors}
+                                  collisionDetection={closestCenter}
+                                  onDragEnd={(event) =>
+                                    handleMilestoneDragEnd(phase.id, event)
+                                  }
+                                >
+                                  <SortableContext
+                                    items={milestones.map((m) => m.id)}
+                                    strategy={verticalListSortingStrategy}
+                                  >
+                                    <ol className="space-y-2.5">
+                                      {milestones.map(
+                                        (milestone, milestoneIndex) => {
+                                          const isMilestoneExpanded =
+                                            expandedMilestoneId ===
+                                            milestone.id;
+                                          const isEditingMilestone =
+                                            editingMilestoneId === milestone.id;
+                                          const isAddingTask =
+                                            addingTaskMilestoneId ===
+                                            milestone.id;
+                                          const tasks =
+                                            milestone.milestone_task_links
+                                              .map((link) => link.tasks)
+                                              .filter(
+                                                (task): task is MilestoneTask =>
+                                                  Boolean(task),
+                                              );
+                                          return (
+                                            <SortableMilestone
+                                              key={milestone.id}
+                                              milestone={milestone}
+                                            >
+                                              {(milestoneHandle) => (
+                                                <>
+                                                  <MilestoneNode
+                                                    numberLabel={`${phase.position}.${milestoneIndex + 1}`}
+                                                    milestone={milestone}
+                                                    canManage={canManage}
+                                                    isFocus={
+                                                      focusMilestone?.id ===
+                                                      milestone.id
+                                                    }
+                                                    isExpanded={
+                                                      isMilestoneExpanded
+                                                    }
+                                                    onToggleExpand={() =>
+                                                      setExpandedMilestoneId(
+                                                        isMilestoneExpanded
+                                                          ? null
+                                                          : milestone.id,
+                                                      )
+                                                    }
+                                                    onToggleComplete={() =>
+                                                      toggleMilestoneComplete(
+                                                        milestone,
+                                                      )
+                                                    }
+                                                    isEditing={
+                                                      isEditingMilestone
+                                                    }
+                                                    handleProps={
+                                                      milestoneHandle
+                                                    }
+                                                    onAction={(action) => {
+                                                      if (action === "start") {
+                                                        void changeMilestoneStatus(
+                                                          milestone.id,
+                                                          "in_progress",
+                                                        );
+                                                      } else if (
+                                                        action === "skip"
+                                                      ) {
+                                                        void changeMilestoneStatus(
+                                                          milestone.id,
+                                                          "skipped",
+                                                        );
+                                                      } else {
+                                                        setEditingMilestoneId(
+                                                          isEditingMilestone
+                                                            ? null
+                                                            : milestone.id,
+                                                        );
+                                                      }
+                                                    }}
+                                                  />
+
+                                                  {isEditingMilestone ? (
+                                                    <div className="ml-11 mt-2">
+                                                      <NameDescriptionForm
+                                                        initialName={
+                                                          milestone.name
+                                                        }
+                                                        initialDescription={
+                                                          milestone.description ??
+                                                          ""
+                                                        }
+                                                        initialTargetDate={
+                                                          milestone.target_date ??
+                                                          ""
+                                                        }
+                                                        showTargetDate
+                                                        submitLabel="Guardar"
+                                                        onCancel={() =>
+                                                          setEditingMilestoneId(
+                                                            null,
+                                                          )
+                                                        }
+                                                        onSubmit={async (
+                                                          payload,
+                                                        ) => {
+                                                          if (
+                                                            await editMilestone(
+                                                              milestone.id,
+                                                              payload,
+                                                            )
+                                                          ) {
+                                                            setEditingMilestoneId(
+                                                              null,
+                                                            );
+                                                          }
+                                                        }}
+                                                      />
+                                                    </div>
+                                                  ) : null}
+
+                                                  {isMilestoneExpanded ? (
+                                                    <div
+                                                      id={milestonePanelId(
+                                                        milestone.id,
+                                                      )}
+                                                      className="ml-11 mt-2 space-y-2"
+                                                    >
+                                                      {/* La fecha objetivo ya no se repite aqui:
+                                      vive en la fila del hito, visible sin
+                                      desplegar. */}
+                                                      {milestone.description ? (
+                                                        <p className="text-xs text-muted">
+                                                          {
+                                                            milestone.description
+                                                          }
+                                                        </p>
+                                                      ) : null}
+                                                      {tasks.length > 0 ? (
+                                                        <ul className="flex flex-wrap gap-1.5">
+                                                          {tasks.map(
+                                                            (
+                                                              task,
+                                                              taskIndex,
+                                                            ) => (
+                                                              <li key={task.id}>
+                                                                <TaskListItem
+                                                                  numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`}
+                                                                  task={task}
+                                                                  canManage={
+                                                                    canManage
+                                                                  }
+                                                                  onToggleDone={() =>
+                                                                    toggleTaskDone(
+                                                                      task,
+                                                                    )
+                                                                  }
+                                                                />
+                                                              </li>
+                                                            ),
+                                                          )}
+                                                        </ul>
+                                                      ) : null}
+                                                      {canManage ? (
+                                                        isAddingTask ? (
+                                                          <AddTaskForm
+                                                            onCancel={() =>
+                                                              setAddingTaskMilestoneId(
+                                                                null,
+                                                              )
+                                                            }
+                                                            onSubmit={async (
+                                                              payload,
+                                                            ) => {
+                                                              if (
+                                                                await addMilestoneTask(
+                                                                  milestone.id,
+                                                                  payload,
+                                                                )
+                                                              ) {
+                                                                setAddingTaskMilestoneId(
+                                                                  null,
+                                                                );
+                                                              }
+                                                            }}
+                                                          />
+                                                        ) : (
+                                                          <Button
+                                                            size="sm"
+                                                            variant="secondary"
+                                                            onClick={() =>
+                                                              setAddingTaskMilestoneId(
+                                                                milestone.id,
+                                                              )
+                                                            }
+                                                          >
+                                                            <PlusIcon
+                                                              aria-hidden
+                                                            />
+                                                            Tarea
+                                                          </Button>
+                                                        )
+                                                      ) : null}
+                                                      {isConsultantView ? (
+                                                        <MilestoneInternalNotes
+                                                          organizationId={
+                                                            organization?.id ??
+                                                            ""
+                                                          }
+                                                          milestoneId={
+                                                            milestone.id
+                                                          }
+                                                        />
+                                                      ) : null}
+                                                    </div>
+                                                  ) : null}
+                                                </>
+                                              )}
+                                            </SortableMilestone>
+                                          );
+                                        },
+                                      )}
+                                    </ol>
+                                  </SortableContext>
+                                </DndContext>
+                                <ol className="mt-2.5">
+                                  {canManage ? (
+                                    <li>
+                                      {isAddingMilestone ? (
+                                        <div className="ml-1">
+                                          <NameDescriptionForm
+                                            initialName=""
+                                            initialDescription=""
+                                            initialTargetDate=""
+                                            showTargetDate
+                                            submitLabel="Crear hito"
+                                            onCancel={() =>
+                                              setAddingMilestonePhaseId(null)
+                                            }
+                                            onSubmit={async (payload) => {
+                                              if (
+                                                await addMilestone(
+                                                  phase.id,
+                                                  payload,
+                                                )
+                                              ) {
+                                                setAddingMilestonePhaseId(null);
+                                              }
+                                            }}
+                                          />
+                                        </div>
+                                      ) : (
+                                        <TreeAddNode
+                                          size={TREE_NODE_SIZE.milestone}
+                                          label="Añadir hito"
+                                          onClick={() =>
+                                            setAddingMilestonePhaseId(phase.id)
+                                          }
+                                        />
+                                      )}
+                                    </li>
+                                  ) : null}
+                                </ol>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </SortablePhase>
+                    );
+                  })}
+                </ol>
               </SortableContext>
             </DndContext>
             <ol>
@@ -2487,7 +2591,10 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 required
               />
               <div className="flex gap-2">
-                <Button type="submit" disabled={isSubmitting || !planName.trim()}>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || !planName.trim()}
+                >
                   {isSubmitting ? "Creando..." : "Crear"}
                 </Button>
                 <Button
@@ -2615,14 +2722,19 @@ function ConsultantPlansView() {
       >
         {progressChartData.length >= 2 ? (
           <div className="mb-6">
-            <p className={EYEBROW}>Progreso del plan por cliente (%)</p>
+            <p className="text-sm font-semibold text-foreground">
+              Progreso del plan por cliente (%)
+            </p>
             <div className="mt-2">
               <BarChart
                 data={progressChartData}
                 xKey="name"
                 series={[{ key: "progress", label: "Progreso" }]}
                 horizontal
-                height={Math.min(280, Math.max(88, progressChartData.length * 30))}
+                height={Math.min(
+                  280,
+                  Math.max(88, progressChartData.length * 30),
+                )}
                 valueFormatter={(value) => `${Math.round(value)}%`}
               />
             </div>

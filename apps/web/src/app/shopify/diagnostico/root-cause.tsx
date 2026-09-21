@@ -23,7 +23,13 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorBlock,
+  LoadingBlock,
+} from "@/components/ui";
 
 import {
   bindingStatusLabel,
@@ -47,8 +53,13 @@ function Cadena({ rootCause }: { rootCause: RootCauseView }) {
   return (
     <ol className="text-muted mt-2 space-y-1 text-sm leading-6">
       {pasos.map((paso) => (
-        <li key={`${paso.root_cause_id}-${paso.step_order}`} className="flex flex-wrap items-center gap-2">
-          <Badge tone={paso.supported ? "brand" : "neutral"}>{chainRoleLabel(paso.chain_role)}</Badge>
+        <li
+          key={`${paso.root_cause_id}-${paso.step_order}`}
+          className="flex flex-wrap items-center gap-2"
+        >
+          <Badge tone={paso.supported ? "brand" : "neutral"}>
+            {chainRoleLabel(paso.chain_role)}
+          </Badge>
           <span>{paso.statement}</span>
         </li>
       ))}
@@ -72,18 +83,24 @@ function CausaRaiz({ rootCause }: { rootCause: RootCauseView }) {
       </div>
 
       {/* El estado se explica siempre, no solo se etiqueta. */}
-      <p className="text-muted mt-1 max-w-prose text-sm leading-6">{estado.hint}</p>
+      <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+        {estado.hint}
+      </p>
 
       <p className="mt-2 max-w-prose leading-6">{rootCause.statement}</p>
 
       {rootCause.residual_note ? (
-        <p className="text-muted mt-1 max-w-prose text-sm leading-6">{rootCause.residual_note}</p>
+        <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+          {rootCause.residual_note}
+        </p>
       ) : null}
 
       <Cadena rootCause={rootCause} />
 
       {rootCause.limitations ? (
-        <p className="text-muted mt-2 max-w-prose text-sm leading-6">{rootCause.limitations}</p>
+        <p className="text-muted mt-2 max-w-prose text-sm leading-6">
+          {rootCause.limitations}
+        </p>
       ) : null}
     </li>
   );
@@ -101,7 +118,9 @@ function Cuello({ constraint }: { constraint: ConstraintView }) {
         <Badge tone="neutral">{exposureLabel(constraint.exposure)}</Badge>
       </div>
 
-      <p className="text-muted mt-1 max-w-prose text-sm leading-6">{estado.hint}</p>
+      <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+        {estado.hint}
+      </p>
 
       <p className="mt-2 max-w-prose leading-6">{constraint.statement}</p>
 
@@ -110,9 +129,13 @@ function Cuello({ constraint }: { constraint: ConstraintView }) {
       ) : null}
 
       {test ? (
-        <div className="border-default-200 mt-3 border-l-2 pl-3">
-          <p className="text-xs uppercase tracking-wide">El test que lo resolvería</p>
-          <p className="mt-1 max-w-prose text-sm leading-6">{test.counterfactual_question}</p>
+        <div className="mt-3 rounded-md border border-default-200 p-3">
+          <p className="text-xs uppercase tracking-wide">
+            El test que lo resolvería
+          </p>
+          <p className="mt-1 max-w-prose text-sm leading-6">
+            {test.counterfactual_question}
+          </p>
           <ul className="text-muted mt-1 space-y-1 text-sm leading-6">
             <li>Si limita: {test.expected_if_binding}</li>
             <li>Si no limita: {test.expected_if_not_binding}</li>
@@ -148,7 +171,9 @@ export function RootCausePanel() {
       })
       .catch(() => {
         if (!cancelled) {
-          setError("No se pudieron cargar las causas raíz por un error de red.");
+          setError(
+            "No se pudieron cargar las causas raíz por un error de red.",
+          );
         }
       })
       .finally(() => {

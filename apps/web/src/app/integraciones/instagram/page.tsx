@@ -62,7 +62,7 @@ function InstagramIntegrationPage({
       </ProviderStatusCard>
 
       <Card
-        className="border-l-4 border-l-channel-instagram"
+        className="border border-channel-instagram"
         title="Esta conexión aún no está abierta"
         description="Preferimos esperar a que el acceso sea real antes que mostrar una conexión o métricas que no funcionan."
       >

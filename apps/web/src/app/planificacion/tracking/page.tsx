@@ -15,7 +15,6 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   Heading,
   LoadingBlock,
   Select,
@@ -109,7 +108,9 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         apiFetch(
           `/v1/organizations/${organizationId}/shopify/metrics?days=${days}${scope}`,
         ),
-        apiFetch(`/v1/organizations/${organizationId}/meta/metrics?days=${days}`),
+        apiFetch(
+          `/v1/organizations/${organizationId}/meta/metrics?days=${days}`,
+        ),
       ]);
       const shopify = shopifyResponse.ok
         ? ((await shopifyResponse.json()) as {
@@ -157,7 +158,9 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       toast.success(`Periodo ${bounds.start} → ${bounds.end} registrado`);
       await load();
     } catch {
-      setError("No se pudo capturar el periodo por un error de red. Reintenta.");
+      setError(
+        "No se pudo capturar el periodo por un error de red. Reintenta.",
+      );
     } finally {
       setCapturing(false);
     }
@@ -228,7 +231,6 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className={EYEBROW}>Planificación / tracking</p>
           <Heading>Seguimiento de resultados</Heading>
           <p className="mt-1 text-sm text-muted">
             Cada snapshot congela un periodo cerrado. Es contra esto contra lo
@@ -278,7 +280,11 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         title="Histórico"
         description={`${rows.length} periodos registrados en el alcance seleccionado.`}
         actions={
-          <Button variant="secondary" onClick={exportCsv} disabled={!rows.length}>
+          <Button
+            variant="secondary"
+            onClick={exportCsv}
+            disabled={!rows.length}
+          >
             Exportar CSV
           </Button>
         }

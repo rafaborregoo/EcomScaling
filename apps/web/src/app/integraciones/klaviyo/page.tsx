@@ -236,7 +236,7 @@ function KlaviyoIntegrationPage({
       ) : null}
 
       <Card
-        className="border-l-4 border-l-channel-email"
+        className="border border-channel-email"
         title={
           connection
             ? "Renueva el acceso a Klaviyo"
@@ -280,7 +280,7 @@ function KlaviyoIntegrationPage({
       {connection ? (
         <CollapsibleSection title="Configurar cómo se mide una venta">
           <Card
-            className="border-l-4 border-l-channel-email"
+            className="border border-channel-email"
             title="Elige qué conversión representa una venta"
             description="Esta métrica será la referencia para atribuir ingresos y conversiones en los informes de Klaviyo."
           >

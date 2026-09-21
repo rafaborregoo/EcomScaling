@@ -23,7 +23,13 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorBlock,
+  LoadingBlock,
+} from "@/components/ui";
 
 import {
   amountText,
@@ -47,7 +53,9 @@ function Measurements({ assessment }: { assessment: SeverityView }) {
         return (
           <li key={`${medida.dimension}-${indice}`}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono tabular-nums font-medium">{importe ?? "sin cifrar"}</span>
+              <span className="font-mono tabular-nums font-medium">
+                {importe ?? "sin cifrar"}
+              </span>
               {/* La cifra nunca va sola: al lado va de que firmeza es. */}
               <Badge tone={firmeza.tone}>{firmeza.label}</Badge>
               {medida.metric ? (
@@ -57,10 +65,14 @@ function Measurements({ assessment }: { assessment: SeverityView }) {
             {medida.assumptions ? (
               // Guardrail 22: los supuestos se ven. Una cifra sin ellos se lee
               // como un hecho cuando es una resta contra un modelo.
-              <p className="text-muted mt-1 max-w-prose leading-6">{medida.assumptions}</p>
+              <p className="text-muted mt-1 max-w-prose leading-6">
+                {medida.assumptions}
+              </p>
             ) : null}
             {medida.note ? (
-              <p className="text-muted mt-1 max-w-prose leading-6">{medida.note}</p>
+              <p className="text-muted mt-1 max-w-prose leading-6">
+                {medida.note}
+              </p>
             ) : null}
           </li>
         );
@@ -80,9 +92,12 @@ function Exposures({ assessment }: { assessment: SeverityView }) {
           {exposicion.exposure_share != null
             ? `${(exposicion.exposure_share * 100).toFixed(1)}% de ${denominatorLabel(exposicion.denominator)}`
             : `${denominatorLabel(exposicion.denominator)}: ${
-                exposicion.denominator_value?.toLocaleString("es-ES") ?? "sin medir"
+                exposicion.denominator_value?.toLocaleString("es-ES") ??
+                "sin medir"
               }`}
-          {exposicion.denominator_note ? ` — ${exposicion.denominator_note}` : ""}
+          {exposicion.denominator_note
+            ? ` — ${exposicion.denominator_note}`
+            : ""}
         </li>
       ))}
     </ul>
@@ -98,7 +113,9 @@ function AssessmentBody({ assessment }: { assessment: SeverityView }) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="font-medium">{assessment.target}</span>
         {assessment.organization_name ? (
-          <span className="text-muted text-sm">{assessment.organization_name}</span>
+          <span className="text-muted text-sm">
+            {assessment.organization_name}
+          </span>
         ) : null}
         {assessment.measurement_compromised ? (
           <Badge tone="warn">Medición comprometida</Badge>
@@ -106,14 +123,18 @@ function AssessmentBody({ assessment }: { assessment: SeverityView }) {
       </div>
 
       {assessment.summary ? (
-        <p className="mt-2 max-w-prose text-sm leading-6">{assessment.summary}</p>
+        <p className="mt-2 max-w-prose text-sm leading-6">
+          {assessment.summary}
+        </p>
       ) : null}
 
       <Measurements assessment={assessment} />
 
       {cuota?.rationale ? (
         // Guardrail 16: elegir una base en vez de otra es un juicio, y se razona.
-        <p className="text-muted mt-3 max-w-prose text-sm leading-6">{cuota.rationale}</p>
+        <p className="text-muted mt-3 max-w-prose text-sm leading-6">
+          {cuota.rationale}
+        </p>
       ) : null}
 
       <Exposures assessment={assessment} />
@@ -130,14 +151,20 @@ function AssessmentBody({ assessment }: { assessment: SeverityView }) {
       </div>
 
       {sinSeveridad ? (
-        <div className="mt-3 border-l-2 border-default-200 pl-3">
-          <p className="text-xs uppercase tracking-wide">Por qué no hay una gravedad</p>
-          <p className="text-muted mt-1 max-w-prose text-sm leading-6">{sinSeveridad}</p>
+        <div className="mt-3 rounded-md border border-default-200 p-3">
+          <p className="text-xs uppercase tracking-wide">
+            Por qué no hay una gravedad
+          </p>
+          <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+            {sinSeveridad}
+          </p>
         </div>
       ) : null}
 
       {assessment.limitations ? (
-        <p className="text-muted mt-3 max-w-prose text-xs leading-5">{assessment.limitations}</p>
+        <p className="text-muted mt-3 max-w-prose text-xs leading-5">
+          {assessment.limitations}
+        </p>
       ) : null}
     </>
   );
@@ -157,12 +184,15 @@ export function SeverityPanel() {
           setError(await readApiError(response));
           return;
         }
-        const payload = (await response.json()) as { assessments: SeverityView[] };
+        const payload = (await response.json()) as {
+          assessments: SeverityView[];
+        };
         setAssessments(payload.assessments);
         setError(null);
       })
       .catch(() => {
-        if (!cancelled) setError("No se pudo cargar el impacto medido por un error de red.");
+        if (!cancelled)
+          setError("No se pudo cargar el impacto medido por un error de red.");
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);

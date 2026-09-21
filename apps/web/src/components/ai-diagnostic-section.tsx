@@ -12,7 +12,6 @@ import {
   Button,
   Card,
   ErrorBlock,
-  EYEBROW,
   Link,
   LoadingBlock,
   type Tone,
@@ -164,7 +163,10 @@ const AGENT_TEXT_REPLACEMENTS: Array<[RegExp, string]> = [
   ],
   [/\bproduct_costs\b/gi, "costes de producto"],
   [/\bpending_approval\b/gi, "pendiente de aprobación"],
-  [/\bavailable_quantity\s*=\s*0(?:\s*\/\s*null)?\b/gi, "0 unidades disponibles"],
+  [
+    /\bavailable_quantity\s*=\s*0(?:\s*\/\s*null)?\b/gi,
+    "0 unidades disponibles",
+  ],
   [/\bavailable_quantity\b/gi, "unidades disponibles"],
   [/\btracked\s*=\s*false\b/gi, "sin seguimiento de inventario"],
   [/\btracked\s*=\s*true\b/gi, "con seguimiento de inventario"],
@@ -332,12 +334,12 @@ function AiVerdict({
   );
 }
 
-const severityBorder: Record<Finding["severity"], string> = {
-  critical: "border-l-danger",
-  high: "border-l-danger",
-  medium: "border-l-warn",
-  low: "border-l-separator",
-  info: "border-l-separator",
+const severitySurface: Record<Finding["severity"], string> = {
+  critical: "border-danger/30 bg-danger/5",
+  high: "border-danger/30 bg-danger/5",
+  medium: "border-warn/30 bg-warn/5",
+  low: "border-separator bg-surface",
+  info: "border-separator bg-surface",
 };
 
 // Los hallazgos son titulo corto + evidencia larga en prosa: una tabla de 3
@@ -359,7 +361,7 @@ function FindingsList({
         return (
           <li
             key={index}
-            className={`border-l-2 pl-3 ${severityBorder[finding.severity]}`}
+            className={`rounded-md border p-3 ${severitySurface[finding.severity]}`}
           >
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={severityTone[finding.severity]}>
@@ -410,8 +412,9 @@ function TrustStrip({
     );
     bits.push(
       `datos ${
-        dataCompletenessLabelsEs[diagnostic.envelope.quality.dataCompleteness] ??
-        diagnostic.envelope.quality.dataCompleteness
+        dataCompletenessLabelsEs[
+          diagnostic.envelope.quality.dataCompleteness
+        ] ?? diagnostic.envelope.quality.dataCompleteness
       }`,
     );
   }
@@ -496,7 +499,10 @@ export function AiDiagnosticSection({
   useEffect(() => {
     registerLocalInsights(
       getPath,
-      insightSpotsFromFindingAreas(diagnostic?.output.findings ?? [], areas ?? {}),
+      insightSpotsFromFindingAreas(
+        diagnostic?.output.findings ?? [],
+        areas ?? {},
+      ),
     );
     return () => registerLocalInsights(getPath, []);
   }, [areas, diagnostic?.output.findings, getPath, registerLocalInsights]);
@@ -635,291 +641,284 @@ export function AiDiagnosticSection({
     </Button>
   ) : null;
 
-  const body =
-    isLoading ? (
-      <LoadingBlock label={loadingLabel} />
-    ) : notReady ? (
-      <p className="text-sm leading-6 text-muted">
-        Conecta tu tienda para que la IA empiece a analizarla. El primer
-        análisis llega tras la primera sincronización.
-      </p>
-    ) : error ? (
-      <ErrorBlock>{error}</ErrorBlock>
-    ) : diagnostic ? (
-        (() => {
-          const { rest: connectedFindings, connectors } = partitionConnectivity(
-            diagnostic.output.findings,
-          );
-          // Los hallazgos sobre la propia plataforma solo los ve admin: el
-          // consultor no puede accionar "falta metodo de pago en Voyage AI".
-          const cleanFindings = showInternals
-            ? connectedFindings
-            : partitionPlatformFindings(connectedFindings).business;
-          const sortedFindings = [...cleanFindings].sort(
-            (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity],
-          );
-          const riskFindings = sortedFindings.filter(
-            (finding) => SEVERITY_RANK[finding.severity] >= SEVERITY_RANK.medium,
-          );
-          const observationFindings = sortedFindings.filter(
-            (finding) => SEVERITY_RANK[finding.severity] < SEVERITY_RANK.medium,
-          );
-          const sortedRecs = [...diagnostic.output.recommendations].sort(
-            (a, b) =>
-              (PRIORITY_RANK[b.priority] ?? 0) -
-              (PRIORITY_RANK[a.priority] ?? 0),
-          );
-          const cleanWarnings = diagnostic.output.warnings.filter(
-            (warning) => !connectorFromDisconnectText(warning),
-          );
-          const pendingCount =
-            diagnostic.output_status === "pending_approval"
-              ? diagnostic.output.proposed_writes.length
-              : 0;
+  const body = isLoading ? (
+    <LoadingBlock label={loadingLabel} />
+  ) : notReady ? (
+    <p className="text-sm leading-6 text-muted">
+      Conecta tu tienda para que la IA empiece a analizarla. El primer análisis
+      llega tras la primera sincronización.
+    </p>
+  ) : error ? (
+    <ErrorBlock>{error}</ErrorBlock>
+  ) : diagnostic ? (
+    (() => {
+      const { rest: connectedFindings, connectors } = partitionConnectivity(
+        diagnostic.output.findings,
+      );
+      // Los hallazgos sobre la propia plataforma solo los ve admin: el
+      // consultor no puede accionar "falta metodo de pago en Voyage AI".
+      const cleanFindings = showInternals
+        ? connectedFindings
+        : partitionPlatformFindings(connectedFindings).business;
+      const sortedFindings = [...cleanFindings].sort(
+        (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity],
+      );
+      const riskFindings = sortedFindings.filter(
+        (finding) => SEVERITY_RANK[finding.severity] >= SEVERITY_RANK.medium,
+      );
+      const observationFindings = sortedFindings.filter(
+        (finding) => SEVERITY_RANK[finding.severity] < SEVERITY_RANK.medium,
+      );
+      const sortedRecs = [...diagnostic.output.recommendations].sort(
+        (a, b) =>
+          (PRIORITY_RANK[b.priority] ?? 0) - (PRIORITY_RANK[a.priority] ?? 0),
+      );
+      const cleanWarnings = diagnostic.output.warnings.filter(
+        (warning) => !connectorFromDisconnectText(warning),
+      );
+      const pendingCount =
+        diagnostic.output_status === "pending_approval"
+          ? diagnostic.output.proposed_writes.length
+          : 0;
 
-          // Lo que el consultor viene a hacer aqui: leer cada tarea que propone
-          // la IA y decidir. Una card por tarea, siempre visibles (no detras de
-          // un "ver detalle") y por encima del diagnostico: son el contenido
-          // principal, no un anexo. Aprobar las materializa en /tareas, donde
-          // el consultor puede reescribirlas antes de asignarlas.
-          const showsTasks = variant === "full" || variant === "tasks";
-          const proposedBlock =
-            showsTasks && diagnostic.output.proposed_writes.length ? (
-              <div>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className={EYEBROW}>
-                    {diagnostic.output_status === "pending_approval"
-                      ? `${tasksLabelSingular}s propuestas (${diagnostic.output.proposed_writes.length})`
-                      : `${tasksLabelSingular}s propuestas · ya revisadas`}
+      // Lo que el consultor viene a hacer aqui: leer cada tarea que propone
+      // la IA y decidir. Una card por tarea, siempre visibles (no detras de
+      // un "ver detalle") y por encima del diagnostico: son el contenido
+      // principal, no un anexo. Aprobar las materializa en /tareas, donde
+      // el consultor puede reescribirlas antes de asignarlas.
+      const showsTasks = variant === "full" || variant === "tasks";
+      const proposedBlock =
+        showsTasks && diagnostic.output.proposed_writes.length ? (
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-foreground">
+                {diagnostic.output_status === "pending_approval"
+                  ? `${tasksLabelSingular}s propuestas (${diagnostic.output.proposed_writes.length})`
+                  : `${tasksLabelSingular}s propuestas · ya revisadas`}
+              </h3>
+              <Link href="/tareas">Ver en Tareas</Link>
+            </div>
+
+            <ul className="mt-2 grid gap-3 sm:grid-cols-2">
+              {diagnostic.output.proposed_writes.map((write, index) => (
+                <li key={index} className="rounded-md border border-accent p-3">
+                  <Badge
+                    tone={
+                      ["urgent", "high"].includes(write.priority)
+                        ? "danger"
+                        : write.priority === "medium"
+                          ? "warn"
+                          : "neutral"
+                    }
+                  >
+                    {priorityLabelsEs[write.priority] ?? write.priority}
+                  </Badge>
+                  <p className="mt-2 text-sm font-medium text-foreground">
+                    {humanizeAgentText(write.title)}
                   </p>
-                  <Link href="/tareas">Ver en Tareas</Link>
-                </div>
+                  {write.description ? (
+                    <p className="mt-1 text-xs leading-relaxed text-muted">
+                      {humanizeAgentText(write.description)}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
 
-                <ul className="mt-2 grid gap-3 sm:grid-cols-2">
-                  {diagnostic.output.proposed_writes.map((write, index) => (
-                    <li
-                      key={index}
-                      className="rounded-md border border-accent p-3"
-                    >
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <Button
+                type="button"
+                disabled={
+                  isCreatingTasks ||
+                  diagnostic.output_status !== "pending_approval"
+                }
+                onClick={createSuggestedTasks}
+              >
+                {isCreatingTasks
+                  ? "Creando..."
+                  : diagnostic.output_status !== "pending_approval"
+                    ? "Ya revisadas"
+                    : "Aprobar y crear en Tareas"}
+              </Button>
+              {tasksFeedback ? (
+                <p className="text-sm text-muted">{tasksFeedback}</p>
+              ) : null}
+            </div>
+          </div>
+        ) : variant === "summary" &&
+          diagnostic.output.proposed_writes.length ? (
+          <Banner tone="warn">
+            {diagnostic.output.proposed_writes.length} propuesta(s) pendiente(s)
+            de revisión del consultor. No se ha ejecutado ninguna escritura.
+          </Banner>
+        ) : tasksFeedback ? (
+          <p className="text-sm text-muted">{tasksFeedback}</p>
+        ) : null;
+
+      return (
+        <div className="space-y-5">
+          {/* En "tasks" el veredicto de riesgos y el analisis en prosa no
+                  se pintan: este agente propone trabajo, el diagnostico del
+                  negocio es el "Resumen ejecutivo". */}
+          {variant === "tasks" ? null : (
+            <AiVerdict findings={cleanFindings} pendingCount={pendingCount} />
+          )}
+
+          {connectors.length ? (
+            <p className="text-xs text-muted">
+              Sin conectar: {connectors.join(" · ")}. El análisis los omite —{" "}
+              <Link href="/integraciones">conéctalos en Integraciones</Link>.
+            </p>
+          ) : null}
+
+          {variant === "tasks" ? null : (
+            <div>
+              {variant === "full" ? (
+                <h3 className="text-sm font-semibold text-foreground">
+                  Análisis
+                </h3>
+              ) : null}
+              <p
+                className={`text-[13px] leading-relaxed text-foreground${
+                  variant === "full" ? " mt-1" : ""
+                }${answerExpanded ? "" : " line-clamp-3"}`}
+              >
+                {humanizeAgentText(diagnostic.output.answer)}
+              </p>
+              {diagnostic.output.answer.length > 220 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  className="mt-1 px-0"
+                  onClick={() => setAnswerExpanded((v) => !v)}
+                >
+                  {answerExpanded ? "Ver menos" : "Ver análisis completo"}
+                </Button>
+              ) : null}
+            </div>
+          )}
+
+          {diagnostic.no_activity_since ? (
+            <p className="text-xs text-muted">
+              Sin cambios desde la última vez: no se ha vuelto a analizar porque
+              no ha habido actividad en la tienda. Usa “Actualizar ahora” para
+              forzarlo.
+            </p>
+          ) : null}
+
+          {proposedBlock}
+
+          {variant === "tasks" && !diagnostic.output.proposed_writes.length ? (
+            <p className="text-sm text-muted">
+              Sin tareas nuevas en este ciclo. Las que ya existen están en{" "}
+              <Link href="/tareas">Tareas</Link>.
+            </p>
+          ) : null}
+
+          {variant === "full" && riskFindings.length ? (
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                Riesgos ({riskFindings.length})
+              </h3>
+              <FindingsList rows={riskFindings} areas={areas} />
+            </div>
+          ) : null}
+
+          {variant === "full" && observationFindings.length ? (
+            <div>
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                className="px-0"
+                aria-expanded={observationsExpanded}
+                onClick={() => setObservationsExpanded((v) => !v)}
+              >
+                {observationsExpanded
+                  ? "Ocultar observaciones"
+                  : `Ver ${observationFindings.length} observación${
+                      observationFindings.length > 1 ? "es" : ""
+                    } sin riesgo`}
+              </Button>
+              {observationsExpanded ? (
+                <FindingsList rows={observationFindings} areas={areas} />
+              ) : null}
+            </div>
+          ) : null}
+
+          {variant === "full" && sortedRecs.length ? (
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                Recomendaciones
+              </h3>
+              <ul className="mt-2 space-y-2">
+                {sortedRecs.map((rec, index) => (
+                  <li
+                    key={index}
+                    className="rounded-md border border-separator p-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge
                         tone={
-                          ["urgent", "high"].includes(write.priority)
+                          ["urgent", "high"].includes(rec.priority)
                             ? "danger"
-                            : write.priority === "medium"
+                            : rec.priority === "medium"
                               ? "warn"
                               : "neutral"
                         }
                       >
-                        {priorityLabelsEs[write.priority] ?? write.priority}
+                        {priorityLabelsEs[rec.priority] ?? rec.priority}
                       </Badge>
-                      <p className="mt-2 text-sm font-medium text-foreground">
-                        {humanizeAgentText(write.title)}
-                      </p>
-                      {write.description ? (
-                        <p className="mt-1 text-xs leading-relaxed text-muted">
-                          {humanizeAgentText(write.description)}
-                        </p>
-                      ) : null}
-                    </li>
+                      <Badge tone="neutral">
+                        {ownerLabelsEs[rec.owner] ?? rec.owner}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-foreground">
+                      {humanizeAgentText(rec.action)}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted">
+                      {humanizeAgentText(rec.expected_impact)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {showInternals && cleanWarnings.length ? (
+            <Banner tone="warn">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {cleanWarnings.length} límite
+                  {cleanWarnings.length > 1 ? "s" : ""} del análisis (solo
+                  admin)
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  aria-expanded={warningsExpanded}
+                  onClick={() => setWarningsExpanded((v) => !v)}
+                >
+                  {warningsExpanded ? "Ocultar" : "Ver"}
+                </Button>
+              </div>
+              {warningsExpanded ? (
+                <ul className="mt-2 space-y-1">
+                  {cleanWarnings.map((warning, index) => (
+                    <li key={index}>{humanizeAgentText(warning)}</li>
                   ))}
                 </ul>
-
-                <div className="mt-3 flex flex-wrap items-center gap-4">
-                  <Button
-                    type="button"
-                    disabled={
-                      isCreatingTasks ||
-                      diagnostic.output_status !== "pending_approval"
-                    }
-                    onClick={createSuggestedTasks}
-                  >
-                    {isCreatingTasks
-                      ? "Creando..."
-                      : diagnostic.output_status !== "pending_approval"
-                        ? "Ya revisadas"
-                        : "Aprobar y crear en Tareas"}
-                  </Button>
-                  {tasksFeedback ? (
-                    <p className="text-sm text-muted">{tasksFeedback}</p>
-                  ) : null}
-                </div>
-              </div>
-            ) : variant === "summary" &&
-              diagnostic.output.proposed_writes.length ? (
-              <Banner tone="warn">
-                {diagnostic.output.proposed_writes.length} propuesta(s)
-                pendiente(s) de revisión del consultor. No se ha ejecutado
-                ninguna escritura.
-              </Banner>
-            ) : tasksFeedback ? (
-              <p className="text-sm text-muted">{tasksFeedback}</p>
-            ) : null;
-
-          return (
-            <div className="space-y-5">
-              {/* En "tasks" el veredicto de riesgos y el analisis en prosa no
-                  se pintan: este agente propone trabajo, el diagnostico del
-                  negocio es el "Resumen ejecutivo". */}
-              {variant === "tasks" ? null : (
-                <AiVerdict
-                  findings={cleanFindings}
-                  pendingCount={pendingCount}
-                />
-              )}
-
-              {connectors.length ? (
-                <p className="text-xs text-muted">
-                  Sin conectar: {connectors.join(" · ")}. El análisis los omite —{" "}
-                  <Link href="/integraciones">conéctalos en Integraciones</Link>.
-                </p>
               ) : null}
+            </Banner>
+          ) : null}
 
-              {variant === "tasks" ? null : (
-                <div>
-                  {variant === "full" ? (
-                    <p className={EYEBROW}>Análisis</p>
-                  ) : null}
-                  <p
-                    className={`text-[13px] leading-relaxed text-foreground${
-                      variant === "full" ? " mt-1" : ""
-                    }${answerExpanded ? "" : " line-clamp-3"}`}
-                  >
-                    {humanizeAgentText(diagnostic.output.answer)}
-                  </p>
-                  {diagnostic.output.answer.length > 220 ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      className="mt-1 px-0"
-                      onClick={() => setAnswerExpanded((v) => !v)}
-                    >
-                      {answerExpanded ? "Ver menos" : "Ver análisis completo"}
-                    </Button>
-                  ) : null}
-                </div>
-              )}
-
-              {diagnostic.no_activity_since ? (
-                <p className="text-xs text-muted">
-                  Sin cambios desde la última vez: no se ha vuelto a analizar
-                  porque no ha habido actividad en la tienda. Usa “Actualizar
-                  ahora” para forzarlo.
-                </p>
-              ) : null}
-
-              {proposedBlock}
-
-              {variant === "tasks" &&
-              !diagnostic.output.proposed_writes.length ? (
-                <p className="text-sm text-muted">
-                  Sin tareas nuevas en este ciclo. Las que ya existen están en{" "}
-                  <Link href="/tareas">Tareas</Link>.
-                </p>
-              ) : null}
-
-              {variant === "full" && riskFindings.length ? (
-                <div>
-                  <p className={EYEBROW}>Riesgos ({riskFindings.length})</p>
-                  <FindingsList rows={riskFindings} areas={areas} />
-                </div>
-              ) : null}
-
-              {variant === "full" && observationFindings.length ? (
-                <div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    type="button"
-                    className="px-0"
-                    aria-expanded={observationsExpanded}
-                    onClick={() => setObservationsExpanded((v) => !v)}
-                  >
-                    {observationsExpanded
-                      ? "Ocultar observaciones"
-                      : `Ver ${observationFindings.length} observación${
-                          observationFindings.length > 1 ? "es" : ""
-                        } sin riesgo`}
-                  </Button>
-                  {observationsExpanded ? (
-                    <FindingsList rows={observationFindings} areas={areas} />
-                  ) : null}
-                </div>
-              ) : null}
-
-              {variant === "full" && sortedRecs.length ? (
-                <div>
-                  <p className={EYEBROW}>Recomendaciones</p>
-                  <ul className="mt-2 space-y-2">
-                    {sortedRecs.map((rec, index) => (
-                      <li
-                        key={index}
-                        className="rounded-md border border-separator p-3"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            tone={
-                              ["urgent", "high"].includes(rec.priority)
-                                ? "danger"
-                                : rec.priority === "medium"
-                                  ? "warn"
-                                  : "neutral"
-                            }
-                          >
-                            {priorityLabelsEs[rec.priority] ?? rec.priority}
-                          </Badge>
-                          <Badge tone="neutral">
-                            {ownerLabelsEs[rec.owner] ?? rec.owner}
-                          </Badge>
-                        </div>
-                        <p className="mt-2 text-sm text-foreground">
-                          {humanizeAgentText(rec.action)}
-                        </p>
-                        <p className="mt-1 text-xs leading-relaxed text-muted">
-                          {humanizeAgentText(rec.expected_impact)}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {showInternals && cleanWarnings.length ? (
-                <Banner tone="warn">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium">
-                      {cleanWarnings.length} límite
-                      {cleanWarnings.length > 1 ? "s" : ""} del análisis (solo
-                      admin)
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      type="button"
-                      aria-expanded={warningsExpanded}
-                      onClick={() => setWarningsExpanded((v) => !v)}
-                    >
-                      {warningsExpanded ? "Ocultar" : "Ver"}
-                    </Button>
-                  </div>
-                  {warningsExpanded ? (
-                    <ul className="mt-2 space-y-1">
-                      {cleanWarnings.map((warning, index) => (
-                        <li key={index}>{humanizeAgentText(warning)}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </Banner>
-              ) : null}
-
-              <TrustStrip
-                diagnostic={diagnostic}
-                showInternals={showInternals}
-              />
-            </div>
-          );
-        })()
-    ) : null;
+          <TrustStrip diagnostic={diagnostic} showInternals={showInternals} />
+        </div>
+      );
+    })()
+  ) : null;
 
   if (bare) {
     return (

@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  FormEvent,
-  ReactNode,
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { usePaginatedUrl } from "@/hooks/use-paginated-url";
@@ -31,7 +25,6 @@ import {
   Button,
   Card,
   ErrorBlock,
-  EYEBROW,
   Input,
   List,
   Modal,
@@ -199,7 +192,8 @@ function dueSignal(task: Task): {
   if (!open) return { text: formatDueDate(task.due_at), tone: "muted" };
   if (days < 0) return { text: `Vencida ${-days} d`, tone: "danger" };
   if (days === 0) return { text: "Vence hoy", tone: "warn" };
-  if (days <= 7) return { text: `En ${days} d`, tone: days <= 2 ? "warn" : "muted" };
+  if (days <= 7)
+    return { text: `En ${days} d`, tone: days <= 2 ? "warn" : "muted" };
   return { text: formatDueDate(task.due_at), tone: "muted" };
 }
 
@@ -445,10 +439,7 @@ function NewTaskForm({
             aria-label="Fase o hito de Mi Camino"
             value={milestoneId}
             onChange={setMilestoneId}
-            options={[
-              { value: "", label: "Sin fase ni hito" },
-              ...milestones,
-            ]}
+            options={[{ value: "", label: "Sin fase ni hito" }, ...milestones]}
           />
         ) : null}
         {canMarkInternal ? (
@@ -899,7 +890,8 @@ function ClientSummaryGrid({
             </p>
             {/* Backlog vivo o cementerio: 8 tareas abiertas de hace tres dias
                 y 8 de hace tres meses son dos clientes distintos. */}
-            {summary.stalestOpenDays !== null && summary.stalestOpenDays >= 14 ? (
+            {summary.stalestOpenDays !== null &&
+            summary.stalestOpenDays >= 14 ? (
               <p className="mt-0.5 text-xs text-warning">
                 la más antigua lleva {summary.stalestOpenDays} d
               </p>
@@ -924,9 +916,11 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
   );
   const data = operationsQuery.data ?? null;
   const [actionError, setActionError] = useState<string | null>(null);
-  const error = actionError ?? (operationsQuery.error
-    ? "No se pudieron cargar las operaciones. Revisa la conexión e inténtalo de nuevo."
-    : null);
+  const error =
+    actionError ??
+    (operationsQuery.error
+      ? "No se pudieron cargar las operaciones. Revisa la conexión e inténtalo de nuevo."
+      : null);
   const isLoading = operationsQuery.isLoading;
   const [tab, setTab] = useState<"tasks" | "alerts">("tasks");
   const [statusFilter, setStatusFilter] = useState("open");
@@ -936,7 +930,9 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [pendingAlertId, setPendingAlertId] = useState<string | null>(null);
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
+    {},
+  );
   const [commentInternalDrafts, setCommentInternalDrafts] = useState<
     Record<string, boolean>
   >({});
@@ -1074,7 +1070,8 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
     const priorityDelta =
       (PRIORITY_WEIGHT[b.priority] ?? 0) - (PRIORITY_WEIGHT[a.priority] ?? 0);
     if (priorityDelta !== 0) return priorityDelta;
-    if (a.due_at && b.due_at) return Date.parse(a.due_at) - Date.parse(b.due_at);
+    if (a.due_at && b.due_at)
+      return Date.parse(a.due_at) - Date.parse(b.due_at);
     if (a.due_at) return -1;
     if (b.due_at) return 1;
     return Date.parse(b.created_at) - Date.parse(a.created_at);
@@ -1098,7 +1095,7 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
   });
 
   const detailTask = detailTaskId
-    ? filteredTasks.find((task) => task.id === detailTaskId) ?? null
+    ? (filteredTasks.find((task) => task.id === detailTaskId) ?? null)
     : null;
 
   const clientOptions = [
@@ -1146,13 +1143,10 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
     <div className="portal-page space-y-5">
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
-      <div>
-        <p className={EYEBROW}>Vista general</p>
-        <p className="mt-0.5 text-sm text-muted">
-          Tareas y alertas de toda la cartera ({clientSummaries.length}{" "}
-          {clientSummaries.length === 1 ? "cliente" : "clientes"}).
-        </p>
-      </div>
+      <p className="text-sm text-muted">
+        Tareas y alertas de toda la cartera ({clientSummaries.length}{" "}
+        {clientSummaries.length === 1 ? "cliente" : "clientes"}).
+      </p>
 
       <ModuleSummary
         metrics={[
@@ -1383,15 +1377,15 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
 
   const operationsQuery = useCachedQuery<OperationsResponse>(
-    organization
-      ? `/v1/organizations/${organization.id}/operations`
-      : null,
+    organization ? `/v1/organizations/${organization.id}/operations` : null,
   );
   const payload = operationsQuery.data ?? null;
   const [actionError, setActionError] = useState<string | null>(null);
-  const error = actionError ?? (operationsQuery.error
-    ? "No se pudieron cargar las operaciones. Revisa la conexión e inténtalo de nuevo."
-    : null);
+  const error =
+    actionError ??
+    (operationsQuery.error
+      ? "No se pudieron cargar las operaciones. Revisa la conexión e inténtalo de nuevo."
+      : null);
   const setError = setActionError;
   const isLoading = organization !== null && operationsQuery.isLoading;
   const [isEvaluating, setIsEvaluating] = useState(false);
@@ -1420,8 +1414,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // que recargaba la lista entera).
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [pendingAlertId, setPendingAlertId] = useState<string | null>(null);
-  const { clients: proposedClients, reload: reloadProposed } =
-    useProposedTasks({ enabled: isConsultant });
+  const { clients: proposedClients, reload: reloadProposed } = useProposedTasks(
+    { enabled: isConsultant },
+  );
   // Si hay propuestas, la lista no esta vacia aunque el backlog si lo este.
   const hasProposals = (proposedClients ?? []).some(
     (client) =>
@@ -1719,7 +1714,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const tasksPage = usePaginatedUrl(sortedTasks, TASKS_PAGE_SIZE);
 
   const detailTask = detailTaskId
-    ? filteredTasks.find((task) => task.id === detailTaskId) ?? null
+    ? (filteredTasks.find((task) => task.id === detailTaskId) ?? null)
     : null;
 
   // Estado real del backlog de este cliente. Antes había que contar a ojo
@@ -1746,12 +1741,9 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       {isConsultant && organization ? (
-        <div>
-          <p className={EYEBROW}>Tienda</p>
-          <p className="mt-0.5 text-sm font-medium text-foreground">
-            {organization.display_name}
-          </p>
-        </div>
+        <p className="text-sm text-muted">
+          Viendo tareas de {organization.display_name}.
+        </p>
       ) : null}
 
       {payload ? (
@@ -1967,10 +1959,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       )}
 
       {detailTask ? (
-        <Modal
-          isOpen
-          onOpenChange={(open) => !open && setDetailTaskId(null)}
-        >
+        <Modal isOpen onOpenChange={(open) => !open && setDetailTaskId(null)}>
           <Modal.Backdrop>
             <Modal.Container size="md">
               <Modal.Dialog>

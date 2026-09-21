@@ -14,7 +14,6 @@ import {
   Checkbox,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   LoadingBlock,
   Select,
   toast,
@@ -85,7 +84,6 @@ const CONFIDENCE: Record<string, { label: string; tone: Tone }> = {
   high: { label: "Confianza alta", tone: "success" },
 };
 
-
 // Fechas que tendría la campaña si se aprobara ahora mismo. El backend las
 // vuelve a calcular al aceptar, anclándolas a ESE momento: un plan aprobado
 // una semana después no arranca con la primera campaña ya empezada.
@@ -137,9 +135,7 @@ export function CampaignPlanProposal({
       // una. Lo normal es querer el plan entero.
       setSelected(
         new Set(
-          (payload.proposal?.content?.campaigns ?? []).map(
-            (_, index) => index,
-          ),
+          (payload.proposal?.content?.campaigns ?? []).map((_, index) => index),
         ),
       );
 
@@ -185,7 +181,9 @@ export function CampaignPlanProposal({
         return;
       }
       await load();
-      toast.success("Plan propuesto. Revísalo antes de llevarlo al calendario.");
+      toast.success(
+        "Plan propuesto. Revísalo antes de llevarlo al calendario.",
+      );
     } catch {
       setError("No se pudo generar el plan. Reintenta.");
     } finally {
@@ -366,12 +364,12 @@ export function CampaignPlanProposal({
           <AiEvidence sources={content.sources} warnings={content.warnings} />
 
           {alreadyApplied ? (
-            <Banner tone="success">
-              Este plan ya se llevó al calendario.
-            </Banner>
+            <Banner tone="success">Este plan ya se llevó al calendario.</Banner>
           ) : content.campaigns.length > 0 ? (
             <div className="space-y-2 border-t border-separator pt-3">
-              <p className={EYEBROW}>Llevar al calendario</p>
+              <p className="text-sm font-semibold text-foreground">
+                Llevar al calendario
+              </p>
               {calendars.length === 0 ? (
                 <Banner tone="warn">
                   Esta tienda no tiene ningún calendario de campañas. Crea uno

@@ -822,9 +822,9 @@ export function CopilotPanel({
           ) : messages.length === 0 ? (
             <div className="space-y-3">
               <p className="text-sm text-muted">
-                Analiza los datos reales de este cliente y la metodología de
-                Conocimiento. Responde con cifras citadas y la siguiente acción;
-                no escribe nada en la cuenta.
+                Consulta los datos reales de este cliente y la metodología de
+                Conocimiento. Las respuestas incluyen sus cifras y una siguiente
+                acción. El copiloto no modifica la cuenta.
               </p>
               <div className="flex w-full min-w-0 flex-col gap-2">
                 {suggestions.map((suggestion) => (
@@ -843,7 +843,7 @@ export function CopilotPanel({
           ) : (
             messages.map((message, index) =>
               message.role === "assistant" ? (
-                <Card key={index} kicker="Consultor IA">
+                <Card key={index}>
                   <div className="mb-2 flex items-center gap-2">
                     <Badge
                       tone={
@@ -860,9 +860,6 @@ export function CopilotPanel({
                           ? "Confianza baja"
                           : "Confianza media"}
                     </Badge>
-                    <span className="text-xs text-muted">
-                      Respuesta del Consultor
-                    </span>
                   </div>
                   {message.summary ? (
                     <p className="mb-3 text-sm font-medium leading-5">
@@ -874,7 +871,7 @@ export function CopilotPanel({
                       {message.findings.map((finding) => (
                         <div
                           key={`${finding.title}:${finding.detail}`}
-                          className="border-l-2 border-accent pl-3"
+                          className="border-t border-separator pt-2 first:border-t-0 first:pt-0"
                         >
                           <p className="text-xs font-semibold text-foreground">
                             {finding.title}
@@ -900,7 +897,7 @@ export function CopilotPanel({
                     </div>
                   ) : null}
                   {message.next_action ? (
-                    <div className="mt-3 border-l-2 border-accent pl-3">
+                    <div className="mt-3 border-t border-separator pt-3">
                       <p className="text-xs font-semibold text-foreground">
                         Siguiente acción
                       </p>

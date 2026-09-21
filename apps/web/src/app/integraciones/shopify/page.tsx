@@ -109,7 +109,7 @@ function ShopifyIntegrationPage({
         return (
           <CollapsibleSection
             key={connection.id}
-            className="border-l-4 border-l-warn"
+            className="border border-warn bg-warning-soft/30"
             title={`Permisos opcionales pendientes en ${tienda}`}
           >
             <Banner tone="warn">
@@ -167,7 +167,7 @@ function ShopifyIntegrationPage({
       </CollapsibleSection>
 
       <Card
-        className="border-l-4 border-l-[#168446]"
+        className="border border-[#168446]"
         title={shopify.connection ? "Reconecta tu tienda" : "Conecta tu tienda"}
         description="Traeremos catálogo, inventario, pedidos y clientes para que los diagnósticos trabajen con datos reales."
       >

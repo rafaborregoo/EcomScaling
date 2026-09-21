@@ -23,7 +23,13 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorBlock,
+  LoadingBlock,
+} from "@/components/ui";
 
 import {
   availabilityLabel,
@@ -45,15 +51,21 @@ function Test({ hypothesis }: { hypothesis: HypothesisView }) {
   const origen = availabilityLabel(test.availability);
 
   return (
-    <div className="border-default-200 mt-3 border-l-2 pl-3">
+    <div className="mt-3 rounded-md border border-default-200 p-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="text-xs uppercase tracking-wide">Lo que despejaría esto</p>
+        <p className="text-xs uppercase tracking-wide">
+          Lo que despejaría esto
+        </p>
         {/* Guardrail 47: de donde sale el dato manda sobre que dato es. */}
         <Badge tone={origen.tone}>{origen.label}</Badge>
       </div>
-      <p className="mt-1 max-w-prose text-sm leading-6">{test.diagnostic_question}</p>
+      <p className="mt-1 max-w-prose text-sm leading-6">
+        {test.diagnostic_question}
+      </p>
       {test.required_data ? (
-        <p className="text-muted mt-1 max-w-prose text-sm leading-6">{test.required_data}</p>
+        <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+          {test.required_data}
+        </p>
       ) : null}
       {/* Las dos predicciones juntas: un test cuyo resultado encaja con las dos
           cosas no discrimina nada, y verlas al lado lo delata. */}
@@ -125,7 +137,9 @@ function Hipotesis({ hypothesis }: { hypothesis: HypothesisView }) {
         // compartir lista con lo observado.
         <ul className="text-muted mt-2 space-y-1 text-sm leading-6">
           {huecos.map((e, i) => (
-            <li key={`${hypothesis.id}-h-${i}`}>Nadie lo ha mirado: {e.observation}</li>
+            <li key={`${hypothesis.id}-h-${i}`}>
+              Nadie lo ha mirado: {e.observation}
+            </li>
           ))}
         </ul>
       ) : null}
@@ -149,12 +163,15 @@ export function HypothesesPanel() {
           setError(await readApiError(response));
           return;
         }
-        const payload = (await response.json()) as { hypotheses: HypothesisView[] };
+        const payload = (await response.json()) as {
+          hypotheses: HypothesisView[];
+        };
         setHypotheses(payload.hypotheses);
         setError(null);
       })
       .catch(() => {
-        if (!cancelled) setError("No se pudieron cargar las hipótesis por un error de red.");
+        if (!cancelled)
+          setError("No se pudieron cargar las hipótesis por un error de red.");
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -194,7 +211,7 @@ export function HypothesesPanel() {
               <div key={caseId}>
                 {challenger.length > 0 ? (
                   // Arriba a propósito: si esto es cierto, lo de abajo sobra.
-                  <div className="border-warning/40 mb-4 border-l-2 pl-3">
+                  <div className="mb-4 rounded-md border border-warning/40 bg-warning-soft/20 p-3">
                     <p className="text-xs uppercase tracking-wide">
                       Lo que tumbaría todo lo demás
                     </p>
@@ -207,7 +224,9 @@ export function HypothesesPanel() {
                 ) : null}
 
                 {aviso ? (
-                  <p className="text-muted mb-2 max-w-prose text-sm leading-6">{aviso}</p>
+                  <p className="text-muted mb-2 max-w-prose text-sm leading-6">
+                    {aviso}
+                  </p>
                 ) : null}
 
                 {vivas.length > 0 ? (

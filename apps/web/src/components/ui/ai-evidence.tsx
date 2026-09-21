@@ -1,6 +1,9 @@
 import { useId } from "react";
 import { Badge } from "./badge";
-import { getAiEvidencePresentation, type AiEvidenceSource } from "./ai-evidence-state";
+import {
+  getAiEvidencePresentation,
+  type AiEvidenceSource,
+} from "./ai-evidence-state";
 
 const statusTone = {
   verified: "success",
@@ -19,7 +22,7 @@ export function AiEvidence({
   const presentation = getAiEvidencePresentation(sources, warnings);
   return (
     <section
-      className="mt-4 border-l-2 border-separator pl-3"
+      className="mt-4 rounded-md border border-separator bg-surface p-3"
       role="region"
       aria-labelledby={titleId}
     >
@@ -27,7 +30,9 @@ export function AiEvidence({
         Evidencia de la respuesta
       </h3>
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={statusTone[presentation.status]}>{presentation.label}</Badge>
+        <Badge tone={statusTone[presentation.status]}>
+          {presentation.label}
+        </Badge>
         {sources.length > 0 ? (
           <span className="text-xs text-muted">
             {sources.length} {sources.length === 1 ? "fuente" : "fuentes"}
@@ -37,7 +42,9 @@ export function AiEvidence({
       {sources.length > 0 ? (
         <ul className="mt-2 space-y-1 text-xs text-muted">
           {sources.map((source) => (
-            <li key={`${source.kind}:${source.reference}:${source.period ?? ""}`}>
+            <li
+              key={`${source.kind}:${source.reference}:${source.period ?? ""}`}
+            >
               <span className="font-medium text-foreground">{source.kind}</span>{" "}
               <span>{source.reference}</span>
               {source.period ? <span> · {source.period}</span> : null}
@@ -45,7 +52,9 @@ export function AiEvidence({
           ))}
         </ul>
       ) : null}
-      {warnings.length > 0 ? <p className="mt-2 text-xs text-muted">{warnings.join(" · ")}</p> : null}
+      {warnings.length > 0 ? (
+        <p className="mt-2 text-xs text-muted">{warnings.join(" · ")}</p>
+      ) : null}
     </section>
   );
 }

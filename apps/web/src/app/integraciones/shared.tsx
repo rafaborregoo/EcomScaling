@@ -463,33 +463,33 @@ export function ProviderStatusCard({
   const cfg = provider.configuration.status;
   const visual = {
     shopify: {
-      rail: "border-l-[#168446]",
+      rail: "border-[#168446]",
       icon: "border-[#b7dfc4] bg-[#effaf2]",
       label: "Datos de la tienda",
     },
     meta_ads: {
-      rail: "border-l-channel-meta",
+      rail: "border-channel-meta",
       icon: "border-[#d9c8fa] bg-channel-meta-soft",
       label: "Rendimiento publicitario",
     },
     klaviyo: {
-      rail: "border-l-channel-email",
+      rail: "border-channel-email",
       icon: "border-[#cddafe] bg-channel-email-soft",
       label: "Email y SMS",
     },
     instagram: {
-      rail: "border-l-channel-instagram",
+      rail: "border-channel-instagram",
       icon: "border-[#fac9df] bg-channel-instagram-soft",
       label: "Contenido e insights",
     },
   }[provider.id] ?? {
-    rail: "border-l-accent",
+    rail: "border-accent",
     icon: "border-accent bg-accent-soft",
     label: "Fuente de datos",
   };
   return (
     <Card
-      className={`border-l-4 ${visual.rail}`}
+      className={`border ${visual.rail}`}
       title={
         <span className="inline-flex min-w-0 items-center gap-3">
           <span
@@ -805,7 +805,7 @@ export function LastErrorBanner({
   const message = integrationErrorMessage(provider);
   if (!message) return null;
   return (
-    <Banner className="border-l-4 border-l-danger" tone="danger">
+    <Banner className="border-danger" tone="danger">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span>
           <span className="font-medium">

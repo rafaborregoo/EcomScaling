@@ -292,9 +292,9 @@ export function ClientDashboard({ bootstrap }: { bootstrap: BootstrapResponse })
               ))}
             </List>
           )}
-          {openTasks.length > 6 ? (
+          {openTasks.length > 0 ? (
             <ButtonLink className="mt-4" href="/tareas" variant="secondary">
-              Ver las {openTasks.length}
+              Ver tareas
             </ButtonLink>
           ) : null}
         </Card>

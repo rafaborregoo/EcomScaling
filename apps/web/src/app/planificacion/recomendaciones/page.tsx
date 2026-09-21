@@ -18,7 +18,6 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   Heading,
   List,
   LoadingBlock,
@@ -37,7 +36,8 @@ function ProposalsPortfolio() {
   const { clients, error } = useProposedTasks();
 
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
-  if (!clients) return <LoadingBlock label="Buscando propuestas sin decidir…" />;
+  if (!clients)
+    return <LoadingBlock label="Buscando propuestas sin decidir…" />;
 
   const pending = clients
     .map((client) => ({
@@ -49,7 +49,6 @@ function ProposalsPortfolio() {
   return (
     <div className="space-y-6">
       <div>
-        <p className={EYEBROW}>Planificación / recomendaciones</p>
         <Heading>Decisiones del consultor IA</Heading>
         <p className="mt-1 max-w-2xl text-sm text-muted">
           Lo que los agentes han propuesto en toda la cartera y sigue sin
@@ -73,43 +72,49 @@ function ProposalsPortfolio() {
           />
         ) : (
           <List as="ul">
-            {pending.map((client: ProposedTasksClient & { pendingTasks: typeof client.tasks }) => (
-              <List.Item
-                as="li"
-                key={client.organization_id}
-                className="flex flex-wrap items-center gap-3 py-3"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {client.display_name}
-                  </span>
-                  <span className="block truncate text-xs text-muted">
-                    {client.pendingTasks[0]?.title}
-                    {client.pendingTasks.length > 1
-                      ? ` · y ${client.pendingTasks.length - 1} más`
-                      : ""}
-                  </span>
-                </span>
-                <span className="flex shrink-0 flex-wrap gap-1">
-                  {[
-                    ...new Set(client.pendingTasks.map((task) => task.area)),
-                  ].map((area) => (
-                    <Badge key={area}>{AREA_LABEL[area]}</Badge>
-                  ))}
-                </span>
-                <Badge tone="warn">{client.pendingTasks.length}</Badge>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setOrganizationId(client.organization_id);
-                    toast.success(`Ahora ves ${client.display_name}`);
-                  }}
+            {pending.map(
+              (
+                client: ProposedTasksClient & {
+                  pendingTasks: typeof client.tasks;
+                },
+              ) => (
+                <List.Item
+                  as="li"
+                  key={client.organization_id}
+                  className="flex flex-wrap items-center gap-3 py-3"
                 >
-                  Revisar
-                </Button>
-              </List.Item>
-            ))}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {client.display_name}
+                    </span>
+                    <span className="block truncate text-xs text-muted">
+                      {client.pendingTasks[0]?.title}
+                      {client.pendingTasks.length > 1
+                        ? ` · y ${client.pendingTasks.length - 1} más`
+                        : ""}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 flex-wrap gap-1">
+                    {[
+                      ...new Set(client.pendingTasks.map((task) => task.area)),
+                    ].map((area) => (
+                      <Badge key={area}>{AREA_LABEL[area]}</Badge>
+                    ))}
+                  </span>
+                  <Badge tone="warn">{client.pendingTasks.length}</Badge>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setOrganizationId(client.organization_id);
+                      toast.success(`Ahora ves ${client.display_name}`);
+                    }}
+                  >
+                    Revisar
+                  </Button>
+                </List.Item>
+              ),
+            )}
           </List>
         )}
       </Card>
@@ -192,7 +197,6 @@ function RecommendationsContent({
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className={EYEBROW}>Planificación / recomendaciones</p>
           <Heading>Decisiones del consultor IA</Heading>
           <p className="mt-1 max-w-2xl text-sm text-muted">
             La IA cruza los datos conectados y propone el siguiente trabajo. El

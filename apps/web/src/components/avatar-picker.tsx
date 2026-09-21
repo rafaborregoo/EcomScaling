@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase";
-import { Avatar, EYEBROW, UploadButton, cn } from "@/components/ui";
+import { Avatar, UploadButton, cn } from "@/components/ui";
 
 // Avatares alojados por HeroUI. Si alguno no carga, el <Avatar.Fallback> con
 // las iniciales del nombre lo cubre.
@@ -59,7 +59,7 @@ export function AvatarPicker({
 
   return (
     <div>
-      <p className={EYEBROW}>Avatar</p>
+      <p className="text-sm font-medium text-foreground">Avatar</p>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         {AVATAR_PRESETS.map((url) => (
           <button

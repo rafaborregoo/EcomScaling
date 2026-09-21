@@ -4,6 +4,7 @@ import { FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase";
+import { PasswordInput } from "@/components/password-input";
 import {
   Banner,
   BrandLogo,
@@ -92,23 +93,9 @@ function LoginPageContent() {
         >
           <BrandLogo className="lg:hidden" />
 
-          <div
-            className="mt-4 grid grid-cols-2 gap-2"
-            aria-label="Tipos de acceso"
-          >
-            <div className="rounded-md border border-separator bg-surface p-3">
-              <p className="text-sm font-medium">Consultor</p>
-              <p className="mt-1 text-xs text-muted">
-                Agencia, tiendas y clientes.
-              </p>
-            </div>
-            <div className="rounded-md border border-separator bg-surface p-3">
-              <p className="text-sm font-medium">Cliente</p>
-              <p className="mt-1 text-xs text-muted">Tu propia organización.</p>
-            </div>
-          </div>
-          <p className="mt-2 text-xs text-muted">
-            El mismo acceso detecta automáticamente el tipo de cuenta y su plan.
+          <p className="mt-4 text-sm leading-6 text-muted">
+            Usa tus datos habituales. Abriremos la vista que corresponda a tu
+            cuenta.
           </p>
 
           {sessionReason && REASON_MESSAGES[sessionReason] ? (
@@ -129,8 +116,7 @@ function LoginPageContent() {
               />
             </Field>
             <Field label="Contraseña">
-              <Input
-                type="password"
+              <PasswordInput
                 autoComplete="current-password"
                 placeholder="••••••••"
                 value={password}

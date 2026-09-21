@@ -196,8 +196,10 @@ export function CaminoProposal({
   const content = proposal?.content ?? null;
   const alreadyApplied = proposal?.status === "published";
   const totalMilestones =
-    content?.phases.reduce((total, phase) => total + phase.milestones.length, 0) ??
-    0;
+    content?.phases.reduce(
+      (total, phase) => total + phase.milestones.length,
+      0,
+    ) ?? 0;
 
   return (
     <Card
@@ -269,10 +271,12 @@ export function CaminoProposal({
                 className="rounded-lg border border-separator p-3"
               >
                 <div className="flex items-baseline gap-2">
-                  <span className="shrink-0 font-mono text-xs text-muted">
-                    {phaseIndex + 1}
+                  <span className="shrink-0 text-xs font-medium text-muted">
+                    Fase {phaseIndex + 1}
                   </span>
-                  <h3 className="min-w-0 text-sm font-semibold">{phase.name}</h3>
+                  <h3 className="min-w-0 text-sm font-semibold">
+                    {phase.name}
+                  </h3>
                 </div>
                 <p className="mt-1 text-xs text-muted">{phase.description}</p>
                 {phase.rationale ? (
@@ -289,12 +293,9 @@ export function CaminoProposal({
                   {phase.milestones.map((milestone, milestoneIndex) => (
                     <li
                       key={`${milestone.name}-${milestoneIndex}`}
-                      className="border-l-2 border-separator pl-3"
+                      className="border-t border-separator pt-2 first:border-t-0 first:pt-0"
                     >
                       <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="shrink-0 font-mono text-[0.65rem] text-muted">
-                          {phaseIndex + 1}.{milestoneIndex + 1}
-                        </span>
                         <p className="min-w-0 text-xs font-medium">
                           {milestone.name}
                         </p>
@@ -318,10 +319,7 @@ export function CaminoProposal({
             ))}
           </ol>
 
-          <AiEvidence
-            sources={content.sources}
-            warnings={content.warnings}
-          />
+          <AiEvidence sources={content.sources} warnings={content.warnings} />
 
           {alreadyApplied ? (
             <Banner tone="success">

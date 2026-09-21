@@ -137,7 +137,7 @@ function MessageBubble({
           className={`rounded-lg px-3 py-2 text-sm ${
             mine
               ? "border border-edge bg-surface text-muted"
-              : "border border-accent/40 border-l-2 border-l-accent bg-background shadow-surface"
+              : "border border-accent/40 bg-background shadow-surface"
           }`}
         >
           {message.body ? (
@@ -271,7 +271,9 @@ export function MessageThread({
   }
 
   return (
-    <div className={`flex flex-col ${className ?? "h-[55svh] min-h-72 lg:h-[28rem]"}`}>
+    <div
+      className={`flex flex-col ${className ?? "h-[55svh] min-h-72 lg:h-[28rem]"}`}
+    >
       <div
         ref={scrollRef}
         // Bandeja propia: blanca y enmarcada en el azul de marca, para que la
@@ -470,10 +472,12 @@ export function MessageThreadsCard() {
                     ) : null}
                   </span>
                   <span className="mt-0.5 block truncate text-xs text-muted">
-                    {thread.counterpart_name ? `${thread.organization_name} · ` : ""}
+                    {thread.counterpart_name
+                      ? `${thread.organization_name} · `
+                      : ""}
                     {thread.last_message
                       ? thread.last_message.body ||
-                        (thread.last_message.has_attachments ? "📎 Adjunto" : "")
+                        (thread.last_message.has_attachments ? "Adjunto" : "")
                       : "Sin mensajes"}
                   </span>
                 </span>

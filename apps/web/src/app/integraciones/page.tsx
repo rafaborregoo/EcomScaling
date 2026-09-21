@@ -107,7 +107,7 @@ function IntegrationsSummaryLine({
   });
 
   return (
-    <section className="border border-edge border-l-4 border-l-accent bg-brand-tint/40 px-4 py-3">
+    <section className="border border-accent bg-brand-tint/40 px-4 py-3">
       <p className="text-xs font-medium text-muted">Cobertura actual</p>
       <div className="mt-1 text-sm">
         <span className="text-muted">Tiendas: </span>
@@ -223,7 +223,7 @@ function ShopifyGridCard({
 }) {
   return (
     <Card
-      className="border-l-4 border-l-[#168446]"
+      className="border border-[#168446]"
       kicker="Base operativa"
       title={
         <span className="flex items-center gap-2">
@@ -272,15 +272,15 @@ function ProviderGridCard({ provider }: { provider: IntegrationProvider }) {
   const connected = provider.connections.length > 0;
   const visual =
     {
-      meta_ads: "border-l-channel-meta bg-channel-meta-soft/30",
-      klaviyo: "border-l-channel-email bg-channel-email-soft/30",
-      instagram: "border-l-channel-instagram bg-channel-instagram-soft/30",
-      fathom: "border-l-accent bg-brand-tint/40",
-    }[provider.id] ?? "border-l-accent bg-brand-tint/40";
+      meta_ads: "border-channel-meta bg-channel-meta-soft/30",
+      klaviyo: "border-channel-email bg-channel-email-soft/30",
+      instagram: "border-channel-instagram bg-channel-instagram-soft/30",
+      fathom: "border-accent bg-brand-tint/40",
+    }[provider.id] ?? "border-accent bg-brand-tint/40";
 
   return (
     <div
-      className={`flex items-start gap-4 border border-edge border-l-4 p-4 transition-colors hover:border-edge-strong ${visual}`}
+      className={`flex items-start gap-4 border border-edge p-4 transition-colors hover:border-edge-strong ${visual}`}
     >
       <span className="flex size-10 shrink-0 items-center justify-center border border-edge bg-white">
         <ProviderIcon provider={provider.id} size={24} />

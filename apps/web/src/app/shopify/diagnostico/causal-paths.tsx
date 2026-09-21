@@ -62,7 +62,10 @@ import {
  * el motor todavia no los recorre, y ofrecerlos seria prometer algo que no pasa.
  */
 const RELACIONES = [
-  { value: "mechanistic", label: "Actua sobre (mecanismo fisico o del sistema)" },
+  {
+    value: "mechanistic",
+    label: "Actua sobre (mecanismo fisico o del sistema)",
+  },
   { value: "behavioral", label: "Cambia el comportamiento de la gente" },
   { value: "economic", label: "Mueve economicamente" },
   { value: "operational", label: "Condiciona la operativa" },
@@ -72,7 +75,10 @@ const RELACIONES = [
 
 const SIGNOS = [
   { value: "positive", label: "en el mismo sentido (mas causa, mas efecto)" },
-  { value: "negative", label: "en sentido contrario (mas causa, menos efecto)" },
+  {
+    value: "negative",
+    label: "en sentido contrario (mas causa, menos efecto)",
+  },
   { value: "non_monotonic", label: "no siempre igual (sube y luego baja)" },
   { value: "context_dependent", label: "depende del contexto" },
 ];
@@ -98,8 +104,10 @@ type Borrador = typeof BORRADOR_VACIO;
  */
 function queFalta(draft: Borrador): string | null {
   if (!draft.organization_id) return "Elige la tienda.";
-  if (!draft.from_node_id || !draft.to_node_id) return "Elige las dos cosas que se relacionan.";
-  if (draft.from_node_id === draft.to_node_id) return "Tienen que ser dos cosas distintas.";
+  if (!draft.from_node_id || !draft.to_node_id)
+    return "Elige las dos cosas que se relacionan.";
+  if (draft.from_node_id === draft.to_node_id)
+    return "Tienen que ser dos cosas distintas.";
   if (draft.mechanism.trim().length < 20) {
     return "Escribe por que lo uno mueve a lo otro. Sin mecanismo esto es una correlacion, no una causa.";
   }
@@ -125,7 +133,9 @@ function Paso({
     <li className="border-default-200 border-t py-3 first:border-t-0 first:pt-0">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="font-medium">{stepSentence(step, edges, nodes)}</span>
-        {step.is_mediator ? <Badge tone="neutral">paso intermedio</Badge> : null}
+        {step.is_mediator ? (
+          <Badge tone="neutral">paso intermedio</Badge>
+        ) : null}
         {step.cause_role === "contributory" ? (
           // Guardrail 28: contribuir no es bastar por su cuenta, y son dos
           // afirmaciones muy distintas delante de alguien que va a decidir.
@@ -134,11 +144,15 @@ function Paso({
       </div>
 
       {edge?.mechanism ? (
-        <p className="text-muted mt-1 max-w-prose text-sm leading-6">{edge.mechanism}</p>
+        <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+          {edge.mechanism}
+        </p>
       ) : null}
 
       {step.contribution_note ? (
-        <p className="mt-1 max-w-prose text-sm leading-6">{step.contribution_note}</p>
+        <p className="mt-1 max-w-prose text-sm leading-6">
+          {step.contribution_note}
+        </p>
       ) : null}
 
       {fallos.length > 0 ? (
@@ -194,8 +208,10 @@ function Ruta({
       </ul>
 
       {path.missing_evidence.length > 0 ? (
-        <div className="border-warning/40 mt-3 border-l-2 pl-3">
-          <p className="text-xs uppercase tracking-wide">Lo que falta por comprobar</p>
+        <div className="mt-3 rounded-md border border-warning/40 bg-warning-soft/20 p-3">
+          <p className="text-xs uppercase tracking-wide">
+            Lo que falta por comprobar
+          </p>
           <ul className="text-muted mt-1 space-y-1 text-sm leading-6">
             {path.missing_evidence.map((m) => (
               <li key={m}>· {m}</li>
@@ -243,7 +259,11 @@ export function CausalPathsPanel() {
 
   useEffect(() => {
     cargar()
-      .catch(() => setError("No se pudieron cargar las rutas causales por un error de red."))
+      .catch(() =>
+        setError(
+          "No se pudieron cargar las rutas causales por un error de red.",
+        ),
+      )
       .finally(() => setIsLoading(false));
   }, [cargar]);
 
@@ -256,10 +276,12 @@ export function CausalPathsPanel() {
     ).entries(),
   ].map(([value, label]) => ({ value, label }));
 
-  const disponibles = declarableNodes(nodes, draft.organization_id || null).map((n) => ({
-    value: n.id,
-    label: n.label,
-  }));
+  const disponibles = declarableNodes(nodes, draft.organization_id || null).map(
+    (n) => ({
+      value: n.id,
+      label: n.label,
+    }),
+  );
 
   async function declarar() {
     if (problema) return;
@@ -325,11 +347,14 @@ export function CausalPathsPanel() {
       )}
 
       <div className="border-default-200 mt-6 border-t pt-4">
-        <p className="text-xs uppercase tracking-wide">Declarar una relación de esta tienda</p>
+        <p className="text-xs uppercase tracking-wide">
+          Declarar una relación de esta tienda
+        </p>
         <p className="text-muted mt-1 max-w-prose text-sm leading-6">
-          El grafo que viene de serie solo trae lo que se sostiene con las métricas que la
-          plataforma lee hoy. Lo que sepas de esta tienda en concreto no cabía en ningún sitio, y
-          sin ello el motor casi no tiene por dónde recorrer.
+          El grafo que viene de serie solo trae lo que se sostiene con las
+          métricas que la plataforma lee hoy. Lo que sepas de esta tienda en
+          concreto no cabía en ningún sitio, y sin ello el motor casi no tiene
+          por dónde recorrer.
         </p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -337,7 +362,12 @@ export function CausalPathsPanel() {
             <Select
               value={draft.organization_id}
               onChange={(organization_id) =>
-                setDraft({ ...draft, organization_id, from_node_id: "", to_node_id: "" })
+                setDraft({
+                  ...draft,
+                  organization_id,
+                  from_node_id: "",
+                  to_node_id: "",
+                })
               }
               options={tiendas}
               placeholder="Elige la tienda"
@@ -348,7 +378,9 @@ export function CausalPathsPanel() {
           <Field label="Tipo de relación">
             <Select
               value={draft.relation_type}
-              onChange={(relation_type) => setDraft({ ...draft, relation_type })}
+              onChange={(relation_type) =>
+                setDraft({ ...draft, relation_type })
+              }
               options={RELACIONES}
               aria-label="Tipo de relación"
             />
@@ -377,7 +409,9 @@ export function CausalPathsPanel() {
           <Field label="En qué sentido">
             <Select
               value={draft.expected_sign}
-              onChange={(expected_sign) => setDraft({ ...draft, expected_sign })}
+              onChange={(expected_sign) =>
+                setDraft({ ...draft, expected_sign })
+              }
               options={SIGNOS}
               aria-label="Sentido esperado"
             />
@@ -386,7 +420,9 @@ export function CausalPathsPanel() {
           <Field label="Cuántos días tarda en notarse">
             <Input
               value={draft.expected_lag_days}
-              onChange={(e) => setDraft({ ...draft, expected_lag_days: e.target.value })}
+              onChange={(e) =>
+                setDraft({ ...draft, expected_lag_days: e.target.value })
+              }
               placeholder="0"
               inputMode="numeric"
             />
@@ -397,7 +433,9 @@ export function CausalPathsPanel() {
           <Field label="Por qué lo uno mueve a lo otro">
             <Input
               value={draft.mechanism}
-              onChange={(e) => setDraft({ ...draft, mechanism: e.target.value })}
+              onChange={(e) =>
+                setDraft({ ...draft, mechanism: e.target.value })
+              }
               placeholder="Subir el mínimo de envío gratis empuja a añadir un producto más al carrito para alcanzarlo, y deja fuera a quien no quiere gastar tanto."
             />
           </Field>
@@ -414,11 +452,16 @@ export function CausalPathsPanel() {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={() => void declarar()} disabled={Boolean(problema) || isSaving}>
+          <Button
+            onClick={() => void declarar()}
+            disabled={Boolean(problema) || isSaving}
+          >
             Declarar relación
           </Button>
           {/* El motivo por el que el botón está apagado, en vez de una pared. */}
-          {problema ? <span className="text-muted text-sm">{problema}</span> : null}
+          {problema ? (
+            <span className="text-muted text-sm">{problema}</span>
+          ) : null}
         </div>
       </div>
     </Card>

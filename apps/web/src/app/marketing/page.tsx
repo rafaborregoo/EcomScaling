@@ -121,7 +121,11 @@ type AiRuntimeStatus = {
 };
 
 type MarketingIntegrationReadiness = {
-  configuration: "configured" | "credentials_missing" | "feature_disabled" | "not_implemented";
+  configuration:
+    | "configured"
+    | "credentials_missing"
+    | "feature_disabled"
+    | "not_implemented";
   connectionStatus: string | null;
   connectionId: string | null;
 };
@@ -263,7 +267,9 @@ function DraftMiniCard({
             >
               {style.label}
             </span>
-            <p className="line-clamp-2 text-sm font-medium text-ink">{subject}</p>
+            <p className="line-clamp-2 text-sm font-medium text-ink">
+              {subject}
+            </p>
             <p className="line-clamp-4 text-xs leading-relaxed text-muted">
               {body}
             </p>
@@ -374,10 +380,14 @@ function PieceGrid({
             <>
               {/* Para que existe esta pieza, antes que cuando se creo: es lo
                   que se busca al mirar. */}
-              {draft.campaign_item ? `Para «${draft.campaign_item.title}» · ` : ""}
+              {draft.campaign_item
+                ? `Para «${draft.campaign_item.title}» · `
+                : ""}
               {contentTypeLabels[draft.content_type] ?? draft.content_type} ·{" "}
               {fmtDate(draft.created_at)}
-              {draft.request?.source === "klaviyo_import" ? " · de Klaviyo" : ""}
+              {draft.request?.source === "klaviyo_import"
+                ? " · de Klaviyo"
+                : ""}
             </>
           }
           selected={expandedId === draft.id}
@@ -482,10 +492,7 @@ function MarketingDraftNotes({
             const isSystem = note.body.startsWith("📅");
             if (isSystem) {
               return (
-                <p
-                  key={note.id}
-                  className="text-center text-xs text-muted"
-                >
+                <p key={note.id} className="text-center text-xs text-muted">
                   {note.body} · {fmtDateTime(note.created_at)}
                 </p>
               );
@@ -495,8 +502,10 @@ function MarketingDraftNotes({
             return (
               <div
                 key={note.id}
-                className={`border-l-2 pl-3 text-sm ${
-                  mine ? "border-accent" : "border-separator"
+                className={`rounded-md border p-3 text-sm ${
+                  mine
+                    ? "border-accent/30 bg-accent-soft/30"
+                    : "border-separator bg-surface"
                 }`}
               >
                 <p className="leading-6 whitespace-pre-wrap">{note.body}</p>
@@ -597,7 +606,11 @@ function SchedulePublicationBlock({
               <span className="font-medium">
                 Prevista para el {fmtSchedule(scheduledFor)}
               </span>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(true)}
+              >
                 Cambiar
               </Button>
               <Button
@@ -612,7 +625,11 @@ function SchedulePublicationBlock({
           ) : (
             <>
               <span className="text-muted">Sin fecha de publicación.</span>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(true)}
+              >
                 Programar publicación
               </Button>
             </>
@@ -707,10 +724,13 @@ function UpcomingPublications({
                       <span className="text-xs text-muted">{entry.meta}</span>
                     </span>
                     <span className="flex items-center gap-2 text-xs text-muted">
-                      {new Date(entry.scheduledFor).toLocaleTimeString("es-ES", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {new Date(entry.scheduledFor).toLocaleTimeString(
+                        "es-ES",
+                        {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        },
+                      )}
                       {entry.noteCount && entry.noteCount > 0 ? (
                         <Badge tone="warn">{entry.noteCount}</Badge>
                       ) : null}
@@ -751,7 +771,9 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [campaignTarget, setCampaignTarget] = useState<CampaignItem | null>(
     null,
   );
-  const [submittingDraftId, setSubmittingDraftId] = useState<string | null>(null);
+  const [submittingDraftId, setSubmittingDraftId] = useState<string | null>(
+    null,
+  );
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
   const [showKlaviyoImport, setShowKlaviyoImport] = useState(false);
   const [contentType, setContentType] = useState("campaign");
@@ -917,8 +939,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // Blocker: avisar antes de perder un diseño sin guardar (refresh, cerrar
   // pestaña, navegar fuera).
   useEffect(() => {
-    const hasUnsavedDesign =
-      genMode === "template" && design.blocks.length > 0;
+    const hasUnsavedDesign = genMode === "template" && design.blocks.length > 0;
     if (!hasUnsavedDesign) return;
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -927,7 +948,6 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [genMode, design.blocks.length]);
-
 
   async function generateDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -974,9 +994,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   channel: "email_klaviyo",
                   brief: structuredBrief,
                   brand_colors: brandColors,
-                  ...(design.blocks.length > 0
-                    ? { base_design: design }
-                    : {}),
+                  ...(design.blocks.length > 0 ? { base_design: design } : {}),
                   ...(aiImages.length > 0
                     ? {
                         reference_image_urls: aiImages
@@ -1122,9 +1140,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setGenMode("campaign");
     // `toChannel` devuelve justo los tres valores del selector del generador.
     setChannel(toChannel(item.channel));
-    setBrief(
-      [item.title, item.description].filter(Boolean).join("\n\n"),
-    );
+    setBrief([item.title, item.description].filter(Boolean).join("\n\n"));
     setTab("crear");
   }
 
@@ -1144,7 +1160,9 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       toast.success("Enviado a aprobación");
       await loadDrafts();
     } catch {
-      setError("No se pudo enviar a aprobación por un error de red. Reintenta.");
+      setError(
+        "No se pudo enviar a aprobación por un error de red. Reintenta.",
+      );
     } finally {
       setSubmittingDraftId(null);
     }
@@ -1190,7 +1208,9 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       await loadDrafts();
       if (body?.draft?.id) focusDraft(body.draft.id);
     } catch {
-      setError("No se pudo guardar la plantilla por un error de red. Reintenta.");
+      setError(
+        "No se pudo guardar la plantilla por un error de red. Reintenta.",
+      );
     } finally {
       setIsSavingTemplate(false);
     }
@@ -1529,15 +1549,15 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         value={tab}
         onChange={setTab}
         items={[
-          { value: 'plan', label: 'Plan' },
+          { value: "plan", label: "Plan" },
           {
-            value: 'contenido',
+            value: "contenido",
             label: pendingDecisionCount
               ? `Contenido (${pendingDecisionCount})`
-              : 'Contenido',
+              : "Contenido",
           },
-          { value: 'crear', label: 'Crear' },
-          { value: 'rendimiento', label: 'Rendimiento' },
+          { value: "crear", label: "Crear" },
+          { value: "rendimiento", label: "Rendimiento" },
         ]}
         panels={{
           /* Primero de izquierda a derecha porque es lo primero del trabajo:
@@ -1575,1101 +1595,1191 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ),
           contenido: (
             <div className="space-y-6">
-            {error ? <ErrorBlock>{error}</ErrorBlock> : null}
-            <UpcomingPublications
-              entries={drafts
-                .filter((draft) => draft.scheduled_for)
-                .map((draft) => ({
-                  id: draft.id,
-                  title: draft.template_name || draft.subject || "Publicación",
-                  meta: `${contentTypeLabels[draft.content_type] ?? draft.content_type} · ${
-                    draftStatusLabels[draft.status] ?? draft.status
-                  }`,
-                  scheduledFor: draft.scheduled_for as string,
-                  channel: draft.request?.channel,
-                  noteCount: draft.thread?.count ?? 0,
-                  onOpen: () => focusDraft(draft.id),
-                }))}
-            />
-            {/* Dos secciones, no un filtro de estado: lo que ya se usa y lo
+              {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+              <UpcomingPublications
+                entries={drafts
+                  .filter((draft) => draft.scheduled_for)
+                  .map((draft) => ({
+                    id: draft.id,
+                    title:
+                      draft.template_name || draft.subject || "Publicación",
+                    meta: `${contentTypeLabels[draft.content_type] ?? draft.content_type} · ${
+                      draftStatusLabels[draft.status] ?? draft.status
+                    }`,
+                    scheduledFor: draft.scheduled_for as string,
+                    channel: draft.request?.channel,
+                    noteCount: draft.thread?.count ?? 0,
+                    onOpen: () => focusDraft(draft.id),
+                  }))}
+              />
+              {/* Dos secciones, no un filtro de estado: lo que ya se usa y lo
                 que aún se está cocinando son dos trabajos distintos. Con un
                 Select delante, la mitad del material quedaba escondida detrás
                 de una opción que nadie tocaba. */}
-            {isLoading ? (
-              <LoadingBlock label="Cargando el contenido…" />
-            ) : drafts.length === 0 ? (
-              <Card
-                title="Plantillas y borradores"
-                description="Aquí vive el material de la tienda: lo que ya se usa y lo que está en revisión."
-              >
-                <EmptyState
-                  title="Todavía no hay contenido"
-                  hint="Créalo en la pestaña «Crear» o impórtalo de Klaviyo. Aparecerá aquí como borrador hasta que se apruebe."
-                />
-              </Card>
-            ) : (
-              <div className="space-y-6">
+              {isLoading ? (
+                <LoadingBlock label="Cargando el contenido…" />
+              ) : drafts.length === 0 ? (
                 <Card
-                  title="Plantillas en uso"
-                  description="Aprobadas y publicadas: material listo para copiar y mandar. Ábrelas para ver la conversación o pedirle un análisis al Consultor IA."
-                  actions={
-                    piecesInUse.length > 0 ? (
-                      <Badge tone="success">{piecesInUse.length}</Badge>
-                    ) : undefined
-                  }
+                  title="Plantillas y borradores"
+                  description="Aquí vive el material de la tienda: lo que ya se usa y lo que está en revisión."
                 >
-                  {piecesInUse.length === 0 ? (
-                    <EmptyState
-                      title="Ninguna plantilla en uso todavía"
-                      hint="Cuando se apruebe un borrador pasará aquí."
-                    />
-                  ) : (
-                    <PieceGrid
-                      pieces={piecesInUse}
-                      expandedId={expandedDraftId}
-                      viewerKind={viewerKind}
-                      onToggle={(id) =>
-                        setExpandedDraftId(expandedDraftId === id ? null : id)
-                      }
-                    />
-                  )}
+                  <EmptyState
+                    title="Todavía no hay contenido"
+                    hint="Créalo en la pestaña «Crear» o impórtalo de Klaviyo. Aparecerá aquí como borrador hasta que se apruebe."
+                  />
                 </Card>
-                <Card
-                  title="Borradores"
-                  description="En revisión o devueltos con objeciones. Edítalos, coméntalos y apruébalos antes de usarlos."
-                  actions={
-                    piecesInProgress.length > 0 ? (
-                      <Badge tone="warn">{piecesInProgress.length}</Badge>
-                    ) : undefined
-                  }
-                >
-                  {piecesInProgress.length === 0 ? (
-                    <EmptyState
-                      title="Sin borradores abiertos"
-                      hint="Todo lo creado está aprobado o publicado."
-                    />
-                  ) : (
-                    <PieceGrid
-                      pieces={piecesInProgress}
-                      expandedId={expandedDraftId}
-                      viewerKind={viewerKind}
-                      onToggle={(id) =>
-                        setExpandedDraftId(expandedDraftId === id ? null : id)
-                      }
-                    />
-                  )}
-                </Card>
+              ) : (
+                <div className="space-y-6">
+                  <Card
+                    title="Plantillas en uso"
+                    description="Aprobadas y publicadas: material listo para copiar y mandar. Ábrelas para ver la conversación o pedirle un análisis al Consultor IA."
+                    actions={
+                      piecesInUse.length > 0 ? (
+                        <Badge tone="success">{piecesInUse.length}</Badge>
+                      ) : undefined
+                    }
+                  >
+                    {piecesInUse.length === 0 ? (
+                      <EmptyState
+                        title="Ninguna plantilla en uso todavía"
+                        hint="Cuando se apruebe un borrador pasará aquí."
+                      />
+                    ) : (
+                      <PieceGrid
+                        pieces={piecesInUse}
+                        expandedId={expandedDraftId}
+                        viewerKind={viewerKind}
+                        onToggle={(id) =>
+                          setExpandedDraftId(expandedDraftId === id ? null : id)
+                        }
+                      />
+                    )}
+                  </Card>
+                  <Card
+                    title="Borradores"
+                    description="En revisión o devueltos con objeciones. Edítalos, coméntalos y apruébalos antes de usarlos."
+                    actions={
+                      piecesInProgress.length > 0 ? (
+                        <Badge tone="warn">{piecesInProgress.length}</Badge>
+                      ) : undefined
+                    }
+                  >
+                    {piecesInProgress.length === 0 ? (
+                      <EmptyState
+                        title="Sin borradores abiertos"
+                        hint="Todo lo creado está aprobado o publicado."
+                      />
+                    ) : (
+                      <PieceGrid
+                        pieces={piecesInProgress}
+                        expandedId={expandedDraftId}
+                        viewerKind={viewerKind}
+                        onToggle={(id) =>
+                          setExpandedDraftId(expandedDraftId === id ? null : id)
+                        }
+                      />
+                    )}
+                  </Card>
                   {drafts
                     .filter((draft) => draft.id === expandedDraftId)
                     .map((draft) => (
-                    <Card
-                      key={draft.id}
-                      kicker={`${contentTypeLabels[draft.content_type] ?? draft.content_type} · ${fmtDateTime(draft.created_at)}`}
-                      title={draft.subject}
-                      description={draft.summary}
-                      actions={
-                        <div className="flex flex-wrap items-center gap-2">
-                          {/* El canal iba dentro del titulo ("Meta · asunto"):
+                      <Card
+                        key={draft.id}
+                        kicker={`${contentTypeLabels[draft.content_type] ?? draft.content_type} · ${fmtDateTime(draft.created_at)}`}
+                        title={draft.subject}
+                        description={draft.summary}
+                        actions={
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* El canal iba dentro del titulo ("Meta · asunto"):
                               se leia como parte del asunto, no como el canal. */}
-                          <ChannelBadge channel={draft.request?.channel} />
-                          <Badge tone={statusTone[draft.status]}>
-                            {statusLabel[draft.status]}
-                          </Badge>
-                        </div>
-                      }
-                    >
-                      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                        <div className="space-y-4">
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-separator pb-3">
-                            <span className="text-xs text-muted">
-                              Versión {draft.version}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() =>
-                                editingDraftId === draft.id
-                                  ? cancelEditing()
-                                  : startEditing(draft)
-                              }
-                              disabled={busyDraftId === draft.id}
-                            >
-                              {editingDraftId === draft.id
-                                ? "Cancelar edición"
-                                : "Editar textos"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => void toggleVersionHistory(draft.id)}
-                            >
-                              {historyDraftId === draft.id
-                                ? "Ocultar historial"
-                                : "Historial"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => analyzePiece(draft)}
-                            >
-                              Analizar con el Consultor IA
-                            </Button>
-                            {!isSocialDraft(draft) &&
-                            ((draft.request?.design &&
-                              Array.isArray(draft.request.design.blocks) &&
-                              draft.request.design.blocks.length > 0) ||
-                              (Array.isArray(draft.blocks) &&
-                                draft.blocks.length > 0)) ? (
+                            <ChannelBadge channel={draft.request?.channel} />
+                            <Badge tone={statusTone[draft.status]}>
+                              {statusLabel[draft.status]}
+                            </Badge>
+                          </div>
+                        }
+                      >
+                        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                          <div className="space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-separator pb-3">
+                              <span className="text-xs text-muted">
+                                Versión {draft.version}
+                              </span>
                               <Button
                                 type="button"
                                 variant="ghost"
-                                onClick={() => editInBuilder(draft)}
+                                onClick={() =>
+                                  editingDraftId === draft.id
+                                    ? cancelEditing()
+                                    : startEditing(draft)
+                                }
+                                disabled={busyDraftId === draft.id}
                               >
-                                Abrir en el editor visual
+                                {editingDraftId === draft.id
+                                  ? "Cancelar edición"
+                                  : "Editar textos"}
                               </Button>
-                            ) : null}
-                          </div>
-                          {historyDraftId === draft.id ? (
-                            <div className="rounded-md border border-separator bg-surface p-4 text-sm">
-                              <p className="font-medium">Versiones auditables</p>
-                              <ol className="mt-2 space-y-2">
-                                {versionHistory.map((version) => (
-                                  <li
-                                    key={version.id}
-                                    className="flex flex-wrap justify-between gap-2 border-b border-separator pb-2 last:border-0 last:pb-0"
-                                  >
-                                    <span>
-                                      v{version.version} ·{" "}
-                                      {version.snapshot?.request?.channel === "meta_ads"
-                                        ? "Meta Ads"
-                                        : version.snapshot?.request?.channel ===
-                                            "instagram_organic"
-                                          ? "Instagram"
-                                          : "Email / Klaviyo"} ·{" "}
-                                      {version.change_type === "manual"
-                                        ? "edición humana"
-                                        : "generada por IA"}
-                                    </span>
-                                    <span className="text-muted">
-                                      {fmtDateTime(version.created_at)}
-                                    </span>
-                                  </li>
-                                ))}
-                              </ol>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() =>
+                                  void toggleVersionHistory(draft.id)
+                                }
+                              >
+                                {historyDraftId === draft.id
+                                  ? "Ocultar historial"
+                                  : "Historial"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => analyzePiece(draft)}
+                              >
+                                Analizar con el Consultor IA
+                              </Button>
+                              {!isSocialDraft(draft) &&
+                              ((draft.request?.design &&
+                                Array.isArray(draft.request.design.blocks) &&
+                                draft.request.design.blocks.length > 0) ||
+                                (Array.isArray(draft.blocks) &&
+                                  draft.blocks.length > 0)) ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => editInBuilder(draft)}
+                                >
+                                  Abrir en el editor visual
+                                </Button>
+                              ) : null}
                             </div>
-                          ) : null}
-                          {editingDraftId === draft.id && editForm ? (
-                            <Card
-                              title="Editar contenido"
-                              description="Al guardar volverá a requerir aprobación."
-                              className="border-warning/40 bg-warning/10"
-                            >
-                              <div className="space-y-4">
-                              <Field label={isInstagramDraft(draft) ? "Título del post" : isMetaDraft(draft) ? "Titular del anuncio" : "Asunto del email"}>
-                                <Input
-                                  className="mt-2"
-                                  value={editForm.subject}
-                                  onChange={(event) =>
-                                    setEditForm({
-                                      ...editForm,
-                                      subject: event.target.value,
-                                    })
-                                  }
-                                  maxLength={255}
-                                />
-                              </Field>
-                              <div className="grid gap-4 sm:grid-cols-2">
-                                <Field label={isInstagramDraft(draft) ? "Brief creativo" : isMetaDraft(draft) ? "Descripción del anuncio" : "Preheader"}>
-                                  <Input
-                                    className="mt-2"
-                                    value={editForm.preheader}
-                                    onChange={(event) =>
-                                      setEditForm({
-                                        ...editForm,
-                                        preheader: event.target.value,
-                                      })
+                            {historyDraftId === draft.id ? (
+                              <div className="rounded-md border border-separator bg-surface p-4 text-sm">
+                                <p className="font-medium">
+                                  Versiones auditables
+                                </p>
+                                <ol className="mt-2 space-y-2">
+                                  {versionHistory.map((version) => (
+                                    <li
+                                      key={version.id}
+                                      className="flex flex-wrap justify-between gap-2 border-b border-separator pb-2 last:border-0 last:pb-0"
+                                    >
+                                      <span>
+                                        v{version.version} ·{" "}
+                                        {version.snapshot?.request?.channel ===
+                                        "meta_ads"
+                                          ? "Meta Ads"
+                                          : version.snapshot?.request
+                                                ?.channel ===
+                                              "instagram_organic"
+                                            ? "Instagram"
+                                            : "Email / Klaviyo"}{" "}
+                                        ·{" "}
+                                        {version.change_type === "manual"
+                                          ? "edición humana"
+                                          : "generada por IA"}
+                                      </span>
+                                      <span className="text-muted">
+                                        {fmtDateTime(version.created_at)}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              </div>
+                            ) : null}
+                            {editingDraftId === draft.id && editForm ? (
+                              <Card
+                                title="Editar contenido"
+                                description="Al guardar volverá a requerir aprobación."
+                                className="border-warning/40 bg-warning/10"
+                              >
+                                <div className="space-y-4">
+                                  <Field
+                                    label={
+                                      isInstagramDraft(draft)
+                                        ? "Título del post"
+                                        : isMetaDraft(draft)
+                                          ? "Titular del anuncio"
+                                          : "Asunto del email"
                                     }
-                                    maxLength={255}
-                                  />
-                                </Field>
-                                {!isSocialDraft(draft) ? (
-                                  <Field label="Remitente">
+                                  >
                                     <Input
                                       className="mt-2"
-                                      value={editForm.from_name}
+                                      value={editForm.subject}
                                       onChange={(event) =>
                                         setEditForm({
                                           ...editForm,
-                                          from_name: event.target.value,
+                                          subject: event.target.value,
                                         })
                                       }
-                                      maxLength={160}
+                                      maxLength={255}
                                     />
                                   </Field>
-                                ) : null}
-                              </div>
-                              {!isSocialDraft(draft) ? (
-                                <Field label="Reply-to (opcional)">
-                                  <Input
-                                    className="mt-2"
-                                    type="email"
-                                    value={editForm.reply_to}
-                                    onChange={(event) =>
-                                      setEditForm({
-                                        ...editForm,
-                                        reply_to: event.target.value,
-                                      })
+                                  <div className="grid gap-4 sm:grid-cols-2">
+                                    <Field
+                                      label={
+                                        isInstagramDraft(draft)
+                                          ? "Brief creativo"
+                                          : isMetaDraft(draft)
+                                            ? "Descripción del anuncio"
+                                            : "Preheader"
+                                      }
+                                    >
+                                      <Input
+                                        className="mt-2"
+                                        value={editForm.preheader}
+                                        onChange={(event) =>
+                                          setEditForm({
+                                            ...editForm,
+                                            preheader: event.target.value,
+                                          })
+                                        }
+                                        maxLength={255}
+                                      />
+                                    </Field>
+                                    {!isSocialDraft(draft) ? (
+                                      <Field label="Remitente">
+                                        <Input
+                                          className="mt-2"
+                                          value={editForm.from_name}
+                                          onChange={(event) =>
+                                            setEditForm({
+                                              ...editForm,
+                                              from_name: event.target.value,
+                                            })
+                                          }
+                                          maxLength={160}
+                                        />
+                                      </Field>
+                                    ) : null}
+                                  </div>
+                                  {!isSocialDraft(draft) ? (
+                                    <Field label="Reply-to (opcional)">
+                                      <Input
+                                        className="mt-2"
+                                        type="email"
+                                        value={editForm.reply_to}
+                                        onChange={(event) =>
+                                          setEditForm({
+                                            ...editForm,
+                                            reply_to: event.target.value,
+                                          })
+                                        }
+                                      />
+                                    </Field>
+                                  ) : null}
+                                  <Field
+                                    label={
+                                      isInstagramDraft(draft)
+                                        ? "Caption + hashtags"
+                                        : isMetaDraft(draft)
+                                          ? "Texto principal del anuncio"
+                                          : "Texto plano"
                                     }
-                                  />
-                                </Field>
-                              ) : null}
-                              <Field label={isInstagramDraft(draft) ? "Caption + hashtags" : isMetaDraft(draft) ? "Texto principal del anuncio" : "Texto plano"}>
-                                <Textarea
-                                  className="mt-2 min-h-32"
-                                  value={editForm.plain_text}
-                                  onChange={(event) =>
-                                    setEditForm({
-                                      ...editForm,
-                                      plain_text: event.target.value,
-                                    })
-                                  }
-                                  maxLength={100000}
-                                />
-                              </Field>
-                              {isMetaDraft(draft) ? (
-                                <Field label="Destino del CTA">
-                                  <Input
-                                    className="mt-2"
-                                    type="url"
-                                    value={editForm.destination_url}
-                                    onChange={(event) =>
-                                      setEditForm({
-                                        ...editForm,
-                                        destination_url: event.target.value,
-                                      })
-                                    }
-                                    placeholder="https://tu-tienda.com/coleccion"
-                                  />
-                                </Field>
-                              ) : null}
-                              {!isSocialDraft(draft) ? (
-                                <Field label="HTML sanitizado">
-                                  <Textarea
-                                    className="mt-2 min-h-40 font-mono text-xs"
-                                    value={editForm.html}
-                                    onChange={(event) =>
-                                      setEditForm({
-                                        ...editForm,
-                                        html: event.target.value,
-                                      })
-                                    }
-                                    maxLength={200000}
-                                  />
-                                </Field>
-                              ) : null}
-                              <Button
-                                type="button"
-                                onClick={() => void saveEditing(draft.id)}
-                                disabled={busyDraftId === draft.id}
-                              >
-                                {busyDraftId === draft.id
-                                  ? "Guardando…"
-                                  : "Guardar nueva versión"}
-                              </Button>
-                              </div>
-                            </Card>
-                          ) : null}
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div>
-                              <p className={EYEBROW}>
-                                {isInstagramDraft(draft)
-                                  ? "Brief creativo"
-                                  : isMetaDraft(draft)
-                                    ? "Descripción"
-                                    : "Preheader"}
-                              </p>
-                              <p className="text-sm">{draft.preheader || "—"}</p>
-                            </div>
-                            <div>
-                              <p className={EYEBROW}>
-                                Audiencia
-                              </p>
-                              <p className="text-sm">{draft.audience}</p>
-                            </div>
-                            <div>
-                              <p className={EYEBROW}>
-                                Tono
-                              </p>
-                              <p className="text-sm">{draft.tone}</p>
-                            </div>
-                            <div>
-                              <p className={EYEBROW}>
-                                Confianza de la generación
-                              </p>
-                              <p className="text-sm">{confidenceLabels[draft.confidence]}</p>
-                            </div>
-                          </div>
-                          {draft.warnings.length > 0 ? (
-                            <Banner tone="warn" className="text-sm">
-                              <p className="font-medium">Avisos</p>
-                              <ul className="mt-1 list-disc pl-5">
-                                {draft.warnings.map((warning) => (
-                                  <li key={warning}>{warning}</li>
-                                ))}
-                              </ul>
-                            </Banner>
-                          ) : null}
-                          <div className="flex flex-wrap gap-2">
-                            {draft.status === "draft" ? (
-                              <Button
-                                type="button"
-                                onClick={() => void submitDraft(draft.id)}
-                                disabled={submittingDraftId === draft.id}
-                              >
-                                {submittingDraftId === draft.id
-                                  ? "Enviando…"
-                                  : "Enviar a aprobación"}
-                              </Button>
-                            ) : null}
-                            {draft.status === "pending_approval" ? (
-                              <>
-                                <Button
-                                  type="button"
-                                  onClick={() => openDecision(draft.id, "approved")}
-                                  disabled={busyDraftId === draft.id}
-                                >
-                                  Aprobar para copiar
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  type="button"
-                                  onClick={() => openDecision(draft.id, "rejected")}
-                                  disabled={busyDraftId === draft.id}
-                                >
-                                  Rechazar
-                                </Button>
-                              </>
-                            ) : null}
-                            {decisionDraft?.id === draft.id ? (
-                              <Card
-                                title={
-                                  decisionDraft.decision === "approved"
-                                    ? "Nota de aprobación"
-                                    : "Motivo del rechazo"
-                                }
-                                description="Opcional · queda guardado con la decisión."
-                                className="basis-full"
-                              >
-                                <div className="space-y-3">
-                                <Field
-                                  label={
-                                    decisionDraft.decision === "approved"
-                                      ? "Nota de aprobación (opcional)"
-                                      : "Motivo del rechazo (opcional)"
-                                  }
-                                >
-                                  <Textarea
-                                    aria-label="Razón de la decisión"
-                                    className="mt-2 min-h-24"
-                                    value={decisionReason}
-                                    onChange={(event) =>
-                                      setDecisionReason(event.target.value)
-                                    }
-                                    maxLength={2000}
-                                    placeholder="Deja contexto para el siguiente revisor…"
-                                  />
-                                </Field>
-                                <div className="flex flex-wrap gap-2">
+                                  >
+                                    <Textarea
+                                      className="mt-2 min-h-32"
+                                      value={editForm.plain_text}
+                                      onChange={(event) =>
+                                        setEditForm({
+                                          ...editForm,
+                                          plain_text: event.target.value,
+                                        })
+                                      }
+                                      maxLength={100000}
+                                    />
+                                  </Field>
+                                  {isMetaDraft(draft) ? (
+                                    <Field label="Destino del CTA">
+                                      <Input
+                                        className="mt-2"
+                                        type="url"
+                                        value={editForm.destination_url}
+                                        onChange={(event) =>
+                                          setEditForm({
+                                            ...editForm,
+                                            destination_url: event.target.value,
+                                          })
+                                        }
+                                        placeholder="https://tu-tienda.com/coleccion"
+                                      />
+                                    </Field>
+                                  ) : null}
+                                  {!isSocialDraft(draft) ? (
+                                    <Field label="HTML sanitizado">
+                                      <Textarea
+                                        className="mt-2 min-h-40 font-mono text-xs"
+                                        value={editForm.html}
+                                        onChange={(event) =>
+                                          setEditForm({
+                                            ...editForm,
+                                            html: event.target.value,
+                                          })
+                                        }
+                                        maxLength={200000}
+                                      />
+                                    </Field>
+                                  ) : null}
                                   <Button
                                     type="button"
-                                    onClick={() =>
-                                      void decideDraft(
-                                        draft.id,
-                                        decisionDraft.decision,
-                                        decisionReason,
-                                      )
-                                    }
+                                    onClick={() => void saveEditing(draft.id)}
                                     disabled={busyDraftId === draft.id}
                                   >
                                     {busyDraftId === draft.id
                                       ? "Guardando…"
-                                      : "Confirmar decisión"}
+                                      : "Guardar nueva versión"}
+                                  </Button>
+                                </div>
+                              </Card>
+                            ) : null}
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <p className={EYEBROW}>
+                                  {isInstagramDraft(draft)
+                                    ? "Brief creativo"
+                                    : isMetaDraft(draft)
+                                      ? "Descripción"
+                                      : "Preheader"}
+                                </p>
+                                <p className="text-sm">
+                                  {draft.preheader || "—"}
+                                </p>
+                              </div>
+                              <div>
+                                <p className={EYEBROW}>Audiencia</p>
+                                <p className="text-sm">{draft.audience}</p>
+                              </div>
+                              <div>
+                                <p className={EYEBROW}>Tono</p>
+                                <p className="text-sm">{draft.tone}</p>
+                              </div>
+                              <div>
+                                <p className={EYEBROW}>
+                                  Confianza de la generación
+                                </p>
+                                <p className="text-sm">
+                                  {confidenceLabels[draft.confidence]}
+                                </p>
+                              </div>
+                            </div>
+                            {draft.warnings.length > 0 ? (
+                              <Banner tone="warn" className="text-sm">
+                                <p className="font-medium">Avisos</p>
+                                <ul className="mt-1 list-disc pl-5">
+                                  {draft.warnings.map((warning) => (
+                                    <li key={warning}>{warning}</li>
+                                  ))}
+                                </ul>
+                              </Banner>
+                            ) : null}
+                            <div className="flex flex-wrap gap-2">
+                              {draft.status === "draft" ? (
+                                <Button
+                                  type="button"
+                                  onClick={() => void submitDraft(draft.id)}
+                                  disabled={submittingDraftId === draft.id}
+                                >
+                                  {submittingDraftId === draft.id
+                                    ? "Enviando…"
+                                    : "Enviar a aprobación"}
+                                </Button>
+                              ) : null}
+                              {draft.status === "pending_approval" ? (
+                                <>
+                                  <Button
+                                    type="button"
+                                    onClick={() =>
+                                      openDecision(draft.id, "approved")
+                                    }
+                                    disabled={busyDraftId === draft.id}
+                                  >
+                                    Aprobar para copiar
                                   </Button>
                                   <Button
                                     variant="ghost"
                                     type="button"
-                                    onClick={() => setDecisionDraft(null)}
+                                    onClick={() =>
+                                      openDecision(draft.id, "rejected")
+                                    }
                                     disabled={busyDraftId === draft.id}
                                   >
-                                    Cancelar
+                                    Rechazar
                                   </Button>
-                                </div>
-                                </div>
-                              </Card>
-                            ) : null}
-                            {isInstagramDraft(draft) ? (
-                              <Button
-                                variant="ghost"
-                                type="button"
-                                onClick={() => void copyInstagramPost(draft)}
-                                disabled={draft.status !== "approved"}
-                              >
-                                Copiar post
-                              </Button>
-                            ) : isMetaDraft(draft) ? (
-                              <Button
-                                variant="ghost"
-                                type="button"
-                                onClick={() => void copyMetaCreative(draft)}
-                                disabled={draft.status !== "approved"}
-                              >
-                                Copiar creativo
-                              </Button>
-                            ) : (
-                              <>
+                                </>
+                              ) : null}
+                              {decisionDraft?.id === draft.id ? (
+                                <Card
+                                  title={
+                                    decisionDraft.decision === "approved"
+                                      ? "Nota de aprobación"
+                                      : "Motivo del rechazo"
+                                  }
+                                  description="Opcional · queda guardado con la decisión."
+                                  className="basis-full"
+                                >
+                                  <div className="space-y-3">
+                                    <Field
+                                      label={
+                                        decisionDraft.decision === "approved"
+                                          ? "Nota de aprobación (opcional)"
+                                          : "Motivo del rechazo (opcional)"
+                                      }
+                                    >
+                                      <Textarea
+                                        aria-label="Razón de la decisión"
+                                        className="mt-2 min-h-24"
+                                        value={decisionReason}
+                                        onChange={(event) =>
+                                          setDecisionReason(event.target.value)
+                                        }
+                                        maxLength={2000}
+                                        placeholder="Deja contexto para el siguiente revisor…"
+                                      />
+                                    </Field>
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button
+                                        type="button"
+                                        onClick={() =>
+                                          void decideDraft(
+                                            draft.id,
+                                            decisionDraft.decision,
+                                            decisionReason,
+                                          )
+                                        }
+                                        disabled={busyDraftId === draft.id}
+                                      >
+                                        {busyDraftId === draft.id
+                                          ? "Guardando…"
+                                          : "Confirmar decisión"}
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        type="button"
+                                        onClick={() => setDecisionDraft(null)}
+                                        disabled={busyDraftId === draft.id}
+                                      >
+                                        Cancelar
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </Card>
+                              ) : null}
+                              {isInstagramDraft(draft) ? (
                                 <Button
                                   variant="ghost"
                                   type="button"
-                                  onClick={() => void copyHtml(draft.html)}
+                                  onClick={() => void copyInstagramPost(draft)}
                                   disabled={draft.status !== "approved"}
                                 >
-                                  Copiar HTML
+                                  Copiar post
                                 </Button>
-                                {/* El envio a Klaviyo deja la plantilla lista
+                              ) : isMetaDraft(draft) ? (
+                                <Button
+                                  variant="ghost"
+                                  type="button"
+                                  onClick={() => void copyMetaCreative(draft)}
+                                  disabled={draft.status !== "approved"}
+                                >
+                                  Copiar creativo
+                                </Button>
+                              ) : (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    type="button"
+                                    onClick={() => void copyHtml(draft.html)}
+                                    disabled={draft.status !== "approved"}
+                                  >
+                                    Copiar HTML
+                                  </Button>
+                                  {/* El envio a Klaviyo deja la plantilla lista
                                     en la cuenta del cliente; la campana y el
                                     envio siguen decidiendose alli. */}
-                                <Button
-                                  variant="secondary"
-                                  type="button"
-                                  onClick={() => void pushToKlaviyo(draft)}
-                                  disabled={
-                                    draft.status !== "approved" ||
-                                    pushingDraftId === draft.id
-                                  }
-                                >
-                                  {pushingDraftId === draft.id
-                                    ? "Enviando…"
-                                    : draft.request?.klaviyo_template_id
-                                      ? "Actualizar en Klaviyo"
-                                      : "Enviar a Klaviyo"}
-                                </Button>
-                              </>
-                            )}
+                                  <Button
+                                    variant="secondary"
+                                    type="button"
+                                    onClick={() => void pushToKlaviyo(draft)}
+                                    disabled={
+                                      draft.status !== "approved" ||
+                                      pushingDraftId === draft.id
+                                    }
+                                  >
+                                    {pushingDraftId === draft.id
+                                      ? "Enviando…"
+                                      : draft.request?.klaviyo_template_id
+                                        ? "Actualizar en Klaviyo"
+                                        : "Enviar a Klaviyo"}
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <Tabs
+                              items={[
+                                {
+                                  value: "preview",
+                                  label: isInstagramDraft(draft)
+                                    ? "Publicación"
+                                    : isMetaDraft(draft)
+                                      ? "Anuncio"
+                                      : "Preview",
+                                },
+                                {
+                                  value: "plain_text",
+                                  label: isInstagramDraft(draft)
+                                    ? "Caption"
+                                    : isMetaDraft(draft)
+                                      ? "Texto principal"
+                                      : "Texto plano",
+                                },
+                                ...(isSocialDraft(draft)
+                                  ? []
+                                  : [{ value: "html", label: "HTML" }]),
+                              ]}
+                              value={
+                                isSocialDraft(draft) && previewTab === "html"
+                                  ? "preview"
+                                  : previewTab
+                              }
+                              onChange={setPreviewTab}
+                              className="w-full"
+                              panels={{
+                                preview: isSocialDraft(draft) ? (
+                                  <div className="mt-3 max-w-md border border-separator bg-white p-4 shadow-sm">
+                                    <p className={EYEBROW}>
+                                      {isInstagramDraft(draft)
+                                        ? "Instagram · orgánico"
+                                        : "Patrocinado · Meta Ads"}
+                                    </p>
+                                    <h3 className="mt-3 text-base font-semibold">
+                                      {draft.subject}
+                                    </h3>
+                                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted">
+                                      {draft.plain_text}
+                                    </p>
+                                    {getMetaDestinationUrl(draft) ? (
+                                      <a
+                                        className="mt-4 inline-flex min-h-8 items-center bg-accent px-3 text-xs font-semibold text-white transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                                        href={
+                                          getMetaDestinationUrl(draft) ??
+                                          undefined
+                                        }
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        {getMetaCallToAction(draft)}
+                                      </a>
+                                    ) : (
+                                      <span className="mt-4 inline-flex min-h-8 items-center bg-accent px-3 text-xs font-semibold text-white">
+                                        {getMetaCallToAction(draft)}
+                                      </span>
+                                    )}
+                                    {getMetaDestinationUrl(draft) ? (
+                                      <p className="mt-3 break-all text-xs text-muted">
+                                        Destino: {getMetaDestinationUrl(draft)}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className="mt-3 overflow-hidden border border-separator bg-white">
+                                    <iframe
+                                      title={`Preview de ${draft.subject}`}
+                                      srcDoc={draft.html}
+                                      sandbox=""
+                                      className="h-[480px] w-full"
+                                    />
+                                  </div>
+                                ),
+                                plain_text: (
+                                  <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 text-sm">
+                                    {draft.plain_text}
+                                  </pre>
+                                ),
+                                html: (
+                                  <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 font-mono text-xs">
+                                    {draft.html}
+                                  </pre>
+                                ),
+                              }}
+                            />
+                            <p className="mt-2 text-xs text-muted">
+                              {isInstagramDraft(draft)
+                                ? "Instagram no se publica desde aquí: copia el texto tras aprobar y sube la pieza."
+                                : isMetaDraft(draft)
+                                  ? "La publicación requiere conexión y aprobación."
+                                  : "Copiar HTML solo se habilita tras la aprobación."}
+                            </p>
                           </div>
                         </div>
-                        <div>
-                          <Tabs
-                            items={[
-                              { value: "preview", label: isInstagramDraft(draft) ? "Publicación" : isMetaDraft(draft) ? "Anuncio" : "Preview" },
-                              { value: "plain_text", label: isInstagramDraft(draft) ? "Caption" : isMetaDraft(draft) ? "Texto principal" : "Texto plano" },
-                              ...(isSocialDraft(draft) ? [] : [{ value: "html", label: "HTML" }]),
-                            ]}
-                            value={isSocialDraft(draft) && previewTab === "html" ? "preview" : previewTab}
-                            onChange={setPreviewTab}
-                            className="w-full"
-                            panels={{
-                              preview: isSocialDraft(draft) ? (
-                                <div className="mt-3 max-w-md border border-separator bg-white p-4 shadow-sm">
-                                  <p className={EYEBROW}>
-                                    {isInstagramDraft(draft)
-                                      ? "Instagram · orgánico"
-                                      : "Patrocinado · Meta Ads"}
-                                  </p>
-                                  <h3 className="mt-3 text-base font-semibold">{draft.subject}</h3>
-                                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted">{draft.plain_text}</p>
-                                  {getMetaDestinationUrl(draft) ? (
-                                    <a
-                                      className="mt-4 inline-flex min-h-8 items-center bg-accent px-3 text-xs font-semibold text-white transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                                      href={getMetaDestinationUrl(draft) ?? undefined}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      {getMetaCallToAction(draft)}
-                                    </a>
-                                  ) : (
-                                    <span className="mt-4 inline-flex min-h-8 items-center bg-accent px-3 text-xs font-semibold text-white">
-                                      {getMetaCallToAction(draft)}
-                                    </span>
-                                  )}
-                                  {getMetaDestinationUrl(draft) ? (
-                                    <p className="mt-3 break-all text-xs text-muted">
-                                      Destino: {getMetaDestinationUrl(draft)}
-                                    </p>
-                                  ) : null}
-                                </div>
-                              ) : (
-                                <div className="mt-3 overflow-hidden border border-separator bg-white">
-                                  <iframe
-                                    title={`Preview de ${draft.subject}`}
-                                    srcDoc={draft.html}
-                                    sandbox=""
-                                    className="h-[480px] w-full"
-                                  />
-                                </div>
-                              ),
-                              plain_text: (
-                                <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 text-sm">
-                                  {draft.plain_text}
-                                </pre>
-                              ),
-                              html: (
-                                <pre className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap border border-separator bg-surface p-3 font-mono text-xs">
-                                  {draft.html}
-                                </pre>
-                              ),
-                            }}
-                          />
-                          <p className="mt-2 text-xs text-muted">
-                            {isInstagramDraft(draft)
-                              ? "Instagram no se publica desde aquí: copia el texto tras aprobar y sube la pieza."
-                              : isMetaDraft(draft)
-                                ? "La publicación requiere conexión y aprobación."
-                                : "Copiar HTML solo se habilita tras la aprobación."}
-                          </p>
-                        </div>
-                      </div>
-                      {organizationId ? (
-                        <>
-                          <DraftCampaignLink
-                            organizationId={organizationId}
-                            draft={draft}
-                            items={campaignItems}
-                            onChanged={() => {
-                              void loadDrafts();
-                              void reloadCampaignItems();
-                            }}
-                          />
-                          {isMetaDraft(draft) ? (
-                            <MetaAdPlanBlock
+                        {organizationId ? (
+                          <>
+                            <DraftCampaignLink
                               organizationId={organizationId}
                               draft={draft}
+                              items={campaignItems}
+                              onChanged={() => {
+                                void loadDrafts();
+                                void reloadCampaignItems();
+                              }}
                             />
-                          ) : null}
-                          <SchedulePublicationBlock
-                            organizationId={organizationId}
-                            draftId={draft.id}
-                            scheduledFor={draft.scheduled_for}
-                            onChanged={() => void loadDrafts()}
-                          />
-                          <MarketingDraftNotes
-                            organizationId={organizationId}
-                            draftId={draft.id}
-                            viewerKind={viewerKind}
-                            onChanged={() => void loadDrafts()}
-                          />
-                        </>
-                      ) : null}
-                    </Card>
-                  ))}
-              </div>
-            )}
+                            {isMetaDraft(draft) ? (
+                              <MetaAdPlanBlock
+                                organizationId={organizationId}
+                                draft={draft}
+                              />
+                            ) : null}
+                            <SchedulePublicationBlock
+                              organizationId={organizationId}
+                              draftId={draft.id}
+                              scheduledFor={draft.scheduled_for}
+                              onChanged={() => void loadDrafts()}
+                            />
+                            <MarketingDraftNotes
+                              organizationId={organizationId}
+                              draftId={draft.id}
+                              viewerKind={viewerKind}
+                              onChanged={() => void loadDrafts()}
+                            />
+                          </>
+                        ) : null}
+                      </Card>
+                    ))}
+                </div>
+              )}
             </div>
           ),
           crear: (
             <div className="space-y-6">
-            {campaignTarget ? (
-              // Sin este aviso, "generar" vuelve a ser un acto suelto: no se
-              // ve que la pieza va a quedar colgada de una campaña concreta.
-              <Banner tone="success" className="text-sm">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span>
-                    Escribiendo la pieza de{" "}
-                    <strong>{campaignTarget.title}</strong> ·{" "}
-                    {fmtDate(campaignTarget.starts_at)}. Al generarla queda
-                    enlazada a esa campaña.
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setCampaignTarget(null)}
-                  >
-                    Desvincular
-                  </Button>
-                </div>
-              </Banner>
-            ) : null}
-            {(() => {
-              // Instagram orgánico no publica desde aquí (el consultor copia el
-              // texto y sube la pieza), así que no hay conexión que avisar.
-              if (channel === "instagram_organic") return null;
-              const providerId = channel === "meta_ads" ? "meta" : "klaviyo";
-              const readiness = integrationReadiness[providerId];
-              const connected = ["connected", "syncing"].includes(
-                readiness?.connectionStatus ?? "",
-              );
-              if (!readiness || connected) return null;
-              const providerName = providerId === "meta" ? "Meta Ads" : "Klaviyo";
-              const readinessMessage =
-                readiness.configuration === "feature_disabled"
-                  ? `${providerName} está desactivado por configuración del servidor.`
-                  : readiness.configuration === "credentials_missing"
-                    ? `Faltan las credenciales de la aplicación de ${providerName}.`
-                    : readiness.configuration === "not_implemented"
-                      ? `La conexión de ${providerName} todavía no está habilitada en este entorno.`
-                      : readiness.connectionStatus === "error"
-                        ? `La conexión de ${providerName} necesita atención antes de sincronizar.`
-                        : `Aún no hay una cuenta de ${providerName} autorizada para esta organización.`;
-              return (
-                <Banner tone="warn" className="text-sm">
-                  <strong>{readinessMessage}</strong>{" "}
-                  Puedes preparar y revisar el contenido ahora; la publicación quedará disponible cuando
-                  completes la configuración y autorización del proveedor.
+              {campaignTarget ? (
+                // Sin este aviso, "generar" vuelve a ser un acto suelto: no se
+                // ve que la pieza va a quedar colgada de una campaña concreta.
+                <Banner tone="success" className="text-sm">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span>
+                      Escribiendo la pieza de{" "}
+                      <strong>{campaignTarget.title}</strong> ·{" "}
+                      {fmtDate(campaignTarget.starts_at)}. Al generarla queda
+                      enlazada a esa campaña.
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setCampaignTarget(null)}
+                    >
+                      Desvincular
+                    </Button>
+                  </div>
                 </Banner>
-              );
-            })()}
-            {/* La importacion existia pero no habia forma de abrirla: el atajo
+              ) : null}
+              {(() => {
+                // Instagram orgánico no publica desde aquí (el consultor copia el
+                // texto y sube la pieza), así que no hay conexión que avisar.
+                if (channel === "instagram_organic") return null;
+                const providerId = channel === "meta_ads" ? "meta" : "klaviyo";
+                const readiness = integrationReadiness[providerId];
+                const connected = ["connected", "syncing"].includes(
+                  readiness?.connectionStatus ?? "",
+                );
+                if (!readiness || connected) return null;
+                const providerName =
+                  providerId === "meta" ? "Meta Ads" : "Klaviyo";
+                const readinessMessage =
+                  readiness.configuration === "feature_disabled"
+                    ? `${providerName} está desactivado por configuración del servidor.`
+                    : readiness.configuration === "credentials_missing"
+                      ? `Faltan las credenciales de la aplicación de ${providerName}.`
+                      : readiness.configuration === "not_implemented"
+                        ? `La conexión de ${providerName} todavía no está habilitada en este entorno.`
+                        : readiness.connectionStatus === "error"
+                          ? `La conexión de ${providerName} necesita atención antes de sincronizar.`
+                          : `Aún no hay una cuenta de ${providerName} autorizada para esta organización.`;
+                return (
+                  <Banner tone="warn" className="text-sm">
+                    <strong>{readinessMessage}</strong> Puedes preparar y
+                    revisar el contenido ahora; la publicación quedará
+                    disponible cuando completes la configuración y autorización
+                    del proveedor.
+                  </Banner>
+                );
+              })()}
+              {/* La importacion existia pero no habia forma de abrirla: el atajo
                 que ponia `showKlaviyoImport` a true desaparecio al pasar a
                 pestañas. Vive aqui, junto a lo demas que crea borradores. */}
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setShowKlaviyoImport(!showKlaviyoImport)}
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowKlaviyoImport(!showKlaviyoImport)}
+                >
+                  {showKlaviyoImport
+                    ? "Ocultar plantillas de Klaviyo"
+                    : "Importar de Klaviyo"}
+                </Button>
+                <span className="text-xs text-muted">
+                  Trae una plantilla que ya existe en tu cuenta como borrador.
+                </span>
+              </div>
+              {showKlaviyoImport && organizationId ? (
+                <KlaviyoImportPanel
+                  organizationId={organizationId}
+                  importedTemplateIds={drafts
+                    .map((draft) => draft.request?.klaviyo_template_id)
+                    .filter((id): id is string => Boolean(id))}
+                  onImported={(draftId) => {
+                    setShowKlaviyoImport(false);
+                    void loadDrafts();
+                    if (draftId) focusDraft(draftId);
+                  }}
+                />
+              ) : null}
+              <Card
+                kicker="AI-11 · Fase A"
+                title="Crear contenido"
+                description="Describe el objetivo, la audiencia y la oferta. Claude propondrá el contenido con el contexto de la empresa y señalará cualquier dato que falte, sin inventar descuentos ni resultados."
               >
-                {showKlaviyoImport
-                  ? "Ocultar plantillas de Klaviyo"
-                  : "Importar de Klaviyo"}
-              </Button>
-              <span className="text-xs text-muted">
-                Trae una plantilla que ya existe en tu cuenta como borrador.
-              </span>
-            </div>
-            {showKlaviyoImport && organizationId ? (
-              <KlaviyoImportPanel
-                organizationId={organizationId}
-                importedTemplateIds={drafts
-                  .map((draft) => draft.request?.klaviyo_template_id)
-                  .filter((id): id is string => Boolean(id))}
-                onImported={(draftId) => {
-                  setShowKlaviyoImport(false);
-                  void loadDrafts();
-                  if (draftId) focusDraft(draftId);
-                }}
-              />
-            ) : null}
-            <Card
-              kicker="AI-11 · Fase A"
-              title="Crear contenido"
-              description="Describe el objetivo, la audiencia y la oferta. Claude propondrá el contenido con el contexto de la empresa y señalará cualquier dato que falte, sin inventar descuentos ni resultados."
-            >
-              <Tabs
-                items={[
-                  { value: "campaign", label: "Campaña (email o Meta)" },
-                  { value: "template", label: "Plantilla de email" },
-                ]}
-                value={genMode}
-                onChange={(value) => {
-                  const next = value as "campaign" | "template";
-                  setGenMode(next);
-                  // El modo plantilla es solo email: no dejes la tarjeta de plan
-                  // Meta colgando debajo.
-                  if (next === "template" && channel === "meta_ads") {
-                    setChannel("email_klaviyo");
-                  }
-                }}
-                className="mb-4"
-              />
-              <Form
-                aria-label="Crear contenido con Claude"
-                className="space-y-6"
-                onSubmit={generateDraft}
-              >
-                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-                  {genMode === "campaign" ? (
-                    <>
-                      <Field label="Canal de destino">
-                        <Select
-                          aria-label="Canal de destino de campaña"
-                          className="mt-2"
-                          value={channel}
-                          onChange={(nextChannel) => {
-                            setChannel(nextChannel);
-                            if (
-                              nextChannel === "meta_ads" ||
-                              nextChannel === "instagram_organic"
-                            )
-                              setContentType("campaign");
-                          }}
-                          options={campaignChannelOptions}
-                        />
-                      </Field>
-                      <Field label="Tipo de contenido">
-                        <Select
-                          aria-label="Tipo de contenido"
-                          className="mt-2"
-                          value={contentType}
-                          onChange={setContentType}
-                          options={
-                            channel === "meta_ads" || channel === "instagram_organic"
-                              ? contentTypeOptions.filter(
-                                  (option) => option.value === "campaign",
-                                )
-                              : contentTypeOptions
-                          }
-                        />
-                      </Field>
-                    </>
-                  ) : null}
-                  <Field label="Objetivo principal">
-                    <Select
-                      aria-label="Objetivo de campaña"
-                      className="mt-2"
-                      value={objective}
-                      onChange={setObjective}
-                      options={campaignObjectiveOptions}
-                    />
-                  </Field>
-                  <Field label="Tono">
-                    <Select
-                      aria-label="Tono de campaña"
-                      className="mt-2"
-                      value={tone}
-                      onChange={setTone}
-                      options={campaignToneOptions}
-                    />
-                  </Field>
-                  {genMode === "campaign" ? (
-                    <>
-                      <Field label="Audiencia (opcional)">
-                        <Input
-                          aria-label="Audiencia de campaña"
-                          className="mt-2"
-                          placeholder="Ej.: clientes nuevos en España"
-                          value={audience}
-                          onChange={(event) => setAudience(event.target.value)}
-                          maxLength={500}
-                        />
-                      </Field>
-                      <Field label="Oferta o producto (opcional)">
-                        <Input
-                          aria-label="Oferta o producto de campaña"
-                          className="mt-2"
-                          placeholder="Ej.: colección de verano"
-                          value={offer}
-                          onChange={(event) => setOffer(event.target.value)}
-                          maxLength={500}
-                        />
-                      </Field>
-                      <Field label="CTA preferido (opcional)">
-                        <Input
-                          aria-label="CTA de campaña"
-                          className="mt-2"
-                          placeholder="Ej.: Ver la colección"
-                          value={cta}
-                          onChange={(event) => setCta(event.target.value)}
-                          maxLength={160}
-                        />
-                      </Field>
-                    </>
-                  ) : null}
-                </div>
-                {genMode === "template" ? (
-                  <div className="space-y-4">
-                    {/* La plantilla se prepara como se prepara un email: la
+                <Tabs
+                  items={[
+                    { value: "campaign", label: "Campaña (email o Meta)" },
+                    { value: "template", label: "Plantilla de email" },
+                  ]}
+                  value={genMode}
+                  onChange={(value) => {
+                    const next = value as "campaign" | "template";
+                    setGenMode(next);
+                    // El modo plantilla es solo email: no dejes la tarjeta de plan
+                    // Meta colgando debajo.
+                    if (next === "template" && channel === "meta_ads") {
+                      setChannel("email_klaviyo");
+                    }
+                  }}
+                  className="mb-4"
+                />
+                <Form
+                  aria-label="Crear contenido con Claude"
+                  className="space-y-6"
+                  onSubmit={generateDraft}
+                >
+                  <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                    {genMode === "campaign" ? (
+                      <>
+                        <Field label="Canal de destino">
+                          <Select
+                            aria-label="Canal de destino de campaña"
+                            className="mt-2"
+                            value={channel}
+                            onChange={(nextChannel) => {
+                              setChannel(nextChannel);
+                              if (
+                                nextChannel === "meta_ads" ||
+                                nextChannel === "instagram_organic"
+                              )
+                                setContentType("campaign");
+                            }}
+                            options={campaignChannelOptions}
+                          />
+                        </Field>
+                        <Field label="Tipo de contenido">
+                          <Select
+                            aria-label="Tipo de contenido"
+                            className="mt-2"
+                            value={contentType}
+                            onChange={setContentType}
+                            options={
+                              channel === "meta_ads" ||
+                              channel === "instagram_organic"
+                                ? contentTypeOptions.filter(
+                                    (option) => option.value === "campaign",
+                                  )
+                                : contentTypeOptions
+                            }
+                          />
+                        </Field>
+                      </>
+                    ) : null}
+                    <Field label="Objetivo principal">
+                      <Select
+                        aria-label="Objetivo de campaña"
+                        className="mt-2"
+                        value={objective}
+                        onChange={setObjective}
+                        options={campaignObjectiveOptions}
+                      />
+                    </Field>
+                    <Field label="Tono">
+                      <Select
+                        aria-label="Tono de campaña"
+                        className="mt-2"
+                        value={tone}
+                        onChange={setTone}
+                        options={campaignToneOptions}
+                      />
+                    </Field>
+                    {genMode === "campaign" ? (
+                      <>
+                        <Field label="Audiencia (opcional)">
+                          <Input
+                            aria-label="Audiencia de campaña"
+                            className="mt-2"
+                            placeholder="Ej.: clientes nuevos en España"
+                            value={audience}
+                            onChange={(event) =>
+                              setAudience(event.target.value)
+                            }
+                            maxLength={500}
+                          />
+                        </Field>
+                        <Field label="Oferta o producto (opcional)">
+                          <Input
+                            aria-label="Oferta o producto de campaña"
+                            className="mt-2"
+                            placeholder="Ej.: colección de verano"
+                            value={offer}
+                            onChange={(event) => setOffer(event.target.value)}
+                            maxLength={500}
+                          />
+                        </Field>
+                        <Field label="CTA preferido (opcional)">
+                          <Input
+                            aria-label="CTA de campaña"
+                            className="mt-2"
+                            placeholder="Ej.: Ver la colección"
+                            value={cta}
+                            onChange={(event) => setCta(event.target.value)}
+                            maxLength={160}
+                          />
+                        </Field>
+                      </>
+                    ) : null}
+                  </div>
+                  {genMode === "template" ? (
+                    <div className="space-y-4">
+                      {/* La plantilla se prepara como se prepara un email: la
                         cabecera arriba, las herramientas debajo del asunto y
                         el cuerpo en el lienzo. */}
-                    <div className="border border-separator">
-                      <ComposerRow label="Nombre">
-                        <Input
-                          aria-label="Nombre interno de la plantilla"
-                          placeholder="Bienvenida verano (nombre interno, no se envía)"
-                          value={templateName}
-                          onChange={(event) => setTemplateName(event.target.value)}
-                          maxLength={160}
-                        />
-                      </ComposerRow>
-                      <ComposerRow label="De">
-                        <div className="flex flex-wrap gap-2">
+                      <div className="border border-separator">
+                        <ComposerRow label="Nombre">
                           <Input
-                            aria-label="Nombre del remitente"
-                            className="sm:w-56"
-                            placeholder="Nombre visible del remitente"
-                            value={templateFromName}
+                            aria-label="Nombre interno de la plantilla"
+                            placeholder="Bienvenida verano (nombre interno, no se envía)"
+                            value={templateName}
                             onChange={(event) =>
-                              setTemplateFromName(event.target.value)
+                              setTemplateName(event.target.value)
                             }
-                            maxLength={120}
+                            maxLength={160}
                           />
+                        </ComposerRow>
+                        <ComposerRow label="De">
+                          <div className="flex flex-wrap gap-2">
+                            <Input
+                              aria-label="Nombre del remitente"
+                              className="sm:w-56"
+                              placeholder="Nombre visible del remitente"
+                              value={templateFromName}
+                              onChange={(event) =>
+                                setTemplateFromName(event.target.value)
+                              }
+                              maxLength={120}
+                            />
+                            <Input
+                              aria-label="Dirección de respuesta"
+                              className="sm:w-64"
+                              type="email"
+                              placeholder="Responder a (opcional)"
+                              value={templateReplyTo}
+                              onChange={(event) =>
+                                setTemplateReplyTo(event.target.value)
+                              }
+                              maxLength={255}
+                            />
+                          </div>
+                        </ComposerRow>
+                        <ComposerRow label="Asunto">
                           <Input
-                            aria-label="Dirección de respuesta"
-                            className="sm:w-64"
-                            type="email"
-                            placeholder="Responder a (opcional)"
-                            value={templateReplyTo}
+                            aria-label="Asunto del email"
+                            placeholder="Tu colección de verano ya está aquí"
+                            value={templateSubject}
                             onChange={(event) =>
-                              setTemplateReplyTo(event.target.value)
+                              setTemplateSubject(event.target.value)
                             }
                             maxLength={255}
                           />
-                        </div>
-                      </ComposerRow>
-                      <ComposerRow label="Asunto">
-                        <Input
-                          aria-label="Asunto del email"
-                          placeholder="Tu colección de verano ya está aquí"
-                          value={templateSubject}
-                          onChange={(event) =>
-                            setTemplateSubject(event.target.value)
-                          }
-                          maxLength={255}
-                        />
-                      </ComposerRow>
-                      <ComposerRow label="Preheader">
-                        <Input
-                          aria-label="Preheader del email"
-                          placeholder="La línea que se lee en la bandeja, tras el asunto"
-                          value={templatePreheader}
-                          onChange={(event) =>
-                            setTemplatePreheader(event.target.value)
-                          }
-                          maxLength={255}
-                        />
-                      </ComposerRow>
-                      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-                        <Dropdown>
-                          <Button type="button" variant="ghost" size="sm">
-                            Elegir plantilla
-                          </Button>
-                          <Dropdown.Popover>
-                            <Dropdown.Menu
-                              onAction={(key) => {
-                                const source = savedTemplates.find(
-                                  (item) => item.id === String(key),
-                                );
-                                if (source) editInBuilder(source);
-                              }}
-                            >
-                              {savedTemplates.length === 0 ? (
-                                <Dropdown.Item id="none" textValue="Sin plantillas">
-                                  <Label>Todavía no hay plantillas guardadas</Label>
-                                </Dropdown.Item>
-                              ) : (
-                                savedTemplates.map((item) => (
+                        </ComposerRow>
+                        <ComposerRow label="Preheader">
+                          <Input
+                            aria-label="Preheader del email"
+                            placeholder="La línea que se lee en la bandeja, tras el asunto"
+                            value={templatePreheader}
+                            onChange={(event) =>
+                              setTemplatePreheader(event.target.value)
+                            }
+                            maxLength={255}
+                          />
+                        </ComposerRow>
+                        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+                          <Dropdown>
+                            <Button type="button" variant="ghost" size="sm">
+                              Elegir plantilla
+                            </Button>
+                            <Dropdown.Popover>
+                              <Dropdown.Menu
+                                onAction={(key) => {
+                                  const source = savedTemplates.find(
+                                    (item) => item.id === String(key),
+                                  );
+                                  if (source) editInBuilder(source);
+                                }}
+                              >
+                                {savedTemplates.length === 0 ? (
                                   <Dropdown.Item
-                                    key={item.id}
-                                    id={item.id}
-                                    textValue={item.template_name || item.subject}
+                                    id="none"
+                                    textValue="Sin plantillas"
                                   >
                                     <Label>
-                                      {item.template_name || item.subject}
+                                      Todavía no hay plantillas guardadas
                                     </Label>
                                   </Dropdown.Item>
-                                ))
-                              )}
-                            </Dropdown.Menu>
-                          </Dropdown.Popover>
-                        </Dropdown>
-                        <Dropdown>
-                          <Button type="button" variant="ghost" size="sm">
-                            Insertar campo
+                                ) : (
+                                  savedTemplates.map((item) => (
+                                    <Dropdown.Item
+                                      key={item.id}
+                                      id={item.id}
+                                      textValue={
+                                        item.template_name || item.subject
+                                      }
+                                    >
+                                      <Label>
+                                        {item.template_name || item.subject}
+                                      </Label>
+                                    </Dropdown.Item>
+                                  ))
+                                )}
+                              </Dropdown.Menu>
+                            </Dropdown.Popover>
+                          </Dropdown>
+                          <Dropdown>
+                            <Button type="button" variant="ghost" size="sm">
+                              Insertar campo
+                            </Button>
+                            <Dropdown.Popover>
+                              <Dropdown.Menu
+                                onAction={(key) => {
+                                  const field = MERGE_FIELDS.find(
+                                    (entry) => entry.name === String(key),
+                                  );
+                                  if (field) insertField(field);
+                                }}
+                              >
+                                {MERGE_FIELDS.map((field) => (
+                                  <Dropdown.Item
+                                    key={field.name}
+                                    id={field.name}
+                                    textValue={field.label}
+                                  >
+                                    <Label>
+                                      {field.label} · {field.token}
+                                    </Label>
+                                  </Dropdown.Item>
+                                ))}
+                              </Dropdown.Menu>
+                            </Dropdown.Popover>
+                          </Dropdown>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="ms-auto"
+                            onClick={() => setShowAiPanel(!showAiPanel)}
+                          >
+                            {showAiPanel
+                              ? "Cerrar la IA"
+                              : design.blocks.length > 0
+                                ? "Mejorar con IA"
+                                : "Escribir con IA"}
                           </Button>
-                          <Dropdown.Popover>
-                            <Dropdown.Menu
-                              onAction={(key) => {
-                                const field = MERGE_FIELDS.find(
-                                  (entry) => entry.name === String(key),
-                                );
-                                if (field) insertField(field);
-                              }}
-                            >
-                              {MERGE_FIELDS.map((field) => (
-                                <Dropdown.Item
-                                  key={field.name}
-                                  id={field.name}
-                                  textValue={field.label}
-                                >
-                                  <Label>
-                                    {field.label} · {field.token}
-                                  </Label>
-                                </Dropdown.Item>
-                              ))}
-                            </Dropdown.Menu>
-                          </Dropdown.Popover>
-                        </Dropdown>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          className="ms-auto"
-                          onClick={() => setShowAiPanel(!showAiPanel)}
-                        >
-                          {showAiPanel
-                            ? "Cerrar la IA"
-                            : design.blocks.length > 0
-                              ? "Mejorar con IA"
-                              : "Escribir con IA"}
-                        </Button>
+                        </div>
                       </div>
-                    </div>
 
-                    <TemplateBuilder
-                      design={design}
-                      onChange={setDesign}
-                      onUploadImage={uploadTemplateImage}
-                      onSelect={setSelectedBlockId}
-                    />
+                      <TemplateBuilder
+                        design={design}
+                        onChange={setDesign}
+                        onUploadImage={uploadTemplateImage}
+                        onSelect={setSelectedBlockId}
+                      />
 
-                    {/* El panel de IA se abre desde la barra, como cualquier
+                      {/* El panel de IA se abre desde la barra, como cualquier
                         otra herramienta del compositor. Antes ocupaba media
                         pantalla debajo del lienzo estuviera o no en uso. */}
-                    {showAiPanel ? (
-                      <div className="space-y-3 border border-separator p-4">
-                        <p className="text-sm font-medium">Trabajar con IA</p>
-                        <p className="text-xs text-muted">
-                          Claude reescribe copy y jerarquía con el contexto de la
-                          empresa. El resultado siempre pasa por revisión humana,
-                          y escribe su propio asunto: lo que pongas arriba sirve
-                          de partida, no queda fijado.
-                        </p>
-                        <Field label="Qué quieres que haga">
-                          <Textarea
-                            aria-label="Instrucciones para la IA"
-                            className="mt-2 min-h-32"
-                            placeholder="Ej.: Presenta la colaboración con Reventxz y termina con un CTA a la app. Si hay frases que deben salir tal cual, escríbelas entre comillas: «Envío gratis a partir de 50 €». No inventes precios ni descuentos."
-                            value={brief}
-                            onChange={(event) => setBrief(event.target.value)}
-                            maxLength={12000}
-                          />
-                        </Field>
+                      {showAiPanel ? (
+                        <div className="space-y-3 border border-separator p-4">
+                          <p className="text-sm font-medium">Trabajar con IA</p>
+                          <p className="text-xs text-muted">
+                            Claude reescribe copy y jerarquía con el contexto de
+                            la empresa. El resultado siempre pasa por revisión
+                            humana, y escribe su propio asunto: lo que pongas
+                            arriba sirve de partida, no queda fijado.
+                          </p>
+                          <Field label="Qué quieres que haga">
+                            <Textarea
+                              aria-label="Instrucciones para la IA"
+                              className="mt-2 min-h-32"
+                              placeholder="Ej.: Presenta la colaboración con Reventxz y termina con un CTA a la app. Si hay frases que deben salir tal cual, escríbelas entre comillas: «Envío gratis a partir de 50 €». No inventes precios ni descuentos."
+                              value={brief}
+                              onChange={(event) => setBrief(event.target.value)}
+                              maxLength={12000}
+                            />
+                          </Field>
 
-                    <Field label="Imágenes (opcional)">
-                      <div className="mt-2 space-y-2">
-                        <p className="text-xs text-muted">
-                          «Referencia» = la IA imita su estilo. «Contenido» = la IA la
-                          coloca dentro de la plantilla.
-                        </p>
-                        <UploadButton
-                          accept="image/png,image/jpeg,image/gif,image/webp"
-                          onFile={async (file) => {
-                            setError(null);
-                            try {
-                              const url = await uploadTemplateImage(file);
-                              setAiImages((current) => [
-                                ...current,
-                                { url, role: "contenido" },
-                              ]);
-                            } catch (uploadError) {
-                              setError(
-                                uploadError instanceof Error
-                                  ? uploadError.message
-                                  : "No se pudo subir la imagen.",
-                              );
+                          <Field label="Imágenes (opcional)">
+                            <div className="mt-2 space-y-2">
+                              <p className="text-xs text-muted">
+                                «Referencia» = la IA imita su estilo.
+                                «Contenido» = la IA la coloca dentro de la
+                                plantilla.
+                              </p>
+                              <UploadButton
+                                accept="image/png,image/jpeg,image/gif,image/webp"
+                                onFile={async (file) => {
+                                  setError(null);
+                                  try {
+                                    const url = await uploadTemplateImage(file);
+                                    setAiImages((current) => [
+                                      ...current,
+                                      { url, role: "contenido" },
+                                    ]);
+                                  } catch (uploadError) {
+                                    setError(
+                                      uploadError instanceof Error
+                                        ? uploadError.message
+                                        : "No se pudo subir la imagen.",
+                                    );
+                                  }
+                                }}
+                              >
+                                Adjuntar imagen
+                              </UploadButton>
+                              {aiImages.map((image, index) => (
+                                <div
+                                  key={image.url}
+                                  className="flex flex-wrap items-center gap-3 border border-separator p-2 text-sm"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={image.url}
+                                    alt={`Imagen ${index + 1} (${image.role})`}
+                                    className="h-12 w-12 object-cover"
+                                  />
+                                  <Select
+                                    aria-label="Rol de la imagen"
+                                    className="w-48"
+                                    value={image.role}
+                                    onChange={(value) =>
+                                      setAiImages((current) =>
+                                        current.map((item, itemIndex) =>
+                                          itemIndex === index
+                                            ? {
+                                                ...item,
+                                                role: value as
+                                                  "referencia" | "contenido",
+                                              }
+                                            : item,
+                                        ),
+                                      )
+                                    }
+                                    options={[
+                                      {
+                                        value: "contenido",
+                                        label: "Contenido (colocar)",
+                                      },
+                                      {
+                                        value: "referencia",
+                                        label: "Referencia (estilo)",
+                                      },
+                                    ]}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      setAiImages((current) =>
+                                        current.filter(
+                                          (_, itemIndex) => itemIndex !== index,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    Quitar
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </Field>
+
+                          <Button
+                            type="submit"
+                            disabled={
+                              isGenerating ||
+                              (design.blocks.length === 0 && !brief.trim())
                             }
-                          }}
-                        >
-                          Adjuntar imagen
-                        </UploadButton>
-                        {aiImages.map((image, index) => (
-                          <div
-                            key={image.url}
-                            className="flex flex-wrap items-center gap-3 border border-separator p-2 text-sm"
                           >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={image.url}
-                              alt={`Imagen ${index + 1} (${image.role})`}
-                              className="h-12 w-12 object-cover"
-                            />
-                            <Select
-                              aria-label="Rol de la imagen"
-                              className="w-48"
-                              value={image.role}
-                              onChange={(value) =>
-                                setAiImages((current) =>
-                                  current.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? {
-                                          ...item,
-                                          role: value as "referencia" | "contenido",
-                                        }
-                                      : item,
-                                  ),
-                                )
-                              }
-                              options={[
-                                { value: "contenido", label: "Contenido (colocar)" },
-                                { value: "referencia", label: "Referencia (estilo)" },
-                              ]}
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() =>
-                                setAiImages((current) =>
-                                  current.filter(
-                                    (_, itemIndex) => itemIndex !== index,
-                                  ),
-                                )
-                              }
-                            >
-                              Quitar
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </Field>
+                            {isGenerating
+                              ? "Generando…"
+                              : design.blocks.length > 0
+                                ? "Mejorar con IA"
+                                : "Hacer con IA"}
+                          </Button>
+                        </div>
+                      ) : null}
 
-                        <Button
-                          type="submit"
-                          disabled={
-                            isGenerating ||
-                            (design.blocks.length === 0 && !brief.trim())
-                          }
-                        >
-                          {isGenerating
-                            ? "Generando…"
-                            : design.blocks.length > 0
-                              ? "Mejorar con IA"
-                              : "Hacer con IA"}
-                        </Button>
-                      </div>
-                    ) : null}
-
-                    {/* El cierre del compositor: guardar está donde está
+                      {/* El cierre del compositor: guardar está donde está
                         "Enviar" en un cliente de correo, y dice qué pasa
                         después en vez de dejarlo a la intuición. */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-separator pt-4">
-                      <span className="text-xs text-muted">
-                        Se guarda como borrador y pasa por revisión antes de
-                        usarse.
-                      </span>
-                      <Button
-                        type="button"
-                        onClick={() => void saveManualTemplate()}
-                        disabled={isSavingTemplate || design.blocks.length === 0}
-                      >
-                        {isSavingTemplate ? "Guardando…" : "Guardar plantilla"}
-                      </Button>
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-separator pt-4">
+                        <span className="text-xs text-muted">
+                          Se guarda como borrador y pasa por revisión antes de
+                          usarse.
+                        </span>
+                        <Button
+                          type="button"
+                          onClick={() => void saveManualTemplate()}
+                          disabled={
+                            isSavingTemplate || design.blocks.length === 0
+                          }
+                        >
+                          {isSavingTemplate
+                            ? "Guardando…"
+                            : "Guardar plantilla"}
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <Field label="Indicaciones para Claude">
-                      <Textarea
-                        aria-label="Brief de contenido"
-                        className="mt-2 min-h-40"
-                        placeholder="Ej.: Presenta la marca, explica el beneficio principal y termina con un CTA hacia la colección de verano. No inventar descuentos ni resultados."
-                        value={brief}
-                        onChange={(event) => setBrief(event.target.value)}
-                        maxLength={12000}
-                        required
-                      />
-                    </Field>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Button
-                        type="submit"
-                        disabled={isGenerating || !brief.trim()}
-                      >
-                        {isGenerating ? "Generando…" : "Generar borrador"}
-                      </Button>
-                      <span className="text-xs text-muted">
-                        Siempre requiere revisión humana · sin envío automático
-                      </span>
-                    </div>
-                  </>
-                )}
-              </Form>
-            </Card>
+                  ) : (
+                    <>
+                      <Field label="Indicaciones para Claude">
+                        <Textarea
+                          aria-label="Brief de contenido"
+                          className="mt-2 min-h-40"
+                          placeholder="Ej.: Presenta la marca, explica el beneficio principal y termina con un CTA hacia la colección de verano. No inventar descuentos ni resultados."
+                          value={brief}
+                          onChange={(event) => setBrief(event.target.value)}
+                          maxLength={12000}
+                          required
+                        />
+                      </Field>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          type="submit"
+                          disabled={isGenerating || !brief.trim()}
+                        >
+                          {isGenerating ? "Generando…" : "Generar borrador"}
+                        </Button>
+                        <span className="text-xs text-muted">
+                          Siempre requiere revisión humana · sin envío
+                          automático
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </Form>
+              </Card>
             </div>
           ),
           rendimiento: (
@@ -2851,9 +2961,7 @@ function ConsultantMarketingDraftPanel({
   return (
     <div className="mt-3 grid gap-4 border-t border-separator pt-4 lg:grid-cols-2">
       <div className="space-y-2 text-sm">
-        <p className={EYEBROW}>
-          Asunto
-        </p>
+        <p className={EYEBROW}>Asunto</p>
         <p className="font-medium">{draft.subject || "—"}</p>
         <p className="text-muted">{draft.summary}</p>
         <p className="text-xs text-muted">
@@ -2890,8 +2998,10 @@ function ConsultantMarketingDraftPanel({
               return (
                 <div
                   key={note.id}
-                  className={`border-l-2 pl-3 text-sm ${
-                    kind === "client" ? "border-separator" : "border-accent"
+                  className={`rounded-md border p-3 text-sm ${
+                    kind === "client"
+                      ? "border-separator bg-surface"
+                      : "border-accent/30 bg-accent-soft/30"
                   }`}
                 >
                   <p className="leading-6 whitespace-pre-wrap">{note.body}</p>
@@ -2998,9 +3108,7 @@ function ConsultantMarketingView({
       (draft) =>
         clientFilter === "all" || draft.organization_id === clientFilter,
     )
-    .filter(
-      (draft) => statusFilter === "all" || draft.status === statusFilter,
-    );
+    .filter((draft) => statusFilter === "all" || draft.status === statusFilter);
 
   const scheduled = data.drafts.filter(
     (draft) =>
@@ -3098,7 +3206,10 @@ function ConsultantMarketingView({
             {rows
               .filter((draft) => draft.id === expandedId)
               .map((draft) => (
-                <div key={draft.id} className="mt-4 border-t border-separator pt-4">
+                <div
+                  key={draft.id}
+                  className="mt-4 border-t border-separator pt-4"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm font-medium">
                       {draft.template_name} · {draft.organization_name}
@@ -3114,7 +3225,10 @@ function ConsultantMarketingView({
                       Ir al cliente
                     </Button>
                   </div>
-                  <ConsultantMarketingDraftPanel draft={draft} onChanged={load} />
+                  <ConsultantMarketingDraftPanel
+                    draft={draft}
+                    onChanged={load}
+                  />
                 </div>
               ))}
           </>

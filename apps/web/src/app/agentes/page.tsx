@@ -14,7 +14,6 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   Field,
   Heading,
   LoadingBlock,
@@ -196,7 +195,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         setError(await readApiError(response));
       }
     } catch {
-      setError("No se pudieron cargar las ejecuciones de agentes. Revisa la conexión e inténtalo de nuevo.");
+      setError(
+        "No se pudieron cargar las ejecuciones de agentes. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -224,7 +225,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         setBudgetError(await readApiError(response));
       }
     } catch {
-      setBudgetError("No se pudo cargar el presupuesto de IA. Revisa la conexión e inténtalo de nuevo.");
+      setBudgetError(
+        "No se pudo cargar el presupuesto de IA. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setBudgetLoading(false);
     }
@@ -270,7 +273,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         setTraceError(await readApiError(response));
       }
     } catch {
-      setTraceError("No se pudo cargar la traza. Revisa la conexión e inténtalo de nuevo.");
+      setTraceError(
+        "No se pudo cargar la traza. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setIsTraceLoading(false);
     }
@@ -308,7 +313,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         await loadRuns();
       }
     } catch {
-      toast.danger("No se pudo procesar la propuesta. Revisa la conexión e inténtalo de nuevo.");
+      toast.danger(
+        "No se pudo procesar la propuesta. Revisa la conexión e inténtalo de nuevo.",
+      );
     } finally {
       setIsDeciding(false);
     }
@@ -467,7 +474,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
-      <Heading level={1} size="lg">Ejecuciones de agentes IA</Heading>
+      <Heading level={1} size="lg">
+        Ejecuciones de agentes IA
+      </Heading>
       <p className="text-[13px] text-muted">
         Panel técnico (AI-12, Observability &amp; tracing): reconstruye una
         ejecución completa sin consultar varias tablas a mano. Las salidas con
@@ -566,8 +575,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <Modal.Body>
                     <div className="space-y-4">
                       <p className="text-[13px] text-muted">
-                        Esta propuesta está en shadow mode. Revisa el contenido y
-                        la evidencia antes de materializar las tareas sugeridas.
+                        Esta propuesta está en shadow mode. Revisa el contenido
+                        y la evidencia antes de materializar las tareas
+                        sugeridas.
                       </p>
                       {reviewOutput.output.output?.answer ? (
                         <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">
@@ -575,7 +585,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         </p>
                       ) : null}
                       <div>
-                        <p className={EYEBROW}>Evidencia y citas</p>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          Evidencia y citas
+                        </h3>
                         <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-separator bg-surface p-3 text-xs">
                           {JSON.stringify(
                             {
@@ -594,7 +606,9 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         </pre>
                       </div>
                       <div>
-                        <p className={EYEBROW}>Escrituras propuestas</p>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          Escrituras propuestas
+                        </h3>
                         <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-separator bg-surface p-3 text-xs">
                           {JSON.stringify(
                             reviewOutput.output.output?.proposed_writes ?? [],
@@ -666,78 +680,79 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   <ErrorBlock>{traceError}</ErrorBlock>
                 ) : trace ? (
                   <div className="space-y-6">
-              <div>
-                <p className="text-sm font-medium">
-                  {getAgentCatalogEntry(
-                    trace.run.agent_versions?.agent_definitions.code ?? "",
-                  )?.displayName ?? "Agente IA"}
-                </p>
-                <p className={EYEBROW}>
-                  {trace.run.agent_versions?.agent_definitions.code} ·{" "}
-                  {trace.run.agent_versions?.model} v
-                  {trace.run.agent_versions?.version}
-                </p>
-                <p className="mt-1 text-sm text-muted">
-                  {trace.run.input_tokens} tokens entrada ·{" "}
-                  {trace.run.output_tokens} tokens salida ·{" "}
-                  {trace.run.estimated_cost_usd.toFixed(4)} USD
-                  {trace.run.error_message
-                    ? ` · error: ${trace.run.error_message}`
-                    : ""}
-                </p>
-              </div>
+                    <div>
+                      <p className="text-sm font-medium">
+                        {getAgentCatalogEntry(
+                          trace.run.agent_versions?.agent_definitions.code ??
+                            "",
+                        )?.displayName ?? "Agente IA"}
+                      </p>
+                      <p className="text-xs font-medium text-muted">
+                        {trace.run.agent_versions?.agent_definitions.code} ·{" "}
+                        {trace.run.agent_versions?.model} v
+                        {trace.run.agent_versions?.version}
+                      </p>
+                      <p className="mt-1 text-sm text-muted">
+                        {trace.run.input_tokens} tokens entrada ·{" "}
+                        {trace.run.output_tokens} tokens salida ·{" "}
+                        {trace.run.estimated_cost_usd.toFixed(4)} USD
+                        {trace.run.error_message
+                          ? ` · error: ${trace.run.error_message}`
+                          : ""}
+                      </p>
+                    </div>
 
-              <div>
-                <p className={EYEBROW}>
-                  Pasos
-                </p>
-                <Table
-                  className="mt-2"
-                  ariaLabel="Pasos de la ejecucion"
-                  columns={stepColumns}
-                  rows={trace.steps}
-                  emptyLabel="Sin pasos registrados."
-                />
-              </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Pasos
+                      </h3>
+                      <Table
+                        className="mt-2"
+                        ariaLabel="Pasos de la ejecucion"
+                        columns={stepColumns}
+                        rows={trace.steps}
+                        emptyLabel="Sin pasos registrados."
+                      />
+                    </div>
 
-              <div>
-                <p className={EYEBROW}>
-                  Llamadas a herramientas
-                </p>
-                <Table
-                  className="mt-2"
-                  ariaLabel="Llamadas a herramientas"
-                  columns={toolCallColumns}
-                  rows={trace.tool_calls}
-                  emptyLabel="Sin llamadas a herramientas (evidence-pack puro)."
-                />
-              </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Llamadas a herramientas
+                      </h3>
+                      <Table
+                        className="mt-2"
+                        ariaLabel="Llamadas a herramientas"
+                        columns={toolCallColumns}
+                        rows={trace.tool_calls}
+                        emptyLabel="Sin llamadas a herramientas (evidence-pack puro)."
+                      />
+                    </div>
 
-              <div>
-                <p className={EYEBROW}>
-                  Snapshots de contexto
-                </p>
-                <Table
-                  className="mt-2"
-                  ariaLabel="Snapshots de contexto"
-                  columns={contextColumns}
-                  rows={trace.context_snapshots}
-                  emptyLabel="Sin snapshots de contexto."
-                />
-              </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Snapshots de contexto
+                      </h3>
+                      <Table
+                        className="mt-2"
+                        ariaLabel="Snapshots de contexto"
+                        columns={contextColumns}
+                        rows={trace.context_snapshots}
+                        emptyLabel="Sin snapshots de contexto."
+                      />
+                    </div>
 
-              <div>
-                <p className={EYEBROW}>
-                  Consultas SQL
-                </p>
-                <Table
-                  className="mt-2"
-                  ariaLabel="Consultas SQL del SQL Gateway"
-                  columns={queryRunColumns}
-                  rows={trace.query_runs}
-                  emptyLabel="Sin consultas SQL en esta ejecucion."
-                />
-              </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Consultas SQL
+                      </h3>
+                      <Table
+                        className="mt-2"
+                        ariaLabel="Consultas SQL del SQL Gateway"
+                        columns={queryRunColumns}
+                        rows={trace.query_runs}
+                        emptyLabel="Sin consultas SQL en esta ejecucion."
+                      />
+                    </div>
                   </div>
                 ) : null}
               </Modal.Body>

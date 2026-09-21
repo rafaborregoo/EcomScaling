@@ -161,7 +161,10 @@ function OrchestratorPanel() {
   if (isLoading) {
     return (
       <Card kicker="Control de coste" title="Orquestador de diagnósticos IA">
-        <AsyncState status="loading" loadingLabel="Cargando estado del orquestador..." />
+        <AsyncState
+          status="loading"
+          loadingLabel="Cargando estado del orquestador..."
+        />
       </Card>
     );
   }
@@ -257,7 +260,9 @@ function OrchestratorPanel() {
               ? `${formatCost(budget.spent_today_usd)} / ${formatCost(budget.cap_usd)}`
               : "—"
           }
-          hint={budget ? `${spentPct}% del tope diario` : "sin datos de presupuesto"}
+          hint={
+            budget ? `${spentPct}% del tope diario` : "sin datos de presupuesto"
+          }
         />
         <Metric
           card
@@ -268,11 +273,13 @@ function OrchestratorPanel() {
         <Metric
           card
           label="Última pasada"
-          value={data.last_tick ? reasonSummary(data.last_tick.by_reason) : "sin pasadas"}
+          value={
+            data.last_tick
+              ? reasonSummary(data.last_tick.by_reason)
+              : "sin pasadas"
+          }
           hint={
-            data.last_tick?.at
-              ? formatDateTime(data.last_tick.at)
-              : undefined
+            data.last_tick?.at ? formatDateTime(data.last_tick.at) : undefined
           }
         />
       </div>
@@ -284,7 +291,9 @@ function OrchestratorPanel() {
         </p>
       ) : (
         <div className="mt-5">
-          <p className={EYEBROW}>Últimas decisiones del orquestador</p>
+          <h3 className="text-sm font-semibold text-foreground">
+            Últimas decisiones del orquestador
+          </h3>
           <Table
             className="mt-2"
             ariaLabel="Decisiones del orquestador"
@@ -297,7 +306,9 @@ function OrchestratorPanel() {
 
       {orgRows.length > 0 ? (
         <div className="mt-5">
-          <p className={EYEBROW}>Ejecuciones de hoy por cliente</p>
+          <h3 className="text-sm font-semibold text-foreground">
+            Ejecuciones de hoy por cliente
+          </h3>
           <Table
             className="mt-2"
             ariaLabel="Ejecuciones de hoy por cliente"
@@ -377,7 +388,14 @@ function ObservabilidadPanel() {
         (!storeFilter || run.store_id === storeFilter) &&
         (!statusFilter || run.status === statusFilter),
     );
-  }, [data, orgFilter, agentFilter, consultantFilter, storeFilter, statusFilter]);
+  }, [
+    data,
+    orgFilter,
+    agentFilter,
+    consultantFilter,
+    storeFilter,
+    statusFilter,
+  ]);
 
   // Tienda y consultor para los filtros salen de las propias ejecuciones de la
   // ventana (los que no han ejecutado nada no aportan al filtro).
@@ -400,7 +418,9 @@ function ObservabilidadPanel() {
   }, [data]);
 
   if (isLoading && !data) {
-    return <AsyncState status="loading" loadingLabel="Cargando observabilidad..." />;
+    return (
+      <AsyncState status="loading" loadingLabel="Cargando observabilidad..." />
+    );
   }
   if (error && !data) {
     return <ErrorBlock>{error}</ErrorBlock>;
@@ -415,7 +435,10 @@ function ObservabilidadPanel() {
       ? Math.round((summary.failed_count / summary.run_count) * 100)
       : 0;
 
-  const agentRows = data.by_agent.map((row) => ({ ...row, id: row.agent_code }));
+  const agentRows = data.by_agent.map((row) => ({
+    ...row,
+    id: row.agent_code,
+  }));
   const clientRows = data.by_client.map((row) => ({
     ...row,
     id: row.organization_id,
@@ -427,7 +450,11 @@ function ObservabilidadPanel() {
 
   const agentColumns: TableColumnDef<(typeof agentRows)[number]>[] = [
     { key: "agent_name", label: "Agente", render: (row) => row.agent_name },
-    { key: "run_count", label: "Ejecuciones", render: (row) => String(row.run_count) },
+    {
+      key: "run_count",
+      label: "Ejecuciones",
+      render: (row) => String(row.run_count),
+    },
     {
       key: "failed_count",
       label: "Fallos",
@@ -440,9 +467,14 @@ function ObservabilidadPanel() {
     {
       key: "running_count",
       label: "En curso",
-      render: (row) => (row.running_count > 0 ? String(row.running_count) : "—"),
+      render: (row) =>
+        row.running_count > 0 ? String(row.running_count) : "—",
     },
-    { key: "cost", label: "Coste IA", render: (row) => formatCost(row.total_cost_usd) },
+    {
+      key: "cost",
+      label: "Coste IA",
+      render: (row) => formatCost(row.total_cost_usd),
+    },
     {
       key: "latency",
       label: "Latencia media",
@@ -457,13 +489,23 @@ function ObservabilidadPanel() {
 
   const clientColumns: TableColumnDef<(typeof clientRows)[number]>[] = [
     { key: "name", label: "Cliente", render: (row) => row.name },
-    { key: "run_count", label: "Ejecuciones", render: (row) => String(row.run_count) },
-    { key: "cost", label: "Coste IA", render: (row) => formatCost(row.total_cost_usd) },
+    {
+      key: "run_count",
+      label: "Ejecuciones",
+      render: (row) => String(row.run_count),
+    },
+    {
+      key: "cost",
+      label: "Coste IA",
+      render: (row) => formatCost(row.total_cost_usd),
+    },
     {
       key: "top_agents",
       label: "Agentes más usados",
       render: (row) => (
-        <span className="text-xs text-muted">{topAgentsLabel(row.top_agents)}</span>
+        <span className="text-xs text-muted">
+          {topAgentsLabel(row.top_agents)}
+        </span>
       ),
     },
   ];
@@ -475,13 +517,23 @@ function ObservabilidadPanel() {
       label: "Clientes",
       render: (row) => String(row.client_count),
     },
-    { key: "run_count", label: "Ejecuciones", render: (row) => String(row.run_count) },
-    { key: "cost", label: "Coste IA", render: (row) => formatCost(row.total_cost_usd) },
+    {
+      key: "run_count",
+      label: "Ejecuciones",
+      render: (row) => String(row.run_count),
+    },
+    {
+      key: "cost",
+      label: "Coste IA",
+      render: (row) => formatCost(row.total_cost_usd),
+    },
     {
       key: "top_agents",
       label: "Agentes más usados",
       render: (row) => (
-        <span className="text-xs text-muted">{topAgentsLabel(row.top_agents)}</span>
+        <span className="text-xs text-muted">
+          {topAgentsLabel(row.top_agents)}
+        </span>
       ),
     },
   ];
@@ -526,7 +578,11 @@ function ObservabilidadPanel() {
       label: "Cliente",
       render: (row) => row.organization_name,
     },
-    { key: "store_name", label: "Tienda", render: (row) => row.store_name ?? "—" },
+    {
+      key: "store_name",
+      label: "Tienda",
+      render: (row) => row.store_name ?? "—",
+    },
     {
       key: "consultant_name",
       label: "Consultor",
@@ -564,7 +620,9 @@ function ObservabilidadPanel() {
             size="sm"
             variant="ghost"
             onClick={() =>
-              setExpandedRunId((current) => (current === row.id ? null : row.id))
+              setExpandedRunId((current) =>
+                current === row.id ? null : row.id,
+              )
             }
           >
             {expandedRunId === row.id ? "Cerrar" : "Detalle"}
@@ -593,9 +651,17 @@ function ObservabilidadPanel() {
           label="Fallos"
           tone={summary.failed_count > 0 ? "danger" : "default"}
           value={`${summary.failed_count} · ${failRate}%`}
-          hint={summary.running_count > 0 ? `${summary.running_count} en curso` : undefined}
+          hint={
+            summary.running_count > 0
+              ? `${summary.running_count} en curso`
+              : undefined
+          }
         />
-        <Metric card label="Coste IA" value={formatCost(summary.total_cost_usd)} />
+        <Metric
+          card
+          label="Coste IA"
+          value={formatCost(summary.total_cost_usd)}
+        />
         <Metric
           card
           label="Latencia media"
@@ -657,7 +723,10 @@ function ObservabilidadPanel() {
               onChange={setConsultantFilter}
               options={[
                 { value: "", label: "Todos los consultores" },
-                ...consultantOptions.map(([id, name]) => ({ value: id, label: name })),
+                ...consultantOptions.map(([id, name]) => ({
+                  value: id,
+                  label: name,
+                })),
               ]}
             />
           </div>
@@ -671,7 +740,10 @@ function ObservabilidadPanel() {
               onChange={setStoreFilter}
               options={[
                 { value: "", label: "Todas las tiendas" },
-                ...storeOptions.map(([id, name]) => ({ value: id, label: name })),
+                ...storeOptions.map(([id, name]) => ({
+                  value: id,
+                  label: name,
+                })),
               ]}
             />
           </div>

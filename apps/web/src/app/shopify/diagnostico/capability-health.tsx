@@ -21,7 +21,13 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorBlock,
+  LoadingBlock,
+} from "@/components/ui";
 
 import {
   capabilityLabel,
@@ -42,13 +48,18 @@ function Findings({ assessment }: { assessment: CapabilityHealthView }) {
       {assessment.findings.map((hallazgo, indice) => {
         const severidad = severityLabel(hallazgo.severity);
         return (
-          <li key={`${hallazgo.description}-${indice}`} className="flex flex-wrap items-center gap-2">
+          <li
+            key={`${hallazgo.description}-${indice}`}
+            className="flex flex-wrap items-center gap-2"
+          >
             {/* La severidad es del hallazgo, no de la capacidad (guardrail 6).
                 Por eso vive aqui y no tine la tarjeta de arriba. */}
             <Badge tone={severidad.tone}>{severidad.label}</Badge>
             <span>{hallazgo.description}</span>
             {hallazgo.kind === "opportunity" ? (
-              <span className="text-muted text-xs">oportunidad, no problema</span>
+              <span className="text-muted text-xs">
+                oportunidad, no problema
+              </span>
             ) : null}
           </li>
         );
@@ -66,14 +77,20 @@ function AssessmentBody({ assessment }: { assessment: CapabilityHealthView }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="font-medium">{capabilityLabel(assessment.capability)}</span>
+        <span className="font-medium">
+          {capabilityLabel(assessment.capability)}
+        </span>
         {assessment.organization_name ? (
-          <span className="text-muted text-sm">{assessment.organization_name}</span>
+          <span className="text-muted text-sm">
+            {assessment.organization_name}
+          </span>
         ) : null}
         <Badge tone={estado.tone}>{estado.label}</Badge>
         {/* Estado y trayectoria como dos cosas: "mal mejorando" y "sana cayendo
             en picado" son situaciones distintas y una sola etiqueta las iguala. */}
-        {trayectoria ? <span className="text-muted text-sm">{trayectoria}</span> : null}
+        {trayectoria ? (
+          <span className="text-muted text-sm">{trayectoria}</span>
+        ) : null}
       </div>
 
       {assessment.assessment_blocker ? (
@@ -109,10 +126,15 @@ function AssessmentBody({ assessment }: { assessment: CapabilityHealthView }) {
       {contradice.length > 0 ? (
         // Guardrails 27 y 28: lo que contradice el estado no se tira y no se
         // esconde entre lo que encaja, porque es lo que hay que resolver.
-        <div className="border-danger/40 mt-3 border-l-2 pl-3">
-          <p className="text-xs uppercase tracking-wide">Lo que contradice este estado</p>
+        <div className="mt-3 rounded-md border border-danger/40 bg-danger-soft/20 p-3">
+          <p className="text-xs uppercase tracking-wide">
+            Lo que contradice este estado
+          </p>
           {contradice.map((e, i) => (
-            <p key={`${e.metric}-${i}`} className="text-muted mt-1 max-w-prose text-sm leading-6">
+            <p
+              key={`${e.metric}-${i}`}
+              className="text-muted mt-1 max-w-prose text-sm leading-6"
+            >
               {e.observation}
               {e.indicator_type === "leading" ? " (indicador adelantado)" : ""}
             </p>
@@ -129,7 +151,9 @@ function AssessmentBody({ assessment }: { assessment: CapabilityHealthView }) {
 }
 
 export function CapabilityHealthPanel() {
-  const [assessments, setAssessments] = useState<CapabilityHealthView[] | null>(null);
+  const [assessments, setAssessments] = useState<CapabilityHealthView[] | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -149,7 +173,10 @@ export function CapabilityHealthPanel() {
         setError(null);
       })
       .catch(() => {
-        if (!cancelled) setError("No se pudo cargar la salud por capacidad por un error de red.");
+        if (!cancelled)
+          setError(
+            "No se pudo cargar la salud por capacidad por un error de red.",
+          );
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -198,13 +225,20 @@ export function CapabilityHealthPanel() {
         // No es un cajon de descartes: hoy es el contenido principal, y cada
         // fila dice exactamente que declarar para que esa capacidad se pueda
         // juzgar. El guardrail 11 prohibe el atajo de clasificarla igualmente.
-        <div className={evaluadas.length > 0 ? "mt-6 border-t border-default-200 pt-4" : ""}>
+        <div
+          className={
+            evaluadas.length > 0 ? "mt-6 border-t border-default-200 pt-4" : ""
+          }
+        >
           <p className="text-muted text-xs uppercase tracking-wide">
             Lo que todavía no se puede juzgar
           </p>
           <ul className="mt-2">
             {sinEvaluar.map((assessment) => (
-              <li key={assessment.id} className="border-t border-default-200 py-5 first:border-t-0">
+              <li
+                key={assessment.id}
+                className="border-t border-default-200 py-5 first:border-t-0"
+              >
                 <AssessmentBody assessment={assessment} />
               </li>
             ))}

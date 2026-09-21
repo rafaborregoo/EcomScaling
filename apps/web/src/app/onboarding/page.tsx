@@ -18,7 +18,6 @@ import {
   Card,
   cn,
   ErrorBlock,
-  EYEBROW,
   Field,
   Input,
   LoadingBlock,
@@ -109,7 +108,7 @@ export default function OnboardingPage() {
                 />
               ))}
             </div>
-            <p className={EYEBROW}>
+            <p className="text-sm font-medium text-muted">
               Paso {stepShown} de {totalSteps}
             </p>
 

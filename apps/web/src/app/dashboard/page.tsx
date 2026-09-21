@@ -313,7 +313,8 @@ function buildFocusItems({
       id: "stock:out",
       eyebrow: "Stock",
       title: `${metrics.stock.out_of_stock_items} producto(s) agotado(s)`,
-      detail: "Sin unidades disponibles: revisa reposición antes de perder más ventas.",
+      detail:
+        "Sin unidades disponibles: revisa reposición antes de perder más ventas.",
       href: "/shopify",
       tone: "danger",
     });
@@ -389,7 +390,7 @@ function AdaptiveFocus({
   error: string | null;
 }) {
   return (
-    <CollapsibleSection title="Qué requiere atención · ordenado por impacto">
+    <CollapsibleSection title="Prioridades de hoy" defaultOpen>
       <div className="mb-3">
         <Link href="/tareas">Ver operaciones</Link>
       </div>
@@ -414,9 +415,7 @@ function AdaptiveFocus({
                     alerta o una tarea). Sin esto, un titulo largo sin espacios
                     ensancha la tarjeta y empuja el Badge fuera de pantalla. */}
                 <div className="min-w-0">
-                  <p className={EYEBROW}>
-                    {item.eyebrow}
-                  </p>
+                  <p className={EYEBROW}>{item.eyebrow}</p>
                   <p className="mt-1 break-words font-medium group-hover:underline">
                     {item.title}
                   </p>
@@ -506,7 +505,9 @@ function ShopifyMiniCard({
         <EmptyState
           title="Sin datos de Shopify"
           hint="Conecta la tienda para ver ventas, margen y stock."
-          action={<ButtonLink href="/integraciones">Conectar Shopify</ButtonLink>}
+          action={
+            <ButtonLink href="/integraciones">Conectar Shopify</ButtonLink>
+          }
         />
       ) : (
         <div className="grid grid-cols-2 gap-4">
@@ -516,7 +517,11 @@ function ShopifyMiniCard({
             value={formatMoney(metrics.sales.net_sales)}
             trend={metrics.daily?.map((day) => day.net_sales)}
           />
-          <Metric size="sm" label="Pedidos" value={metrics.sales.orders_count} />
+          <Metric
+            size="sm"
+            label="Pedidos"
+            value={metrics.sales.orders_count}
+          />
           <Metric
             size="sm"
             label="Beneficio neto"
@@ -996,7 +1001,7 @@ function AiAgentsPanel({
                     ) : null}
                   </button>
                   {isOpen && config ? (
-                    <div className="mt-3 border-l-2 border-separator pl-4">
+                    <div className="mt-3 rounded-md border border-separator bg-surface-subtle p-4">
                       <AiDiagnosticSection
                         bare
                         organizationId={organizationId}
@@ -1113,7 +1118,7 @@ type ConsultantOverview = {
   tasks: PortfolioTask[];
   orders_last_24h: RecentOrdersRow[];
   own_stores: OwnStoreOverview[];
-}
+};
 
 type RecentOrdersRow = {
   organization_id: string;
@@ -1140,7 +1145,12 @@ type StoreOrdersRow = {
   aov: number;
 };
 
-type OrdersRange = { id: string; label: string; rangeLabel: string; days: number };
+type OrdersRange = {
+  id: string;
+  label: string;
+  rangeLabel: string;
+  days: number;
+};
 
 const ORDERS_RANGES: OrdersRange[] = [
   { id: "1d", label: "1d", rangeLabel: "últimas 24 h", days: 1 },
@@ -1161,9 +1171,10 @@ function CustomRangeModal({
   onApply: (fromIso: string, toIso: string) => void;
 }) {
   const tz = getLocalTimeZone();
-  const [value, setValue] = useState<{ start: DateValue; end: DateValue } | null>(
-    null,
-  );
+  const [value, setValue] = useState<{
+    start: DateValue;
+    end: DateValue;
+  } | null>(null);
   const maxValue = today(tz);
   const invalid = value != null && value.end.compare(value.start) < 0;
 
@@ -1199,7 +1210,9 @@ function CustomRangeModal({
                   </DateField.Suffix>
                 </DateField.Group>
                 {invalid ? (
-                  <FieldError>La fecha final es anterior a la inicial.</FieldError>
+                  <FieldError>
+                    La fecha final es anterior a la inicial.
+                  </FieldError>
                 ) : null}
                 <DateRangePicker.Popover>
                   <RangeCalendar aria-label="Rango de fechas">
@@ -1214,7 +1227,9 @@ function CustomRangeModal({
                     <RangeCalendar.Grid>
                       <RangeCalendar.GridHeader>
                         {(day) => (
-                          <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>
+                          <RangeCalendar.HeaderCell>
+                            {day}
+                          </RangeCalendar.HeaderCell>
                         )}
                       </RangeCalendar.GridHeader>
                       <RangeCalendar.GridBody>
@@ -1608,45 +1623,45 @@ function RecentOrdersWidget({
               ))}
             </ul>
           ) : (
-          <ul className="divide-y divide-separator lg:w-1/2 lg:shrink-0">
-            {rows.map((row, index) => (
-              <li key={row.organization_id}>
-                <button
-                  type="button"
-                  onClick={() => onSelectClient(row.organization_id)}
-                  className="flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-surface"
-                >
-                  <span
-                    aria-hidden
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{
-                      backgroundColor:
-                        CLIENT_COLORS[index % CLIENT_COLORS.length],
-                    }}
-                  />
-                  <Avatar name={row.display_name} size="sm" color="accent" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">
-                      {row.display_name}
-                    </span>
-                    {/* En móvil el contador baja a una segunda línea: en una
+            <ul className="divide-y divide-separator lg:w-1/2 lg:shrink-0">
+              {rows.map((row, index) => (
+                <li key={row.organization_id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectClient(row.organization_id)}
+                    className="flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-surface"
+                  >
+                    <span
+                      aria-hidden
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{
+                        backgroundColor:
+                          CLIENT_COLORS[index % CLIENT_COLORS.length],
+                      }}
+                    />
+                    <Avatar name={row.display_name} size="sm" color="accent" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">
+                        {row.display_name}
+                      </span>
+                      {/* En móvil el contador baja a una segunda línea: en una
                         sola no queda ancho para el nombre. */}
-                    <span className="block text-xs text-muted sm:hidden">
+                      <span className="block text-xs text-muted sm:hidden">
+                        {row.orders_count}{" "}
+                        {row.orders_count === 1 ? "pedido" : "pedidos"}
+                      </span>
+                    </span>
+                    <span className="hidden shrink-0 text-sm text-muted sm:block">
                       {row.orders_count}{" "}
                       {row.orders_count === 1 ? "pedido" : "pedidos"}
                     </span>
-                  </span>
-                  <span className="hidden shrink-0 text-sm text-muted sm:block">
-                    {row.orders_count}{" "}
-                    {row.orders_count === 1 ? "pedido" : "pedidos"}
-                  </span>
-                  <span className="shrink-0 text-right font-mono font-semibold text-success sm:w-28">
-                    {formatMoney(row.net_sales, row.currency_code)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+                    <span className="shrink-0 text-right font-mono font-semibold text-success sm:w-28">
+                      {formatMoney(row.net_sales, row.currency_code)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
           <div className="min-w-0 flex-1">
             {chartData.length > 1 ? (
@@ -2250,7 +2265,9 @@ function StoresOverviewTable({
     Record<string, StoreMetricsSummary>
   >({});
   const [isLoading, setIsLoading] = useState(false);
-  const connectionKey = connections.map((connection) => connection.id).join(",");
+  const connectionKey = connections
+    .map((connection) => connection.id)
+    .join(",");
 
   useEffect(() => {
     let cancelled = false;
@@ -2427,6 +2444,8 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [periodDays, setPeriodDays] = useState<"7" | "30" | "90" | "all">("30");
   const [metaMetrics, setMetaMetrics] = useState<MetaMetrics | null>(null);
+  const [metaMetricsError, setMetaMetricsError] = useState<string | null>(null);
+  const [metricsReloadKey, setMetricsReloadKey] = useState(0);
   const [activeTab, setActiveTab] = useState<DashboardTab>("todo");
   const searchParams = useSearchParams();
 
@@ -2559,12 +2578,19 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
         if (metaResult.status === "fulfilled" && metaResult.value.ok) {
           setMetaMetrics((await metaResult.value.json()) as MetaMetrics);
+          setMetaMetricsError(null);
         } else {
           setMetaMetrics(null);
+          setMetaMetricsError(
+            "No se pudieron cargar las métricas de Meta. Reintenta antes de tomar una decisión con estos datos.",
+          );
         }
       } catch {
         setMetrics(null);
         setMetaMetrics(null);
+        setMetaMetricsError(
+          "No se pudieron cargar las métricas de Meta. Reintenta antes de tomar una decisión con estos datos.",
+        );
         setMetricsError(
           "No se pudieron cargar las métricas por un error de red. Reintenta.",
         );
@@ -2574,7 +2600,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     }
 
     void loadMetrics();
-  }, [organization, periodDays, activeConnectionId]);
+  }, [organization, periodDays, activeConnectionId, metricsReloadKey]);
 
   // La tabla comparativa "Todas las tiendas" solo aporta con 2+ tiendas.
   const showStoresOverview =
@@ -2606,20 +2632,16 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         value={activeTab}
         onChange={(value) => setActiveTab(value as DashboardTab)}
         items={[
-          { value: "todo", label: "Todo" },
+          { value: "todo", label: "Prioridades" },
           {
             value: "shopify",
             label: "Shopify",
-            icon: (
-              <ProviderIcon provider="shopify" />
-            ),
+            icon: <ProviderIcon provider="shopify" />,
           },
           {
             value: "meta",
             label: "Meta Ads",
-            icon: (
-              <ProviderIcon provider="meta_ads" />
-            ),
+            icon: <ProviderIcon provider="meta_ads" />,
           },
           {
             value: "klaviyo",
@@ -2762,9 +2784,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           organizationId={organization.id}
           days={aiDiagnosticDays}
           isConsultant={isConsultant}
-          isPlatformAdmin={
-            bootstrap.profile.platform_role === "platform_admin"
-          }
+          isPlatformAdmin={bootstrap.profile.platform_role === "platform_admin"}
         />
       ) : null}
 
@@ -2811,7 +2831,6 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             ) : null
           }
         >
-
           {isLoadingMetrics ? (
             <div className="p-4">
               <LoadingBlock label="Cargando métricas..." />
@@ -2992,6 +3011,20 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           title="Meta Ads"
           description="Rendimiento atribuido cuando exista una cuenta publicitaria conectada."
         >
+          {metaMetricsError ? (
+            <Banner tone="danger" className="mb-4 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p>{metaMetricsError}</p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setMetricsReloadKey((key) => key + 1)}
+                >
+                  Reintentar
+                </Button>
+              </div>
+            </Banner>
+          ) : null}
           {metaMetrics?.backfill?.status === "running" ? (
             <Banner tone="warn" className="mb-3 text-sm">
               Importando el histórico de Meta ({metaMetrics.backfill.pct}%). Los
@@ -3058,9 +3091,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <Metric
               card
               label="Compras atribuidas"
-              value={Number(
-                metaMetrics?.acquisition.purchases ?? 0,
-              ).toFixed(0)}
+              value={Number(metaMetrics?.acquisition.purchases ?? 0).toFixed(0)}
             />
             <article className="rounded-md border border-separator p-4 sm:col-span-2">
               <p className={EYEBROW}>Adquisición</p>
@@ -3073,9 +3104,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
           {!metaMetrics || metaMetrics.acquisition.days_with_data === 0 ? (
             <div className="pt-4">
-              <ButtonLink href="/integraciones">
-                Conectar Meta Ads
-              </ButtonLink>
+              <ButtonLink href="/integraciones">Conectar Meta Ads</ButtonLink>
             </div>
           ) : null}
         </Card>
@@ -3097,7 +3126,9 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <EmptyState
           title="Sin tiendas Shopify conectadas"
           hint="Conecta la tienda para empezar a ver ventas, margen y stock en tiempo real."
-          action={<ButtonLink href="/integraciones">Conectar Shopify</ButtonLink>}
+          action={
+            <ButtonLink href="/integraciones">Conectar Shopify</ButtonLink>
+          }
         />
       ) : null}
     </div>

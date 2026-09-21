@@ -12,7 +12,6 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   List,
   LoadingBlock,
   toast,
@@ -71,7 +70,11 @@ function ClientRow({
         {row.upcomingCount} en agenda
       </span>
 
-      <Button size="sm" variant="ghost" onClick={() => onOpen(row.organizationId)}>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => onOpen(row.organizationId)}
+      >
         Abrir
       </Button>
     </List.Item>
@@ -232,8 +235,7 @@ export function PlanningPortfolio() {
                       {item.title}
                     </span>
                     <span className="block text-xs text-muted">
-                      {row.organizationName} · desde el{" "}
-                      {fmtDay(item.starts_at)}
+                      {row.organizationName} · desde el {fmtDay(item.starts_at)}
                     </span>
                   </span>
                   <span className="max-w-72 text-xs text-danger">
@@ -253,7 +255,7 @@ export function PlanningPortfolio() {
         </Card>
       ) : null}
 
-      <p className={EYEBROW}>
+      <p className="text-sm text-muted">
         Elegir un cliente arriba cambia el cliente activo de todo el portal
       </p>
     </div>

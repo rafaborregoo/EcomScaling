@@ -751,8 +751,13 @@ export function FinancialDashboard() {
         <Card kicker="Conversión no aplicada" title="Totales por moneda">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {data.by_currency.map((row) => (
-              <div key={row.currency} className="border-l-2 border-accent pl-3">
-                <p className={EYEBROW}>{row.currency}</p>
+              <div
+                key={row.currency}
+                className="rounded-md border border-accent/30 bg-accent-soft/30 p-3"
+              >
+                <p className="text-sm font-semibold text-foreground">
+                  {row.currency}
+                </p>
                 <p className="mt-1 text-xl font-semibold tabular-nums">
                   {dinero(row.net_amount, row.currency)}
                 </p>

@@ -17,7 +17,6 @@ import {
   Card,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   Heading,
   List,
   LoadingBlock,
@@ -129,7 +128,10 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   // Antes esto ordenaba solo por fecha, asi que lo vencido y lo de mañana se
   // veian igual. `sortAgenda` pone delante lo que arde (ver agenda-signal.ts).
-  const agenda = useMemo(() => sortAgenda(planning.items ?? []), [planning.items]);
+  const agenda = useMemo(
+    () => sortAgenda(planning.items ?? []),
+    [planning.items],
+  );
   const upcoming = useMemo(() => agenda.slice(0, 8), [agenda]);
   // "Siguiente accion" tiene que mirar hacia delante: con lo vencido primero,
   // `agenda[0]` es lo mas atrasado, que es justo lo contrario.
@@ -170,7 +172,6 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className={EYEBROW}>Centro de decisiones</p>
           <Heading>Planificación</Heading>
           <p className="mt-1 max-w-2xl text-sm text-muted">
             Una vista rápida de lo que está pasando, lo que viene después y qué
@@ -197,8 +198,7 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           { label: "Ventas netas", value: money(metrics.sales?.net_sales) },
           {
             label: "Pedidos",
-            value:
-              metrics.sales?.orders_count?.toLocaleString("es-ES") ?? "—",
+            value: metrics.sales?.orders_count?.toLocaleString("es-ES") ?? "—",
           },
           {
             label: "ROAS",
@@ -220,7 +220,8 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             label: "Acciones a revisar",
             value: attentionCount.toLocaleString("es-ES"),
             tone: attentionCount > 0 ? "warn" : "success",
-            hint: attentionCount > 0 ? "Vencidas o bloqueadas" : "Agenda al día",
+            hint:
+              attentionCount > 0 ? "Vencidas o bloqueadas" : "Agenda al día",
           },
           {
             label: "Siguiente acción",
@@ -275,7 +276,10 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     </span>
                   </span>
                   {needsPiece ? (
-                    <Badge tone="warn" title="Sin borrador de Marketing enlazado">
+                    <Badge
+                      tone="warn"
+                      title="Sin borrador de Marketing enlazado"
+                    >
                       Sin pieza
                     </Badge>
                   ) : null}
@@ -337,19 +341,28 @@ function PlanningContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           }
         >
           <List as="ul" className="text-sm">
-            <List.Item as="li" className="flex items-center justify-between gap-3 py-2">
+            <List.Item
+              as="li"
+              className="flex items-center justify-between gap-3 py-2"
+            >
               <span>Acciones esperando decisión</span>
               <Badge tone={attentionCount > 0 ? "warn" : "success"}>
                 {attentionCount}
               </Badge>
             </List.Item>
-            <List.Item as="li" className="flex items-center justify-between gap-3 py-2">
+            <List.Item
+              as="li"
+              className="flex items-center justify-between gap-3 py-2"
+            >
               <span>Acciones sin pieza escrita</span>
               <Badge tone={withoutPiece > 0 ? "warn" : "success"}>
                 {withoutPiece}
               </Badge>
             </List.Item>
-            <List.Item as="li" className="flex items-center justify-between gap-3 py-2">
+            <List.Item
+              as="li"
+              className="flex items-center justify-between gap-3 py-2"
+            >
               <span>Tracking del periodo</span>
               <Badge tone={snapshots[0] ? "success" : "warn"}>
                 {snapshots[0] ? "Registrado" : "Sin snapshot"}

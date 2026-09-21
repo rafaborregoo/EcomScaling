@@ -16,7 +16,6 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   Field,
   Heading,
   Input,
@@ -189,7 +188,9 @@ function ItemEditor({
         setError(await readApiError(response));
         return;
       }
-      toast.success(item ? "Acción actualizada" : "Acción añadida al calendario");
+      toast.success(
+        item ? "Acción actualizada" : "Acción añadida al calendario",
+      );
       onOpenChange(false);
       await onSaved();
     } catch {
@@ -296,7 +297,10 @@ function ItemEditor({
                   }
                 />
               ) : null}
-              <Button onClick={save} disabled={saving || !title.trim() || !date}>
+              <Button
+                onClick={save}
+                disabled={saving || !title.trim() || !date}
+              >
                 {saving ? "Guardando…" : item ? "Guardar cambios" : "Añadir"}
               </Button>
             </Modal.Footer>
@@ -462,7 +466,10 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const months = useMemo(() => {
     const count = MONTHS_IN_VIEW[view];
     if (GRID_VIEWS.includes(view) || count === 0) return [];
-    const first = view === "year" ? new Date(cursor.getFullYear(), 0, 1) : monthStart(cursor);
+    const first =
+      view === "year"
+        ? new Date(cursor.getFullYear(), 0, 1)
+        : monthStart(cursor);
     return Array.from({ length: count }, (_, index) => {
       const month = addMonths(first, index);
       const from = monthStart(month);
@@ -528,7 +535,6 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className={EYEBROW}>Planificación / calendario</p>
           <Heading>Calendario operativo</Heading>
           <p className="mt-1 text-sm text-muted">
             Organiza acciones por día y cambia el horizonte según la
@@ -601,60 +607,60 @@ function CalendarContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           {GRID_VIEWS.includes(view) ? (
             <div className="mt-4 overflow-x-auto">
               <div className="grid min-w-[44rem] grid-cols-7 gap-px overflow-hidden border border-separator bg-separator sm:min-w-0">
-              {gridDays.map((date) => {
-                const key = localDayKey(date);
-                const dayItems = itemsByDay.get(key) ?? [];
-                const outsideMonth =
-                  view === "month" && date.getMonth() !== cursor.getMonth();
-                return (
-                  <div
-                    key={key}
-                    className={`min-h-24 bg-white p-2 ${outsideMonth ? "opacity-45" : ""} ${
-                      key === todayKey ? "ring-1 ring-inset ring-accent" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">
-                        {new Intl.DateTimeFormat("es-ES", {
-                          weekday: "short",
-                          day: "numeric",
-                        }).format(date)}
-                      </span>
-                      {/* Añadir en el día que se está mirando, sin volver a
+                {gridDays.map((date) => {
+                  const key = localDayKey(date);
+                  const dayItems = itemsByDay.get(key) ?? [];
+                  const outsideMonth =
+                    view === "month" && date.getMonth() !== cursor.getMonth();
+                  return (
+                    <div
+                      key={key}
+                      className={`min-h-24 bg-white p-2 ${outsideMonth ? "opacity-45" : ""} ${
+                        key === todayKey ? "ring-1 ring-inset ring-accent" : ""
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium">
+                          {new Intl.DateTimeFormat("es-ES", {
+                            weekday: "short",
+                            day: "numeric",
+                          }).format(date)}
+                        </span>
+                        {/* Añadir en el día que se está mirando, sin volver a
                           teclear la fecha en el formulario. */}
-                      <button
-                        type="button"
-                        aria-label={`Añadir acción el ${key}`}
-                        className="px-1 text-muted hover:text-accent"
-                        onClick={() => openNew(key)}
-                      >
-                        +
-                      </button>
+                        <button
+                          type="button"
+                          aria-label={`Añadir acción el ${key}`}
+                          className="px-1 text-muted hover:text-accent"
+                          onClick={() => openNew(key)}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {dayItems.map((item) => (
+                          <ItemChip
+                            key={item.id}
+                            item={item}
+                            onSelect={() => openEdit(item)}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <div className="mt-2 space-y-1">
-                      {dayItems.map((item) => (
-                        <ItemChip
-                          key={item.id}
-                          item={item}
-                          onSelect={() => openEdit(item)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
               </div>
             </div>
           ) : (
             <div className="mt-4 space-y-5">
               {months.map(({ month, items }) => (
                 <div key={month.toISOString()}>
-                  <p className={`${EYEBROW} capitalize`}>
+                  <h3 className="text-sm font-semibold capitalize text-foreground">
                     {new Intl.DateTimeFormat("es-ES", {
                       month: "long",
                       year: "numeric",
                     }).format(month)}
-                  </p>
+                  </h3>
                   {items.length === 0 ? (
                     <p className="mt-1 text-xs text-muted">Sin acciones.</p>
                   ) : (

@@ -24,7 +24,6 @@ import {
   cn,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   Field,
   IconChevronDown,
   IconChevronUp,
@@ -137,9 +136,7 @@ function StructuredSummary({
     <div className="mt-3 space-y-3 text-sm">
       {detail?.facts?.length ? (
         <div>
-          <p className={EYEBROW}>
-            Hechos
-          </p>
+          <h3 className="text-sm font-semibold text-foreground">Hechos</h3>
           <ul className="mt-1 list-disc space-y-1 pl-5">
             {detail.facts.map((fact, index) => (
               <li key={index}>{fact}</li>
@@ -150,9 +147,7 @@ function StructuredSummary({
 
       {decisions.length ? (
         <div>
-          <p className={EYEBROW}>
-            Decisiones
-          </p>
+          <h3 className="text-sm font-semibold text-foreground">Decisiones</h3>
           <ul className="mt-1 list-disc space-y-1 pl-5">
             {decisions.map((decision, index) => (
               <li key={index}>{decision}</li>
@@ -163,9 +158,9 @@ function StructuredSummary({
 
       {detail?.recommendations?.length ? (
         <div>
-          <p className={EYEBROW}>
+          <h3 className="text-sm font-semibold text-foreground">
             Recomendaciones
-          </p>
+          </h3>
           <ul className="mt-1 space-y-1">
             {detail.recommendations.map((rec, index) => (
               <li key={index}>
@@ -184,9 +179,7 @@ function StructuredSummary({
 
       {detail?.risks?.length ? (
         <div>
-          <p className={EYEBROW}>
-            Riesgos
-          </p>
+          <h3 className="text-sm font-semibold text-foreground">Riesgos</h3>
           <ul className="mt-1 list-disc space-y-1 pl-5">
             {detail.risks.map((risk, index) => (
               <li key={index}>{risk}</li>
@@ -197,9 +190,9 @@ function StructuredSummary({
 
       {!hideProposedTasks && detail?.proposed_tasks?.length ? (
         <div>
-          <p className={EYEBROW}>
+          <h3 className="text-sm font-semibold text-foreground">
             Tareas propuestas (se crean al aprobar)
-          </p>
+          </h3>
           <ul className="mt-1 space-y-1">
             {detail.proposed_tasks.map((task, index) => (
               <li key={index} className="flex flex-wrap items-baseline gap-2">
@@ -215,8 +208,8 @@ function StructuredSummary({
       ) : null}
 
       {detail?.warnings?.length ? (
-        <div className="border-l-2 border-warn pl-3">
-          <p className={cn(EYEBROW, "text-warn-deep")}>Avisos</p>
+        <div className="rounded-md border border-warn/30 bg-warn/5 p-3">
+          <h3 className="text-sm font-semibold text-warn-deep">Avisos</h3>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-muted">
             {detail.warnings.map((warning, index) => (
               <li key={index}>{warning}</li>
@@ -253,15 +246,15 @@ function ConsultantCoaching({ detail }: { detail: CallSummaryDetail }) {
   const signals = detail.conversation_signals ?? [];
   if (gaps.length === 0 && signals.length === 0) return null;
 
-  const aboutConsultant = signals.filter((signal) => signal.about === "consultor");
+  const aboutConsultant = signals.filter(
+    (signal) => signal.about === "consultor",
+  );
   const aboutClient = signals.filter((signal) => signal.about !== "consultor");
 
   return (
     <section className="rounded-md border border-separator p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-medium text-foreground">
-          Lectura para ti
-        </p>
+        <p className="text-sm font-medium text-foreground">Lectura para ti</p>
         <Badge tone="neutral">Solo consultor</Badge>
       </div>
       <p className="mt-1 text-xs text-muted">
@@ -271,12 +264,14 @@ function ConsultantCoaching({ detail }: { detail: CallSummaryDetail }) {
 
       {gaps.length > 0 ? (
         <div className="mt-3">
-          <p className={EYEBROW}>Lo que no se trató</p>
+          <h3 className="text-sm font-semibold text-foreground">
+            Lo que no se trató
+          </h3>
           <ul className="mt-2 space-y-2">
             {gaps.map((gap, index) => (
               <li
                 key={index}
-                className="border-l-2 border-separator pl-3 text-sm"
+                className="border-t border-separator pt-2 text-sm first:border-t-0 first:pt-0"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{gap.topic}</span>
@@ -284,7 +279,9 @@ function ConsultantCoaching({ detail }: { detail: CallSummaryDetail }) {
                     {GAP_SEVERITY[gap.severity]?.label ?? gap.severity}
                   </Badge>
                 </div>
-                <p className="mt-0.5 text-xs text-muted">{gap.why_it_matters}</p>
+                <p className="mt-0.5 text-xs text-muted">
+                  {gap.why_it_matters}
+                </p>
                 {/* La evidencia es lo que separa un hueco real de una opinión
                     del modelo: siempre visible, no plegada. */}
                 <p className="mt-0.5 text-xs text-muted">
@@ -308,7 +305,9 @@ function ConsultantCoaching({ detail }: { detail: CallSummaryDetail }) {
             .filter((group) => group.rows.length > 0)
             .map((group) => (
               <div key={group.title}>
-                <p className={EYEBROW}>{group.title}</p>
+                <h3 className="text-sm font-semibold text-foreground">
+                  {group.title}
+                </h3>
                 <ul className="mt-2 space-y-2">
                   {group.rows.map((signal, index) => (
                     <li key={index} className="text-sm">
@@ -456,9 +455,7 @@ function CallPipeline({ stage }: { stage: CallStage }) {
               aria-current={current ? "step" : undefined}
               className={[
                 "rounded-md border p-3",
-                current
-                  ? "border-accent bg-accent-soft"
-                  : "border-separator",
+                current ? "border-accent bg-accent-soft" : "border-separator",
               ].join(" ")}
             >
               <div className="flex items-center gap-2">
@@ -498,7 +495,10 @@ function CallPipeline({ stage }: { stage: CallStage }) {
   );
 }
 
-const CONFIDENCE_META: Record<string, { label: string; tone: "success" | "warn" | "danger" }> = {
+const CONFIDENCE_META: Record<
+  string,
+  { label: string; tone: "success" | "warn" | "danger" }
+> = {
   high: { label: "Confianza alta", tone: "success" },
   medium: { label: "Confianza media", tone: "warn" },
   low: { label: "Confianza baja", tone: "danger" },
@@ -599,9 +599,9 @@ function PendingSummaryReview({
 
         {proposedTasks.length ? (
           <div>
-            <p className={EYEBROW}>
+            <h3 className="text-sm font-semibold text-foreground">
               Tareas propuestas · marca las que quieras crear al aprobar
-            </p>
+            </h3>
             <ul className="mt-2 space-y-1.5">
               {proposedTasks.map((task, index) => {
                 const isForClient = task.owner === "cliente";
@@ -994,9 +994,7 @@ function CallDetail({
   return (
     <Card
       title={call.title}
-      description={
-        `${callTypeLabels[call.call_type] ?? call.call_type} · ${formatDate(call.held_at ?? call.scheduled_at)}${call.duration_minutes ? ` · ${call.duration_minutes} min` : ""}`
-      }
+      description={`${callTypeLabels[call.call_type] ?? call.call_type} · ${formatDate(call.held_at ?? call.scheduled_at)}${call.duration_minutes ? ` · ${call.duration_minutes} min` : ""}`}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-muted">
@@ -1120,9 +1118,7 @@ function CallDetail({
                     autoFocus
                     aria-label="Transcripción de la llamada"
                     value={transcriptDraft}
-                    onChange={(event) =>
-                      setTranscriptDraft(event.target.value)
-                    }
+                    onChange={(event) => setTranscriptDraft(event.target.value)}
                     placeholder="Pega aquí la transcripción de Loom, Fathom, Meet..."
                   />
                   <div className="flex flex-wrap gap-2">
@@ -1246,9 +1242,9 @@ function CallDetail({
 
         {call.call_task_links.length > 0 ? (
           <section>
-            <p className={EYEBROW}>
+            <h3 className="text-sm font-semibold text-foreground">
               Tareas de esta llamada
-            </p>
+            </h3>
             <ul className="mt-2 space-y-1">
               {call.call_task_links.map((link) => (
                 <li key={link.id} className="flex items-center gap-2 text-sm">
@@ -1264,7 +1260,10 @@ function CallDetail({
 
         {isConsultant ? (
           <div className="grid gap-3 lg:grid-cols-2">
-            <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submitTask}>
+            <form
+              className="flex flex-col gap-2 sm:flex-row"
+              onSubmit={submitTask}
+            >
               <Input
                 className="w-full"
                 aria-label="Nueva tarea acordada en la llamada"
@@ -1281,7 +1280,10 @@ function CallDetail({
                 Crear
               </Button>
             </form>
-            <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submitNote}>
+            <form
+              className="flex flex-col gap-2 sm:flex-row"
+              onSubmit={submitNote}
+            >
               <Input
                 className="w-full"
                 aria-label="Nota interna (solo consultores)"
@@ -1303,8 +1305,10 @@ function CallDetail({
         ) : null}
 
         {isConsultant && call.call_internal_notes.length > 0 ? (
-          <section className="border-l-2 border-separator py-1 pl-3">
-            <p className={EYEBROW}>Notas internas</p>
+          <section className="border-t border-separator pt-3">
+            <h3 className="text-sm font-semibold text-foreground">
+              Notas internas
+            </h3>
             <ul className="mt-2 space-y-2">
               {call.call_internal_notes.map((note) => (
                 <li key={note.id} className="text-sm">
@@ -1334,13 +1338,11 @@ function CallDetail({
                       return (
                         <div
                           key={other.id}
-                          className="border-l-2 border-separator pl-3"
+                          className="border-t border-separator pt-3 first:border-t-0 first:pt-0"
                         >
                           <p className="text-sm font-medium">{other.title}</p>
                           <p className="text-xs text-muted">
-                            {formatDate(
-                              other.held_at ?? other.scheduled_at,
-                            )}
+                            {formatDate(other.held_at ?? other.scheduled_at)}
                           </p>
                           <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-muted">
                             {summary.summary}
@@ -1458,7 +1460,9 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       setNewRecordingUrl("");
       setNewRecordingProvider("");
       setShowCreateForm(false);
-      toast.success("Llamada registrada. Añade la transcripción para analizarla.");
+      toast.success(
+        "Llamada registrada. Añade la transcripción para analizarla.",
+      );
       void loadCalls();
     } catch {
       setCreateError(
@@ -1484,107 +1488,109 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <Button type="button" onClick={() => setShowCreateForm(true)}>
               Registrar llamada
             </Button>
-          <Modal
-            isOpen={showCreateForm}
-            onOpenChange={(open) => {
-              setShowCreateForm(open);
-              if (!open) setCreateError(null);
-            }}
-          >
-            <Modal.Backdrop>
-              <Modal.Container size="lg">
-                <Modal.Dialog aria-label="Registrar llamada">
-                  <form onSubmit={submitCreate}>
-                    <Modal.Header>
-                      <Modal.Heading>Registrar llamada</Modal.Heading>
-                    </Modal.Header>
-                    <Modal.Body>
-                      <div className="space-y-4">
-                        <Field label="Título">
-                          <Input
-                            value={newTitle}
-                            onChange={(event) => setNewTitle(event.target.value)}
-                            placeholder="Ej: Revisión mensual julio"
-                          />
-                        </Field>
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <Field label="Fecha y hora">
-                            {/* `type="date"` perdia la hora de la llamada, que
-                                es justo lo que hace falta para agendarla. */}
+            <Modal
+              isOpen={showCreateForm}
+              onOpenChange={(open) => {
+                setShowCreateForm(open);
+                if (!open) setCreateError(null);
+              }}
+            >
+              <Modal.Backdrop>
+                <Modal.Container size="lg">
+                  <Modal.Dialog aria-label="Registrar llamada">
+                    <form onSubmit={submitCreate}>
+                      <Modal.Header>
+                        <Modal.Heading>Registrar llamada</Modal.Heading>
+                      </Modal.Header>
+                      <Modal.Body>
+                        <div className="space-y-4">
+                          <Field label="Título">
                             <Input
-                              type="datetime-local"
-                              value={newScheduledAt}
+                              value={newTitle}
                               onChange={(event) =>
-                                setNewScheduledAt(event.target.value)
+                                setNewTitle(event.target.value)
                               }
+                              placeholder="Ej: Revisión mensual julio"
                             />
                           </Field>
-                          <Field label="Tipo">
-                            <Select
-                              aria-label="Tipo"
-                              value={newType}
-                              onChange={setNewType}
-                              options={Object.entries(callTypeLabels).map(
-                                ([value, label]) => ({ value, label }),
-                              )}
-                            />
-                          </Field>
-                        </div>
-                        {/* La grabacion ya la aceptaba la API desde el primer
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <Field label="Fecha y hora">
+                              {/* `type="date"` perdia la hora de la llamada, que
+                                es justo lo que hace falta para agendarla. */}
+                              <Input
+                                type="datetime-local"
+                                value={newScheduledAt}
+                                onChange={(event) =>
+                                  setNewScheduledAt(event.target.value)
+                                }
+                              />
+                            </Field>
+                            <Field label="Tipo">
+                              <Select
+                                aria-label="Tipo"
+                                value={newType}
+                                onChange={setNewType}
+                                options={Object.entries(callTypeLabels).map(
+                                  ([value, label]) => ({ value, label }),
+                                )}
+                              />
+                            </Field>
+                          </div>
+                          {/* La grabacion ya la aceptaba la API desde el primer
                             dia, pero el formulario no la pedia y no habia
                             ninguna otra pantalla para añadirla. */}
-                        <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
-                          <Field label="Grabación (opcional)">
-                            <Input
-                              type="url"
-                              value={newRecordingUrl}
-                              onChange={(event) =>
-                                setNewRecordingUrl(event.target.value)
-                              }
-                              placeholder="https://..."
-                            />
-                          </Field>
-                          <Field label="Proveedor">
-                            <Select
-                              aria-label="Proveedor de la grabación"
-                              value={newRecordingProvider}
-                              onChange={setNewRecordingProvider}
-                              options={[
-                                { value: "", label: "Sin especificar" },
-                                { value: "loom", label: "Loom" },
-                                { value: "fathom", label: "Fathom" },
-                                { value: "meet", label: "Meet" },
-                                { value: "zoom", label: "Zoom" },
-                                { value: "other", label: "Otro" },
-                              ]}
-                            />
-                          </Field>
+                          <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
+                            <Field label="Grabación (opcional)">
+                              <Input
+                                type="url"
+                                value={newRecordingUrl}
+                                onChange={(event) =>
+                                  setNewRecordingUrl(event.target.value)
+                                }
+                                placeholder="https://..."
+                              />
+                            </Field>
+                            <Field label="Proveedor">
+                              <Select
+                                aria-label="Proveedor de la grabación"
+                                value={newRecordingProvider}
+                                onChange={setNewRecordingProvider}
+                                options={[
+                                  { value: "", label: "Sin especificar" },
+                                  { value: "loom", label: "Loom" },
+                                  { value: "fathom", label: "Fathom" },
+                                  { value: "meet", label: "Meet" },
+                                  { value: "zoom", label: "Zoom" },
+                                  { value: "other", label: "Otro" },
+                                ]}
+                              />
+                            </Field>
+                          </div>
+                          {createError ? (
+                            <ErrorBlock>{createError}</ErrorBlock>
+                          ) : null}
                         </div>
-                        {createError ? (
-                          <ErrorBlock>{createError}</ErrorBlock>
-                        ) : null}
-                      </div>
-                    </Modal.Body>
-                    <Modal.Footer>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setShowCreateForm(false)}
-                      >
-                        Cancelar
-                      </Button>
-                      <Button
-                        type="submit"
-                        disabled={isCreating || !newTitle.trim()}
-                      >
-                        {isCreating ? "Creando..." : "Crear llamada"}
-                      </Button>
-                    </Modal.Footer>
-                  </form>
-                </Modal.Dialog>
-              </Modal.Container>
-            </Modal.Backdrop>
-          </Modal>
+                      </Modal.Body>
+                      <Modal.Footer>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setShowCreateForm(false)}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button
+                          type="submit"
+                          disabled={isCreating || !newTitle.trim()}
+                        >
+                          {isCreating ? "Creando..." : "Crear llamada"}
+                        </Button>
+                      </Modal.Footer>
+                    </form>
+                  </Modal.Dialog>
+                </Modal.Container>
+              </Modal.Backdrop>
+            </Modal>
           </>
         ) : null}
       </section>
@@ -1625,7 +1631,6 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     (call) =>
                       call.status === "scheduled" &&
                       isUpcoming(call.scheduled_at),
-
                   )
                   .sort(
                     (a, b) =>
@@ -1641,9 +1646,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               })(),
               tone: calls.some(
                 (call) =>
-                  call.status === "scheduled" &&
-                  isUpcoming(call.scheduled_at),
-
+                  call.status === "scheduled" && isUpcoming(call.scheduled_at),
               )
                 ? "default"
                 : "warn",
@@ -1668,10 +1671,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             {
               label: "Acciones acordadas",
               value: calls
-                .reduce(
-                  (total, call) => total + call.call_task_links.length,
-                  0,
-                )
+                .reduce((total, call) => total + call.call_task_links.length, 0)
                 .toLocaleString("es-ES"),
               hint: "Tareas creadas desde llamadas",
             },
@@ -1680,7 +1680,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       ) : null}
 
       {isLoading ? (
-          <LoadingBlock label="Cargando llamadas..." />
+        <LoadingBlock label="Cargando llamadas..." />
       ) : calls.length === 0 ? (
         <EmptyState
           title="Aún no hay llamadas registradas"
@@ -1703,9 +1703,7 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   type="button"
                   aria-expanded={open}
                   aria-controls={panelId}
-                  onClick={() =>
-                    setExpandedCallId(open ? null : call.id)
-                  }
+                  onClick={() => setExpandedCallId(open ? null : call.id)}
                   className="flex w-full flex-wrap items-center gap-2 text-left"
                 >
                   <Badge
@@ -1736,7 +1734,10 @@ function CallsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       : "—"}
                   </span>
                   {open ? (
-                    <IconChevronUp aria-hidden className="shrink-0 text-muted" />
+                    <IconChevronUp
+                      aria-hidden
+                      className="shrink-0 text-muted"
+                    />
                   ) : (
                     <IconChevronDown
                       aria-hidden

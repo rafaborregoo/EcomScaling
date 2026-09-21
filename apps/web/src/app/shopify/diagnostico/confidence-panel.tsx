@@ -23,7 +23,13 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorBlock,
+  LoadingBlock,
+} from "@/components/ui";
 
 import {
   confidenceLabel,
@@ -59,7 +65,9 @@ function LayerRow({ claim }: { claim: ClaimView }) {
       <p className="mt-1 max-w-prose text-sm leading-6">{claim.claim}</p>
 
       {negativa ? (
-        <p className="text-muted mt-1 max-w-prose text-sm leading-6">{negativa}</p>
+        <p className="text-muted mt-1 max-w-prose text-sm leading-6">
+          {negativa}
+        </p>
       ) : null}
 
       {claim.cap_reason ? (
@@ -74,7 +82,9 @@ function LayerRow({ claim }: { claim: ClaimView }) {
         <ul className="mt-2 space-y-1 text-sm">
           {debiles.map((d) => (
             <li key={d.dimension} className="flex flex-wrap items-center gap-2">
-              <Badge tone={ratingTone(d.rating)}>{dimensionLabel(d.dimension)}</Badge>
+              <Badge tone={ratingTone(d.rating)}>
+                {dimensionLabel(d.dimension)}
+              </Badge>
               <span className="text-muted">{d.reason}</span>
             </li>
           ))}
@@ -88,13 +98,19 @@ function LayerRow({ claim }: { claim: ClaimView }) {
       ) : null}
 
       {claim.limitations ? (
-        <p className="text-muted mt-2 max-w-prose text-sm leading-6">{claim.limitations}</p>
+        <p className="text-muted mt-2 max-w-prose text-sm leading-6">
+          {claim.limitations}
+        </p>
       ) : null}
     </li>
   );
 }
 
-function Uncertainties({ uncertainties }: { uncertainties: UncertaintyView[] }) {
+function Uncertainties({
+  uncertainties,
+}: {
+  uncertainties: UncertaintyView[];
+}) {
   if (uncertainties.length === 0) return null;
   const { criticas, resto } = splitUncertainties(uncertainties);
 
@@ -103,14 +119,17 @@ function Uncertainties({ uncertainties }: { uncertainties: UncertaintyView[] }) 
       {criticas.length > 0 ? (
         // Un critical unknown no es una duda mas: es lo que impide cerrar el
         // caso, y el esquema no deja escribir uno sin decir que lo resolveria.
-        <div className="border-danger/40 border-l-2 pl-3">
-          <p className="text-xs uppercase tracking-wide">Lo que impide cerrar el caso</p>
+        <div className="rounded-md border border-danger/40 bg-danger-soft/20 p-3">
+          <p className="text-xs uppercase tracking-wide">
+            Lo que impide cerrar el caso
+          </p>
           {criticas.map((u) => (
             <div key={u.id} className="mt-2">
               <p className="max-w-prose text-sm leading-6">{u.description}</p>
               {u.required_evidence ? (
                 <p className="text-muted mt-1 max-w-prose text-sm leading-6">
-                  Lo resolvería: {u.required_evidence} ({resolvabilityLabel(u.resolvability)}).
+                  Lo resolvería: {u.required_evidence} (
+                  {resolvabilityLabel(u.resolvability)}).
                 </p>
               ) : null}
             </div>
@@ -120,7 +139,9 @@ function Uncertainties({ uncertainties }: { uncertainties: UncertaintyView[] }) 
 
       {resto.length > 0 ? (
         <div>
-          <p className="text-muted text-xs uppercase tracking-wide">Otras incertidumbres</p>
+          <p className="text-muted text-xs uppercase tracking-wide">
+            Otras incertidumbres
+          </p>
           <ul className="text-muted mt-1 space-y-1 text-sm">
             {resto.map((u) => (
               <li key={u.id}>
@@ -158,7 +179,8 @@ export function ConfidencePanel() {
         setError(null);
       })
       .catch(() => {
-        if (!cancelled) setError("No se pudo cargar la confianza por un error de red.");
+        if (!cancelled)
+          setError("No se pudo cargar la confianza por un error de red.");
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -198,7 +220,9 @@ export function ConfidencePanel() {
                 ))}
               </ul>
               <Uncertainties
-                uncertainties={uncertainties.filter((u) => u.case_id === caseId)}
+                uncertainties={uncertainties.filter(
+                  (u) => u.case_id === caseId,
+                )}
               />
             </div>
           ))}

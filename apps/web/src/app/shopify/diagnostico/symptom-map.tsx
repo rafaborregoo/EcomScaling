@@ -20,7 +20,13 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorBlock,
+  LoadingBlock,
+} from "@/components/ui";
 
 import {
   buildSymptomTree,
@@ -42,10 +48,17 @@ function SignalList({ symptom }: { symptom: SymptomView }) {
       {symptom.signals.map((senal, indice) => {
         const papel = signalRoleLabel(senal.role);
         return (
-          <li key={`${senal.id ?? senal.metric}-${indice}`} className="flex flex-wrap items-center gap-2">
+          <li
+            key={`${senal.id ?? senal.metric}-${indice}`}
+            className="flex flex-wrap items-center gap-2"
+          >
             <Badge tone={papel.tone}>{papel.label}</Badge>
-            <span className="font-mono tabular-nums">{senal.metric ?? "señal"}</span>
-            {senal.direction ? <span className="text-muted">{senal.direction}</span> : null}
+            <span className="font-mono tabular-nums">
+              {senal.metric ?? "señal"}
+            </span>
+            {senal.direction ? (
+              <span className="text-muted">{senal.direction}</span>
+            ) : null}
             {typeof senal.magnitude_relative === "number" ? (
               <span className="text-muted font-mono tabular-nums">
                 {(senal.magnitude_relative * 100).toFixed(1)}%
@@ -61,14 +74,18 @@ function SignalList({ symptom }: { symptom: SymptomView }) {
 function SymptomBody({ symptom }: { symptom: SymptomView }) {
   const valencia = valenceLabel(symptom.valence);
   const confianza = confidenceLabel(symptom.confidence);
-  const contradicen = symptom.evidence.filter((e) => e.stance === "contradicting");
+  const contradicen = symptom.evidence.filter(
+    (e) => e.stance === "contradicting",
+  );
 
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="font-medium">{symptom.label}</span>
         {symptom.organization_name ? (
-          <span className="text-muted text-sm">{symptom.organization_name}</span>
+          <span className="text-muted text-sm">
+            {symptom.organization_name}
+          </span>
         ) : null}
         <Badge tone={valencia.tone}>{valencia.label}</Badge>
         <Badge tone={confianza.tone}>{confianza.label}</Badge>
@@ -91,12 +108,17 @@ function SymptomBody({ symptom }: { symptom: SymptomView }) {
       {contradicen.length > 0 ? (
         // Guardrail 13. Va en su propio bloque y con el mismo peso visual que lo
         // demas: lo que no encaja es lo primero que hay que mirar.
-        <div className="border-danger/40 mt-3 border-l-2 pl-3">
+        <div className="mt-3 rounded-md border border-danger/40 bg-danger-soft/20 p-3">
           <p className="text-xs uppercase tracking-wide">Lo que no encaja</p>
           {contradicen.map((e) => (
-            <p key={e.observation} className="text-muted mt-1 max-w-prose text-sm leading-6">
+            <p
+              key={e.observation}
+              className="text-muted mt-1 max-w-prose text-sm leading-6"
+            >
               {e.observation}
-              {e.representativeness ? ` (representatividad: ${e.representativeness})` : ""}
+              {e.representativeness
+                ? ` (representatividad: ${e.representativeness})`
+                : ""}
             </p>
           ))}
         </div>
@@ -104,8 +126,8 @@ function SymptomBody({ symptom }: { symptom: SymptomView }) {
 
       {symptom.relations.length > 0 ? (
         <p className="text-muted mt-3 text-xs">
-          {symptom.relations.map((r) => relationLabel(r.relation)).join(", ")} otro síntoma activo.
-          Coincidir no es explicar.
+          {symptom.relations.map((r) => relationLabel(r.relation)).join(", ")}{" "}
+          otro síntoma activo. Coincidir no es explicar.
         </p>
       ) : null}
     </>
@@ -131,7 +153,8 @@ export function SymptomMapPanel() {
         setError(null);
       })
       .catch(() => {
-        if (!cancelled) setError("No se pudieron cargar los síntomas por un error de red.");
+        if (!cancelled)
+          setError("No se pudieron cargar los síntomas por un error de red.");
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -164,7 +187,10 @@ export function SymptomMapPanel() {
       ) : (
         <ul>
           {arbol.map(({ symptom, children }) => (
-            <li key={symptom.id} className="border-t border-default-200 py-5 first:border-t-0 first:pt-0">
+            <li
+              key={symptom.id}
+              className="border-t border-default-200 py-5 first:border-t-0 first:pt-0"
+            >
               <SymptomBody symptom={symptom} />
 
               {children.length > 0 ? (

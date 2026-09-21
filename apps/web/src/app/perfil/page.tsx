@@ -96,11 +96,13 @@ function ProfileContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <dl className="space-y-3 text-sm">
           <div className="flex justify-between gap-4">
             <dt className="text-muted">Email</dt>
-            <dd className="text-right">{bootstrap.user.email ?? "Sin email"}</dd>
+            <dd className="text-right">
+              {bootstrap.user.email ?? "Sin email"}
+            </dd>
           </div>
           <div className="flex justify-between gap-4">
             <dt className="text-muted">Rol</dt>
-            <dd className="text-right font-mono">
+            <dd className="text-right font-medium">
               {displayValue(bootstrap.profile.platform_role)}
             </dd>
           </div>
