@@ -16,10 +16,12 @@ import {
   Banner,
   Button,
   Card,
+  CollapsibleSection,
   IconChevronLeft,
   IntegrationActivationChecklist,
   IntegrationStatusBadge,
   Link,
+  ProviderIcon,
   Select,
 } from "@/components/ui";
 
@@ -208,6 +210,16 @@ export function integrationErrorMessage(
   );
 }
 
+function integrationErrorSummary(message: string): string {
+  if (message.includes("token_refresh")) {
+    return "No hemos podido renovar el acceso a la cuenta. Vuelve a autorizarla o reintenta la sincronización.";
+  }
+  if (message.includes("reauthor")) {
+    return "El proveedor pide que renueves la autorización antes de traer datos nuevos.";
+  }
+  return "La última sincronización no se pudo completar. Puedes reintentarlo o revisar el detalle técnico.";
+}
+
 export function healthLabel(status: string): string {
   const labels: Record<string, string> = {
     healthy: "Saludable",
@@ -220,7 +232,9 @@ export function healthLabel(status: string): string {
   return labels[status] ?? displayValue(status);
 }
 
-export function healthTone(status: string): "success" | "warn" | "danger" | "neutral" {
+export function healthTone(
+  status: string,
+): "success" | "warn" | "danger" | "neutral" {
   if (status === "healthy") return "success";
   if (status === "syncing") return "neutral";
   if (["degraded", "stale"].includes(status)) return "warn";
@@ -291,10 +305,8 @@ export function readOAuthNotice(): {
 // --- Hook principal: estado del payload + acciones -----------------------
 
 export function useIntegrations(bootstrap: BootstrapResponse) {
-  const {
-    organizationId: selectedOrganizationId,
-    setOrganizationId,
-  } = useActiveOrganization();
+  const { organizationId: selectedOrganizationId, setOrganizationId } =
+    useActiveOrganization();
 
   const organization =
     bootstrap.memberships.find(
@@ -305,9 +317,7 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
   const organizationId = organization?.id ?? null;
 
   const integrationsQuery = useCachedQuery<IntegrationsResponse>(
-    organizationId
-      ? `/v1/organizations/${organizationId}/integrations`
-      : null,
+    organizationId ? `/v1/organizations/${organizationId}/integrations` : null,
   );
   const payload = integrationsQuery.data ?? null;
   const error = organizationId
@@ -431,7 +441,10 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
 
 export function BackToHub() {
   return (
-    <Link className="inline-flex items-center gap-1 text-sm" href="/integraciones">
+    <Link
+      className="inline-flex items-center gap-1 text-sm font-medium text-muted no-underline hover:text-foreground hover:underline"
+      href="/integraciones"
+    >
       <IconChevronLeft aria-hidden /> Todas las integraciones
     </Link>
   );
@@ -448,9 +461,52 @@ export function ProviderStatusCard({
   children?: ReactNode;
 }) {
   const cfg = provider.configuration.status;
+  const visual = {
+    shopify: {
+      rail: "border-l-[#168446]",
+      icon: "border-[#b7dfc4] bg-[#effaf2]",
+      label: "Datos de la tienda",
+    },
+    meta_ads: {
+      rail: "border-l-channel-meta",
+      icon: "border-[#d9c8fa] bg-channel-meta-soft",
+      label: "Rendimiento publicitario",
+    },
+    klaviyo: {
+      rail: "border-l-channel-email",
+      icon: "border-[#cddafe] bg-channel-email-soft",
+      label: "Email y SMS",
+    },
+    instagram: {
+      rail: "border-l-channel-instagram",
+      icon: "border-[#fac9df] bg-channel-instagram-soft",
+      label: "Contenido e insights",
+    },
+  }[provider.id] ?? {
+    rail: "border-l-accent",
+    icon: "border-accent bg-accent-soft",
+    label: "Fuente de datos",
+  };
   return (
     <Card
-      title={provider.name}
+      className={`border-l-4 ${visual.rail}`}
+      title={
+        <span className="inline-flex min-w-0 items-center gap-3">
+          <span
+            className={`flex size-10 shrink-0 items-center justify-center border ${visual.icon}`}
+          >
+            <ProviderIcon provider={provider.id} size={23} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-xs font-medium text-muted">
+              {visual.label}
+            </span>
+            <span className="block text-xl font-semibold tracking-tight">
+              {provider.name}
+            </span>
+          </span>
+        </span>
+      }
       description={`${provider.description} · Fase ${provider.phase}`}
       actions={
         <IntegrationStatusBadge
@@ -461,18 +517,18 @@ export function ProviderStatusCard({
         />
       }
     >
-      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted">Salud</span>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-separator pt-4 text-xs">
+        <span className="text-muted">Estado de los datos</span>
         <Badge tone={healthTone(provider.health.status)}>
           {healthLabel(provider.health.status)}
         </Badge>
         {provider.connection?.provider_account_name ? (
-          <span className="text-muted">
+          <span className="min-w-0 truncate text-muted">
             · {provider.connection.provider_account_name}
           </span>
         ) : null}
         {provider.connection?.provider_account_id ? (
-          <span className="font-mono text-muted">
+          <span className="break-all font-mono text-muted">
             · {provider.connection.provider_account_id}
           </span>
         ) : null}
@@ -510,13 +566,13 @@ export function ProviderStatusCard({
 /** Lista de pasos numerada y legible (no un parrafo largo). */
 export function Steps({ items }: { items: ReactNode[] }) {
   return (
-    <ol className="mt-2 space-y-2 text-sm leading-6">
+    <ol className="mt-3 space-y-3 text-sm leading-6">
       {items.map((item, index) => (
         <li key={index} className="flex gap-3">
-          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-tint font-mono text-xs font-semibold text-accent">
+          <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center border border-accent bg-accent-soft text-xs font-semibold text-accent">
             {index + 1}
           </span>
-          <span className="min-w-0">{item}</span>
+          <span className="min-w-0 pt-0.5">{item}</span>
         </li>
       ))}
     </ol>
@@ -546,9 +602,7 @@ export {
  * estan escribiendo. */
 export function useStoreScope(organizationId: string | null) {
   const scopeQuery = useCachedQuery<StoreScope>(
-    organizationId
-      ? `/v1/organizations/${organizationId}/store-scope`
-      : null,
+    organizationId ? `/v1/organizations/${organizationId}/store-scope` : null,
   );
 
   return {
@@ -690,7 +744,11 @@ export function ConnectionHealthList({
   );
 }
 
-export function ConnectionFacts({ provider }: { provider: IntegrationProvider }) {
+export function ConnectionFacts({
+  provider,
+}: {
+  provider: IntegrationProvider;
+}) {
   return (
     <dl className="mt-4 grid gap-3 border-t border-separator pt-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
       <div>
@@ -719,13 +777,17 @@ export function ConnectionFacts({ provider }: { provider: IntegrationProvider })
           {provider.latest_sync?.status
             ? displayValue(provider.latest_sync.status)
             : provider.connection?.last_sync_at
-              ? new Date(provider.connection.last_sync_at).toLocaleString("es-ES")
+              ? new Date(provider.connection.last_sync_at).toLocaleString(
+                  "es-ES",
+                )
               : "Sin sincronización"}
         </dd>
       </div>
       <div>
         <dt className="text-xs text-muted">Versión API</dt>
-        <dd className="font-mono">{provider.connection?.api_version ?? "n/a"}</dd>
+        <dd className="font-mono">
+          {provider.connection?.api_version ?? "n/a"}
+        </dd>
       </div>
     </dl>
   );
@@ -743,11 +805,13 @@ export function LastErrorBanner({
   const message = integrationErrorMessage(provider);
   if (!message) return null;
   return (
-    <Banner className="mt-4" tone="danger">
+    <Banner className="border-l-4 border-l-danger" tone="danger">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span>
-          <span className="font-medium">Último error: </span>
-          <span className="font-mono break-words">{message}</span>
+          <span className="font-medium">
+            La sincronización necesita revisión.{" "}
+          </span>
+          <span>{integrationErrorSummary(message)}</span>
         </span>
         {onRetry ? (
           <Button size="sm" type="button" onClick={onRetry} disabled={retrying}>
@@ -756,9 +820,15 @@ export function LastErrorBanner({
         ) : null}
       </div>
       {provider.connection?.provider_account_id ? (
-        <p className="mt-2 text-xs text-muted">
-          Tienda afectada: <span className="font-mono">{provider.connection.provider_account_id}</span>
-        </p>
+        <CollapsibleSection
+          className="mt-3 bg-transparent"
+          title="Ver detalle técnico"
+        >
+          <p className="break-words font-mono text-xs text-muted">{message}</p>
+          <p className="mt-2 text-xs text-muted">
+            Cuenta afectada: {provider.connection.provider_account_id}
+          </p>
+        </CollapsibleSection>
       ) : null}
     </Banner>
   );

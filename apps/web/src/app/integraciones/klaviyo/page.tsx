@@ -11,6 +11,7 @@ import {
   Banner,
   Button,
   Card,
+  CollapsibleSection,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
@@ -68,7 +69,9 @@ function useKlaviyoConfig(
         setReportsError(await readErr(reportsResponse));
       }
     } catch {
-      setMetricsError("No se pudo cargar la configuración de Klaviyo. Reintenta.");
+      setMetricsError(
+        "No se pudo cargar la configuración de Klaviyo. Reintenta.",
+      );
     } finally {
       setLoading(false);
     }
@@ -94,8 +97,15 @@ function KlaviyoIntegrationPage({
 }: {
   bootstrap: BootstrapResponse;
 }) {
-  const { organization, provider, isLoading, error, actions, pending, actionError } =
-    useIntegrations(bootstrap);
+  const {
+    organization,
+    provider,
+    isLoading,
+    error,
+    actions,
+    pending,
+    actionError,
+  } = useIntegrations(bootstrap);
   const klaviyo = provider("klaviyo");
   // En Klaviyo la cuenta es 1:1 con la conexion (unique (connection_id)), asi
   // que la tienda del encabezado identifica exactamente una conexion.
@@ -225,7 +235,15 @@ function KlaviyoIntegrationPage({
         </Banner>
       ) : null}
 
-      <Card title="Conectar Klaviyo">
+      <Card
+        className="border-l-4 border-l-channel-email"
+        title={
+          connection
+            ? "Renueva el acceso a Klaviyo"
+            : "Conecta tu cuenta de Klaviyo"
+        }
+        description="Usaremos acceso seguro para leer el rendimiento de email y SMS. La publicación de plantillas solo se activa cuando la apruebas desde Marketing."
+      >
         {configured ? (
           <div className="space-y-2">
             <p className="text-sm text-muted">
@@ -260,111 +278,120 @@ function KlaviyoIntegrationPage({
       </Card>
 
       {connection ? (
-        <Card
-          title="Métrica primaria de conversión"
-          description="La métrica que Klaviyo usará para atribuir ingresos y conversiones en los informes."
-        >
-          {loading ? (
-            <LoadingBlock label="Cargando métricas..." />
-          ) : metricsError ? (
-            <Banner tone="danger">{metricsError}</Banner>
-          ) : !metrics || metrics.metrics.length === 0 ? (
-            <EmptyState
-              title="Aún no hay métricas sincronizadas"
-              hint="Ejecuta una sincronización de Klaviyo para poder elegir la métrica de conversión."
-            />
-          ) : (
-            <>
-              <Select
-                aria-label="Métrica primaria de conversión"
-                value={metrics.conversion_metric_id ?? ""}
-                onChange={(value) => void saveMetric(value)}
-                disabled={savingMetric}
-                options={metrics.metrics.map((metric) => ({
-                  value: metric.external_metric_id,
-                  label: `${metric.name}${metric.metric_type ? ` · ${metric.metric_type}` : ""}`,
-                }))}
+        <CollapsibleSection title="Configurar cómo se mide una venta">
+          <Card
+            className="border-l-4 border-l-channel-email"
+            title="Elige qué conversión representa una venta"
+            description="Esta métrica será la referencia para atribuir ingresos y conversiones en los informes de Klaviyo."
+          >
+            {loading ? (
+              <LoadingBlock label="Cargando métricas..." />
+            ) : metricsError ? (
+              <Banner tone="danger">{metricsError}</Banner>
+            ) : !metrics || metrics.metrics.length === 0 ? (
+              <EmptyState
+                title="Aún no hay métricas sincronizadas"
+                hint="Ejecuta una sincronización de Klaviyo para poder elegir la métrica de conversión."
               />
-              <p role="status" aria-live="polite" className="mt-2 text-xs text-muted">
-                {metricStatus}
-              </p>
-              {metricSaveError ? (
-                <Banner className="mt-3" tone="danger">
-                  {metricSaveError}
-                </Banner>
-              ) : null}
-            </>
-          )}
-        </Card>
+            ) : (
+              <>
+                <Select
+                  aria-label="Métrica primaria de conversión"
+                  value={metrics.conversion_metric_id ?? ""}
+                  onChange={(value) => void saveMetric(value)}
+                  disabled={savingMetric}
+                  options={metrics.metrics.map((metric) => ({
+                    value: metric.external_metric_id,
+                    label: `${metric.name}${metric.metric_type ? ` · ${metric.metric_type}` : ""}`,
+                  }))}
+                />
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="mt-2 text-xs text-muted"
+                >
+                  {metricStatus}
+                </p>
+                {metricSaveError ? (
+                  <Banner className="mt-3" tone="danger">
+                    {metricSaveError}
+                  </Banner>
+                ) : null}
+              </>
+            )}
+          </Card>
+        </CollapsibleSection>
       ) : null}
 
       {connection ? (
-        <Card
-          title="Reporting"
-          description="Solo se muestran ejecuciones y valores recibidos de Klaviyo; la ausencia de filas no significa cero."
-        >
-          {loading ? (
-            <LoadingBlock label="Cargando reporting..." />
-          ) : reportsError ? (
-            <Banner tone="danger">{reportsError}</Banner>
-          ) : !reports || reports.runs.length === 0 ? (
-            <EmptyState
-              title="Aún no hay ejecuciones de reporting"
-              hint="Aparecerá cuando Klaviyo esté conectado, tenga métrica de conversión y el reconciliador complete una consulta."
-            />
-          ) : (
-            <div className="space-y-3">
-              {reports.runs.slice(0, 5).map((run) => {
-                const values = reports.values.filter(
-                  (value) => value.report_run_id === run.id,
-                );
-                return (
-                  <div
-                    key={run.id}
-                    className="rounded-md border border-separator px-3 py-2"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-foreground">
-                        {run.entity_type} ·{" "}
-                        {run.period_start ?? "periodo pendiente"}
-                        {run.period_end ? ` → ${run.period_end}` : ""}
-                      </span>
-                      <Badge>{displayValue(run.status)}</Badge>
-                    </div>
-                    {run.error_message ? (
-                      <p className="mt-1 text-sm text-danger">
-                        {run.error_message}
-                      </p>
-                    ) : null}
-                    {values.length > 0 ? (
-                      <div className="mt-2 space-y-1 text-sm text-muted">
-                        {values.slice(0, 5).map((value) => (
-                          <div
-                            key={value.id}
-                            className="flex justify-between gap-3"
-                          >
-                            <span>
-                              {value.entity_name ??
-                                value.external_entity_id ??
-                                "Entidad externa"}
-                            </span>
-                            <span>
-                              {value.revenue != null
-                                ? `${Number(value.revenue).toLocaleString("es-ES")} ${value.currency_code ?? ""}`
-                                : value.conversions != null
-                                  ? `${Number(value.conversions).toLocaleString("es-ES")} conversiones`
-                                  : "Valor recibido"}
-                            </span>
-                          </div>
-                        ))}
+        <CollapsibleSection title="Ver las últimas lecturas recibidas">
+          <Card
+            title="Últimas lecturas recibidas"
+            description="Mostramos solo datos que Klaviyo ha devuelto. Si no hay filas, todavía no significa que el resultado sea cero."
+          >
+            {loading ? (
+              <LoadingBlock label="Cargando reporting..." />
+            ) : reportsError ? (
+              <Banner tone="danger">{reportsError}</Banner>
+            ) : !reports || reports.runs.length === 0 ? (
+              <EmptyState
+                title="Aún no hay ejecuciones de reporting"
+                hint="Aparecerá cuando Klaviyo esté conectado, tenga métrica de conversión y el reconciliador complete una consulta."
+              />
+            ) : (
+              <div className="space-y-3">
+                {reports.runs.slice(0, 5).map((run) => {
+                  const values = reports.values.filter(
+                    (value) => value.report_run_id === run.id,
+                  );
+                  return (
+                    <div
+                      key={run.id}
+                      className="rounded-md border border-separator px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-foreground">
+                          {run.entity_type} ·{" "}
+                          {run.period_start ?? "periodo pendiente"}
+                          {run.period_end ? ` → ${run.period_end}` : ""}
+                        </span>
+                        <Badge>{displayValue(run.status)}</Badge>
                       </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
+                      {run.error_message ? (
+                        <p className="mt-1 text-sm text-danger">
+                          {run.error_message}
+                        </p>
+                      ) : null}
+                      {values.length > 0 ? (
+                        <div className="mt-2 space-y-1 text-sm text-muted">
+                          {values.slice(0, 5).map((value) => (
+                            <div
+                              key={value.id}
+                              className="flex justify-between gap-3"
+                            >
+                              <span>
+                                {value.entity_name ??
+                                  value.external_entity_id ??
+                                  "Entidad externa"}
+                              </span>
+                              <span>
+                                {value.revenue != null
+                                  ? `${Number(value.revenue).toLocaleString("es-ES")} ${value.currency_code ?? ""}`
+                                  : value.conversions != null
+                                    ? `${Number(value.conversions).toLocaleString("es-ES")} conversiones`
+                                    : "Valor recibido"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </CollapsibleSection>
       ) : null}
 
       <LastErrorBanner
@@ -377,9 +404,11 @@ function KlaviyoIntegrationPage({
         }
       />
 
-      <Card title="Estado de la conexión">
-        <ConnectionFacts provider={klaviyo} />
-      </Card>
+      <CollapsibleSection title="Detalles técnicos de la conexión">
+        <Card title="Detalles de la conexión">
+          <ConnectionFacts provider={klaviyo} />
+        </Card>
+      </CollapsibleSection>
     </div>
   );
 }

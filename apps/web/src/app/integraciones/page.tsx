@@ -26,7 +26,10 @@ import {
   toast,
 } from "@/components/ui";
 import { classifyAuthorizationAttempt } from "@ecomscaling/contracts";
-import { ClientDataQualityNotice, DataQualityPanel } from "./data-quality-panel";
+import {
+  ClientDataQualityNotice,
+  DataQualityPanel,
+} from "./data-quality-panel";
 import {
   PROVIDER_SLUG,
   readOAuthNotice,
@@ -44,7 +47,13 @@ import {
 
 // Los 5 conectores del catalogo, en el orden fijo en que se leen: primero los
 // que tienen tienda detras (Shopify, Meta, Klaviyo), luego los que no.
-const PROVIDER_ORDER = ["shopify", "meta_ads", "klaviyo", "instagram", "fathom"];
+const PROVIDER_ORDER = [
+  "shopify",
+  "meta_ads",
+  "klaviyo",
+  "instagram",
+  "fathom",
+];
 
 // Hub de /integraciones: una rejilla de 2 columnas, una tarjeta por conexion
 // (Shopify, Meta Ads, Klaviyo, Instagram, Fathom). Shopify es la excepcion --
@@ -98,26 +107,29 @@ function IntegrationsSummaryLine({
   });
 
   return (
-    <p className="text-sm">
-      <span className="text-muted">Tiendas: </span>
-      <span className="font-medium text-foreground">{stores.length}</span>
-      <span className="text-muted"> · Necesitan atención: </span>
-      <span
-        className={
-          needAttention.length > 0
-            ? "font-medium text-danger"
-            : "font-medium text-success"
-        }
-      >
-        {needAttention.length}
-      </span>
-      {needAttention.length > 0 ? (
-        <span className="text-muted">
-          {" "}
-          ({needAttention.map((store) => store.name).join(", ")})
+    <section className="border border-edge border-l-4 border-l-accent bg-brand-tint/40 px-4 py-3">
+      <p className="text-xs font-medium text-muted">Cobertura actual</p>
+      <div className="mt-1 text-sm">
+        <span className="text-muted">Tiendas: </span>
+        <span className="font-medium text-foreground">{stores.length}</span>
+        <span className="text-muted"> · Necesitan atención: </span>
+        <span
+          className={
+            needAttention.length > 0
+              ? "font-medium text-danger"
+              : "font-medium text-success"
+          }
+        >
+          {needAttention.length}
         </span>
-      ) : null}
-    </p>
+        {needAttention.length > 0 ? (
+          <span className="text-muted">
+            {" "}
+            ({needAttention.map((store) => store.name).join(", ")})
+          </span>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -132,7 +144,7 @@ function ConnectAppsModal({ providers }: { providers: IntegrationProvider[] }) {
 
   return (
     <>
-      <Button onClick={() => setIsOpen(true)}>Conectar</Button>
+      <Button onClick={() => setIsOpen(true)}>Conectar aplicación</Button>
       <Modal isOpen={isOpen} onOpenChange={setIsOpen}>
         <Modal.Backdrop>
           <Modal.Container size="md">
@@ -211,6 +223,8 @@ function ShopifyGridCard({
 }) {
   return (
     <Card
+      className="border-l-4 border-l-[#168446]"
+      kicker="Base operativa"
       title={
         <span className="flex items-center gap-2">
           <ProviderIcon provider="shopify" size={20} />
@@ -220,7 +234,7 @@ function ShopifyGridCard({
       description={provider?.description}
       actions={
         <ButtonLink variant="secondary" href="/integraciones/shopify">
-          Conectar otra tienda
+          Añadir tienda
         </ButtonLink>
       }
     >
@@ -256,13 +270,24 @@ function ProviderGridCard({ provider }: { provider: IntegrationProvider }) {
   const slug = PROVIDER_SLUG[provider.id];
   const explanation = explainHealth(provider.health, provider.connection);
   const connected = provider.connections.length > 0;
+  const visual =
+    {
+      meta_ads: "border-l-channel-meta bg-channel-meta-soft/30",
+      klaviyo: "border-l-channel-email bg-channel-email-soft/30",
+      instagram: "border-l-channel-instagram bg-channel-instagram-soft/30",
+      fathom: "border-l-accent bg-brand-tint/40",
+    }[provider.id] ?? "border-l-accent bg-brand-tint/40";
 
   return (
-    <div className="flex items-start gap-3 rounded-md border border-edge p-4">
-      <ProviderIcon provider={provider.id} size={28} className="mt-0.5" />
+    <div
+      className={`flex items-start gap-4 border border-edge border-l-4 p-4 transition-colors hover:border-edge-strong ${visual}`}
+    >
+      <span className="flex size-10 shrink-0 items-center justify-center border border-edge bg-white">
+        <ProviderIcon provider={provider.id} size={24} />
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="font-medium text-foreground">{provider.name}</p>
+          <p className="font-semibold text-foreground">{provider.name}</p>
           <Badge
             tone={connected ? healthTone(provider.health.status) : "neutral"}
             variant="soft"
@@ -272,7 +297,9 @@ function ProviderGridCard({ provider }: { provider: IntegrationProvider }) {
         </div>
         {/* Que se conecta y para que se usa: sin esto, "Conectar" era un salto
             de fe -- ni el propio dueño de la tienda sabe que le va a leer. */}
-        <p className="mt-1 text-xs text-muted">{provider.description}</p>
+        <p className="mt-1 max-w-md text-sm leading-5 text-muted">
+          {provider.description}
+        </p>
       </div>
       {slug && provider.available ? (
         <ButtonLink
@@ -288,9 +315,9 @@ function ProviderGridCard({ provider }: { provider: IntegrationProvider }) {
           {explanation.fix === "discard"
             ? "Retomar"
             : explanation.fix === "reconnect"
-              ? "Reconectar"
+              ? "Revisar acceso"
               : explanation.fix === "connect"
-                ? "Conectar"
+                ? `Conectar ${provider.name}`
                 : "Configurar"}
         </ButtonLink>
       ) : null}
@@ -373,10 +400,13 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const stores = buildStoreViews(payload, scope);
   const unassigned = unassignedConnections(payload, scope);
   const needAttention = stores.filter((store) => store.severity > 0);
-  const shopify = payload.providers.find((provider) => provider.id === "shopify") ?? null;
+  const shopify =
+    payload.providers.find((provider) => provider.id === "shopify") ?? null;
   const otherProviders = payload.providers
     .filter((provider) => provider.id !== "shopify")
-    .sort((a, b) => PROVIDER_ORDER.indexOf(a.id) - PROVIDER_ORDER.indexOf(b.id));
+    .sort(
+      (a, b) => PROVIDER_ORDER.indexOf(a.id) - PROVIDER_ORDER.indexOf(b.id),
+    );
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
@@ -390,8 +420,8 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <ClientDataQualityNotice organizationId={organization?.id ?? null} />
       {!payload.schema_ready ? (
         <Banner tone="danger">
-          No se pudo cargar el estado de las integraciones ahora mismo. Reintenta
-          en unos minutos o contacta con soporte si sigue igual.
+          No se pudo cargar el estado de las integraciones ahora mismo.
+          Reintenta en unos minutos o contacta con soporte si sigue igual.
         </Banner>
       ) : null}
 
@@ -401,8 +431,16 @@ function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse }) {
           dibuja como KPI. */}
       <IntegrationsSummaryLine stores={stores} needAttention={needAttention} />
 
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-medium text-foreground">Tus conexiones</h2>
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-edge pb-4">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">
+            Fuentes de datos
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted">
+            Conecta las fuentes que necesitas para que el panel y el Consultor
+            IA puedan explicar qué está ocurriendo con evidencia.
+          </p>
+        </div>
         <ConnectAppsModal providers={payload.providers} />
       </div>
 

@@ -2,7 +2,13 @@
 
 import { PortalShell } from "@/components/portal-shell";
 import { type BootstrapResponse } from "@/lib/bootstrap";
-import { AsyncState, Banner, Card, ErrorBlock } from "@/components/ui";
+import {
+  AsyncState,
+  Banner,
+  Card,
+  CollapsibleSection,
+  ErrorBlock,
+} from "@/components/ui";
 import {
   BackToHub,
   ConnectionFacts,
@@ -47,35 +53,51 @@ function InstagramIntegrationPage({
     <div className="portal-page space-y-5 sm:space-y-6">
       <BackToHub />
 
-      <ProviderStatusCard provider={instagram} />
+      <ProviderStatusCard provider={instagram}>
+        <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
+          Cuando esté disponible, conectará el rendimiento de contenido e
+          insights de una cuenta profesional para completar la lectura de tus
+          canales.
+        </p>
+      </ProviderStatusCard>
 
-      <Card title="Todavía no disponible">
+      <Card
+        className="border-l-4 border-l-channel-instagram"
+        title="Esta conexión aún no está abierta"
+        description="Preferimos esperar a que el acceso sea real antes que mostrar una conexión o métricas que no funcionan."
+      >
         <Banner tone="warn">
           El conector está preparado pero no se activa aún: no se muestran
           métricas simuladas ni un botón de conexión prematuro.
         </Banner>
-        <p className="mt-3 text-sm font-medium text-foreground">Qué hace falta</p>
-        <Steps
-          items={[
-            <>
-              Una conexión de <span className="font-medium">Meta</span> válida (o
-              Instagram Login) sobre una cuenta profesional de Instagram.
-            </>,
-            <>
-              Los permisos de lectura de contenido e insights aprobados para esa
-              cuenta.
-            </>,
-            <>
-              Cuando estén, esta página habilitará la conexión y la
-              sincronización real.
-            </>,
-          ]}
-        />
+        <CollapsibleSection
+          className="mt-5"
+          title="Ver qué tendrá que estar listo"
+        >
+          <Steps
+            items={[
+              <>
+                Una conexión de <span className="font-medium">Meta</span> válida
+                (o Instagram Login) sobre una cuenta profesional de Instagram.
+              </>,
+              <>
+                Los permisos de lectura de contenido e insights aprobados para
+                esa cuenta.
+              </>,
+              <>
+                Cuando estén, esta página habilitará la conexión y la
+                sincronización real.
+              </>,
+            ]}
+          />
+        </CollapsibleSection>
       </Card>
 
-      <Card title="Estado de la conexión">
-        <ConnectionFacts provider={instagram} />
-      </Card>
+      <CollapsibleSection title="Detalles técnicos de la conexión">
+        <Card title="Detalles de la conexión">
+          <ConnectionFacts provider={instagram} />
+        </Card>
+      </CollapsibleSection>
     </div>
   );
 }

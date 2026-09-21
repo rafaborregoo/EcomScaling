@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   Checkbox,
+  CollapsibleSection,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
@@ -30,7 +31,10 @@ import {
   type MetaAssetsResponse,
 } from "../shared";
 
-function useMetaAssets(organizationId: string | null, connectionId: string | null) {
+function useMetaAssets(
+  organizationId: string | null,
+  connectionId: string | null,
+) {
   const [assets, setAssets] = useState<MetaAssetsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -68,8 +72,15 @@ function useMetaAssets(organizationId: string | null, connectionId: string | nul
 }
 
 function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
-  const { organization, provider, isLoading, error, actions, pending, actionError } =
-    useIntegrations(bootstrap);
+  const {
+    organization,
+    provider,
+    isLoading,
+    error,
+    actions,
+    pending,
+    actionError,
+  } = useIntegrations(bootstrap);
   const meta = provider("meta_ads");
   // En Meta la tienda NO la marca la conexion: una sola conexion OAuth sirve
   // legitimamente a varias tiendas (una cuenta publicitaria por tienda dentro
@@ -104,8 +115,12 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
         scope?.stores.find((store) => store.id === account.store_id) ?? null,
       ]),
   );
-  const { assets, setAssets, error: assetsError, isLoading: assetsLoading } =
-    useMetaAssets(organization?.id ?? null, connectionId);
+  const {
+    assets,
+    setAssets,
+    error: assetsError,
+    isLoading: assetsLoading,
+  } = useMetaAssets(organization?.id ?? null, connectionId);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -195,34 +210,45 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
         activeStore={activeStore}
       />
 
-      <Card title="Autorizar Meta">
+      <Card
+        className="border-l-4 border-l-channel-meta"
+        title={
+          meta.connection
+            ? "Renueva el acceso a Meta"
+            : "Conecta tu cuenta de Meta"
+        }
+        description="Necesitamos permiso de solo lectura para traer el rendimiento de tus anuncios. No publicaremos ni modificaremos campañas."
+      >
         {!configured ? (
           <Banner tone="warn">
-            La app de Meta no está configurada en el servidor todavía
-            (<span className="font-mono">META_APP_ID</span> /{" "}
+            La app de Meta no está configurada en el servidor todavía (
+            <span className="font-mono">META_APP_ID</span> /{" "}
             <span className="font-mono">META_APP_SECRET</span>).
           </Banner>
         ) : (
           <>
-            <Steps
-              items={[
-                <>
-                  Pulsa{" "}
-                  <span className="font-medium">
-                    {meta.connection ? "Reautorizar" : "Conectar"} Meta Ads
-                  </span>{" "}
-                  e inicia sesión en Facebook con un usuario con acceso al
-                  Business Manager.
-                </>,
-                <>
-                  Concede los permisos de lectura de anuncios y vuelves aquí
-                  automáticamente.
-                </>,
-                <>
-                  Abajo elige las cuentas publicitarias a sincronizar y guarda.
-                </>,
-              ]}
-            />
+            <CollapsibleSection title="Ver los pasos de autorización">
+              <Steps
+                items={[
+                  <>
+                    Pulsa{" "}
+                    <span className="font-medium">
+                      {meta.connection ? "Reautorizar" : "Conectar"} Meta Ads
+                    </span>{" "}
+                    e inicia sesión en Facebook con un usuario con acceso al
+                    Business Manager.
+                  </>,
+                  <>
+                    Concede los permisos de lectura de anuncios y vuelves aquí
+                    automáticamente.
+                  </>,
+                  <>
+                    Abajo elige las cuentas publicitarias a sincronizar y
+                    guarda.
+                  </>,
+                ]}
+              />
+            </CollapsibleSection>
             <Button
               className="mt-4"
               type="button"
@@ -246,8 +272,9 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       {meta.connection ? (
         <Card
-          title="Cuentas publicitarias"
-          description="Solo se sincronizan las cuentas marcadas. El identificador externo permite verificar el acceso."
+          className="border-l-4 border-l-channel-meta"
+          title="Elige las cuentas que quieres analizar"
+          description="Solo traeremos datos de las cuentas marcadas. Puedes cambiar esta selección cuando lo necesites."
         >
           {assetsLoading ? (
             <LoadingBlock label="Cargando cuentas publicitarias..." />
@@ -324,7 +351,11 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
               </fieldset>
               {/* Antes era texto suelto: al guardar, con lector de pantalla no
                   se anunciaba nada y el foco seguia en el boton. */}
-              <p role="status" aria-live="polite" className="mt-3 text-xs text-success">
+              <p
+                role="status"
+                aria-live="polite"
+                className="mt-3 text-xs text-success"
+              >
                 {saveMessage}
               </p>
               {saveError ? (
@@ -332,6 +363,11 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   {saveError}
                 </Banner>
               ) : null}
+              <p className="mt-3 text-xs leading-5 text-muted">
+                Al guardar, iniciaremos la sincronización. Los primeros datos
+                pueden tardar unos minutos en aparecer en Meta Ads y en el
+                panel.
+              </p>
               <Button
                 className="mt-3"
                 type="button"
@@ -347,9 +383,11 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
       <LastErrorBanner provider={meta} />
 
-      <Card title="Estado de la conexión">
-        <ConnectionFacts provider={meta} />
-      </Card>
+      <CollapsibleSection title="Detalles técnicos de la conexión">
+        <Card title="Detalles de la conexión">
+          <ConnectionFacts provider={meta} />
+        </Card>
+      </CollapsibleSection>
     </div>
   );
 }

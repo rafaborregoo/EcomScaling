@@ -453,10 +453,7 @@ function clearPortalSession() {
   window.localStorage.removeItem(ACTIVE_CONNECTION_STORAGE_KEY);
 }
 
-function PortalShellContent({
-  title,
-  children,
-}: PortalShellProps) {
+function PortalShellContent({ title, children }: PortalShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -477,7 +474,10 @@ function PortalShellContent({
   const verComoParam = searchParams.get("verComo");
   useEffect(() => {
     if (verComoParam && organizationIdFromUrl) {
-      const next = { organizationId: organizationIdFromUrl, displayName: verComoParam };
+      const next = {
+        organizationId: organizationIdFromUrl,
+        displayName: verComoParam,
+      };
       setViewAs(next);
       setViewAsState(next);
       updateUrlParams({ verComo: undefined });
@@ -720,7 +720,10 @@ function PortalShellContent({
       // `bootstrapCache`, asi que volver a pedirla no cambiaria nada en
       // pantalla y si dispara toda la cascada. Las 401 las sigue cubriendo
       // `apiFetch`, que refresca el token en cualquier otra peticion.
-      if (bootstrapCache && Date.now() - bootstrapCache.at < BOOTSTRAP_FRESH_MS) {
+      if (
+        bootstrapCache &&
+        Date.now() - bootstrapCache.at < BOOTSTRAP_FRESH_MS
+      ) {
         setIsLoading(false);
         return;
       }
@@ -923,12 +926,9 @@ function PortalShellContent({
 
   const navRowClass = (active: boolean) =>
     [
-      "flex items-center px-2 py-1.5 text-[0.8125rem] no-underline transition-colors hover:no-underline active:no-underline",
+      "flex items-center px-2 py-1 text-[0.8125rem] no-underline transition-colors hover:no-underline active:no-underline",
       active ? "font-medium text-accent" : "text-muted hover:text-foreground",
     ].join(" ");
-
-  const navGroupLabelClass =
-    "px-2 text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted";
 
   // Numeritos por ruta del nav ("igual que las notificaciones"). Ampliable a
   // otros módulos.
@@ -962,16 +962,16 @@ function PortalShellContent({
   );
 
   const navigation = (
-    <nav className="grid gap-6" aria-label="Navegacion principal">
+    <nav className="grid gap-1" aria-label="Navegacion principal">
       {/* La clave es el indice y no `group.label`: hay dos grupos sin etiqueta
           (el de entrada y el cajon del final) y con el label como clave React
           los veria como el mismo. */}
       {visibleGroups.map((group, index) => (
-        <div key={index}>
-          {group.label ? (
-            <p className={navGroupLabelClass}>{group.label}</p>
-          ) : null}
-          <div className="mt-1.5 grid gap-px">
+        <div
+          key={index}
+          className={index === 0 ? undefined : "border-t border-separator pt-2"}
+        >
+          <div className="grid gap-px">
             {group.items.map((item) => {
               const badge = navBadges[item.href] ?? 0;
 
@@ -1011,7 +1011,7 @@ function PortalShellContent({
         </div>
       ))}
       {!isPlatformAdmin ? (
-        <div className="border-t border-separator pt-4">
+        <div className="border-t border-separator pt-2">
           <Link
             aria-current={
               pathname === settingsNavItem.href ? "page" : undefined
@@ -1206,336 +1206,338 @@ function PortalShellContent({
           isConsultant,
         }}
       >
-      <main className="min-h-dvh bg-white text-foreground lg:pt-2">
-        <a className="skip-link" href="#portal-content">
-          Saltar al contenido principal
-        </a>
-        {viewAs ? (
-          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-foreground px-4 py-2 text-center text-xs text-white">
-            <span>
-              Viendo como <strong>{viewAs.displayName}</strong> · Solo lectura
-            </span>
-            <button
-              type="button"
-              className="underline underline-offset-2"
-              onClick={exitViewAs}
-            >
-              Salir
-            </button>
-          </div>
-        ) : null}
-        {/* App móvil (estilo Claude): barra superior aireada -- avatar/menú
-          circular a la izquierda, título + eyebrow centrados, notificaciones a
-          la derecha. La navegación vive en la barra inferior fija. */}
-        <div className="sticky top-0 z-30 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
-          <div className="flex items-center gap-2 px-3 py-2.5 text-foreground">
-            <button
-              type="button"
-              aria-label="Menú y cuenta"
-              aria-controls="mobile-nav"
-              aria-expanded={isMobileNavOpen}
-              onClick={() => setIsMobileNavOpen(true)}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface pointer-coarse:size-11"
-            >
-              <Avatar
-                name={
-                  bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"
-                }
-                size="sm"
-              />
-            </button>
-            <div className="min-w-0 flex-1 text-center">
-              <BrandLogo className="mx-auto h-3 w-auto" />
-              <p className="truncate text-[0.95rem] font-semibold leading-tight">
-                {title}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center">
-              <InsightsMenu />
-              <NotificationsBell token={token} />
-            </div>
-          </div>
-          {clientSelectNode || storeSelectNode || ownStoreSelectNode ? (
-            <div className="flex items-center justify-center gap-2 overflow-x-auto px-4 pb-2">
-              {clientSelectNode}
-              {storeSelectNode}
-              {/* En movil no hay barra superior donde separarlo a la derecha,
-                  asi que va al final de la misma fila. */}
-              {ownStoreSelectNode}
+        <main className="min-h-dvh bg-white text-foreground lg:pt-2">
+          <a className="skip-link" href="#portal-content">
+            Saltar al contenido principal
+          </a>
+          {viewAs ? (
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-foreground px-4 py-2 text-center text-xs text-white">
+              <span>
+                Viendo como <strong>{viewAs.displayName}</strong> · Solo lectura
+              </span>
+              <button
+                type="button"
+                className="underline underline-offset-2"
+                onClick={exitViewAs}
+              >
+                Salir
+              </button>
             </div>
           ) : null}
-        </div>
-
-        {/* Hoja inferior "Más": el resto del nav + la cuenta. */}
-        {isMobileNavOpen ? (
-          <div className="fixed inset-0 z-50 lg:hidden">
-            <button
-              type="button"
-              aria-label="Cerrar menú"
-              className="absolute inset-0 bg-black/30"
-              onClick={() => setIsMobileNavOpen(false)}
-            />
-            <div
-              id="mobile-nav"
-              className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5 pointer-coarse:[&_a]:py-3"
-            >
-              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-edge" />
-              {navigation}
-              <div className="mt-6">{accountBlock}</div>
-            </div>
-          </div>
-        ) : null}
-
-        <div
-          className={[
-            "grid min-h-dvh",
-            isCopilotOpen
-              ? "lg:grid-cols-[232px_minmax(0,1fr)_26rem]"
-              : "lg:grid-cols-[232px_minmax(0,1fr)]",
-          ].join(" ")}
-        >
-          <aside className="sticky top-0 hidden h-screen flex-col justify-between border-r border-separator bg-white px-3 py-5 text-foreground lg:flex">
-            <div>
-              <div className="flex h-8 items-center">
-                <BrandLogo className="ml-2 h-5 w-auto" />
+          {/* App móvil (estilo Claude): barra superior aireada -- avatar/menú
+          circular a la izquierda, título + eyebrow centrados, notificaciones a
+          la derecha. La navegación vive en la barra inferior fija. */}
+          <div className="sticky top-0 z-30 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
+            <div className="flex items-center gap-2 px-3 py-2.5 text-foreground">
+              <button
+                type="button"
+                aria-label="Menú y cuenta"
+                aria-controls="mobile-nav"
+                aria-expanded={isMobileNavOpen}
+                onClick={() => setIsMobileNavOpen(true)}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface pointer-coarse:size-11"
+              >
+                <Avatar
+                  name={
+                    bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"
+                  }
+                  size="sm"
+                />
+              </button>
+              <div className="min-w-0 flex-1 text-center">
+                <BrandLogo className="mx-auto h-3 w-auto" />
+                <p className="truncate text-[0.95rem] font-semibold leading-tight">
+                  {title}
+                </p>
               </div>
-              <div className="mt-6">{navigation}</div>
+              <div className="flex shrink-0 items-center">
+                <InsightsMenu />
+                <NotificationsBell token={token} />
+              </div>
             </div>
-            {accountBlock}
-          </aside>
+            {clientSelectNode || storeSelectNode || ownStoreSelectNode ? (
+              <div className="flex items-center justify-center gap-2 overflow-x-auto px-4 pb-2">
+                {clientSelectNode}
+                {storeSelectNode}
+                {/* En movil no hay barra superior donde separarlo a la derecha,
+                  asi que va al final de la misma fila. */}
+                {ownStoreSelectNode}
+              </div>
+            ) : null}
+          </div>
 
-          <section id="portal-content" tabIndex={-1} className="min-w-0">
-            {/* Barra superior fija: una sola fila, estilo Supabase --
+          {/* Hoja inferior "Más": el resto del nav + la cuenta. */}
+          {isMobileNavOpen ? (
+            <div className="fixed inset-0 z-50 lg:hidden">
+              <button
+                type="button"
+                aria-label="Cerrar menú"
+                className="absolute inset-0 bg-black/30"
+                onClick={() => setIsMobileNavOpen(false)}
+              />
+              <div
+                id="mobile-nav"
+                className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5 pointer-coarse:[&_a]:py-3"
+              >
+                <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-edge" />
+                {navigation}
+                <div className="mt-6">{accountBlock}</div>
+              </div>
+            </div>
+          ) : null}
+
+          <div
+            className={[
+              "grid min-h-dvh",
+              isCopilotOpen
+                ? "lg:grid-cols-[232px_minmax(0,1fr)_26rem]"
+                : "lg:grid-cols-[232px_minmax(0,1fr)]",
+            ].join(" ")}
+          >
+            <aside className="sticky top-0 hidden h-dvh flex-col overflow-hidden border-r border-separator bg-white px-3 py-4 text-foreground lg:flex">
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex h-8 items-center">
+                  <BrandLogo className="ml-2 h-5 w-auto" />
+                </div>
+                <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
+                  {navigation}
+                </div>
+              </div>
+              <div className="shrink-0 pt-3">{accountBlock}</div>
+            </aside>
+
+            <section id="portal-content" tabIndex={-1} className="min-w-0">
+              {/* Barra superior fija: una sola fila, estilo Supabase --
               selectores de ambito (cliente/tienda) a la izquierda, seguidos
               del breadcrumb, notificaciones (IA y normales) a la derecha. El
               consultor siempre tiene el selector de cliente, con "Vista
               general" (sin cliente) como estado por defecto. Un cliente
               normal solo lo ve si pertenece a mas de una organizacion. Al
               elegir un cliente/tienda todo se scopea a el. */}
-            <div className="sticky top-0 z-20 hidden h-12 items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10">
-              {clientSelectNode}
-              {/* El selector de tienda solo aporta con >=2 tiendas. Con una
+              <div className="sticky top-0 z-20 hidden h-12 items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10">
+                {clientSelectNode}
+                {/* El selector de tienda solo aporta con >=2 tiendas. Con una
                 sola, "Todas" y esa tienda son lo mismo. */}
-              {storeSelectNode ? (
-                <>
+                {storeSelectNode ? (
+                  <>
+                    <span aria-hidden className="text-line">
+                      /
+                    </span>
+                    {storeSelectNode}
+                  </>
+                ) : null}
+                {clientSelectNode || storeSelectNode ? (
                   <span aria-hidden className="text-line">
                     /
                   </span>
-                  {storeSelectNode}
-                </>
-              ) : null}
-              {clientSelectNode || storeSelectNode ? (
-                <span aria-hidden className="text-line">
-                  /
-                </span>
-              ) : null}
-              <Breadcrumbs items={[{ label: title }]} />
-              <div className="ml-auto flex items-center gap-3">
-                {ownStoreSelectNode}
-                <InsightsMenu />
-                <NotificationsBell token={token} />
+                ) : null}
+                <Breadcrumbs items={[{ label: title }]} />
+                <div className="ml-auto flex items-center gap-3">
+                  {ownStoreSelectNode}
+                  <InsightsMenu />
+                  <NotificationsBell token={token} />
+                </div>
               </div>
-            </div>
 
-            {activeOrganization ? (
-              <AccountStateBanner
-                organizationStatus={activeOrganization.status}
-                subscriptionStatus={activeSubscription?.status ?? null}
-                needsShopifyReauthorization={
-                  shopifyConnections.some((connection) =>
-                    ["reauthorization_required", "needs_reauth"].includes(
-                      connection.status,
-                    ),
-                  ) ||
-                  actions.some(
-                    (action) =>
-                      action.type === "shopify_reauthorization_required",
-                  )
-                }
-                isConsultant={isConsultant}
-              />
-            ) : null}
+              {activeOrganization ? (
+                <AccountStateBanner
+                  organizationStatus={activeOrganization.status}
+                  subscriptionStatus={activeSubscription?.status ?? null}
+                  needsShopifyReauthorization={
+                    shopifyConnections.some((connection) =>
+                      ["reauthorization_required", "needs_reauth"].includes(
+                        connection.status,
+                      ),
+                    ) ||
+                    actions.some(
+                      (action) =>
+                        action.type === "shopify_reauthorization_required",
+                    )
+                  }
+                  isConsultant={isConsultant}
+                />
+              ) : null}
 
-            {visibleActions.map((action) => (
-              <div
-                key={action.id}
-                className="border-b border-separator px-6 py-3 lg:px-10"
-              >
-                <Alert
-                  status={actionSeverityStatus[action.severity]}
-                  className="items-center"
+              {visibleActions.map((action) => (
+                <div
+                  key={action.id}
+                  className="border-b border-separator px-6 py-3 lg:px-10"
                 >
-                  <Alert.Indicator />
-                  <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
-                    <div>
-                      <Alert.Title>{action.title}</Alert.Title>
-                      <Alert.Description>
-                        {action.organization_name
-                          ? `${action.organization_name}: `
-                          : ""}
-                        {action.message}
-                        {action.missing_scopes?.length
-                          ? ` (${action.missing_scopes.length} permisos pendientes)`
-                          : ""}
-                      </Alert.Description>
-                    </div>
-                    <Link
-                      className="inline-flex items-center gap-1 whitespace-nowrap"
-                      href={action.cta_href}
-                    >
-                      {action.cta_label}
-                      <IconChevronRight aria-hidden />
-                    </Link>
-                  </Alert.Content>
-                </Alert>
-              </div>
-            ))}
-            {pageActions.length > visibleActions.length ? (
-              <div className="border-b border-separator px-6 py-2 font-mono text-xs text-muted lg:px-10">
-                {pageActions.length - visibleActions.length} avisos más en
-                Integraciones.
-              </div>
-            ) : null}
-            <div className="px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14">
-              <ActiveOrganizationContext.Provider
-                value={{
-                  // Un consultor puede estar en vista general -> "" real.
-                  // Un cliente normal siempre tiene su organizacion.
-                  organizationId: isConsultant
-                    ? activeOrganizationId
-                    : activeOrganizationId ||
-                      (bootstrap.memberships[0]?.organization_id ?? ""),
-                  setOrganizationId: selectOrganization,
-                }}
-              >
-                <ActiveConnectionContext.Provider
+                  <Alert
+                    status={actionSeverityStatus[action.severity]}
+                    className="items-center"
+                  >
+                    <Alert.Indicator />
+                    <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                      <div>
+                        <Alert.Title>{action.title}</Alert.Title>
+                        <Alert.Description>
+                          {action.organization_name
+                            ? `${action.organization_name}: `
+                            : ""}
+                          {action.message}
+                          {action.missing_scopes?.length
+                            ? ` (${action.missing_scopes.length} permisos pendientes)`
+                            : ""}
+                        </Alert.Description>
+                      </div>
+                      <Link
+                        className="inline-flex items-center gap-1 whitespace-nowrap"
+                        href={action.cta_href}
+                      >
+                        {action.cta_label}
+                        <IconChevronRight aria-hidden />
+                      </Link>
+                    </Alert.Content>
+                  </Alert>
+                </div>
+              ))}
+              {pageActions.length > visibleActions.length ? (
+                <div className="border-b border-separator px-6 py-2 font-mono text-xs text-muted lg:px-10">
+                  {pageActions.length - visibleActions.length} avisos más en
+                  Integraciones.
+                </div>
+              ) : null}
+              <div className="px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14">
+                <ActiveOrganizationContext.Provider
                   value={{
-                    connectionId: activeConnectionId,
-                    setConnectionId: selectConnection,
+                    // Un consultor puede estar en vista general -> "" real.
+                    // Un cliente normal siempre tiene su organizacion.
+                    organizationId: isConsultant
+                      ? activeOrganizationId
+                      : activeOrganizationId ||
+                        (bootstrap.memberships[0]?.organization_id ?? ""),
+                    setOrganizationId: selectOrganization,
                   }}
                 >
-                  {needsClientForRoute ? (
-                    <EmptyState
-                      title="Estás en vista general"
-                      hint="Esta sección opera sobre un cliente concreto. Elige uno en el selector «Cliente activo» de arriba, o abre tu cartera en Clientes."
-                      action={<Link href="/consultor">Ir a Clientes</Link>}
-                    />
-                  ) : (
-                    <ModuleSummaryProvider publish={setModuleSummary}>
-                      <CopilotAskProvider
-                        ask={(next) => {
-                          setCopilotAsk({ ...next, key: Date.now() });
-                          setIsCopilotOpen(true);
-                        }}
-                      >
-                        {children(bootstrap, token)}
-                      </CopilotAskProvider>
-                    </ModuleSummaryProvider>
-                  )}
-                </ActiveConnectionContext.Provider>
-              </ActiveOrganizationContext.Provider>
-            </div>
-          </section>
-          {/* En escritorio CopilotPanel se convierte en un rail del grid: el
+                  <ActiveConnectionContext.Provider
+                    value={{
+                      connectionId: activeConnectionId,
+                      setConnectionId: selectConnection,
+                    }}
+                  >
+                    {needsClientForRoute ? (
+                      <EmptyState
+                        title="Estás en vista general"
+                        hint="Esta sección opera sobre un cliente concreto. Elige uno en el selector «Cliente activo» de arriba, o abre tu cartera en Clientes."
+                        action={<Link href="/consultor">Ir a Clientes</Link>}
+                      />
+                    ) : (
+                      <ModuleSummaryProvider publish={setModuleSummary}>
+                        <CopilotAskProvider
+                          ask={(next) => {
+                            setCopilotAsk({ ...next, key: Date.now() });
+                            setIsCopilotOpen(true);
+                          }}
+                        >
+                          {children(bootstrap, token)}
+                        </CopilotAskProvider>
+                      </ModuleSummaryProvider>
+                    )}
+                  </ActiveConnectionContext.Provider>
+                </ActiveOrganizationContext.Provider>
+              </div>
+            </section>
+            {/* En escritorio CopilotPanel se convierte en un rail del grid: el
               contenido conserva su columna y no queda detrás de un backdrop.
               En móvil el propio componente elige el drawer accesible. */}
-          {isCopilotOpen ? (
-            <CopilotPanel
-              organizationId={activeOrganizationId}
-              organizations={bootstrap.memberships.map((membership) => ({
-                id: membership.organization_id,
-                name:
-                  membership.organization?.display_name ??
-                  membership.organization_id,
-              }))}
-              view={{
-                route: pathname,
-                title,
-                storeId: activeConnectionId || undefined,
-                storeLabel:
-                  shopifyConnections.find(
-                    (connection) => connection.id === activeConnectionId,
-                  )?.provider_account_id ?? undefined,
-                summary: moduleSummary,
-              }}
-              ask={copilotAsk}
-              onClose={() => {
-                setIsCopilotOpen(false);
-                setCopilotAsk(null);
-              }}
-            />
-          ) : null}
-        </div>
+            {isCopilotOpen ? (
+              <CopilotPanel
+                organizationId={activeOrganizationId}
+                organizations={bootstrap.memberships.map((membership) => ({
+                  id: membership.organization_id,
+                  name:
+                    membership.organization?.display_name ??
+                    membership.organization_id,
+                }))}
+                view={{
+                  route: pathname,
+                  title,
+                  storeId: activeConnectionId || undefined,
+                  storeLabel:
+                    shopifyConnections.find(
+                      (connection) => connection.id === activeConnectionId,
+                    )?.provider_account_id ?? undefined,
+                  summary: moduleSummary,
+                }}
+                ask={copilotAsk}
+                onClose={() => {
+                  setIsCopilotOpen(false);
+                  setCopilotAsk(null);
+                }}
+              />
+            ) : null}
+          </div>
 
-        {/* Barra de navegación inferior (solo móvil): app nativa en web. */}
-        <nav
-          aria-label="Navegación principal"
-          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
-        >
-          {bottomNavItems.map((item) => {
-            const Icon = NAV_ICONS[item.href] ?? DotGridIcon;
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={[
-                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[0.65rem] no-underline transition-colors hover:no-underline",
-                  active ? "text-accent" : "text-muted",
-                ].join(" ")}
-              >
-                <Icon className="size-5 shrink-0" aria-hidden />
-                <span className="max-w-full truncate">{item.label}</span>
-              </Link>
-            );
-          })}
-          <button
-            type="button"
-            aria-expanded={isMobileNavOpen}
-            aria-controls="mobile-nav"
-            onClick={() => setIsMobileNavOpen((open) => !open)}
-            className={[
-              "flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[0.65rem] transition-colors",
-              isMobileNavOpen ? "text-accent" : "text-muted",
-            ].join(" ")}
+          {/* Barra de navegación inferior (solo móvil): app nativa en web. */}
+          <nav
+            aria-label="Navegación principal"
+            className="fixed inset-x-0 bottom-0 z-40 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
           >
-            {isMobileNavOpen ? (
-              <CloseIcon aria-hidden className="text-[1.15rem]" />
-            ) : (
-              <MenuIcon aria-hidden className="text-[1.15rem]" />
-            )}
-            Más
-          </button>
-        </nav>
+            {bottomNavItems.map((item) => {
+              const Icon = NAV_ICONS[item.href] ?? DotGridIcon;
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={[
+                    "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[0.65rem] no-underline transition-colors hover:no-underline",
+                    active ? "text-accent" : "text-muted",
+                  ].join(" ")}
+                >
+                  <Icon className="size-5 shrink-0" aria-hidden />
+                  <span className="max-w-full truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+            <button
+              type="button"
+              aria-expanded={isMobileNavOpen}
+              aria-controls="mobile-nav"
+              onClick={() => setIsMobileNavOpen((open) => !open)}
+              className={[
+                "flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[0.65rem] transition-colors",
+                isMobileNavOpen ? "text-accent" : "text-muted",
+              ].join(" ")}
+            >
+              {isMobileNavOpen ? (
+                <CloseIcon aria-hidden className="text-[1.15rem]" />
+              ) : (
+                <MenuIcon aria-hidden className="text-[1.15rem]" />
+              )}
+              Más
+            </button>
+          </nav>
 
-        {/* El Consultor IA existe en cualquier pantalla, tambien en vista
+          {/* El Consultor IA existe en cualquier pantalla, tambien en vista
           general: A09 es mono-tenant (el gateway SQL fija la organizacion por
           transaccion y toda la aislacion cuelga de ahi), asi que en vista
           general no se consulta "la cartera" -- el panel pide el cliente
           sobre el que preguntar. Antes el boton simplemente no existia y el
           consultor tenia que salir a elegir cliente para poder preguntar. */}
-        {bootstrap.memberships.length > 0 ? (
-          <>
-            <Button
-              className={[
-                "fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 sm:right-6 lg:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]",
-                isCopilotOpen ? "lg:hidden" : "",
-              ].join(" ")}
-              aria-expanded={isCopilotOpen}
-              aria-controls="copilot-panel"
-              onClick={() => {
-                // Abrir el panel a mano lo devuelve a chat libre: si quedara la
-                // pregunta anterior colgada, se relanzaría al reabrirlo.
-                setCopilotAsk(null);
-                setIsCopilotOpen((open) => !open);
-              }}
-            >
-              {isCopilotOpen ? "Cerrar Consultor IA" : "Consultor IA"}
-            </Button>
-          </>
-        ) : null}
-      </main>
+          {bootstrap.memberships.length > 0 ? (
+            <>
+              <Button
+                className={[
+                  "fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 sm:right-6 lg:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]",
+                  isCopilotOpen ? "lg:hidden" : "",
+                ].join(" ")}
+                aria-expanded={isCopilotOpen}
+                aria-controls="copilot-panel"
+                onClick={() => {
+                  // Abrir el panel a mano lo devuelve a chat libre: si quedara la
+                  // pregunta anterior colgada, se relanzaría al reabrirlo.
+                  setCopilotAsk(null);
+                  setIsCopilotOpen((open) => !open);
+                }}
+              >
+                {isCopilotOpen ? "Cerrar Consultor IA" : "Consultor IA"}
+              </Button>
+            </>
+          ) : null}
+        </main>
       </InsightsProvider>
     </>
   );

@@ -11,6 +11,7 @@ import {
   Banner,
   Button,
   Card,
+  CollapsibleSection,
   ErrorBlock,
   Input,
   Label,
@@ -28,7 +29,11 @@ import {
   useIntegrations,
 } from "../shared";
 
-function ShopifyIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
+function ShopifyIntegrationPage({
+  bootstrap,
+}: {
+  bootstrap: BootstrapResponse;
+}) {
   const { payload, provider, isLoading, error, actions, pending, actionError } =
     useIntegrations(bootstrap);
   // En Shopify una conexion ES una tienda, asi que la tienda del selector del
@@ -97,58 +102,75 @@ function ShopifyIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse })
             !connection.scopes.includes(item.scope),
         );
         if (faltan.length === 0) return null;
-        const tienda = connection.provider_account_name ?? connection.provider_account_id ?? "esta tienda";
+        const tienda =
+          connection.provider_account_name ??
+          connection.provider_account_id ??
+          "esta tienda";
         return (
-          <Banner key={connection.id} tone="warn">
-            <span className="font-medium">{tienda}</span> funciona, pero se
-            instaló sin estos permisos opcionales:
-            <ul className="mt-1 list-disc pl-5">
-              {faltan.map((item) => (
-                <li key={item.scope}>
-                  <span className="font-medium">{item.label}</span>
-                  {item.note ? ` — ${item.note}` : null}
-                </li>
-              ))}
-            </ul>
-            <span className="mt-1 block">
-              Para recuperarlos, vuelve a instalar la app en esa tienda
-              aceptando todos los permisos.
-            </span>
-          </Banner>
+          <CollapsibleSection
+            key={connection.id}
+            className="border-l-4 border-l-warn"
+            title={`Permisos opcionales pendientes en ${tienda}`}
+          >
+            <Banner tone="warn">
+              <span className="font-medium">{tienda}</span> funciona, pero se
+              instaló sin estos permisos opcionales:
+              <ul className="mt-1 list-disc pl-5">
+                {faltan.map((item) => (
+                  <li key={item.scope}>
+                    <span className="font-medium">{item.label}</span>
+                    {item.note ? ` — ${item.note}` : null}
+                  </li>
+                ))}
+              </ul>
+              <span className="mt-1 block">
+                Para recuperarlos, vuelve a instalar la app en esa tienda
+                aceptando todos los permisos.
+              </span>
+            </Banner>
+          </CollapsibleSection>
         );
       })}
 
-      <Card
-        title="Encontrar tu dominio .myshopify.com"
-        description="No es el dominio público de tu web, sino el interno que Shopify asignó al crear la tienda y que nunca cambia."
-      >
-        <Steps
-          items={[
-            <>
-              Abre el admin de tu tienda. En la URL verás{" "}
-              <span className="font-mono">admin.shopify.com/store/TU-HANDLE</span>
-              : tu dominio es{" "}
-              <span className="font-mono">TU-HANDLE.myshopify.com</span>.
-            </>,
-            <>
-              O entra en{" "}
-              <span className="font-medium">Configuración → Dominios</span>: ahí
-              aparece el dominio <span className="font-mono">
-                xxxx.myshopify.com
-              </span>{" "}
-              exacto.
-            </>,
-            <>
-              Si al conectar ves una página de Shopify tipo{" "}
-              <span className="italic">&laquo;This store will be right
-              back&raquo;</span>
-              , el dominio no corresponde a tu tienda activa: revisa el handle.
-            </>,
-          ]}
-        />
-      </Card>
+      <CollapsibleSection title="¿No recuerdas tu dominio .myshopify.com?">
+        <Card
+          title="¿No recuerdas tu dominio .myshopify.com?"
+          description="No es el dominio público de tu web. Es el identificador interno que Shopify asignó a la tienda y no cambia."
+        >
+          <Steps
+            items={[
+              <>
+                Abre el admin de tu tienda. En la URL verás{" "}
+                <span className="font-mono">
+                  admin.shopify.com/store/TU-HANDLE
+                </span>
+                : tu dominio es{" "}
+                <span className="font-mono">TU-HANDLE.myshopify.com</span>.
+              </>,
+              <>
+                O entra en{" "}
+                <span className="font-medium">Configuración → Dominios</span>:
+                ahí aparece el dominio{" "}
+                <span className="font-mono">xxxx.myshopify.com</span> exacto.
+              </>,
+              <>
+                Si al conectar ves una página de Shopify tipo{" "}
+                <span className="italic">
+                  &laquo;This store will be right back&raquo;
+                </span>
+                , el dominio no corresponde a tu tienda activa: revisa el
+                handle.
+              </>,
+            ]}
+          />
+        </Card>
+      </CollapsibleSection>
 
-      <Card title="Conectar la tienda">
+      <Card
+        className="border-l-4 border-l-[#168446]"
+        title={shopify.connection ? "Reconecta tu tienda" : "Conecta tu tienda"}
+        description="Traeremos catálogo, inventario, pedidos y clientes para que los diagnósticos trabajen con datos reales."
+      >
         {!shopify.available ? (
           <Banner tone="warn">
             Shopify está desactivado por configuración. El administrador puede
@@ -163,26 +185,29 @@ function ShopifyIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse })
           </Banner>
         ) : null}
 
-        <Steps
-          items={[
-            <>
-              Escribe el dominio{" "}
-              <span className="font-mono">TU-HANDLE.myshopify.com</span> abajo y
-              pulsa <span className="font-medium">Conectar Shopify</span>.
-            </>,
-            <>
-              En la pantalla de Shopify revisa los permisos y pulsa{" "}
-              <span className="font-medium">Instalar</span> (necesitas ser owner
-              o staff con permiso de apps, con la sesión de Shopify iniciada).
-              Hay que aceptarlos todos: cada uno alimenta una parte del panel
-              {" "}({SHOPIFY_SCOPES_USED.map((item) => item.label).join(", ")}).
-            </>,
-            <>
-              Vuelves aquí solo y la sincronización inicial arranca sola. Los
-              datos aparecen en la sección Shopify en unos minutos.
-            </>,
-          ]}
-        />
+        <CollapsibleSection title="Ver qué ocurrirá al reconectar">
+          <Steps
+            items={[
+              <>
+                Escribe el dominio{" "}
+                <span className="font-mono">TU-HANDLE.myshopify.com</span> abajo
+                y pulsa <span className="font-medium">Conectar Shopify</span>.
+              </>,
+              <>
+                En la pantalla de Shopify revisa los permisos y pulsa{" "}
+                <span className="font-medium">Instalar</span> (necesitas ser
+                owner o staff con permiso de apps, con la sesión de Shopify
+                iniciada). Hay que aceptarlos todos: cada uno alimenta una parte
+                del panel (
+                {SHOPIFY_SCOPES_USED.map((item) => item.label).join(", ")}).
+              </>,
+              <>
+                Vuelves aquí solo y la sincronización inicial arranca sola. Los
+                datos aparecen en la sección Shopify en unos minutos.
+              </>,
+            ]}
+          />
+        </CollapsibleSection>
 
         {payload?.shopify_custom_app_available ? (
           <div className="mt-4">
@@ -190,7 +215,9 @@ function ShopifyIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse })
               value={appMode}
               onChange={(value) => setAppMode(value as "custom" | "public")}
             >
-              <Label className="text-sm font-medium">App de Shopify a usar</Label>
+              <Label className="text-sm font-medium">
+                App de Shopify a usar
+              </Label>
               <div className="mt-1 flex flex-wrap gap-2">
                 <Radio value="custom">
                   <Radio.Content>
@@ -217,7 +244,17 @@ function ShopifyIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse })
           </div>
         ) : null}
 
-        <form className="mt-4 flex flex-col gap-3 md:flex-row" onSubmit={submit}>
+        <p className="mt-5 text-sm font-medium text-foreground">
+          Dominio interno de Shopify
+        </p>
+        <p className="mt-1 text-xs text-muted">
+          Usa el dominio terminado en{" "}
+          <span className="font-mono">.myshopify.com</span>.
+        </p>
+        <form
+          className="mt-3 flex flex-col gap-3 md:flex-row"
+          onSubmit={submit}
+        >
           <Input
             className="min-w-0 flex-1"
             aria-label="Dominio .myshopify.com de la tienda"
@@ -227,10 +264,7 @@ function ShopifyIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse })
             autoComplete="off"
             required
           />
-          <Button
-            type="submit"
-            disabled={pending === "shopify" || !canConnect}
-          >
+          <Button type="submit" disabled={pending === "shopify" || !canConnect}>
             {pending === "shopify"
               ? "Conectando..."
               : shopify.connection
@@ -256,49 +290,58 @@ function ShopifyIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse })
       />
 
       {shopifyConnections.length > 0 ? (
-        <Card
-          title={`Tiendas vinculadas (${shopifyConnections.length})`}
-          description="Esta lista identifica exactamente qué dominio corresponde a cada estado y error."
+        <CollapsibleSection
+          title={`Tiendas conectadas (${shopifyConnections.length})`}
         >
-          <div className="space-y-3">
-            {shopifyConnections.map((connection) => (
-              <div
-                key={connection.id}
-                className="rounded-lg border border-separator p-3"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-sm">
-                    {connection.provider_account_id ?? "Dominio pendiente"}
-                  </span>
-                  {/* Salud, no el estado crudo: una tienda 'connected' que
+          <Card
+            title={`Tiendas conectadas (${shopifyConnections.length})`}
+            description="Comprueba aquí qué dominio corresponde a cada conexión y si alguna necesita atención."
+          >
+            <div className="space-y-3">
+              {shopifyConnections.map((connection) => (
+                <div
+                  key={connection.id}
+                  className="rounded-lg border border-separator p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-sm">
+                      {connection.provider_account_id ?? "Dominio pendiente"}
+                    </span>
+                    {/* Salud, no el estado crudo: una tienda 'connected' que
                       lleva dos semanas sin sincronizar no esta bien, y aqui
                       salia en verde. */}
-                  <Badge tone={healthTone(connection.health.status)}>
-                    {healthLabel(connection.health.status)}
-                  </Badge>
-                  {connection.id === activeConnectionId ? (
-                    <Badge tone="brand">Tienda activa</Badge>
-                  ) : null}
-                  {connection.app_mode ? (
-                    <span className="text-xs text-muted">
-                      App {connection.app_mode === "custom" ? "personalizada" : "pública"}
-                    </span>
+                    <Badge tone={healthTone(connection.health.status)}>
+                      {healthLabel(connection.health.status)}
+                    </Badge>
+                    {connection.id === activeConnectionId ? (
+                      <Badge tone="brand">Tienda activa</Badge>
+                    ) : null}
+                    {connection.app_mode ? (
+                      <span className="text-xs text-muted">
+                        App{" "}
+                        {connection.app_mode === "custom"
+                          ? "personalizada"
+                          : "pública"}
+                      </span>
+                    ) : null}
+                  </div>
+                  {connection.last_error_message ? (
+                    <p className="mt-2 break-words text-xs text-danger">
+                      {connection.last_error_message}
+                    </p>
                   ) : null}
                 </div>
-                {connection.last_error_message ? (
-                  <p className="mt-2 break-words text-xs text-danger">
-                    {connection.last_error_message}
-                  </p>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </Card>
+              ))}
+            </div>
+          </Card>
+        </CollapsibleSection>
       ) : null}
 
-      <Card title="Estado de la conexión">
-        <ConnectionFacts provider={shopify} />
-      </Card>
+      <CollapsibleSection title="Detalles técnicos de la conexión">
+        <Card title="Detalles de la conexión">
+          <ConnectionFacts provider={shopify} />
+        </Card>
+      </CollapsibleSection>
     </div>
   );
 }
