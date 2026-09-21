@@ -233,6 +233,22 @@ el estado vigente de esta bitácora es: `7.09`, `7.10`, `7.11` y `7.12` **hechos
 verificación con `.env.local` y cleanup está en los addenda F7/P09–P11 al final
 de este fichero y en `conocimiento/fase-07/IMPLEMENTACION.md`.
 
+### Correccion canonica de F9 - 2026-09-21
+
+La exportacion historica de la tabla F9 anterior conserva estados `pendiente`,
+pero queda supersedida por este estado canonico: estan **hechos** los 40
+bloques reales `9.00`, `9.01`, `9.03–9.20` y `9.22–9.41`, con contrato,
+motor runtime, persistencia, worker, workflow, API, Copiloto y pixel. `9.21`
+queda fuera del conteo porque la normativa canonica lo declara inexistente.
+
+| Bloques F9 canonicos | Estado |
+| --- | --- |
+| `9.00`, `9.01`, `9.03–9.20`, `9.22–9.41` | **hecho** |
+| `9.21` | fuera del indice canonico |
+
+La bitacora completa esta en
+[`fase-09/IMPLEMENTACION.md`](fase-09/IMPLEMENTACION.md).
+
 ## Bloqueos de contenido
 
 5 bloques tienen corpus maestro pero ninguna capa de
