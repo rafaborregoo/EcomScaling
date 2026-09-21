@@ -63,6 +63,13 @@ promociona conocimiento automáticamente y no reescribe cierres históricos.
   y la web resuelve la ruta real desde `InsightsMenu`. Las acciones se guardan
   en `ai_messages.metadata`, por lo que sobreviven al recargar la conversaciÃ³n.
 
+La orquestación visual también queda unificada: `InsightsProvider` carga una sola
+vez los assessments reales para la sesión y alimenta `InsightsMenu`, las cards
+con `id="insight-*"` y el Copiloto. `Card` muestra el icono de IA únicamente
+cuando existe evidencia para ese ancla; `MetricInsights` ofrece el enlace
+"Ver evidencia" al mismo destino. Si no hay assessment, no se inventa una
+alerta ni una recomendación visual.
+
 ## Bloques reales
 
 | Bloque | Estado | Perfil runtime |

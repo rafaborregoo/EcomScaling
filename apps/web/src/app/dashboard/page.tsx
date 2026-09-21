@@ -3030,6 +3030,17 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         "roas",
                       )?.insights ?? []
                     }
+                    href={
+                      insightSpotFor(
+                        {
+                          organizationId: organization.id,
+                          connectionId: activeConnectionId,
+                          isConsultant,
+                        },
+                        "roas",
+                      )?.href
+                    }
+                    targetLabel="ROAS"
                     onCreateTask={() => {}}
                   />
                 }

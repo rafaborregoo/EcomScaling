@@ -202,6 +202,28 @@ export function insightSpotsFromPlaybookAssessments(
   return insightSpotsFromAiAssessments(scope, assessments);
 }
 
+/**
+ * Une los hallazgos estaticos y los assessments reales en un unico feed. El
+ * menu global, las cards y el Copiloto deben consumir esta misma proyeccion.
+ */
+export function mergeInsightSpots(
+  scope: InsightScope,
+  assessments: PlaybookInsightAssessment[],
+): InsightSpot[] {
+  const staticSpots = insightSpotsFor(scope);
+  const liveSpots = insightSpotsFromAiAssessments(scope, assessments);
+  return [
+    ...staticSpots,
+    ...liveSpots.filter((spot) => !staticSpots.some((item) => item.id === spot.id)),
+  ];
+}
+
+/** Resuelve el ancla visible de una card, nunca un identificador inventado. */
+export function insightSpotForAnchor(spots: InsightSpot[], anchorId: string) {
+  const normalized = anchorId.startsWith("#") ? anchorId.slice(1) : anchorId;
+  return spots.find((spot) => spot.href.split("#")[1] === normalized);
+}
+
 export function insightAnchorId(spotId: string) {
   return `insight-${spotId}`;
 }

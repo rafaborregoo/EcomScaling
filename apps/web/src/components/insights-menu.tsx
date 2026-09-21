@@ -1,16 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
-import { apiFetch } from "@/lib/bootstrap";
 import {
-  insightSpotsFromAiAssessments,
-  insightSpotsFor,
   totalInsightCount,
-  type InsightScope,
-  type PlaybookInsightAssessment,
   type InsightSpot,
 } from "@/lib/insights-registry";
+import { useInsights } from "@/components/insights-context";
 import {
   cn,
   insightBadgeCount,
@@ -34,41 +30,10 @@ import {
  * El ambito llega por props y no por `useActiveConnection`: este menu vive en
  * el header del shell, por ENCIMA de los proveedores de organizacion/tienda.
  */
-export function InsightsMenu({ scope }: { scope: InsightScope }) {
+export function InsightsMenu() {
   const isDesktop = useIsDesktop();
   const [isOpen, setIsOpen] = useState(false);
-  const [playbookSpots, setPlaybookSpots] = useState<InsightSpot[]>([]);
-
-  useEffect(() => {
-    if (!scope.isConsultant || !scope.organizationId) {
-      setPlaybookSpots([]);
-      return;
-    }
-
-    let cancelled = false;
-    const organizationId = encodeURIComponent(scope.organizationId);
-    apiFetch(`/v1/consultant/ai-playbook-insights?organizationId=${organizationId}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error("No se pudieron cargar los insights de IA.");
-        return response.json() as Promise<{ assessments: PlaybookInsightAssessment[] }>;
-      })
-      .then((payload) => {
-        if (!cancelled) setPlaybookSpots(insightSpotsFromAiAssessments(scope, payload.assessments));
-      })
-      .catch(() => {
-        if (!cancelled) setPlaybookSpots([]);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [scope.isConsultant, scope.organizationId, scope.connectionId]);
-
-  const staticSpots = insightSpotsFor(scope);
-  const spots = [
-    ...staticSpots,
-    ...playbookSpots.filter((spot) => !staticSpots.some((item) => item.id === spot.id)),
-  ];
+  const { spots } = useInsights();
   if (spots.length === 0) return null;
   const count = totalInsightCount(spots);
 

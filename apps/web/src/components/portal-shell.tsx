@@ -52,6 +52,7 @@ import {
 } from "@/components/module-summary";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { InsightsMenu } from "@/components/insights-menu";
+import { InsightsProvider } from "@/components/insights-context";
 
 type PortalShellProps = {
   title: string;
@@ -1198,6 +1199,13 @@ function PortalShellContent({
       {/* dvh, no vh: en Safari movil 100vh incluye la barra de URL, asi que
           la pagina siempre quedaba un poco scrolleable aunque no hubiera
           contenido de sobra. */}
+      <InsightsProvider
+        scope={{
+          organizationId: activeOrganizationId,
+          connectionId: activeConnectionId,
+          isConsultant,
+        }}
+      >
       <main className="min-h-dvh bg-white text-foreground lg:pt-2">
         <a className="skip-link" href="#portal-content">
           Saltar al contenido principal
@@ -1243,13 +1251,7 @@ function PortalShellContent({
               </p>
             </div>
             <div className="flex shrink-0 items-center">
-              <InsightsMenu
-                scope={{
-                  organizationId: activeOrganizationId,
-                  connectionId: activeConnectionId,
-                  isConsultant,
-                }}
-              />
+              <InsightsMenu />
               <NotificationsBell token={token} />
             </div>
           </div>
@@ -1330,13 +1332,7 @@ function PortalShellContent({
               <Breadcrumbs items={[{ label: title }]} />
               <div className="ml-auto flex items-center gap-3">
                 {ownStoreSelectNode}
-                <InsightsMenu
-                  scope={{
-                    organizationId: activeOrganizationId,
-                    connectionId: activeConnectionId,
-                    isConsultant,
-                  }}
-                />
+                <InsightsMenu />
                 <NotificationsBell token={token} />
               </div>
             </div>
@@ -1540,6 +1536,7 @@ function PortalShellContent({
           </>
         ) : null}
       </main>
+      </InsightsProvider>
     </>
   );
 }

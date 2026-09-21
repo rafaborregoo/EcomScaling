@@ -253,6 +253,9 @@ La salida A09 tambien puede devolver acciones de navegacion `open_insight`:
 el modelo propone solo un slug semantico, el backend descarta destinos que no
 existan y `InsightsMenu`/el registro web resuelven el anchor exacto. No son
 tools ni permisos de escritura; solo guian al consultor hasta la evidencia.
+La misma proyeccion alimenta los iconos de IA de las cards: `InsightsProvider`
+carga los assessments una vez, y cualquier `Card` con ancla `insight-*` muestra
+el detalle y el enlace al destino solo cuando existe evidencia real.
 
 ## Bloqueos de contenido
 

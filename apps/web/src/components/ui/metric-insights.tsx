@@ -5,9 +5,10 @@ import { Popover } from "@heroui/react";
 import { Badge, type Tone } from "./badge";
 import { Button } from "./button";
 import { Checkbox } from "./checkbox";
-import { SparklesIcon } from "./icons";
+import { IconChevronRight, SparklesIcon } from "./icons";
 import { EYEBROW } from "./typography";
 import { cn } from "./cn";
+import { Link } from "./link";
 import {
   composeTask,
   insightBadgeCount,
@@ -48,11 +49,16 @@ export function MetricInsights({
   metricLabel,
   insights,
   onCreateTask,
+  href,
+  targetLabel,
 }: {
   metricLabel: string;
   insights: MetricInsight[];
   /** Sin esto el panel es solo de lectura y no dibuja el boton. */
   onCreateTask?: (task: { title: string; description: string }) => void;
+  /** Destino semantico de la card, validado por el registro de insights. */
+  href?: string;
+  targetLabel?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(() =>
     insights.filter((insight) => insight.needsTask).map((insight) => insight.id),
@@ -100,6 +106,16 @@ export function MetricInsights({
           className="max-h-[26rem] overflow-y-auto p-4"
         >
           <p className={EYEBROW}>{metricLabel} · lo que ve la IA</p>
+
+          {href ? (
+            <Link
+              href={href}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent no-underline hover:underline"
+            >
+              Ver evidencia en {targetLabel ?? metricLabel}
+              <IconChevronRight aria-hidden className="size-3" />
+            </Link>
+          ) : null}
 
           {preview ? (
             // Vista previa de la tarea, no la tarea creada: hasta que esto se

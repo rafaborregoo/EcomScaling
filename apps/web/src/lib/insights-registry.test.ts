@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  insightSpotForAnchor,
   insightSpotsFromAiAssessments,
   insightSpotsFromPlaybookAssessments,
 } from "./insights-registry";
@@ -40,6 +41,17 @@ test("el feed F3 enlaza D12, D13 y D14 con sus cards exactas", () => {
     "/shopify/diagnostico#insight-d14-output",
   ]);
   assert.equal(spots[0]?.insights[0]?.severity, "high");
+});
+
+test("el mismo destino semantico sirve para el menu y para el icono de la card", () => {
+  const spots = insightSpotsFromAiAssessments(
+    { organizationId: "org-1", connectionId: "store-1", isConsultant: true },
+    [{ domain: "F3_D12_ADVERSARIAL", disposition: "REASSESS_DIAGNOSIS", store_id: "store-1" }],
+  );
+
+  const spot = insightSpotForAnchor(spots, "insight-d12-adversarial");
+  assert.equal(spot?.href, "/shopify/diagnostico#insight-d12-adversarial");
+  assert.equal(spot?.insights[0]?.title, "Confusores: REASSESS_DIAGNOSIS");
 });
 
 test("el feed F3 no mezcla una revisión de otra tienda", () => {
