@@ -65,6 +65,12 @@ import { ExpectedOutcomePanel } from "./expected-outcome";
 import { RecommendationConfidencePanel } from "./recommendation-confidence";
 import { RecommendationCommunicationPanel } from "./recommendation-communication";
 import { HitlApprovalPanel } from "./hitl-approval";
+import { ClosureHandoffPanel } from "./closure-handoff";
+import { ExecutionPlanPanel } from "./execution-plan";
+import { ReadinessPanel } from "./readiness";
+import { ActionEnvelopePanel } from "./action-envelope";
+import { ExecutionSupervisionPanel } from "./execution-supervision";
+import { ContinuousLearningPanel } from "./continuous-learning";
 import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
 import { SeverityPanel } from "./severity-panel";
@@ -616,6 +622,12 @@ function ShopifyDiagnosticoView({
       <RecommendationConfidencePanel organizationId={selectedOrganizationId} />
       <RecommendationCommunicationPanel organizationId={selectedOrganizationId} />
       <HitlApprovalPanel organizationId={selectedOrganizationId} />
+      <ClosureHandoffPanel organizationId={selectedOrganizationId} />
+      <ExecutionPlanPanel organizationId={selectedOrganizationId} />
+      <ReadinessPanel organizationId={selectedOrganizationId} />
+      <ActionEnvelopePanel organizationId={selectedOrganizationId} />
+      <ExecutionSupervisionPanel organizationId={selectedOrganizationId} />
+      <ContinuousLearningPanel organizationId={selectedOrganizationId} />
           <PrioritizationPanel />
           {overview.connection?.last_error_message ? (
             <Banner tone="danger">

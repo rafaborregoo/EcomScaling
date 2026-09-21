@@ -1,0 +1,2 @@
+import { test } from "node:test"; import assert from "node:assert/strict"; import { executionSupervisionViewModel } from "./execution-supervision-view-model";
+test("agrupa cada etapa de supervisión", () => { const model = executionSupervisionViewModel([{ stage: "CAPABILITIES", decision: "BLOCKED", blockers: ["permission"] }, { stage: "VERIFICATION", decision: "WAITING" }]); assert.equal(model.CAPABILITIES?.decision, "BLOCKED"); assert.equal(model.VERIFICATION?.decision, "WAITING"); });

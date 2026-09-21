@@ -827,3 +827,84 @@ F7/P17 queda hecho. F7.18 es el siguiente bloque abierto; F7 permanece abierta h
 - [x] ~~Aplicar migración.~~ Desarrollo y producción tienen aplicada `20261031160000_f7_p18_recommendation_communication.sql`; ambos dry-runs quedan sin pendientes.
 
 F7/P18 queda hecho. F7 queda cerrada completa; F8 puede abrirse cuando corresponda.
+
+
+### Cierre F8/P02 — 2026-09-20
+
+- [x] Contrato HITL con autonomía graduada, niveles de aprobación, gate, granularidad, autoridad, frescura, revocación, escalado y separación approval/execution.
+- [x] Motor puro con tests, runtime desde `agent_outputs`/`agent_approvals`, persistencia idempotente, RLS, worker, workflow y API.
+- [x] Card de diagnóstico, ancla `#insight-hitl-approval`, `InsightsMenu` y contexto Copiloto-first.
+- [x] Smoke real con `.env.local`, aprobación pendiente y aprobada, ejecución bloqueada, `execution_authorized=false` y cleanup a cero. Migración aplicada en desarrollo y producción; dry-runs sin pendientes.
+
+F8/P02 queda hecho. F8/P16 es el siguiente bloque de la ola 1.
+
+
+### Cierre F8/P16 — 2026-09-20
+
+- [x] Contrato y motor TDD para completion/closure, closure gate, estado final, outcome operacional, calidad, madurez, residual risk, handoff y learning package.
+- [x] Runtime tenant-bound desde `agent_outputs` y tareas materializadas, persistencia idempotente en `execution_closure_runs`, RLS, worker, API y lectura Copiloto-first.
+- [x] Card `#insight-closure-handoff`, feed de `InsightsMenu` y navegación exacta desde el diagnóstico.
+- [x] Smoke real con `.env.local`: cierre bloqueado con acción activa, cierre `CLOSED/SUCCESS` tras completar la tarea, cleanup a cero. Migración aplicada en desarrollo y producción; dry-runs sin pendientes.
+
+F8/P16 queda hecho. La ola 1 (`8.02` + `8.16`) queda completa; `8.03` es el siguiente bloque de la ola técnica.
+
+### Cierre F8/P03 — 2026-09-20
+
+- [x] Contrato y motor puro TDD para descomponer recomendación en plan: acciones, dependencias, secuencia segura, camino crítico, checkpoints, rollout, budgets, rollback y aprobación.
+- [x] Runtime tenant-bound desde comunicación de recomendación, expected outcome y HITL; persistencia idempotente en `execution_plan_runs`, RLS, worker, workflow y endpoint.
+- [x] Panel `#insight-execution-plan`, feed de `InsightsMenu` y bloque Copiloto-first; el plan nunca autoriza ni ejecuta (`execution_authorized=false`).
+- [x] Smoke real con `.env.local`: `READY_WITH_APPROVAL`, dos acciones y camino crítico correcto; cleanup a cero. Migración aplicada en desarrollo y producción; dry-run de desarrollo sin pendientes.
+
+F8/P03 queda hecho. El siguiente bloque técnico es F8/P04 (`8.04`); F8 permanece abierta.
+
+### Cierre F8/P04 — 2026-09-20
+
+- [x] Contrato y motor TDD de precondiciones/readiness: dimensiones, evidencia, hard/soft/critical, unknown, degraded, freshness, ventana, freeze, concurrencia y remediation.
+- [x] Runtime desde `execution_plan_runs` y HITL, persistencia idempotente en `readiness_assessment_runs`, RLS, worker, workflow y endpoint; no ejecuta ni autoriza.
+- [x] Panel `#insight-readiness`, feed de `InsightsMenu` y contexto Copiloto-first con bloqueos, safe state y revalidación.
+- [x] Smoke real con `.env.local`: `BLOCKED` por approval pendiente, measurement degraded y environment unknown; cleanup a cero. Migración aplicada en desarrollo y producción.
+
+F8/P04 queda hecho. El siguiente bloque técnico es F8/P05 (`8.05`); F8 permanece abierta.
+### Cierre F8/P05 — 2026-09-20
+
+- [x] Contrato y motor puro TDD de action envelope: scope, tools, tipos, objetos, tenant/entorno, magnitud, presupuestos, frescura, violaciones y alternativas.
+- [x] Runtime tenant-bound desde `execution_plan_runs`/readiness, persistencia idempotente en `action_envelope_runs`, RLS, worker, workflow y endpoint.
+- [x] Panel `#insight-action-envelope`, feed de `InsightsMenu` y bloque Copiloto-first; la herramienta disponible no concede autoridad y `execution_authorized=false`.
+- [x] Smoke real con `.env.local`: envelope temporal dentro de scope → `INSIDE`, persistencia y cleanup a cero. Migración aplicada en desarrollo y producción.
+
+F8/P05 queda hecho. El siguiente bloque técnico habilitado es F8/P06; F8 permanece abierta.
+### Cierre F8/P06–P15 y P17 — 2026-09-20
+
+- [x] Capabilities/tools/permissions, safe execution/change control, monitoring, guardrails, lifecycle, incidents, rollback/recovery, human override, concurrency, verification y reporting implementados como once etapas explícitas en `execution_supervision_runs`.
+- [x] Contrato TDD, runtime tenant-bound desde plan/readiness/action envelope, worker, workflow, API, panel `#insight-execution-supervision`, Copiloto y `InsightsMenu`.
+- [x] Smoke real con `.env.local`: 11 etapas evaluadas, bloqueos/condicionales conservadores donde faltan permisos/evidencia, `execution_authorized=false` en todas y cleanup a cero.
+- [x] Migración `20260920204142_f8_p06_p17_execution_supervision.sql` aplicada en desarrollo y producción.
+
+F8 queda cerrada completa. F9 queda habilitada.
+### Cierre F8/P00–P17 — 2026-09-20
+
+- [x] F8.00 framework universal: separación contractual entre recomendación, intención, decisión, acción, ejecución y resultados.
+- [x] F8.01 ejecutabilidad/autorización: capability, readiness, envelope y autoridad se evalúan explícitamente y nunca se infieren.
+- [x] Las raíces se incorporan como `UNIVERSAL` y `EXECUTABILITY_AUTHORIZATION` en el runtime común; migración aplicada en desarrollo y producción.
+
+F8 queda cerrada completa, incluyendo 8.00, 8.01, 8.02–8.17. F9 queda habilitada.
+### Revisión Copiloto-first posterior al cierre F9 — 2026-09-21
+
+- [x] ~~Conectar el turno real de A09 con los snapshots F3–F9.~~ Se
+  incorporó `buildConsultantChatContextBlocks` y el endpoint de chat carga el
+  contexto F8/F9 junto con vista, historial y restricciones.
+- [x] ~~Evitar falsos “sin datos” cuando falla una tabla de snapshots.~~ Los
+  bloques F8.05, F8.06–F8.17 y F9 quedan marcados como no disponibles si la
+  lectura falla.
+- [x] ~~Persistir la política Copiloto-first de F8/F9.~~ Migración A09 v6/v10
+  añadida; las tools verifican cifras y los snapshots no autorizan ejecución.
+- [x] ~~Comprobar el pixel de IA.~~ Cards F8/F9, anclas `#insight-*` y
+  `InsightsMenu` enlazan el mismo resultado sin mezclarse con notificaciones.
+
+### F9 — cerrado técnicamente — 2026-09-21
+
+- [x] Contrato compartido y TDD de Experience/LearningAssessment para los 40 bloques reales.
+- [x] Runtime, persistencia RLS, worker, workflow, API, Copiloto, panel de diagnóstico e `InsightsMenu`.
+- [x] Migración F9 aplicada en desarrollo y producción.
+- [x] Verificación real con `.env.local`: 6 organizaciones, 240 evaluaciones, cero fallos y cero duplicados; smoke temporal sembrado/borrado con cleanup completo.
+- [ ] Pendiente operativo, no de implementación: cada tenant necesita outcomes métricos y evidencia causal suficientes para que el gate pase de `WAITING_FOR_EVIDENCE` a `READY`. F9 no inventa esos datos.

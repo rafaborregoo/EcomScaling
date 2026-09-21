@@ -1,0 +1,2 @@
+import { test } from "node:test"; import assert from "node:assert/strict"; import { readinessTone, readinessViewModel } from "./readiness-view-model";
+test("F8.04 muestra readiness y bloqueo preventivo", () => { const model = readinessViewModel({ readiness_decision: "BLOCKED", blocking_reasons: ["critical_unknown"], result: { dimensions: { DATA: "UNKNOWN" }, revalidate_required: true } }); assert.equal(model.blockers[0], "critical_unknown"); assert.equal(readinessTone(model.decision), "warn"); });

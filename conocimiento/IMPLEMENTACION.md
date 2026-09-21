@@ -162,7 +162,7 @@ falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 | --- | --- | --- | --- | --- | --- |
 | `8.00` | Framework universal de ejecucion supervisada | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.01` | Ejecutabilidad y autorizacion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.02` | Human in the loop y niveles de aprobacion | `CRPET` | **1** | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
+| `8.02` | Human in the loop y niveles de aprobacion | `CRPET` | **1** | **hecho** | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.03` | Descomposicion recommendation execution plan | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.04` | Precondiciones y readiness | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.05` | Scope limites y action envelope | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
@@ -176,7 +176,7 @@ falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 | `8.13` | Human override y escalado | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.14` | Concurrencia y coordinacion de intervenciones | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.15` | Verificacion de ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.16` | Cierre handoff y captura del resultado | `CRPET` | **1** | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
+| `8.16` | Cierre handoff y captura del resultado | `CRPET` | **1** | **hecho** | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.17` | Comunicacion y reporting de ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | pendiente | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 
 ## fase-09 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Aprendizaje continuo
@@ -433,3 +433,25 @@ Verificado con `.env.local`: smoke real temporal produjo
 `COMMUNICATION_AVAILABLE`, comprobó persistencia y terminó con cleanup a cero;
 tests de contratos, API/Copiloto/UI, typechecks y builds pasan. Desarrollo y
 producción quedan sin migraciones pendientes. F8 queda habilitada.
+
+F8.03 — **hecho** (execution plan, runtime, worker, API, Copiloto, InsightsMenu y UI). Migración `20260920200847_f8_p03_execution_plans.sql` aplicada en desarrollo y producción; siguiente bloque: F8.04.
+
+F8.04 — **hecho** (precondiciones, readiness, revalidación, remediation, runtime, worker, API, Copiloto, InsightsMenu y UI). Migración `20260920202151_f8_p04_readiness_assessments.sql` aplicada en desarrollo y producción; siguiente bloque: F8.05.
+F8.05 — **hecho** (action envelope, scope, límites, runtime, worker, API, Copiloto, InsightsMenu y UI). Migración `20260920203023_f8_p05_action_envelopes.sql` aplicada en desarrollo y producción; siguiente bloque: F8.06.
+F8.06–F8.15 y F8.17 — **hecho** (supervisión por etapas: capabilities, safe execution, monitoring, guardrails, lifecycle, incidentes, rollback/recovery, override, concurrencia, verificación y reporting). Migración `20260920204142_f8_p06_p17_execution_supervision.sql` aplicada en desarrollo y producción. F8 queda cerrada; F9 habilitada.
+F8.00–F8.17 — **hecho** (framework universal, ejecutabilidad/autorización y supervisión completa). Migraciones `20260920204142_f8_p06_p17_execution_supervision.sql` y `20260920204900_f8_p00_p01_stage_roots.sql` aplicadas en desarrollo y producción. F8 cerrada; F9 habilitada.
+### Auditoría Copiloto-first F8/F9 — 2026-09-21
+
+El turno A09 compone ahora vista, historial, restricciones y snapshots F3–F9
+antes de llamar al modelo. Las tools siguen verificando cifras actuales con
+aislamiento tenant; los snapshots no conceden autoridad ni sustituyen
+`allowed_tools` o aprobación. La migración A09 v6/v10 deja esta política
+persistida, y los fallos de lectura se exponen como indisponibilidad. La UI de
+Diagnóstico y `InsightsMenu` enlazan las cards exactas F8/F9 separadas de las
+notificaciones.
+
+### Cierre canónico F9 — 2026-09-21
+
+F9 tiene hechos los 40 bloques reales: `9.00`, `9.01`, `9.03–9.20` y
+`9.22–9.41`. `9.21` queda fuera porque la normativa lo marca como inexistente.
+La bitácora completa está en `conocimiento/fase-09/IMPLEMENTACION.md`.

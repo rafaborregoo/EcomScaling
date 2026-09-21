@@ -100,10 +100,28 @@ const PLAYBOOK_INSIGHT_META: Record<string, { slug: string; label: string; locat
 };
 
 Object.assign(PLAYBOOK_INSIGHT_META, {
+  F8_03_EXECUTION_PLAN: { slug: "execution-plan", label: "Plan de ejecución", location: "Diagnóstico · F8.03" },
+  F8_04_READINESS: { slug: "readiness", label: "Readiness", location: "Diagnóstico · F8.04" },
+  F8_05_ACTION_ENVELOPE: { slug: "action-envelope", label: "Action envelope", location: "Diagnóstico · F8.05" },
+  F8_CAPABILITIES: { slug: "execution-supervision", label: "Capabilities y tools", location: "Diagnóstico · F8.06" },
+  F8_UNIVERSAL: { slug: "execution-supervision", label: "Framework universal", location: "Diagnóstico · F8.00" },
+  F8_EXECUTABILITY_AUTHORIZATION: { slug: "execution-supervision", label: "Ejecutabilidad y autorización", location: "Diagnóstico · F8.01" },
+  F8_SAFE_EXECUTION: { slug: "execution-supervision", label: "Ejecución segura", location: "Diagnóstico · F8.07" },
+  F8_MONITORING: { slug: "execution-supervision", label: "Supervisión", location: "Diagnóstico · F8.08" },
+  F8_GUARDRAILS: { slug: "execution-supervision", label: "Guardrails", location: "Diagnóstico · F8.09" },
+  F8_LIFECYCLE: { slug: "execution-supervision", label: "Lifecycle", location: "Diagnóstico · F8.10" },
+  F8_INCIDENTS: { slug: "execution-supervision", label: "Incidentes", location: "Diagnóstico · F8.11" },
+  F8_ROLLBACK_RECOVERY: { slug: "execution-supervision", label: "Rollback y recovery", location: "Diagnóstico · F8.12" },
+  F8_OVERRIDE_ESCALATION: { slug: "execution-supervision", label: "Override y escalado", location: "Diagnóstico · F8.13" },
+  F8_CONCURRENCY: { slug: "execution-supervision", label: "Concurrencia", location: "Diagnóstico · F8.14" },
+  F8_VERIFICATION: { slug: "execution-supervision", label: "Verificación", location: "Diagnóstico · F8.15" },
+  F8_REPORTING: { slug: "execution-supervision", label: "Reporting", location: "Diagnóstico · F8.17" },
   F7_15_EXPECTED_OUTCOME: { slug: "expected-outcome", label: "Expected outcome / criterios", location: "Diagnóstico · F7.15" },
   F7_17_RECOMMENDATION_CONFIDENCE: { slug: "recommendation-confidence", label: "Confianza calibrada", location: "Diagnóstico · F7.17" },
   F7_18_RECOMMENDATION_COMMUNICATION: { slug: "recommendation-communication", label: "Comunicación de recomendaciones", location: "Diagnóstico · F7.18" },
   F8_02_HITL_APPROVAL: { slug: "hitl-approval", label: "Aprobación humana", location: "Diagnóstico · F8.02" },
+  F8_16_CLOSURE_HANDOFF: { slug: "closure-handoff", label: "Cierre y resultado", location: "Diagnóstico · F8.16" },
+  F9_CONTINUOUS_LEARNING: { slug: "continuous-learning", label: "Aprendizaje continuo", location: "Diagnóstico · F9" },
 });
 
 function playbookInsightSeverity(disposition: string): MetricInsight["severity"] {
@@ -117,7 +135,7 @@ export function insightSpotsFromAiAssessments(
   if (!scope.organizationId || !scope.isConsultant) return [];
   return assessments.flatMap((assessment) => {
     const meta = PLAYBOOK_INSIGHT_META[assessment.domain];
-    if (!meta || !["BLOCKED", "VALIDATION_REQUIRED", "REASSESS_DIAGNOSIS", "REPRIORITIZE", "APPROVAL_REQUIRED", "ESCALATION_REQUIRED", "HUMAN_ONLY"].includes(assessment.disposition)) return [];
+    if (!meta || !["BLOCKED", "INVALID", "READY_WITH_APPROVAL", "READY_WITH_CONDITIONS", "PARTIALLY_READY", "NOT_READY", "WAITING", "WAITING_FOR_EVIDENCE", "REVIEW_REQUIRED", "OUTSIDE", "FORBIDDEN", "INSIDE_WITH_CONDITIONS", "CONDITIONAL", "UNKNOWN", "VALIDATION_REQUIRED", "REASSESS_DIAGNOSIS", "REPRIORITIZE", "APPROVAL_REQUIRED", "ESCALATION_REQUIRED", "HUMAN_ONLY", "COMPLETED", "CLOSURE_READY", "CLOSED"].includes(assessment.disposition)) return [];
     if (assessment.store_id && assessment.store_id !== scope.connectionId) return [];
     if (assessment.store_id && !scope.connectionId) return [];
     const unknowns = assessment.unresolved_unknowns ?? [];

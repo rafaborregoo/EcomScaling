@@ -80,6 +80,12 @@ import { listConsultantExpectedOutcomeRuns } from "./expected-outcome-api.js";
 import { listConsultantRecommendationConfidenceRuns } from "./recommendation-confidence-api.js";
 import { listConsultantRecommendationCommunicationRuns } from "./recommendation-communication-api.js";
 import { listConsultantHitlApprovalRuns } from "./hitl-approval-api.js";
+import { listConsultantClosureHandoffRuns } from "./closure-handoff-api.js";
+import { listConsultantExecutionPlans } from "./execution-plan-api.js";
+import { listConsultantReadinessRuns } from "./readiness-api.js";
+import { listConsultantActionEnvelopeRuns } from "./action-envelope-api.js";
+import { listConsultantExecutionSupervisionRuns } from "./execution-supervision-api.js";
+import { listConsultantContinuousLearningRuns } from "./continuous-learning-api.js";
 import { listAccountActions } from "./actions.js";
 import {
   addMarketingDraftNote,
@@ -3101,6 +3107,81 @@ export async function buildApp(): Promise<FastifyInstance> {
       return result.data;
     },
   );
+
+  app.get(
+    "/v1/consultant/closure-handoff",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const query = request.query as { organizationId?: string };
+      const result = await listConsultantClosureHandoffRuns(env, authorization, auth.context, query.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get(
+    "/v1/consultant/continuous-learning",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const query = request.query as { organizationId?: string };
+      const result = await listConsultantContinuousLearningRuns(env, authorization, auth.context, query.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get(
+    "/v1/consultant/execution-plans",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const query = request.query as { organizationId?: string };
+      const result = await listConsultantExecutionPlans(env, authorization, auth.context, query.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get("/v1/consultant/readiness", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const query = request.query as { organizationId?: string };
+    const result = await listConsultantReadinessRuns(env, authorization, auth.context, query.organizationId);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get("/v1/consultant/action-envelope", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const query = request.query as { organizationId?: string };
+    const result = await listConsultantActionEnvelopeRuns(env, authorization, auth.context, query.organizationId);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get("/v1/consultant/execution-supervision", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const query = request.query as { organizationId?: string };
+    const result = await listConsultantExecutionSupervisionRuns(env, authorization, auth.context, query.organizationId);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
 
   // F3/D07. Declarar una relacion causal propia de una tienda. Es lo que
   // desbloquea el bloque: el grafo global trae cinco aristas, y todo lo demas

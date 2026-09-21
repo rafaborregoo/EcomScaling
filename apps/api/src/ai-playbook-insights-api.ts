@@ -325,6 +325,34 @@ export function f8HitlApprovalAssessmentsFromRows(rows: Record<string, unknown>[
     }));
 }
 
+export function f8ClosureHandoffAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => !Boolean(row.closure_gate) || ["PARTIAL_SUCCESS", "FAILED", "ABORTED", "ROLLED_BACK", "INCONCLUSIVE", "NOT_EXECUTED"].includes(String(row.operational_outcome ?? "")) || String(row.handoff_status ?? "") !== "NOT_REQUIRED")
+    .map((row) => ({
+      domain: "F8_16_CLOSURE_HANDOFF",
+      disposition: String(row.closure_state ?? "COMPLETED"),
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.blockers),
+    }));
+}
+
+export function f8ExecutionPlanAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] {
+  return rows
+    .filter((row) => ["BLOCKED", "INVALID", "READY_WITH_APPROVAL"].includes(String(row.plan_status ?? "")))
+    .map((row) => ({
+      domain: "F8_03_EXECUTION_PLAN",
+      disposition: String(row.plan_status),
+      evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined,
+      unresolved_unknowns: stringArray(row.unresolved_unknowns),
+      reason_codes: stringArray(row.blockers),
+    }));
+}
+export function f8ReadinessAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] { return rows.filter((row) => ["BLOCKED", "NOT_READY", "WAITING", "READY_WITH_CONDITIONS", "PARTIALLY_READY"].includes(String(row.readiness_decision ?? ""))).map((row) => ({ domain: "F8_04_READINESS", disposition: String(row.readiness_decision), evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: stringArray(row.blocking_reasons) })); }
+export function f8ActionEnvelopeAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] { return rows.filter((row) => ["OUTSIDE", "FORBIDDEN", "INSIDE_WITH_CONDITIONS"].includes(String(row.envelope_zone ?? ""))).map((row) => ({ domain: "F8_05_ACTION_ENVELOPE", disposition: String(row.envelope_zone), evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: [...stringArray(row.violations), ...stringArray(row.warnings)] })); }
+export function f8ExecutionSupervisionAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] { return rows.filter((row) => ["BLOCKED", "CONDITIONAL", "WAITING", "UNKNOWN"].includes(String(row.decision ?? ""))).map((row) => ({ domain: `F8_${String(row.stage ?? "SUPERVISION")}`, disposition: String(row.decision), evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: [...stringArray(row.blockers), ...stringArray(row.warnings)] })); }
+export function f9ContinuousLearningAssessmentsFromRows(rows: Record<string, unknown>[]): AiInsightAssessment[] { return rows.filter((row) => ["WAITING_FOR_EVIDENCE", "BLOCKED", "REVIEW_REQUIRED", "INCONCLUSIVE"].includes(String(row.status ?? row.classification ?? ""))).map((row) => ({ domain: "F9_CONTINUOUS_LEARNING", disposition: String(row.status ?? "WAITING_FOR_EVIDENCE"), evaluated_at: typeof row.evaluated_at === "string" ? row.evaluated_at : undefined, unresolved_unknowns: stringArray(row.unresolved_unknowns), reason_codes: [...stringArray(row.rationale), ...stringArray(row.next_evidence_needed)] })); }
+
 export async function listConsultantAiPlaybookInsights(
   env: ApiEnv,
   authorization: string,
@@ -337,7 +365,7 @@ export async function listConsultantAiPlaybookInsights(
   if (!organizationId) return { ok: true as const, data: { assessments: [] } };
 
   const supabase = createUserScopedClient(env, authorization.slice("Bearer ".length)) as any;
-  const [playbookResult, outputResult, robustnessResult, temporalResult, eligibilityResult, matchingResult, prioritizationResult, impactResult, feasibilityResult, riskResult, sequencingResult, testExecuteResult, intensityResult, maturityResult, constraintResult, portfolioResult, dynamicDecisionResult, restraintDecisionResult, expectedOutcomeResult, recommendationConfidenceResult, recommendationCommunicationResult, hitlApprovalResult] = await Promise.all([
+  const [playbookResult, outputResult, robustnessResult, temporalResult, eligibilityResult, matchingResult, prioritizationResult, impactResult, feasibilityResult, riskResult, sequencingResult, testExecuteResult, intensityResult, maturityResult, constraintResult, portfolioResult, dynamicDecisionResult, restraintDecisionResult, expectedOutcomeResult, recommendationConfidenceResult, recommendationCommunicationResult, hitlApprovalResult, closureHandoffResult, executionPlanResult, readinessResult, actionEnvelopeResult, executionSupervisionResult, continuousLearningResult] = await Promise.all([
     supabase
       .from("playbook_framework_runs")
       .select("organization_id, domain, disposition, unresolved_unknowns, reason_codes, evaluated_at")
@@ -473,9 +501,25 @@ export async function listConsultantAiPlaybookInsights(
       .eq("organization_id", organizationId)
       .order("evaluated_at", { ascending: false })
       .limit(30),
+    supabase
+      .from("execution_closure_runs")
+      .select("organization_id, closure_state, closure_gate, operational_outcome, handoff_status, unresolved_unknowns, blockers, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase
+      .from("execution_plan_runs")
+      .select("organization_id, plan_status, blockers, unresolved_unknowns, evaluated_at")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(30),
+    supabase.from("readiness_assessment_runs").select("organization_id, readiness_decision, blocking_reasons, unresolved_unknowns, evaluated_at").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(30),
+    supabase.from("action_envelope_runs").select("organization_id, envelope_zone, violations, warnings, unresolved_unknowns, evaluated_at").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(30),
+    supabase.from("execution_supervision_runs").select("organization_id, stage, decision, blockers, warnings, unresolved_unknowns, evaluated_at").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(100),
+    supabase.from("continuous_learning_runs").select("organization_id, block_code, status, classification, rationale, next_evidence_needed, unresolved_unknowns, evaluated_at").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(120),
   ]);
 
-  const error = playbookResult.error ?? outputResult.error ?? robustnessResult.error ?? temporalResult.error ?? eligibilityResult.error ?? matchingResult.error ?? prioritizationResult.error ?? impactResult.error ?? feasibilityResult.error ?? riskResult.error ?? sequencingResult.error ?? testExecuteResult.error ?? intensityResult.error ?? maturityResult.error ?? constraintResult.error ?? portfolioResult.error ?? dynamicDecisionResult.error ?? restraintDecisionResult.error ?? expectedOutcomeResult.error ?? recommendationConfidenceResult.error ?? recommendationCommunicationResult.error ?? hitlApprovalResult.error;
+  const error = playbookResult.error ?? outputResult.error ?? robustnessResult.error ?? temporalResult.error ?? eligibilityResult.error ?? matchingResult.error ?? prioritizationResult.error ?? impactResult.error ?? feasibilityResult.error ?? riskResult.error ?? sequencingResult.error ?? testExecuteResult.error ?? intensityResult.error ?? maturityResult.error ?? constraintResult.error ?? portfolioResult.error ?? dynamicDecisionResult.error ?? restraintDecisionResult.error ?? expectedOutcomeResult.error ?? recommendationConfidenceResult.error ?? recommendationCommunicationResult.error ?? hitlApprovalResult.error ?? closureHandoffResult.error ?? executionPlanResult.error ?? readinessResult.error ?? actionEnvelopeResult.error ?? executionSupervisionResult.error ?? continuousLearningResult.error;
   if (error) {
     return {
       ok: false as const,
@@ -515,6 +559,12 @@ export async function listConsultantAiPlaybookInsights(
         ...f7RecommendationConfidenceAssessmentsFromRows(tenantRows(recommendationConfidenceResult.data, organizationId)),
         ...f7RecommendationCommunicationAssessmentsFromRows(tenantRows(recommendationCommunicationResult.data, organizationId)),
         ...f8HitlApprovalAssessmentsFromRows(tenantRows(hitlApprovalResult.data, organizationId)),
+        ...f8ClosureHandoffAssessmentsFromRows(tenantRows(closureHandoffResult.data, organizationId)),
+        ...f8ExecutionPlanAssessmentsFromRows(tenantRows(executionPlanResult.data, organizationId)),
+        ...f8ReadinessAssessmentsFromRows(tenantRows(readinessResult.data, organizationId)),
+        ...f8ActionEnvelopeAssessmentsFromRows(tenantRows(actionEnvelopeResult.data, organizationId)),
+        ...f8ExecutionSupervisionAssessmentsFromRows(tenantRows(executionSupervisionResult.data, organizationId)),
+        ...f9ContinuousLearningAssessmentsFromRows(tenantRows(continuousLearningResult.data, organizationId)),
       ]),
     },
   };

@@ -18,6 +18,7 @@ import {
   f7RecommendationConfidenceAssessmentsFromRows,
   f7RecommendationCommunicationAssessmentsFromRows,
   f8HitlApprovalAssessmentsFromRows,
+  f9ContinuousLearningAssessmentsFromRows,
   latestAiAssessments,
   latestPlaybookAssessments,
 } from "./ai-playbook-insights-api.js";
@@ -29,6 +30,13 @@ test("el feed F7.12 solo publica una cartera que requiere validacion", () => {
   ]);
   assert.equal(result.length, 1);
   assert.equal(result[0]?.domain, "F7_12_PORTFOLIO");
+});
+
+test("el feed F9 publica learning que espera evidencia sin convertirlo en accion", () => {
+  const result = f9ContinuousLearningAssessmentsFromRows([{ status: "READY", classification: "POSITIVE" }, { status: "WAITING_FOR_EVIDENCE", classification: "INCONCLUSIVE", unresolved_unknowns: ["sample"], next_evidence_needed: ["sample_size"] }]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.domain, "F9_CONTINUOUS_LEARNING");
+  assert.equal(result[0]?.disposition, "WAITING_FOR_EVIDENCE");
 });
 
 test("el feed F7.13 solo publica decisiones que requieren validacion", () => {

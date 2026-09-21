@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildConsultantChatContextBlocks,
   buildDecisionPlaybookContextBlocks,
   loadDecisionPlaybookContextBlocks,
   summarizeDecisionOutput,
@@ -32,6 +33,31 @@ test("el Copiloto conserva binding constraint y accion factible sin asignar recu
   assert.equal(summary.execution_authorized, false);
   assert.match(JSON.stringify(summary), /binding constraint|cash/);
   assert.match(String(summary.selection), /no asigna recursos/);
+});
+
+test("el turno del Copiloto compone vista, restricciones y snapshots F3-F9", () => {
+  const blocks = buildConsultantChatContextBlocks({
+    view: { route: "/shopify/diagnostico", title: "Diagnóstico" },
+    history: [{ role: "user", content: "¿Qué está bloqueado?" }],
+    constraintBlocks: [{ label: "Restricciones críticas", data: ["no_write"] }],
+    decisionPlaybookBlocks: buildDecisionPlaybookContextBlocks({
+      continuousLearningRuns: [{
+        organization_id: "org-a",
+        block_code: "9.00",
+        status: "WAITING_FOR_EVIDENCE",
+        confidence: "LOW",
+        gate: false,
+        next_evidence_needed: ["sample"],
+      }],
+    }),
+  });
+
+  assert.equal(blocks[0]?.label.startsWith("Vista actual"), true);
+  assert.equal(blocks[1]?.label.startsWith("Conversacion previa"), true);
+  assert.equal(blocks[2]?.label, "Restricciones críticas");
+  assert.equal(blocks.at(-1)?.label.startsWith("F9 APRENDIZAJE CONTINUO"), true);
+  assert.match(JSON.stringify(blocks.at(-1)), /WAITING_FOR_EVIDENCE/);
+  assert.match(JSON.stringify(blocks.at(-1)), /sample/);
 });
 
 test("F7.12 entrega cartera, roles y diferidos sin optimizar ni autorizar ejecucion", () => {
@@ -119,7 +145,8 @@ test("el contexto del Copiloto conserva abstención, incertidumbre y trazabilida
     ],
   });
 
-  assert.equal(blocks.length, 22);
+  assert.equal(blocks.length, 28);
+  assert.equal(blocks.at(-1)?.label.startsWith("F9 APRENDIZAJE CONTINUO"), true);
   assert.deepEqual(summarizeDecisionOutput({ decision_status: "ABSTAIN", result: {} }).status, "ABSTAIN");
   assert.deepEqual(
     summarizePlaybookRun({
@@ -143,6 +170,9 @@ test("el contexto del Copiloto conserva abstención, incertidumbre y trazabilida
   assert.match(blocks[12]?.label ?? "", /F7\.09/);
   assert.match(blocks[13]?.label ?? "", /F7\.10/);
   assert.match(blocks[21]?.label ?? "", /F8\.02/);
+  assert.match(blocks[22]?.label ?? "", /F8\.16/);
+  assert.match(blocks[23]?.label ?? "", /F8\.03/);
+  assert.match(blocks[24]?.label ?? "", /F8\.04/);
 });
 
 test("F7.01 entrega al Copiloto elegibilidad sin convertirla en seleccion", () => {

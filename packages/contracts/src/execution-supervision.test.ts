@@ -1,0 +1,6 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { evaluateExecutionSupervision, type ExecutionSupervisionInput } from "./execution-supervision.js";
+const base: ExecutionSupervisionInput = { context_id: "ctx", business_id: "org", stage: "CAPABILITIES", action_id: "a1", plan_id: "p1", environment: "TEST", envelope_zone: "INSIDE", checks: [{ id: "capability", statement: "least capability exists", status: "SATISFIED", hard: true, evidence: ["catalog"], owner: "owner" }], observed_state: "NOT_STARTED", source_refs: ["test"], unresolved_unknowns: [] };
+test("capabilities ready does not authorize execution", () => { const result = evaluateExecutionSupervision(base); assert.equal(result.decision, "READY"); assert.equal(result.execution_authorized, false); });
+test("unsafe envelope or hard unknown blocks every stage", () => { const result = evaluateExecutionSupervision({ ...base, stage: "SAFE_EXECUTION", envelope_zone: "FORBIDDEN", checks: [{ ...base.checks[0]!, id: "permission", status: "UNKNOWN" }] }); assert.equal(result.decision, "BLOCKED"); assert.ok(result.blockers.includes("permission")); assert.ok(result.blockers.includes("action_envelope_outside")); });

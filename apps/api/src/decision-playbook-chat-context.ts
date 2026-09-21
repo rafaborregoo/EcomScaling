@@ -5,6 +5,51 @@ export type ConsultantChatContextBlock = {
   data: unknown;
 };
 
+export type ConsultantChatHistoryEntry = {
+  role: string;
+  content: string;
+};
+
+/**
+ * Compone el contexto completo que recibe el Copiloto.
+ *
+ * La vista y el historial explican la pregunta; las restricciones y los
+ * snapshots F3-F9 aportan evidencia estructurada. Mantener esta composición
+ * en una función pura evita que el endpoint de chat pueda olvidar una fase
+ * aunque el cargador de snapshots siga funcionando por separado.
+ */
+export function buildConsultantChatContextBlocks(input: {
+  view: unknown | null;
+  history: readonly ConsultantChatHistoryEntry[];
+  constraintBlocks: readonly ConsultantChatContextBlock[];
+  decisionPlaybookBlocks: readonly ConsultantChatContextBlock[];
+}): ConsultantChatContextBlock[] {
+  return [
+    ...(input.view
+      ? [
+          {
+            label:
+              "Vista actual del consultor en el panel (contexto de la pregunta, no es una fuente de datos verificada)",
+            data: input.view,
+          },
+        ]
+      : []),
+    ...(input.history.length > 0
+      ? [
+          {
+            label: "Conversacion previa (mas reciente al final)",
+            data: input.history.map((entry) => ({
+              role: entry.role,
+              content: entry.content,
+            })),
+          },
+        ]
+      : []),
+    ...input.constraintBlocks,
+    ...input.decisionPlaybookBlocks,
+  ];
+}
+
 type Row = Record<string, unknown>;
 
 function record(value: unknown): Row {
@@ -579,6 +624,46 @@ export function summarizeHitlApprovalRun(row: unknown): Row {
   };
 }
 
+export function summarizeClosureHandoffRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result); const finalState = record(item.final_state_snapshot ?? result.final_state_snapshot);
+  return {
+    intervention_id: text(item.intervention_id ?? result.intervention_id), recommendation_id: text(item.recommendation_id ?? result.recommendation_id),
+    closure_state: text(item.closure_state ?? result.closure_state), closure_gate: item.closure_gate === true || result.closure_gate === true,
+    operational_outcome: text(item.operational_outcome ?? result.operational_outcome), verification_status: text(item.verification_status ?? result.verification_status),
+    closure_quality: text(item.closure_quality ?? result.closure_quality), outcome_maturity: text(item.outcome_maturity ?? result.outcome_maturity),
+    expected_state: text(finalState.expected), actual_state: text(finalState.actual), handoff_status: text(item.handoff_status ?? result.handoff_status),
+    blockers: strings(item.blockers ?? result.blockers), unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), source_refs: strings(item.source_refs ?? result.source_refs),
+    as_of: text(item.as_of, "unknown_date"), execution_authorized: false,
+    selection: "F8.16 cierre observado; no confundir CLOSED con éxito de negocio ni outcome maduro con causalidad demostrada",
+  };
+}
+
+export function summarizeContinuousLearningRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  return {
+    block_code: text(item.block_code ?? result.block_code), experience_id: text(item.experience_id ?? result.experience_id),
+    status: text(item.status ?? result.status), classification: text(item.classification ?? result.classification), confidence: text(item.confidence ?? result.confidence),
+    gate: item.gate === true || result.gate === true, rationale: strings(item.rationale ?? result.rationale), learning: strings(item.learning ?? result.learning),
+    next_evidence_needed: strings(item.next_evidence_needed ?? result.next_evidence_needed), unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
+    source_refs: strings(item.source_refs ?? result.source_refs), evaluated_at: text(item.evaluated_at ?? result.evaluated_at),
+    selection: "F9 learning: experience trazable y outcome clasificado; no convertir evidencia insuficiente en recomendación ni autorización",
+  };
+}
+
+export function summarizeExecutionPlanRun(row: unknown): Row {
+  const item = record(row); const result = record(item.result);
+  return {
+    recommendation_id: text(item.recommendation_id ?? result.recommendation_id), plan_status: text(item.plan_status ?? result.plan_status), plan_version: item.plan_version ?? result.plan_version,
+    execution_intent: text(item.execution_intent ?? result.execution_intent), objective: text(item.objective ?? result.objective), ordered_action_ids: strings(item.ordered_action_ids ?? result.ordered_action_ids), critical_path: strings(item.critical_path ?? result.critical_path),
+    blockers: strings(item.blockers ?? result.blockers), unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), source_refs: strings(item.source_refs ?? result.source_refs), execution_authorized: false,
+    selection: "F8.03 plan verificable; no confundir plan listo con aprobación ni aprobación con ejecución",
+  };
+}
+export function summarizeReadinessRun(row: unknown): Row { const item = record(row); const result = record(item.result); return { plan_id: text(item.plan_id ?? result.plan_id), action_id: text(item.action_id ?? result.action_id), scope: text(item.scope ?? result.scope), readiness_decision: text(item.readiness_decision ?? result.readiness_decision), dimensions: result.dimensions ?? {}, blocking_reasons: strings(item.blocking_reasons ?? result.blocking_reasons), remediation_actions: result.remediation_actions ?? [], revalidate_required: result.revalidate_required === true, stale: result.stale === true, safe_state: text(result.safe_state), unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), execution_authorized: false, selection: "F8.04 readiness; un plan válido no implica estar listo ni autoriza ejecución" }; }
+
+export function summarizeActionEnvelopeRun(row: unknown): Row { const item = record(row); const result = record(item.result); return { context_id: text(item.context_id ?? result.context_id), zone: text(item.envelope_zone ?? result.zone), violations: strings(item.violations ?? result.violations), warnings: strings(item.warnings ?? result.warnings), covered_action_ids: strings(result.covered_action_ids), remaining_capacity: result.remaining_capacity ?? {}, envelope_fresh: result.envelope_fresh === true, scope_expansion_required: result.scope_expansion_required === true, alternatives: strings(result.alternatives), unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), execution_authorized: false, selection: "F8.05 action envelope; el alcance efectivo limita el plan y no concede autoridad de ejecución" }; }
+export function summarizeExecutionSupervisionRun(row: unknown): Row { const item = record(row); const result = record(item.result); return { stage: text(item.stage ?? result.stage), decision: text(item.decision ?? result.decision), blockers: strings(item.blockers ?? result.blockers), warnings: strings(item.warnings ?? result.warnings), next_actions: strings(result.next_actions), observed_state: text(result.observed_state), unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), execution_authorized: false, selection: "F8.06-F8.17 supervisión por etapa; capacidad, observación o permiso no se convierten en ejecución automática" }; }
+
 export function buildDecisionPlaybookContextBlocks(input: {
   decisionContext?: unknown;
   decisionOutput?: unknown;
@@ -605,6 +690,12 @@ export function buildDecisionPlaybookContextBlocks(input: {
   recommendationConfidenceRuns?: unknown[];
   recommendationCommunicationRuns?: unknown[];
   hitlApprovalRuns?: unknown[];
+  closureHandoffRuns?: unknown[];
+  executionPlanRuns?: unknown[];
+  readinessRuns?: unknown[];
+  actionEnvelopeRuns?: unknown[];
+  executionSupervisionRuns?: unknown[];
+  continuousLearningRuns?: unknown[];
 }): ConsultantChatContextBlock[] {
   const blocks: ConsultantChatContextBlock[] = [];
   const diagnosticOutputs = input.diagnosticOutputs ?? [];
@@ -805,6 +896,28 @@ export function buildDecisionPlaybookContextBlocks(input: {
       ? hitlApprovalRuns.map(summarizeHitlApprovalRun)
       : "sin_evaluaciones_hitl; no inventar autoridad, aprobación, autonomía ni permiso de ejecución",
   });
+  const closureHandoffRuns = input.closureHandoffRuns ?? [];
+  blocks.push({
+    label: "F8.16 CIERRE, HANDOFF Y RESULTADO (estado observado; no es ejecución ni éxito de negocio)",
+    data: closureHandoffRuns.length
+      ? closureHandoffRuns.map(summarizeClosureHandoffRun)
+      : "sin_evaluaciones_de_cierre; no inventar estado final, verificación, handoff, outcome ni aprendizaje",
+  });
+  const executionPlanRuns = input.executionPlanRuns ?? [];
+  blocks.push({
+    label: "F8.03 PLAN DE EJECUCIÓN (secuencia, controles y dependencias; no es ejecución)",
+    data: executionPlanRuns.length
+      ? executionPlanRuns.map(summarizeExecutionPlanRun)
+      : "sin_planes_de_ejecucion; no inventar acciones, secuencia, readiness ni autorización",
+  });
+  const readinessRuns = input.readinessRuns ?? [];
+  blocks.push({ label: "F8.04 READINESS Y PRECONDICIONES (barrera antes de ejecutar)", data: readinessRuns.length ? readinessRuns.map(summarizeReadinessRun) : "sin_evaluaciones_de_readiness; no inventar condiciones, frescura, autorización ni entorno" });
+  const actionEnvelopeRuns = input.actionEnvelopeRuns ?? [];
+  blocks.push({ label: "F8.05 ACTION ENVELOPE (alcance, límites y autoridad separada)", data: actionEnvelopeRuns.length ? actionEnvelopeRuns.map(summarizeActionEnvelopeRun) : "sin_evaluaciones_de_action_envelope; no inventar alcance, herramientas, límites ni autoridad" });
+  const executionSupervisionRuns = input.executionSupervisionRuns ?? [];
+  blocks.push({ label: "F8.06-F8.17 SUPERVISIÓN DE EJECUCIÓN (capabilities, guardrails, lifecycle y evidencia)", data: executionSupervisionRuns.length ? executionSupervisionRuns.map(summarizeExecutionSupervisionRun) : "sin_evaluaciones_de_supervision; no inventar tools, estados, incidentes, recovery, verificación ni reporting" });
+  const continuousLearningRuns = input.continuousLearningRuns ?? [];
+  blocks.push({ label: "F9 APRENDIZAJE CONTINUO (experiencia, evidencia, outcome y gates; no es autorización de ejecución)", data: continuousLearningRuns.length ? continuousLearningRuns.map(summarizeContinuousLearningRun) : "sin_evaluaciones_de_learning; no inventar outcome, causalidad, confianza ni conocimiento reutilizable" });
   return blocks;
 }
 
@@ -819,7 +932,7 @@ export async function loadDecisionPlaybookContextBlocks(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<ConsultantChatContextBlock[]> {
-  const [diagnosticCaseResult, diagnosticOutputResult, robustnessResult, temporalResult, contextResult, outputResult, playbookResult, eligibilityResult, matchingResult, prioritizationResult, impactResult, feasibilityResult, riskResult, sequencingResult, testExecuteResult, intensityResult, maturityRecommendationResult, constraintRecommendationResult, recommendationPortfolioResult, dynamicDecisionResult, restraintDecisionResult, expectedOutcomeResult, recommendationConfidenceResult, recommendationCommunicationResult, hitlApprovalResult] = await Promise.all([
+  const [diagnosticCaseResult, diagnosticOutputResult, robustnessResult, temporalResult, contextResult, outputResult, playbookResult, eligibilityResult, matchingResult, prioritizationResult, impactResult, feasibilityResult, riskResult, sequencingResult, testExecuteResult, intensityResult, maturityRecommendationResult, constraintRecommendationResult, recommendationPortfolioResult, dynamicDecisionResult, restraintDecisionResult, expectedOutcomeResult, recommendationConfidenceResult, recommendationCommunicationResult, hitlApprovalResult, closureHandoffResult, executionPlanResult, readinessResult, actionEnvelopeResult, executionSupervisionResult, continuousLearningResult] = await Promise.all([
     supabase
       .from("diagnostic_cases")
       .select(
@@ -992,6 +1105,22 @@ export async function loadDecisionPlaybookContextBlocks(
       .eq("organization_id", organizationId)
       .order("evaluated_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("execution_closure_runs")
+      .select("organization_id, intervention_id, recommendation_id, as_of, evaluated_at, closure_state, closure_gate, operational_outcome, verification_status, closure_quality, outcome_maturity, handoff_status, final_state_snapshot, blockers, unresolved_unknowns, source_refs, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("execution_plan_runs")
+      .select("organization_id, recommendation_id, plan_version, plan_status, execution_intent, objective, ordered_action_ids, critical_path, blockers, unresolved_unknowns, source_refs, evaluated_at, result")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(20),
+    supabase.from("readiness_assessment_runs").select("organization_id, plan_id, action_id, scope, readiness_decision, blocking_reasons, unresolved_unknowns, source_refs, evaluated_at, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(20),
+    supabase.from("action_envelope_runs").select("organization_id, context_id, business_id, envelope_version, envelope_zone, violations, warnings, unresolved_unknowns, source_refs, evaluated_at, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(20),
+    supabase.from("execution_supervision_runs").select("organization_id, context_id, plan_id, action_id, stage, decision, blockers, warnings, unresolved_unknowns, source_refs, evaluated_at, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(100),
+    supabase.from("continuous_learning_runs").select("organization_id, block_code, experience_id, evaluated_at, status, classification, confidence, gate, rationale, learning, next_evidence_needed, unresolved_unknowns, source_refs, result").eq("organization_id", organizationId).order("evaluated_at", { ascending: false }).limit(120),
   ]);
 
   const blocks = buildDecisionPlaybookContextBlocks({
@@ -1070,6 +1199,16 @@ export async function loadDecisionPlaybookContextBlocks(
     hitlApprovalRuns: hitlApprovalResult.error
       ? []
       : tenantRows(hitlApprovalResult.data, organizationId),
+    closureHandoffRuns: closureHandoffResult.error
+      ? []
+      : tenantRows(closureHandoffResult.data, organizationId),
+    executionPlanRuns: executionPlanResult.error
+      ? []
+      : tenantRows(executionPlanResult.data, organizationId),
+    readinessRuns: readinessResult.error ? [] : tenantRows(readinessResult.data, organizationId),
+    actionEnvelopeRuns: actionEnvelopeResult.error ? [] : tenantRows(actionEnvelopeResult.data, organizationId),
+    executionSupervisionRuns: executionSupervisionResult.error ? [] : tenantRows(executionSupervisionResult.data, organizationId),
+    continuousLearningRuns: continuousLearningResult.error ? [] : tenantRows(continuousLearningResult.data, organizationId),
   });
   if (diagnosticCaseResult.error || diagnosticOutputResult.error || robustnessResult.error || temporalResult.error) {
     blocks[0] = unavailableBlock(
@@ -1148,6 +1287,24 @@ export async function loadDecisionPlaybookContextBlocks(
   }
   if (hitlApprovalResult.error) {
     blocks[21] = unavailableBlock(blocks[21]?.label ?? "F8.02 HITL Y APROBACIÓN");
+  }
+  if (closureHandoffResult.error) {
+    blocks[22] = unavailableBlock(blocks[22]?.label ?? "F8.16 CIERRE, HANDOFF Y RESULTADO");
+  }
+  if (executionPlanResult.error) {
+    blocks[23] = unavailableBlock("F8.03 PLAN DE EJECUCIÓN");
+  }
+  if (readinessResult.error) {
+    blocks[24] = unavailableBlock("F8.04 READINESS Y PRECONDICIONES");
+  }
+  if (actionEnvelopeResult.error) {
+    blocks[25] = unavailableBlock("F8.05 ACTION ENVELOPE");
+  }
+  if (executionSupervisionResult.error) {
+    blocks[26] = unavailableBlock("F8.06-F8.17 SUPERVISIÓN DE EJECUCIÓN");
+  }
+  if (continuousLearningResult.error) {
+    blocks[27] = unavailableBlock("F9 APRENDIZAJE CONTINUO");
   }
   return blocks;
 }

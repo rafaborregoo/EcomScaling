@@ -323,3 +323,15 @@ export * from "./recommendation-communication.js";
 
 // FASE 8 / 8.02: autonomía graduada, aprobación humana y separación de estados.
 export * from "./hitl-approval.js";
+
+// FASE 8 / 8.16: cierre operacional, handoff y aprendizaje sin falsear el outcome.
+export * from "./closure-handoff.js";
+
+// FASE 8 / 8.03: descomposición de recomendación en plan verificable sin ejecución implícita.
+export * from "./execution-plan.js";
+export * from "./readiness.js";
+export * from "./action-envelope.js";
+export * from "./execution-supervision.js";
+
+// FASE 9: experience, outcome classification y learning gates.
+export * from "./continuous-learning.js";

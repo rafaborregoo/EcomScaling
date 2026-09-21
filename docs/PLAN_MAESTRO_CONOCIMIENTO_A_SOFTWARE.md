@@ -1314,3 +1314,110 @@ Verificado con `.env.local`: smoke real temporal, persistencia y cleanup a
 cero; contratos, API/Copiloto, UI, typechecks y builds pasan. La migración se
 aplicó en desarrollo y producción; ambos dry-runs informan cero pendientes.
 F7 queda cerrada completa y F8 queda habilitada.
+
+
+### Cierre F8/P02 — 2026-09-20
+
+F8/P02 queda implementado end-to-end y Copiloto-first. El contrato y el motor distinguen autonomía graduada, requisito de aprobación, gate, autoridad, vigencia, revocación, escalado y estado de ejecución. Una aprobación no se convierte en ejecución: el resultado conserva `execution_authorized: false` y una acción material permanece bloqueada hasta que el runtime ejecutor de los siguientes bloques la consuma con sus propios guardrails.
+
+Incluye `packages/contracts/src/hitl-approval.ts`, tests TDD, runtime tenant-bound en `apps/api/src/hitl-approval-engine.ts`, tabla `hitl_approval_assessment_runs`, migración `20260920182834_f8_p02_hitl_approval_assessments.sql`, worker, workflow, API, panel `#insight-hitl-approval`, feed de `InsightsMenu` y bloque específico del Copiloto. La tabla tiene RLS para consultor/platform admin y la escritura queda en el worker service-role.
+
+Smoke real con `.env.local`: acción temporal material → `APPROVAL_REQUIRED/PENDING/BLOCKED`; tras aprobación → `AUTONOMY_AVAILABLE/APPROVED/BLOCKED`, freshness `CURRENT` y `execution_authorized=false`; cleanup a cero. Desarrollo y producción tienen la migración aplicada y ambos dry-runs quedan sin pendientes. El siguiente bloque habilitado es F8/P16.
+
+
+### Cierre F8/P16 — 2026-09-20
+
+F8/P16 queda implementado end-to-end y Copiloto-first. El sistema distingue completion de closure: lee la salida aprobada y las tareas realmente materializadas, detecta acciones activas, conserva el estado esperado frente al real, exige verificación/cleanup/riesgo/ownership explícitos y genera un paquete de outcome y learning handoff para Fase 9. `CLOSED` no se interpreta como éxito de negocio ni como causalidad demostrada.
+
+Incluye `packages/contracts/src/closure-handoff.ts`, tests TDD, `apps/api/src/closure-handoff-engine.ts`, tabla `execution_closure_runs`, migración `20260920191350_f8_p16_execution_closure_runs.sql`, worker, API, panel `#insight-closure-handoff`, feed de `InsightsMenu` y bloque del Copiloto. El runtime no ejecuta, no autoriza y no reescribe acciones; solo captura hechos observados y conserva unknowns/bloqueos.
+
+Smoke real con `.env.local`: `COMPLETED/gate=false/active_actions` antes de completar la tarea temporal y `CLOSED/gate=true/SUCCESS` después; cleanup a cero. Desarrollo y producción tienen la migración aplicada y ambos dry-runs quedan sin pendientes. La ola 1 de F8 (`8.02` + `8.16`) queda completa; el siguiente bloque técnico es `8.03`.
+
+### Cierre F8/P03 — 2026-09-20
+
+F8/P03 queda implementado end-to-end y Copiloto-first. El sistema transforma la recomendación comunicada en un plan verificable, con intención, alcance, acciones mínimas, dependencias, orden seguro, camino crítico, checkpoints, rollout, ventanas, budgets, criterios de parada y rollback. La validación separa `READY`, `READY_WITH_APPROVAL`, `BLOCKED` e `INVALID`; el plan no ejecuta herramientas, no crea tareas y conserva `execution_authorized: false`.
+
+Incluye `packages/contracts/src/execution-plan.ts`, tests TDD, `apps/api/src/execution-plan-engine.ts`, tabla `execution_plan_runs`, migración `20260920200847_f8_p03_execution_plans.sql`, worker, workflow, endpoint, panel `#insight-execution-plan`, feed de `InsightsMenu` y bloque del Copiloto. Smoke real con `.env.local` validó secuencia y camino crítico y dejó cleanup a cero; desarrollo y producción tienen la migración aplicada.
+
+El siguiente bloque técnico habilitado es F8/P04 (`8.04`); F8 sigue abierta.
+
+### Cierre F8/P04 — 2026-09-20
+
+F8/P04 queda implementado end-to-end y Copiloto-first. La IA ya separa plan válido de entorno preparado: evalúa precondiciones por dimensión, evidencia, autorización/freshness, estado del target, medición, recovery, ventana, freeze y concurrencia. Los unknowns críticos y la aprobación no lista bloquean; los degradados pueden exigir controles compensatorios y remediation. La readiness se revalida y no autoriza ejecución.
+
+Incluye `packages/contracts/src/readiness.ts`, tests TDD, `apps/api/src/readiness-engine.ts`, tabla `readiness_assessment_runs`, migración `20260920202151_f8_p04_readiness_assessments.sql`, worker, workflow, endpoint, panel `#insight-readiness`, feed de `InsightsMenu` y bloque del Copiloto. Smoke real con `.env.local` validó `BLOCKED`, remediation y `execution_authorized=false`; cleanup a cero. Desarrollo y producción tienen la migración aplicada.
+
+El siguiente bloque técnico habilitado es F8/P05 (`8.05`); F8 sigue abierta.
+### Cierre F8/P05 — 2026-09-20
+
+F8/P05 queda implementado end-to-end y Copiloto-first. El sistema construye y
+valida el action envelope efectivo: alcance, tipos y tools, objetos,
+tenant/entorno, magnitud, budgets, condiciones, invariantes, frescura y
+capacidad restante. Las acciones fuera de scope, prohibidas, destructivas,
+con otro tenant/entorno o con límites excedidos se bloquean; no existe
+ampliación silenciosa ni autoridad derivada de que un tool esté disponible.
+`execution_authorized` permanece en `false`.
+
+Incluye `packages/contracts/src/action-envelope.ts`, tests TDD,
+`apps/api/src/action-envelope-engine.ts`, tabla `action_envelope_runs`,
+migración `20260920203023_f8_p05_action_envelopes.sql`, worker, workflow,
+endpoint `GET /v1/consultant/action-envelope`, panel
+`#insight-action-envelope`, feed de `InsightsMenu` y bloque del Copiloto.
+
+Verificado con `.env.local`: envelope temporal dentro de scope → `INSIDE`,
+persistencia confirmada, `execution_authorized=false` y cleanup a cero. La
+migración se aplicó en desarrollo y producción. F8 permanece abierta; el
+siguiente bloque es F8/P06.
+### Cierre F8/P06–P15 y P17 — 2026-09-20
+
+F8 queda cerrada completa. La supervisión de ejecución ya no es un concepto
+único: se evalúan por separado capabilities y permisos, safe execution,
+monitoring, guardrails, lifecycle, incidentes, rollback/recovery, override
+humano, concurrencia, verificación y reporting. Cada etapa conserva checks,
+evidencia, bloqueos, warnings, siguientes acciones, tenant y trazabilidad.
+
+La implementación común usa `packages/contracts/src/execution-supervision.ts`,
+`apps/api/src/execution-supervision-engine.ts`, la tabla
+`execution_supervision_runs`, worker, workflow, endpoint, panel
+`#insight-execution-supervision`, feed de `InsightsMenu` y contexto del
+Copiloto. No ejecuta tools, no escala permisos, no hace retries destructivos y
+mantiene `execution_authorized=false`.
+
+Verificado con `.env.local`: las once etapas reales producen estados
+conservadores (`READY`, `CONDITIONAL` o `BLOCKED` según evidencia), todas las
+filas quedan sin autorización y el cleanup es cero. Migración aplicada en
+desarrollo y producción; F9 queda habilitada.
+### Cierre F8/P00–P17 — 2026-09-20
+
+Con las etapas raíz `UNIVERSAL` y `EXECUTABILITY_AUTHORIZATION`, F8 queda
+cerrada completa. El contrato universal separa decisión y ejecución, y la
+evaluación de ejecutabilidad distingue capacidad técnica, acceso, permisos,
+readiness, envelope, aprobación y autoridad empresarial. Ninguna de esas
+señales se convierte por sí sola en permiso de ejecutar.
+
+La migración `20260920204900_f8_p00_p01_stage_roots.sql` actualiza el catálogo
+de etapas y la pantalla/Copiloto muestran F8.00 y F8.01 junto a F8.02–F8.17.
+F9 queda habilitada.
+### Auditoría Copiloto-first F8/F9 — 2026-09-21
+
+El turno A09 compone ahora vista, historial, restricciones y snapshots F3–F9
+antes de llamar al modelo. Las tools siguen verificando cifras actuales con
+aislamiento tenant; los snapshots no conceden autoridad ni sustituyen
+`allowed_tools` o aprobación. La migración A09 v6/v10 deja esta política
+persistida, y los fallos de lectura se exponen como indisponibilidad. La UI de
+Diagnóstico y `InsightsMenu` enlazan las cards exactas F8/F9 separadas de las
+notificaciones.
+
+### Cierre F9 — aprendizaje continuo — 2026-09-21
+
+F9 queda cerrada en software para sus 40 bloques reales (`9.00`, `9.01`,
+`9.03–9.20`, `9.22–9.41`). `9.21` no se implementa porque el índice canónico
+lo declara inexistente. El contrato común de Experience/LearningAssessment y
+los perfiles runtime por bloque preservan contexto, ejecución, evidencia,
+atribución, outcome, confianza, límites y unknowns.
+
+La cadena real parte de `execution_closure_runs`/`agent_outputs` de F8,
+persiste `continuous_learning_runs`, se ejecuta mediante worker/workflow,
+aparece en API, Copiloto, panel de diagnóstico y `InsightsMenu`. No convierte
+éxito operacional en aprendizaje causal sin evidencia suficiente y distingue
+`NEUTRAL` de `INCONCLUSIVE`. Migración aplicada en desarrollo y producción.

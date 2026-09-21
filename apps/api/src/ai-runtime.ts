@@ -79,7 +79,10 @@ import {
   runWithRequestCorrelation,
 } from "./request-context.js";
 import { emailHtmlToText } from "./email-body-text.js";
-import { loadDecisionPlaybookContextBlocks } from "./decision-playbook-chat-context.js";
+import {
+  buildConsultantChatContextBlocks,
+  loadDecisionPlaybookContextBlocks,
+} from "./decision-playbook-chat-context.js";
 import { apiMetrics } from "./metrics.js";
 import {
   type AuthContext,
@@ -9790,33 +9793,22 @@ export async function runConsultantChatTurn(
       organizationId,
       null,
     );
-    const contextBlocks = [
-      ...(view
-        ? [
-            {
-              // El modelo ve lo mismo que el consultor tiene delante: modulo,
-              // tienda, periodo y cifras en pantalla. Es contexto para
-              // desambiguar la pregunta, no una fuente de datos: el prompt le
-              // obliga a volver a medir con tools antes de afirmar una cifra.
-              label:
-                "Vista actual del consultor en el panel (contexto de la pregunta, no es una fuente de datos verificada)",
-              data: view,
-            },
-          ]
-        : []),
-      ...(history.length > 0
-        ? [
-            {
-              label: "Conversacion previa (mas reciente al final)",
-              data: history.map((entry) => ({
-                role: entry.role,
-                content: entry.content,
-              })),
-            },
-          ]
-        : []),
-      ...constraintBlocks,
-    ];
+    const contextBlocks = buildConsultantChatContextBlocks({
+      // El modelo ve lo mismo que el consultor tiene delante: modulo, tienda,
+      // periodo y cifras en pantalla. Es contexto para desambiguar la
+      // pregunta, no una fuente de datos: el prompt le obliga a volver a
+      // medir con tools antes de afirmar una cifra.
+      view,
+      history,
+      constraintBlocks,
+      // F3-F9 son snapshots de evidencia, no tools ni instrucciones. Se
+      // cargan dentro del mismo turno para que el Copiloto pueda explicar el
+      // estado actual de cada fase sin reconstruirlo desde memoria.
+      decisionPlaybookBlocks: await loadDecisionPlaybookContextBlocks(
+        supabase,
+        organizationId,
+      ),
+    });
 
     const turn = await runAgentTurnWithFallback<ChatOutput>(
       env,

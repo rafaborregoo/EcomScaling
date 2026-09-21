@@ -1,0 +1,4 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readinessInputFromSources } from "./readiness-engine.js";
+test("F8.04 deriva readiness desde el plan y conserva approval/state", () => { const input = readinessInputFromSources("org", { id: "plan", plan_status: "READY_WITH_APPROVAL", plan_version: 1, input_envelope: { actions: [{ id: "action-1", current_state: "known", desired_state: "pilot" }], source_refs: ["plan"] }, result: { execution_intent: "prepare", objective: "pilot", source_refs: ["plan"], unresolved_unknowns: [] } }, { approval_gate: true, approval_state: "PENDING" }); assert.equal(input.action_id, "action-1"); assert.equal(input.approval.valid, false); assert.equal(input.conditions.some((condition) => condition.dimension === "AUTHORIZATION"), true); });
