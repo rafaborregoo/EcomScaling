@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import {
   mergeInsightSpots,
@@ -13,11 +13,13 @@ import {
 type InsightsContextValue = {
   spots: InsightSpot[];
   loading: boolean;
+  registerLocalInsights: (sourceId: string, spots: InsightSpot[]) => void;
 };
 
 const InsightsContext = createContext<InsightsContextValue>({
   spots: [],
   loading: false,
+  registerLocalInsights: () => undefined,
 });
 
 export function InsightsProvider({
@@ -29,6 +31,7 @@ export function InsightsProvider({
 }) {
   const [assessments, setAssessments] = useState<PlaybookInsightAssessment[]>([]);
   const [loading, setLoading] = useState(false);
+  const [localInsights, setLocalInsights] = useState<Record<string, InsightSpot[]>>({});
 
   useEffect(() => {
     if (!scope.isConsultant || !scope.organizationId) {
@@ -60,13 +63,29 @@ export function InsightsProvider({
     };
   }, [scope.isConsultant, scope.organizationId]);
 
-  const spots = useMemo(
-    () => mergeInsightSpots(scope, assessments),
-    [assessments, scope.connectionId, scope.isConsultant, scope.organizationId],
-  );
+  const registerLocalInsights = useCallback((sourceId: string, nextSpots: InsightSpot[]) => {
+    setLocalInsights((current) => {
+      if (nextSpots.length === 0) {
+        if (!(sourceId in current)) return current;
+        const next = { ...current };
+        delete next[sourceId];
+        return next;
+      }
+      return { ...current, [sourceId]: nextSpots };
+    });
+  }, []);
+
+  const spots = useMemo(() => {
+    const baseSpots = mergeInsightSpots(scope, assessments);
+    const localSpots = Object.values(localInsights).flat();
+    return [
+      ...baseSpots,
+      ...localSpots.filter((spot) => !baseSpots.some((item) => item.href === spot.href)),
+    ];
+  }, [assessments, localInsights, scope.connectionId, scope.isConsultant, scope.organizationId]);
 
   return (
-    <InsightsContext.Provider value={{ spots, loading }}>
+    <InsightsContext.Provider value={{ spots, loading, registerLocalInsights }}>
       {children}
     </InsightsContext.Provider>
   );

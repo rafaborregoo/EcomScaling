@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useActiveConnection } from "@/components/active-connection";
+import { useInsights } from "@/components/insights-context";
+import { insightSpotsFromFindingAreas } from "@/lib/insights-registry";
 import {
   Badge,
   Banner,
@@ -481,6 +483,7 @@ export function AiDiagnosticSection({
   areas?: FindingAreas;
 }) {
   const { connectionId } = useActiveConnection();
+  const { registerLocalInsights } = useInsights();
   const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -489,6 +492,14 @@ export function AiDiagnosticSection({
   const [isCreatingTasks, setIsCreatingTasks] = useState(false);
   const [tasksFeedback, setTasksFeedback] = useState<string | null>(null);
   const [answerExpanded, setAnswerExpanded] = useState(false);
+
+  useEffect(() => {
+    registerLocalInsights(
+      getPath,
+      insightSpotsFromFindingAreas(diagnostic?.output.findings ?? [], areas ?? {}),
+    );
+    return () => registerLocalInsights(getPath, []);
+  }, [areas, diagnostic?.output.findings, getPath, registerLocalInsights]);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
   const [observationsExpanded, setObservationsExpanded] = useState(false);
 

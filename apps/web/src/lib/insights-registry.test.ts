@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  insightSpotsFromFindingAreas,
   insightSpotForAnchor,
   insightSpotsFromAiAssessments,
   insightSpotsFromPlaybookAssessments,
@@ -52,6 +53,35 @@ test("el mismo destino semantico sirve para el menu y para el icono de la card",
   const spot = insightSpotForAnchor(spots, "insight-d12-adversarial");
   assert.equal(spot?.href, "/shopify/diagnostico#insight-d12-adversarial");
   assert.equal(spot?.insights[0]?.title, "Confusores: REASSESS_DIAGNOSIS");
+});
+
+test("los hallazgos de los agentes colocan el icono en cada dato clave que citan", () => {
+  const spots = insightSpotsFromFindingAreas(
+    [
+      {
+        title: "Las ventas caen",
+        severity: "high",
+        evidence: "Ventas netas -18% frente al periodo anterior.",
+        area: "ventas",
+      },
+      {
+        title: "Falta contexto",
+        severity: "medium",
+        evidence: "No hay cohortes maduras.",
+        area: "cohortes",
+      },
+    ],
+    {
+      ventas: { label: "Ver las ventas", href: "#shopify-ventas" },
+      cohortes: { label: "Ver las cohortes", href: "#shopify-cohortes" },
+    },
+  );
+
+  assert.deepEqual(spots.map((spot) => spot.href), [
+    "#shopify-ventas",
+    "#shopify-cohortes",
+  ]);
+  assert.equal(spots[0]?.insights[0]?.severity, "high");
 });
 
 test("el feed F3 no mezcla una revisión de otra tienda", () => {

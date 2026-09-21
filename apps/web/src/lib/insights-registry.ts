@@ -47,6 +47,55 @@ export type InsightSpot = {
   insights: MetricInsight[];
 };
 
+export type InsightFinding = {
+  title: string;
+  severity: MetricInsight["severity"];
+  evidence: string;
+  area?: string;
+};
+
+export type InsightAreaTarget = {
+  label: string;
+  href: string;
+};
+
+/**
+ * Proyecta los hallazgos de los agentes operativos sobre las cards de datos
+ * que el propio agente citó. El mapa de areas lo aporta la pantalla, nunca el
+ * modelo, para que una salida no pueda inventar una ruta.
+ */
+export function insightSpotsFromFindingAreas(
+  findings: InsightFinding[],
+  areas: Record<string, InsightAreaTarget>,
+): InsightSpot[] {
+  const grouped = new Map<string, { target: InsightAreaTarget; insights: MetricInsight[] }>();
+
+  for (const [index, finding] of findings.entries()) {
+    const target = finding.area ? areas[finding.area] : undefined;
+    if (!target) continue;
+    const existing = grouped.get(target.href) ?? { target, insights: [] };
+    existing.insights.push({
+      id: `finding-${target.href}-${index}`,
+      title: finding.title,
+      severity: finding.severity,
+      evidence: finding.evidence,
+      steps: [`Revisar ${target.label.toLowerCase()}.`],
+      needsTask: finding.severity === "medium" || finding.severity === "high" || finding.severity === "critical",
+    });
+    grouped.set(target.href, existing);
+  }
+
+  return [...grouped.entries()].map(([href, value]) => ({
+    id: `finding-${href.replace(/[^a-z0-9]+/gi, "-")}`,
+    label: value.target.label,
+    href,
+    location: value.target.label,
+    audience: "both",
+    storeId: null,
+    insights: value.insights,
+  }));
+}
+
 /**
  * Que esta mirando el usuario ahora mismo. Sin esto, el mismo hallazgo salia
  * en el ROAS de todas las tiendas -- que es justo lo contrario de lo que dice

@@ -256,6 +256,9 @@ tools ni permisos de escritura; solo guian al consultor hasta la evidencia.
 La misma proyeccion alimenta los iconos de IA de las cards: `InsightsProvider`
 carga los assessments una vez, y cualquier `Card` con ancla `insight-*` muestra
 el detalle y el enlace al destino solo cuando existe evidencia real.
+Los hallazgos operativos con `finding.area` se proyectan igualmente sobre las
+cards de datos clave (ventas, clientes, cohortes, embudo, adquisición, paid
+media, Klaviyo, operativa y medición), no solo sobre ROAS.
 
 ## Bloqueos de contenido
 

@@ -69,6 +69,10 @@ con `id="insight-*"` y el Copiloto. `Card` muestra el icono de IA únicamente
 cuando existe evidencia para ese ancla; `MetricInsights` ofrece el enlace
 "Ver evidencia" al mismo destino. Si no hay assessment, no se inventa una
 alerta ni una recomendación visual.
+Los diagnósticos operativos también publican sus `finding.area` sobre este
+mismo feed: ventas, clientes, cohortes, embudo, adquisición, paid media,
+Klaviyo, operativa y medición quedan enlazables cuando el agente los cita con
+evidencia. Así el icono no depende de una métrica aislada como ROAS.
 
 ## Bloques reales
 
