@@ -32,6 +32,16 @@ export function isPast(value: string | null | undefined): boolean {
   return !Number.isNaN(parsed) && parsed < Date.now();
 }
 
+/** `value` cae dentro de los próximos `days` días (incluye lo ya vencido). */
+export function isWithinNextDays(
+  value: string | null | undefined,
+  days: number,
+): boolean {
+  if (!value) return false;
+  const parsed = Date.parse(value);
+  return !Number.isNaN(parsed) && parsed <= Date.now() + days * DAY_MS;
+}
+
 /** `value` cae dentro de los últimos `days` días. */
 export function isWithinLastDays(
   value: string | null | undefined,

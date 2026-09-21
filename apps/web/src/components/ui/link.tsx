@@ -52,18 +52,30 @@ export function ButtonLink({
   href,
   children,
   variant = "primary",
+  size = "md",
   className,
   target,
   rel,
   download,
+  onClick,
+  "aria-label": ariaLabel,
 }: {
   href: string;
   children?: ReactNode;
-  variant?: "primary" | "secondary";
+  // `ghost` para las acciones secundarias de una fila de lista: el mismo
+  // vocabulario de jerarquia que Button (ADR-0020), para no tener una escala
+  // de enlaces y otra de botones.
+  variant?: "primary" | "secondary" | "ghost";
+  size?: "sm" | "md";
   className?: string;
   target?: string;
   rel?: string;
   download?: string | boolean;
+  // Igual que en `Link`: React Aria solo expone onPress, y los call sites lo
+  // usan para efectos secundarios (invalidar cache al cambiar de cliente) sin
+  // leer el evento.
+  onClick?: () => void;
+  "aria-label"?: string;
 }) {
   return (
     <HeroLink
@@ -71,11 +83,18 @@ export function ButtonLink({
       target={target}
       rel={rel}
       download={download}
+      onPress={onClick}
+      aria-label={ariaLabel}
       className={cn(
-        "inline-flex min-h-9 w-fit items-center rounded-md border px-3 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2",
+        "inline-flex w-fit items-center rounded-md border font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2",
+        size === "sm"
+          ? "min-h-8 px-3 py-1 text-sm pointer-coarse:min-h-11"
+          : "min-h-9 px-3 py-2 text-sm pointer-coarse:min-h-11",
         variant === "primary"
           ? "border-accent bg-accent text-accent-foreground hover:bg-accent-hover"
-          : "border-separator bg-surface text-foreground hover:border-accent hover:text-accent",
+          : variant === "ghost"
+            ? "border-transparent bg-transparent text-muted hover:text-accent"
+            : "border-separator bg-surface text-foreground hover:border-accent hover:text-accent",
         className,
       )}
     >

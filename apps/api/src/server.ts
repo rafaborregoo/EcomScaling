@@ -160,6 +160,10 @@ import {
   updateOrganization,
 } from "./consultant.js";
 import {
+  getDailyWorkbench,
+  markClientReviewed,
+} from "./consultant-workbench-api.js";
+import {
   listClientMessageThreads,
   listThreadMessages,
   postThreadMessage,
@@ -1471,6 +1475,69 @@ export async function buildApp(): Promise<FastifyInstance> {
     async (request, reply) => {
       const result = await redeemClientInvite(env, request.body ?? {});
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // Mesa de trabajo diaria: la lectura unica desde la que el consultor decide
+  // donde intervenir. Con `organizationId` devuelve ademas la ficha de ese
+  // cliente (y 403 si no es de su cartera). Solo lee: no dispara agentes ni
+  // cambia estados.
+  app.get<{ Querystring: { days?: string; organizationId?: string } }>(
+    "/v1/consultant/daily-workbench",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await getDailyWorkbench(env, authorization, auth.context, {
+        days: Number(request.query.days ?? "30"),
+        organizationId: request.query.organizationId,
+      });
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
+      return result.data;
+    },
+  );
+
+  // "Marcar como revisado": accion explicita del consultor, nunca un efecto de
+  // abrir la ficha. Acota el "desde mi ultima revision" de la mesa.
+  app.post<{
+    Params: { organizationId: string };
+    Body: { note?: string };
+  }>(
+    "/v1/consultant/organizations/:organizationId/review",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+
+      if (isAuthContextError(auth)) {
+        return sendAuthFailure(reply, auth.error);
+      }
+
+      const authorization = request.headers.authorization;
+      if (!authorization) {
+        return reply.code(401).send({ error: "missing_bearer_token" });
+      }
+
+      const result = await markClientReviewed(env, authorization, auth.context, {
+        organizationId: request.params.organizationId,
+        note: request.body?.note,
+      });
+
+      if (isServiceFailure(result)) {
+        return sendServiceFailure(reply, result);
+      }
+
       return result.data;
     },
   );

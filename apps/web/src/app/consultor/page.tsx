@@ -8,6 +8,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import { useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
@@ -22,10 +23,10 @@ import {
   ButtonLink,
   Card,
   Checkbox,
+  CollapsibleSection,
   Dropdown,
   EmptyState,
   ErrorBlock,
-  EYEBROW,
   Field,
   Heading,
   ArchiveIcon,
@@ -43,9 +44,18 @@ import {
   Select,
   SettingsIcon,
   toast,
-  type Tone,
 } from "@/components/ui";
 import { ConfirmDangerDialog } from "@/components/confirm-danger-dialog";
+import {
+  ClientDesk,
+  DailyActionInbox,
+  DegradedSources,
+  PortfolioHealthBoard,
+  PortfolioPulse,
+  UpcomingWork,
+  WINDOW_OPTIONS,
+  type DailyWorkbench,
+} from "./workbench";
 
 // Toda la fila del cliente es un objetivo de clic para plegar/desplegar sus
 // tiendas; los controles de dentro (links, menu) paran la propagacion para no
@@ -164,129 +174,6 @@ function attentionBadge(score: number) {
     return { label: "Vigilar", tone: "neutral" as const };
   }
   return { label: "Al día", tone: "success" as const };
-}
-
-// Traduce attention.score (severidad + antiguedad + tareas vencidas, ver
-// consultant.ts) al mismo orden de revision que ya documenta
-// CHECKLIST-SALUD-CLIENTE.md: score, luego alertas criticas siempre, luego
-// antiguedad, luego tareas vencidas. Aqui solo se explica en una linea por
-// que un cliente esta donde esta, sin repetir el checklist a mano cada lunes.
-function attentionReasons(
-  attention: ConsultantOrganization["attention"],
-): string {
-  const parts: string[] = [];
-  if (attention.critical_alerts > 0) {
-    parts.push(`${attention.critical_alerts} alerta(s) critica(s)`);
-  }
-  if (attention.high_alerts > 0) {
-    parts.push(`${attention.high_alerts} alerta(s) alta(s)`);
-  }
-  if (attention.oldest_alert_days >= 7) {
-    parts.push(
-      `la mas antigua lleva ${attention.oldest_alert_days} dias abierta`,
-    );
-  }
-  if (attention.overdue_tasks > 0) {
-    parts.push(`${attention.overdue_tasks} tarea(s) vencida(s)`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : "Revision pendiente";
-}
-
-/**
- * Convierte la lista ya ordenada por `attention.score` en la vista que pide
- * el checklist semanal: en cuanto se abre `/consultor` un lunes, por donde
- * empezar y por que, sin escanear la tabla entera fila a fila. Los mismos
- * tres tramos que ya usa `attentionBadge` (Urgente/Revisar/Vigilar) se usan
- * aqui para agrupar, no se inventa una escala nueva.
- */
-function PriorityQueue({
-  organizations,
-  onSelect,
-}: {
-  organizations: ConsultantOrganization[];
-  onSelect: (organizationId: string) => void;
-}) {
-  const urgent = organizations.filter((org) => org.attention.score >= 15);
-  const review = organizations.filter(
-    (org) => org.attention.score >= 5 && org.attention.score < 15,
-  );
-  const watch = organizations.filter(
-    (org) => org.attention.score > 0 && org.attention.score < 5,
-  );
-  const needsAttentionCount = urgent.length + review.length + watch.length;
-  const totalCriticalAlerts = organizations.reduce(
-    (sum, org) => sum + org.attention.critical_alerts,
-    0,
-  );
-  const totalOverdueTasks = organizations.reduce(
-    (sum, org) => sum + org.attention.overdue_tasks,
-    0,
-  );
-
-  const tiers: Array<{
-    key: string;
-    label: string;
-    tone: Tone;
-    items: ConsultantOrganization[];
-  }> = [
-    { key: "urgent", label: "Urgente hoy", tone: "danger", items: urgent },
-    {
-      key: "review",
-      label: "Revisar esta semana",
-      tone: "warn",
-      items: review,
-    },
-    { key: "watch", label: "Vigilar", tone: "neutral", items: watch },
-  ];
-
-  return (
-    <Card
-      title="Por dónde empezar esta semana"
-      description={`${organizations.length} cliente(s) · ${needsAttentionCount} necesitan atención · ${totalCriticalAlerts} alerta(s) crítica(s) · ${totalOverdueTasks} tarea(s) vencida(s)`}
-    >
-      {needsAttentionCount === 0 ? (
-        <p className="mt-4 text-[13px] text-success">
-          Todos al día. Buen momento para avanzar el plan estratégico de cada
-          cliente.
-        </p>
-      ) : (
-        <div className="mt-4 space-y-4">
-          {tiers
-            .filter((tier) => tier.items.length > 0)
-            .map((tier) => (
-              <div key={tier.key}>
-                <p className={EYEBROW}>
-                  {tier.label} ({tier.items.length})
-                </p>
-                <ul className="mt-2 space-y-2">
-                  {tier.items.map((organization) => (
-                    <li
-                      key={organization.id}
-                      className="flex items-start justify-between gap-3 border-b border-separator pb-2"
-                    >
-                      <div className="min-w-0">
-                        <Link
-                          href="/dashboard"
-                          onClick={() => onSelect(organization.id)}
-                        >
-                          {organization.display_name}
-                        </Link>
-                        <p className="mt-1 text-[13px] text-muted">
-                          {attentionReasons(organization.attention)}
-                        </p>
-                      </div>
-                      <Badge tone={tier.tone}>
-                        {organization.attention.score}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-        </div>
-      )}
-    </Card>
-  );
 }
 
 function AccessPanel({ organizationId }: { organizationId: string }) {
@@ -445,7 +332,7 @@ function AccessPanel({ organizationId }: { organizationId: string }) {
             gestionan fuera de este flujo.
           </p>
         </div>
-        <span className={EYEBROW}>
+        <span className="text-xs font-medium text-muted">
           {access.members.filter((member) => member.is_active).length} miembros
           ·{" "}
           {
@@ -1032,7 +919,7 @@ function ClientActionsMenu({
       {confirm === "delete" ? (
         <ConfirmDangerDialog
           title={`Eliminar "${organization.display_name}" para siempre`}
-          note="Borra TODO al instante: datos de Shopify/Meta/Klaviyo, tareas, planes, agentes, miembros y suscripción. No hay periodo de gracia ni vuelta atrás."
+          note="Elimina de forma permanente los datos de Shopify, Meta y Klaviyo, además de tareas, planes, agentes, miembros y suscripción. No hay periodo de gracia ni vuelta atrás."
           confirmPhrase={organization.display_name}
           actionLabel="Eliminar definitivamente"
           isBusy={busy}
@@ -1057,7 +944,6 @@ type CreatedInvite = {
 function OwnStoreShortcut() {
   return (
     <Card
-      kicker="Tu negocio"
       title="Añadir mi tienda"
       description="Crea una organización propia y conecta tus canales sin mezclarla con las organizaciones de tus clientes."
     >
@@ -1105,7 +991,6 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
   if (created) {
     return (
       <Card
-        kicker="Código generado"
         title={created.invite.code}
         description="Compártelo con tu cliente. Lo introduce en /acceso, crea su cuenta y su organización queda en tu cartera."
       >
@@ -1147,7 +1032,6 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
   if (!open) {
     return (
       <Card
-        kicker="Alta"
         title="Invitar cliente"
         description="Genera un código para que tu cliente cree su cuenta y quede en tu cartera."
       >
@@ -1160,7 +1044,6 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
 
   return (
     <Card
-      kicker="Alta"
       title="Invitar cliente"
       description="El código no caduca hasta que se use o pasen 7 días. Tu cliente crea su cuenta y su organización queda vinculada a tu cartera."
     >
@@ -1187,60 +1070,30 @@ function NewClientForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-function ConsultantPanel({
+/**
+ * Gestion de cartera: alta de cliente, tienda propia, catalogo de objetivos y
+ * el mantenimiento de cada organizacion (editar, pausar, desvincular, borrar,
+ * tiendas y accesos). Sigue estando, pero debajo del trabajo del dia: era lo
+ * primero que se veia al abrir `/consultor` y no es lo primero que se hace.
+ */
+function PortfolioManagement({
+  organizations,
   isPlatformAdmin,
   canManageStores,
+  onChanged,
 }: {
+  organizations: ConsultantOrganization[];
   isPlatformAdmin: boolean;
   canManageStores: boolean;
+  onChanged: () => void;
 }) {
   const { setOrganizationId } = useActiveOrganization();
-  const organizationsQuery = useCachedQuery<{
-    organizations?: ConsultantOrganization[];
-  }>("/v1/consultant/organizations");
-  const organizations = (organizationsQuery.data?.organizations ?? []).filter(
-    (organization) => !organization.is_own_store,
-  );
-  const error = organizationsQuery.error
-    ? "No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo."
-    : null;
-  const isLoading = organizationsQuery.isLoading;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   // FE-07: sin buscador, encontrar un cliente concreto entre muchos exigia
   // escanear la tabla entera a ojo -- filtro por nombre o slug, en el propio
   // navegador sobre la lista ya cargada (no una request nueva).
   const [searchQuery, setSearchQuery] = useState("");
-
-  const load = useCallback(() => {
-    organizationsQuery.reload();
-  }, [organizationsQuery.reload]);
-
-  if (isLoading) {
-    return <AsyncState status="loading" loadingLabel="Cargando clientes..." />;
-  }
-
-  if (error) {
-    return <AsyncState status="error" error={error} />;
-  }
-
-  // Cartera vacia: el alta tiene que seguir en pantalla. Devolver solo el
-  // EmptyState dejaba al consultor recien creado sin forma de crear su primer
-  // cliente: para tener clientes hacia falta ya tener clientes.
-  if (organizations.length === 0) {
-    return (
-      <div className="portal-page space-y-5 sm:space-y-6">
-        <div className="grid gap-5 lg:grid-cols-2">
-          <NewClientForm onCreated={() => void load()} />
-          <OwnStoreShortcut />
-        </div>
-        <EmptyState
-          title="Aún no tienes clientes"
-          hint="Da de alta el primero aquí arriba, o espera a que te asignen una organización como consultor."
-        />
-      </div>
-    );
-  }
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredOrganizations = normalizedQuery
@@ -1252,20 +1105,17 @@ function ConsultantPanel({
     : organizations;
 
   return (
-    <div className="portal-page space-y-5 sm:space-y-6">
-      <div className="grid gap-5 lg:grid-cols-2">
-        <NewClientForm onCreated={() => void load()} />
+    <div className="space-y-6">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <NewClientForm onCreated={onChanged} />
         <OwnStoreShortcut />
       </div>
 
-      <PriorityQueue
-        organizations={organizations}
-        onSelect={setOrganizationId}
-      />
+      <ObjectiveTypesCard organizations={organizations} />
 
       <Card
-        title="Buscar cliente"
-        description="Filtra tu cartera por nombre o slug para abrir su panel operativo."
+        title="Clientes asignados"
+        description="Mantenimiento de la cartera: datos de la organización, tiendas y accesos."
       >
         <Field label="Buscar cliente">
           <Input
@@ -1276,16 +1126,8 @@ function ConsultantPanel({
             className="w-full max-w-sm"
           />
         </Field>
-      </Card>
-
-      <ObjectiveTypesCard organizations={organizations} />
-
-      <Card
-        title="Clientes asignados"
-        description="Organizaciones disponibles para seguimiento y soporte."
-      >
         {filteredOrganizations.length === 0 ? (
-          <p className="text-sm text-muted">
+          <p className="mt-4 text-sm text-muted">
             Sin resultados para &quot;{searchQuery}&quot;.
           </p>
         ) : (
@@ -1309,7 +1151,7 @@ function ConsultantPanel({
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span {...stopToggle}>
                           <Link
-                            href="/dashboard"
+                            href={`/consultor?organizationId=${row.id}`}
                             onClick={() => setOrganizationId(row.id)}
                             className="font-medium no-underline hover:text-accent hover:no-underline"
                           >
@@ -1377,13 +1219,13 @@ function ConsultantPanel({
                                 current === row.id ? null : row.id,
                               );
                             }}
-                            onChanged={() => void load()}
+                            onChanged={onChanged}
                             onRemoved={() => {
                               setExpandedId((id) =>
                                 id === row.id ? null : id,
                               );
                               setEditingId((id) => (id === row.id ? null : id));
-                              void load();
+                              onChanged();
                             }}
                           />
                         </span>
@@ -1406,7 +1248,7 @@ function ConsultantPanel({
                         onEditingChange={(editing) =>
                           setEditingId(editing ? row.id : null)
                         }
-                        onOrganizationUpdated={() => void load()}
+                        onOrganizationUpdated={onChanged}
                       />
                     </div>
                   ) : null}
@@ -1416,6 +1258,249 @@ function ConsultantPanel({
           </List>
         )}
       </Card>
+    </div>
+  );
+}
+
+/** Cabecera de la jornada: fecha, periodo y el recuento de lo que hay en cola. */
+function WorkbenchHeader({
+  workbench,
+  windowDays,
+  onWindowChange,
+}: {
+  workbench: DailyWorkbench | undefined;
+  windowDays: number;
+  onWindowChange: (days: number) => void;
+}) {
+  const today = new Date().toLocaleDateString("es-ES", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  const summary = workbench?.summary;
+  const counters = summary
+    ? [
+        `${summary.clients} ${summary.clients === 1 ? "cliente" : "clientes"}`,
+        `${summary.urgent_clients} con algo urgente`,
+        `${summary.overdue_tasks} ${summary.overdue_tasks === 1 ? "tarea vencida" : "tareas vencidas"}`,
+        `${summary.pending_call_summaries} ${summary.pending_call_summaries === 1 ? "resumen por aprobar" : "resúmenes por aprobar"}`,
+        `${summary.pending_ai_proposals} ${summary.pending_ai_proposals === 1 ? "propuesta de IA" : "propuestas de IA"}`,
+        `${summary.unread_threads} ${summary.unread_threads === 1 ? "hilo sin leer" : "hilos sin leer"}`,
+      ]
+    : [];
+
+  return (
+    <Card
+      kicker={today}
+      title="Tu mesa de hoy"
+      description={
+        counters.length > 0
+          ? counters.join(" · ")
+          : "Reuniendo alertas, tareas, llamadas, mensajes e integraciones de tu cartera…"
+      }
+      actions={
+        <Field label="Periodo de las cifras">
+          <Select
+            value={String(windowDays)}
+            onChange={(value) => onWindowChange(Number(value))}
+            options={WINDOW_OPTIONS.map((days) => ({
+              value: String(days),
+              label: `Últimos ${days} días`,
+            }))}
+          />
+        </Field>
+      }
+    />
+  );
+}
+
+function ConsultantPanel({
+  isPlatformAdmin,
+  canManageStores,
+}: {
+  isPlatformAdmin: boolean;
+  canManageStores: boolean;
+}) {
+  const { setOrganizationId } = useActiveOrganization();
+  // El nivel lo decide la URL, no la organizacion activa guardada: entrar por
+  // el nav a /consultor tiene que dar la cartera aunque la ultima vez se
+  // estuviera dentro de un cliente (R-009, la URL es la fuente primaria).
+  const focusId = useSearchParams().get("organizationId") ?? "";
+  const [windowDays, setWindowDays] = useState(30);
+
+  const organizationsQuery = useCachedQuery<{
+    organizations?: ConsultantOrganization[];
+  }>("/v1/consultant/organizations");
+  const organizations = (organizationsQuery.data?.organizations ?? []).filter(
+    (organization) => !organization.is_own_store,
+  );
+
+  // Un solo contrato para las dos vistas: sin `organizationId` es la cartera,
+  // con el es la mesa de ese cliente (y el servidor responde 403 si no es
+  // suyo -- aqui no se filtra nada a mano).
+  const workbenchQuery = useCachedQuery<DailyWorkbench>(
+    `/v1/consultant/daily-workbench?days=${windowDays}${
+      focusId ? `&organizationId=${focusId}` : ""
+    }`,
+  );
+  const workbench = workbenchQuery.data;
+
+  // El pulso de cartera se apoya en el resumen que ya existe; solo se pide en
+  // la vista de cartera, no dentro de la ficha de un cliente.
+  const overviewQuery = useCachedQuery<{
+    business?: {
+      net_sales: number;
+      orders: number;
+      meta_spend: number;
+      roas: number | null;
+      prev_net_sales: number;
+      prev_orders: number;
+      prev_meta_spend: number;
+    };
+  }>(focusId ? null : `/v1/consultant/overview?days=${windowDays}`);
+
+  const reload = useCallback(() => {
+    organizationsQuery.reload();
+    workbenchQuery.reload();
+    overviewQuery.reload();
+  }, [organizationsQuery.reload, workbenchQuery.reload, overviewQuery.reload]);
+
+  const backToPortfolio = useCallback(() => {
+    setOrganizationId("");
+  }, [setOrganizationId]);
+
+  // "Sin permiso para un cliente": el endpoint decide, la UI vuelve a cartera.
+  useEffect(() => {
+    if (workbenchQuery.error === "organization_access_denied") {
+      setOrganizationId("");
+    }
+  }, [workbenchQuery.error, setOrganizationId]);
+
+  if (organizationsQuery.isLoading) {
+    return <AsyncState status="loading" loadingLabel="Cargando tu mesa..." />;
+  }
+
+  if (organizationsQuery.error) {
+    return (
+      <AsyncState
+        status="error"
+        error="No se pudieron cargar los clientes. Revisa la conexión e inténtalo de nuevo."
+      />
+    );
+  }
+
+  // Cartera vacia: el alta tiene que seguir en pantalla. Devolver solo el
+  // EmptyState dejaba al consultor recien creado sin forma de crear su primer
+  // cliente: para tener clientes hacia falta ya tener clientes.
+  if (organizations.length === 0) {
+    return (
+      <div className="portal-page space-y-6">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <NewClientForm onCreated={reload} />
+          <OwnStoreShortcut />
+        </div>
+        <EmptyState
+          title="Aún no tienes clientes"
+          hint="Da de alta el primero aquí arriba, o espera a que te asignen una organización como consultor."
+        />
+      </div>
+    );
+  }
+
+  const client = workbench?.client ?? null;
+  const focusedOrganization =
+    organizations.find((organization) => organization.id === focusId) ??
+    null;
+
+  // --- Mesa de un cliente --------------------------------------------------
+  if (focusId && client && workbench) {
+    return (
+      <div className="portal-page space-y-6">
+        <DegradedSources sources={workbench.sources} onRetry={reload} />
+        <ClientDesk
+          client={client}
+          actions={workbench.actions}
+          upcoming={workbench.upcoming}
+          onBack={backToPortfolio}
+          onReviewed={reload}
+          administration={
+            focusedOrganization ? (
+              <div className="space-y-6">
+                <StoresPanel
+                  organization={focusedOrganization}
+                  isPlatformAdmin={isPlatformAdmin}
+                  canManageStores={canManageStores}
+                  isEditing={false}
+                  onEditingChange={() => {}}
+                  onOrganizationUpdated={reload}
+                />
+                {canManageStores ? (
+                  <AccessPanel organizationId={focusedOrganization.id} />
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-[13px] text-muted">
+                Esta organización es una tienda propia; se administra desde
+                Integraciones.
+              </p>
+            )
+          }
+        />
+      </div>
+    );
+  }
+
+  if (focusId && workbenchQuery.isLoading) {
+    return <AsyncState status="loading" loadingLabel="Abriendo el cliente..." />;
+  }
+
+  // --- Cartera -------------------------------------------------------------
+  return (
+    <div className="portal-page space-y-6">
+      <WorkbenchHeader
+        workbench={workbench}
+        windowDays={windowDays}
+        onWindowChange={setWindowDays}
+      />
+
+      {workbenchQuery.error ? (
+        <ErrorBlock>
+          No se pudo cargar la cola de trabajo. Revisa la conexión e inténtalo
+          de nuevo.
+        </ErrorBlock>
+      ) : null}
+
+      {workbench ? (
+        <>
+          <DegradedSources sources={workbench.sources} onRetry={reload} />
+          <DailyActionInbox
+            actions={workbench.actions}
+            emptyHint="Ninguna alerta, tarea, llamada, integración ni hito pide decisión. Buen momento para avanzar el plan estratégico de un cliente."
+          />
+          <PortfolioHealthBoard
+            rows={workbench.portfolio}
+            onOpen={setOrganizationId}
+          />
+          <UpcomingWork items={workbench.upcoming} />
+        </>
+      ) : workbenchQuery.isLoading ? (
+        <LoadingBlock label="Reuniendo el trabajo del día..." />
+      ) : null}
+
+      <PortfolioPulse
+        business={overviewQuery.data?.business ?? null}
+        windowDays={windowDays}
+        isLoading={overviewQuery.isLoading}
+      />
+
+      <CollapsibleSection title="Gestión de cartera">
+        <PortfolioManagement
+          organizations={organizations}
+          isPlatformAdmin={isPlatformAdmin}
+          canManageStores={canManageStores}
+          onChanged={reload}
+        />
+      </CollapsibleSection>
     </div>
   );
 }
@@ -1617,7 +1702,7 @@ function ObjectiveTypesCard({
                   </div>
                 ) : null}
 
-                <p className={EYEBROW}>
+                <p className="text-sm font-semibold text-foreground">
                   Estándar de plataforma (siempre activos)
                 </p>
                 <ul className="mt-1 flex flex-wrap gap-1.5">
@@ -1628,7 +1713,9 @@ function ObjectiveTypesCard({
                   ))}
                 </ul>
 
-                <p className={`${EYEBROW} mt-4`}>Tus tipos propios</p>
+                <p className="mt-4 text-sm font-semibold text-foreground">
+                  Tus tipos propios
+                </p>
                 {definitions === null ? (
                   <p className="mt-1 text-sm text-muted">Cargando...</p>
                 ) : definitions.length === 0 ? (
@@ -1692,7 +1779,9 @@ function ObjectiveTypesCard({
                   onSubmit={createDefinition}
                   className="mt-4 space-y-3 border-t border-separator pt-4"
                 >
-                  <p className={EYEBROW}>Nuevo tipo de objetivo</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    Nuevo tipo de objetivo
+                  </p>
                   <Field label="Nombre">
                     <Input
                       className="mt-1"
