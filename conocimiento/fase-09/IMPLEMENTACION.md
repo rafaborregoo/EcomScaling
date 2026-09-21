@@ -57,6 +57,11 @@ promociona conocimiento automáticamente y no reescribe cierres históricos.
   como no disponible en vez de presentarla como una organizaciÃ³n sin datos.
   `InsightsMenu` conserva el acceso separado de notificaciones y navega a las
   cards exactas de F8 y F9.
+- El contrato A09 admite `ui_actions` semÃ¡nticas (`open_insight`) para ofrecer
+  "Ver evidencia", "Abrir card" o "Revisar datos faltantes". El modelo solo
+  propone un `insight_slug`; el backend lo filtra contra el catÃ¡logo compartido
+  y la web resuelve la ruta real desde `InsightsMenu`. Las acciones se guardan
+  en `ai_messages.metadata`, por lo que sobreviven al recargar la conversaciÃ³n.
 
 ## Bloques reales
 

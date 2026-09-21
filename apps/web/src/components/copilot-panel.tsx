@@ -12,6 +12,7 @@ import {
   Drawer,
   Field,
   Input,
+  Link,
   PlusIcon,
   Select,
   SparklesIcon,
@@ -19,6 +20,11 @@ import {
 import type { ModuleSummaryData } from "@/components/module-summary";
 import type { CopilotAsk } from "@/components/copilot-ask";
 import { CopilotSaldo, type CopilotBalance } from "@/components/copilot-saldo";
+import {
+  resolveCopilotUiAction,
+  type CopilotUiAction,
+  type ResolvedCopilotUiAction,
+} from "@/lib/insights-registry";
 
 type ChatSource = { kind: string; reference: string; period: string | null };
 type ChatUsage = {
@@ -49,6 +55,7 @@ type ChatMessage = {
   }>;
   recommendation?: string;
   next_action?: string;
+  uiActions?: ResolvedCopilotUiAction[];
   messageId?: string | null;
   outputId?: string | null;
   approvalRequired?: boolean;
@@ -67,6 +74,13 @@ type ChatMessage = {
 };
 type ChatError = { message: string; status: "warning" | "danger" };
 type Conversation = { id: string; title: string; updated_at: string };
+
+function resolveUiActions(actions: unknown): ResolvedCopilotUiAction[] {
+  if (!Array.isArray(actions)) return [];
+  return actions
+    .map((action) => resolveCopilotUiAction(action))
+    .filter((action): action is ResolvedCopilotUiAction => action !== null);
+}
 
 /**
  * Lo que el consultor tiene delante cuando pregunta. Viaja al agente A09 como
@@ -360,6 +374,7 @@ export function CopilotPanel({
           approval_required?: boolean;
           approval_status?: "pending_approval" | "approved" | "rejected";
           proposed_writes?: ChatMessage["proposedWrites"];
+          ui_actions?: CopilotUiAction[];
           tasks_created?: number;
           feedback_rating?: "helpful" | "not_helpful";
           usage?: ChatUsage;
@@ -375,6 +390,7 @@ export function CopilotPanel({
           approvalRequired: message.approval_required,
           approvalStatus: message.approval_status,
           proposedWrites: message.proposed_writes,
+          uiActions: resolveUiActions(message.ui_actions),
           tasksCreated: message.tasks_created,
           feedback: message.feedback_rating,
           usage: message.usage,
@@ -504,6 +520,7 @@ export function CopilotPanel({
           findings?: ChatMessage["findings"];
           recommendation?: string;
           next_action?: string;
+          ui_actions?: CopilotUiAction[];
           proposed_writes?: ChatMessage["proposedWrites"];
         };
         saldo?: CopilotBalance;
@@ -546,6 +563,7 @@ export function CopilotPanel({
           findings: payload.output.findings,
           recommendation: payload.output.recommendation,
           next_action: payload.output.next_action,
+          uiActions: resolveUiActions(payload.output.ui_actions),
           messageId: payload.message_id,
           outputId: payload.output_id,
           approvalRequired: payload.approval_required,
@@ -889,6 +907,38 @@ export function CopilotPanel({
                       <p className="mt-1 text-xs leading-5 text-muted">
                         {message.next_action}
                       </p>
+                    </div>
+                  ) : null}
+                  {message.uiActions?.length ? (
+                    <div className="mt-4 border-t border-separator pt-3">
+                      <p className="text-xs font-semibold text-foreground">
+                        Revisar en el diagnóstico
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {message.uiActions.map((action) => (
+                          <div
+                            key={`${action.insight_slug}:${action.label}`}
+                            className="flex items-center justify-between gap-3 rounded-md border border-separator bg-surface px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-foreground">
+                                {action.target_label}
+                              </p>
+                              <p className="mt-0.5 text-xs leading-5 text-muted">
+                                {action.reason}
+                              </p>
+                            </div>
+                            <Link
+                              href={action.href}
+                              onClick={onClose}
+                              className="shrink-0 rounded-md border border-accent px-2.5 py-1.5 text-xs font-medium text-accent no-underline hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2"
+                              aria-label={`${action.label}: ${action.target_label}`}
+                            >
+                              {action.label}
+                            </Link>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   {message.approvalRequired &&

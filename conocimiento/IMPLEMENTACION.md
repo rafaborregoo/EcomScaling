@@ -249,6 +249,11 @@ queda fuera del conteo porque la normativa canonica lo declara inexistente.
 La bitacora completa esta en
 [`fase-09/IMPLEMENTACION.md`](fase-09/IMPLEMENTACION.md).
 
+La salida A09 tambien puede devolver acciones de navegacion `open_insight`:
+el modelo propone solo un slug semantico, el backend descarta destinos que no
+existan y `InsightsMenu`/el registro web resuelven el anchor exacto. No son
+tools ni permisos de escritura; solo guian al consultor hasta la evidencia.
+
 ## Bloqueos de contenido
 
 5 bloques tienen corpus maestro pero ninguna capa de

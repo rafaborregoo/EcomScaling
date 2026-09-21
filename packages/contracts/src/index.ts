@@ -335,3 +335,4 @@ export * from "./execution-supervision.js";
 
 // FASE 9: experience, outcome classification y learning gates.
 export * from "./continuous-learning.js";
+export * from "./copilot-navigation.js";

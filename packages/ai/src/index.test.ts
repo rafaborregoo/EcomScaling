@@ -37,6 +37,8 @@ import {
   chunkText,
   agentProposedWriteSchema,
   agentOutputJsonSchema,
+  chatOutputSchema,
+  chatJsonSchema,
 } from "./index.js";
 
 test("el perfil RAG centraliza el contrato de embeddings y chunking", () => {
@@ -47,6 +49,29 @@ test("el perfil RAG centraliza el contrato de embeddings y chunking", () => {
     maxChars: 1500,
     overlapChars: 200,
   });
+});
+
+test("A09 devuelve acciones de UI con destino semantico, no URLs libres", () => {
+  const parsed = chatOutputSchema.parse({
+    answer: "Hay evidencia pendiente.",
+    sources: [],
+    confidence: "low",
+    warnings: ["Falta atribucion"],
+    ui_actions: [
+      {
+        kind: "open_insight",
+        insight_slug: "continuous-learning",
+        label: "Revisar datos faltantes",
+        reason: "La evidencia del aprendizaje aun no supera el gate.",
+      },
+    ],
+  });
+
+  assert.equal(parsed.ui_actions?.[0]?.insight_slug, "continuous-learning");
+  assert.deepEqual(
+    (chatJsonSchema.properties.ui_actions as { items: { properties: { kind: { enum: readonly string[] } } } }).items.properties.kind.enum,
+    ["open_insight"],
+  );
 });
 
 test("chunking conserva contexto de secciones y estructura de tablas", () => {

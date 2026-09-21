@@ -98,6 +98,10 @@ import { enqueueMemoryIngestion } from "./memory-ingestion.js";
 import { findCurrentMilestoneId } from "./strategic-plans.js";
 import { createReranker, executeKnowledgeSearch } from "./knowledge.js";
 import { createSingleFlight } from "./single-flight.js";
+import {
+  COPILOT_UI_ACTION_INSTRUCTIONS,
+  sanitizeChatUiActions,
+} from "./copilot-ui-actions.js";
 import { getOrgMetaBackfillStatus } from "./meta-sync.js";
 import { isErr } from "./result-guard.js";
 import {
@@ -3251,7 +3255,6 @@ async function runGenericDiagnosticAgent(
       approvalMode: agentVersion.approval_mode as ToolContext["approval_mode"],
     },
   );
-
   const input: AgentInput = {
     run_id: runId,
     agent_code: agentCode,
@@ -9730,6 +9733,8 @@ export async function runConsultantChatTurn(
     },
   );
 
+  const chatSystemPrompt = `${systemPrompt}\n\n${COPILOT_UI_ACTION_INSTRUCTIONS}`;
+
   // Fase 4: el saldo se lee ANTES del turno, no despues, porque decide con
   // que modelo corre. A cero no se corta el copiloto: baja a Haiku hasta que
   // el saldo se renueve. Un copiloto mudo es un motivo de baja; uno que
@@ -9815,7 +9820,7 @@ export async function runConsultantChatTurn(
       {
         model: agentVersion.model,
         modelOverride: modeloElegido.model.anthropicModel,
-        systemPrompt,
+        systemPrompt: chatSystemPrompt,
         input,
         contextBlocks,
         tools,
@@ -9827,6 +9832,11 @@ export async function runConsultantChatTurn(
       },
       toolAuthEvents,
     );
+
+    const chatOutput = {
+      ...turn.output,
+      ui_actions: sanitizeChatUiActions(turn.output.ui_actions),
+    } satisfies ChatOutput;
 
     await recordStep(
       supabase,
@@ -9852,8 +9862,9 @@ export async function runConsultantChatTurn(
           conversation_id: activeConversationId,
           organization_id: organizationId,
           role: "assistant",
-          content: turn.output.answer,
+          content: chatOutput.answer,
           run_id: runId,
+          metadata: { ui_actions: chatOutput.ui_actions },
         })
         .select("id")
         .single();
@@ -9868,8 +9879,8 @@ export async function runConsultantChatTurn(
     // el modelo ha devuelto explícitamente proposed_writes. Se guarda como
     // pendiente y nunca se materializa aquí; la decisión humana usa el mismo
     // endpoint que el resto de agentes.
-    const proposedWrites = Array.isArray(turn.output.proposed_writes)
-      ? turn.output.proposed_writes
+    const proposedWrites = Array.isArray(chatOutput.proposed_writes)
+      ? chatOutput.proposed_writes
       : [];
     const approvalRequired = proposedWrites.length > 0;
     let outputId: string | null = null;
@@ -9880,7 +9891,7 @@ export async function runConsultantChatTurn(
           run_id: runId,
           organization_id: organizationId,
           schema_version: AGENT_OUTPUT_SCHEMA_VERSION,
-          output: turn.output,
+          output: chatOutput,
           approval_required: true,
           status: "pending_approval",
         })
@@ -9913,7 +9924,7 @@ export async function runConsultantChatTurn(
         message_id: assistantMessage?.id ?? null,
         output_id: outputId,
         approval_required: approvalRequired,
-        output: turn.output,
+        output: chatOutput,
         usage: {
           input_tokens: turn.inputTokens,
           output_tokens: turn.outputTokens,
@@ -9929,7 +9940,7 @@ export async function runConsultantChatTurn(
           generatedAt: new Date().toISOString(),
           completedAt: new Date().toISOString(),
           fromCache: false,
-          content: turn.output,
+          content: chatOutput,
         }),
         // El saldo viaja aqui y no en una peticion aparte: ya hay un viaje al
         // servidor por mensaje, y el numero cambia justo en este momento. Se
@@ -10042,7 +10053,7 @@ export async function getConsultantChatMessages(
 
   const { data, error } = await supabase
     .from("ai_messages")
-    .select("id, role, content, run_id, created_at")
+    .select("id, role, content, run_id, created_at, metadata")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true });
 
@@ -10121,6 +10132,10 @@ export async function getConsultantChatMessages(
 
         const run = runsById.get(message.run_id);
         const output = outputsByRunId.get(message.run_id);
+        const metadata =
+          message.metadata && typeof message.metadata === "object"
+            ? (message.metadata as { ui_actions?: unknown })
+            : null;
         const structuredOutput =
           output?.output && typeof output.output === "object"
             ? (output.output as { proposed_writes?: unknown })
@@ -10142,6 +10157,7 @@ export async function getConsultantChatMessages(
                 )
                   ? structuredOutput.proposed_writes
                   : undefined,
+                ui_actions: sanitizeChatUiActions(metadata?.ui_actions),
                 tasks_created: approval?.tasks_created ?? 0,
               }
             : {}),

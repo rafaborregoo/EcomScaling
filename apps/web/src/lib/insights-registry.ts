@@ -4,6 +4,20 @@ import {
   insightBadgeCount,
   type MetricInsight,
 } from "../components/ui/metric-insights-task";
+import { copilotInsightHref } from "@ecomscaling/contracts";
+
+export type CopilotUiAction = {
+  kind: "open_insight";
+  insight_slug: string;
+  label: "Ver evidencia" | "Abrir card" | "Revisar datos faltantes";
+  reason: string;
+};
+
+export type ResolvedCopilotUiAction = CopilotUiAction & {
+  href: string;
+  target_label: string;
+  location: string;
+};
 
 /**
  * Donde vive cada cifra que la IA puede comentar. Es la unica lista: la card
@@ -123,6 +137,27 @@ Object.assign(PLAYBOOK_INSIGHT_META, {
   F8_16_CLOSURE_HANDOFF: { slug: "closure-handoff", label: "Cierre y resultado", location: "Diagnóstico · F8.16" },
   F9_CONTINUOUS_LEARNING: { slug: "continuous-learning", label: "Aprendizaje continuo", location: "Diagnóstico · F9" },
 });
+
+/**
+ * La respuesta del modelo nunca aporta href. El slug se contrasta con el
+ * contrato compartido y con el catalogo que alimenta InsightsMenu; si alguno
+ * de los dos no reconoce el destino, la accion no llega a pintarse.
+ */
+export function resolveCopilotUiAction(input: unknown): ResolvedCopilotUiAction | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const action = input as Partial<CopilotUiAction>;
+  if (
+    action.kind !== "open_insight" ||
+    typeof action.insight_slug !== "string" ||
+    !["Ver evidencia", "Abrir card", "Revisar datos faltantes"].includes(action.label ?? "") ||
+    typeof action.reason !== "string"
+  ) return null;
+  const href = copilotInsightHref(action.insight_slug);
+  if (!href) return null;
+  const meta = Object.values(PLAYBOOK_INSIGHT_META).find((item) => item.slug === action.insight_slug);
+  if (!meta) return null;
+  return { ...action, href, target_label: meta.label, location: meta.location } as ResolvedCopilotUiAction;
+}
 
 function playbookInsightSeverity(disposition: string): MetricInsight["severity"] {
   return disposition === "BLOCKED" || disposition === "REASSESS_DIAGNOSIS" || disposition === "HUMAN_ONLY" ? "high" : "medium";

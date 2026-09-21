@@ -739,6 +739,17 @@ export const chatOutputSchema = z.object({
     .optional(),
   recommendation: z.string().optional(),
   next_action: z.string().optional(),
+  ui_actions: z
+    .array(
+      z.object({
+        kind: z.literal("open_insight"),
+        insight_slug: z.string().min(1).max(80),
+        label: z.enum(["Ver evidencia", "Abrir card", "Revisar datos faltantes"]),
+        reason: z.string().min(1).max(240),
+      }),
+    )
+    .max(3)
+    .optional(),
   proposed_writes: z.array(agentProposedWriteSchema).optional(),
 });
 
@@ -749,6 +760,31 @@ export const chatJsonSchema = {
   additionalProperties: false,
   required: ["answer", "sources", "confidence", "warnings"],
   properties: {
+    ui_actions: {
+      type: "array",
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "insight_slug", "label", "reason"],
+        properties: {
+          kind: { type: "string", enum: ["open_insight"] },
+          insight_slug: {
+            type: "string",
+            description: "Slug de una card existente en InsightsMenu; nunca una URL.",
+          },
+          label: {
+            type: "string",
+            enum: ["Ver evidencia", "Abrir card", "Revisar datos faltantes"],
+          },
+          reason: {
+            type: "string",
+            description: "Por que esa card es el siguiente destino humano.",
+          },
+        },
+      },
+      description: "Acciones de navegacion visual, sin ejecutar cambios ni inventar rutas.",
+    },
     answer: {
       type: "string",
       description: "Respuesta directa a la pregunta del usuario, en espanol.",
