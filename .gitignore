@@ -17,6 +17,14 @@ ops-health-findings.json
 # Artefactos de runtime del dev server (no versionar)
 .codex-runtime/
 
+# Tooling de agentes (Claude/Codex/skills), no es codigo del producto:
+# no debe entrar en las imagenes Docker ni en el deploy de Vercel.
+.agents/skills/
+.codex/
+.impeccable/
+skills-lock.json
+apps/web/PRODUCT.md
+
 .vercel
 .env*
 !.env.example
