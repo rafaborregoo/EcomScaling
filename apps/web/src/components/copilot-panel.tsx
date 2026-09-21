@@ -706,7 +706,7 @@ export function CopilotPanel({
   }
 
   const panel = (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-white">
       <header className="shrink-0 border-b border-separator px-4 py-2">
         <div className="flex min-h-8 items-center justify-between gap-3">
           <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[#294597]">
@@ -784,10 +784,10 @@ export function CopilotPanel({
           </div>
         ) : null}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4">
         <div
           ref={scrollRef}
-          className="space-y-4"
+          className="min-w-0 space-y-4 [overflow-wrap:anywhere]"
           role="log"
           aria-label="Conversación con el Consultor IA"
           aria-live="polite"
@@ -826,13 +826,13 @@ export function CopilotPanel({
                 Conocimiento. Responde con cifras citadas y la siguiente acción;
                 no escribe nada en la cuenta.
               </p>
-              <div className="flex flex-col items-start gap-2">
+              <div className="flex w-full min-w-0 flex-col gap-2">
                 {suggestions.map((suggestion) => (
                   <Button
                     key={suggestion}
                     variant="secondary"
                     size="sm"
-                    className="text-left"
+                    className="h-auto w-full min-w-0 justify-start whitespace-normal break-words px-4 py-2.5 text-left leading-5"
                     onClick={() => void ask(suggestion)}
                   >
                     {suggestion}
@@ -1209,10 +1209,18 @@ export function CopilotPanel({
           ) : null}
         </div>
       </div>
-      <footer className="shrink-0 border-t border-separator px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <form className="flex w-full items-center gap-2" onSubmit={submit}>
+      <footer className="shrink-0 border-t border-separator px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <div className="mb-3 border-b border-separator pb-2.5">
+          <CopilotSaldo
+            balance={balance}
+            model={model}
+            onModelChange={setModel}
+            degraded={degraded}
+          />
+        </div>
+        <form className="flex w-full items-stretch gap-2" onSubmit={submit}>
           <Input
-            className="w-full"
+            className="min-h-12 min-w-0 flex-1"
             aria-label="Pregunta para el Consultor IA"
             value={input}
             onChange={(event) => setInput(event.target.value)}
@@ -1225,17 +1233,12 @@ export function CopilotPanel({
           />
           <Button
             type="submit"
+            className="shrink-0 px-4"
             disabled={isSending || !input.trim() || !targetOrganizationId}
           >
             Enviar
           </Button>
         </form>
-        <CopilotSaldo
-          balance={balance}
-          model={model}
-          onModelChange={setModel}
-          degraded={degraded}
-        />
       </footer>
     </div>
   );
