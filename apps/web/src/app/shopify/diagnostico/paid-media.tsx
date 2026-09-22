@@ -54,7 +54,7 @@ export function PaidMediaPlaybookPanel() {
   return (
     <Card
       id="insight-paid-media"
-      title="Paid Media y eficiencia de tráfico F5.02"
+      title="Paid Media y eficiencia de tráfico"
       description="Descompone distribución, respuesta, tráfico, conversión y verdad económica antes de proponer cambios."
     >
       {current ? (

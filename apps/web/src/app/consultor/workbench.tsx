@@ -27,10 +27,12 @@ import {
   Card,
   CollapsibleSection,
   EmptyState,
+  EYEBROW,
   Field,
   Input,
   Link,
   Metric,
+  Modal,
   Banner,
   toast,
   type Tone,
@@ -258,11 +260,18 @@ function dayKey(iso: string): string {
 
 // --- Filtros de la bandeja -------------------------------------------------
 
-type InboxFilter = "todo" | "urgente" | "decision" | "datos" | "semana";
+export type InboxFilter =
+  | "todo"
+  | "urgente"
+  | "vencidas"
+  | "decision"
+  | "datos"
+  | "semana";
 
 const INBOX_FILTERS: Array<{ value: InboxFilter; label: string }> = [
   { value: "todo", label: "Todo" },
   { value: "urgente", label: "Urgente" },
+  { value: "vencidas", label: "Tareas vencidas" },
   { value: "decision", label: "Esperando mi decisión" },
   { value: "datos", label: "Datos e integraciones" },
   { value: "semana", label: "Esta semana" },
@@ -292,6 +301,8 @@ function matchesFilter(action: WorkbenchAction, filter: InboxFilter): boolean {
   switch (filter) {
     case "urgente":
       return action.priority === "urgent";
+    case "vencidas":
+      return action.kind === "overdue_task";
     case "decision":
       return DECISION_KINDS.includes(action.kind);
     case "datos":
@@ -306,6 +317,33 @@ function matchesFilter(action: WorkbenchAction, filter: InboxFilter): boolean {
 const INITIAL_ROWS = 8;
 
 /**
+ * El orden de la cola ya deja las filas del mismo cliente contiguas (mismo
+ * `attention.score` -> mismo puesto en el desempate). Agrupar por adyacencia
+ * evita repetir el nombre del cliente en cada fila: con 4-5 propuestas de un
+ * mismo cliente, verlo cinco veces seguidas es lo que hacia la cola ilegible.
+ */
+function groupByOrganization(actions: WorkbenchAction[]) {
+  const groups: Array<{
+    organization_id: string;
+    organization_name: string;
+    actions: WorkbenchAction[];
+  }> = [];
+  for (const action of actions) {
+    const last = groups[groups.length - 1];
+    if (last && last.organization_id === action.organization_id) {
+      last.actions.push(action);
+    } else {
+      groups.push({
+        organization_id: action.organization_id,
+        organization_name: action.organization_name,
+        actions: [action],
+      });
+    }
+  }
+  return groups;
+}
+
+/**
  * La cola unica de trabajo. Cada fila dice cliente, que hay que hacer, por
  * que ahora y con que evidencia; y tiene un solo CTA, al modulo que lo
  * ejecuta. El estado nunca va solo en el color: el badge lleva texto y el
@@ -314,11 +352,14 @@ const INITIAL_ROWS = 8;
 export function DailyActionInbox({
   actions,
   emptyHint,
+  filter,
+  onFilterChange,
 }: {
   actions: WorkbenchAction[];
   emptyHint?: ReactNode;
+  filter: InboxFilter;
+  onFilterChange: (filter: InboxFilter) => void;
 }) {
-  const [filter, setFilter] = useState<InboxFilter>("todo");
   const [showAll, setShowAll] = useState(false);
 
   const filtered = useMemo(
@@ -355,7 +396,7 @@ export function DailyActionInbox({
                 variant={active ? "primary" : "ghost"}
                 aria-pressed={active}
                 onClick={() => {
-                  setFilter(option.value);
+                  onFilterChange(option.value);
                   setShowAll(false);
                 }}
               >
@@ -383,9 +424,25 @@ export function DailyActionInbox({
       ) : (
         <>
           <ul className="mt-4 divide-y divide-separator">
-            {visible.map((action) => (
-              <li key={action.id}>
-                <ActionRow action={action} />
+            {groupByOrganization(visible).map((group) => (
+              <li key={group.organization_id} className="py-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <span className="text-sm font-semibold text-foreground">
+                    {group.organization_name}
+                  </span>
+                  {group.actions.length > 1 ? (
+                    <span className="text-xs text-muted">
+                      {group.actions.length} acciones
+                    </span>
+                  ) : null}
+                </div>
+                <ul className="divide-y divide-separator">
+                  {group.actions.map((action) => (
+                    <li key={action.id}>
+                      <ActionRow action={action} />
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
@@ -412,23 +469,28 @@ export function DailyActionInbox({
 function ActionRow({ action }: { action: WorkbenchAction }) {
   const badge = PRIORITY_BADGE[action.priority];
   const meta = [
-    KIND_LABELS[action.kind],
     action.assignee_name ? `Responsable: ${action.assignee_name}` : null,
     action.due_at ? `Vence ${formatDateTime(action.due_at)}` : null,
   ].filter(Boolean);
+  const [showDetail, setShowDetail] = useState(false);
 
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-2 py-3">
       <div className="min-w-[15rem] flex-1">
+        {/* El tipo (Alerta/Tarea vencida/Propuesta IA...) va siempre visible,
+            no solo en la meta de abajo: sin badge de prioridad (la mayoria de
+            filas son "normal"), era la unica pista de que trataba cada una. */}
         <div className="flex flex-wrap items-center gap-2">
+          <span className={EYEBROW}>{KIND_LABELS[action.kind]}</span>
           {badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : null}
-          <span className="text-sm font-medium text-foreground">
-            {action.organization_name}
-          </span>
         </div>
-        <p className="mt-1 text-sm font-medium text-foreground">
+        <button
+          type="button"
+          onClick={() => setShowDetail(true)}
+          className="mt-1 block text-left text-sm font-medium text-foreground hover:text-accent"
+        >
           {action.title}
-        </p>
+        </button>
         <p className="mt-1 text-[13px] leading-relaxed text-muted">
           {action.reason}
         </p>
@@ -442,7 +504,9 @@ function ActionRow({ action }: { action: WorkbenchAction }) {
             ))}
           </dl>
         ) : null}
-        <p className="mt-1 text-xs text-muted">{meta.join(" · ")}</p>
+        {meta.length > 0 ? (
+          <p className="mt-1 text-xs text-muted">{meta.join(" · ")}</p>
+        ) : null}
       </div>
       <div className="shrink-0">
         <ButtonLink
@@ -454,14 +518,91 @@ function ActionRow({ action }: { action: WorkbenchAction }) {
           {action.action_label}
         </ButtonLink>
       </div>
+
+      {/* Detalle en modal: la fila ya trae lo esencial, pero con evidencia
+          larga o un motivo detallado, "abrir el modulo" es un salto de
+          contexto de mas solo para leer. Aqui se lee sin salir de la mesa. */}
+      <Modal isOpen={showDetail} onOpenChange={setShowDetail}>
+        <Modal.Backdrop>
+          <Modal.Container size="md">
+            <Modal.Dialog aria-label={action.title}>
+              <Modal.CloseTrigger />
+              <Modal.Header>
+                <span className={EYEBROW}>{KIND_LABELS[action.kind]}</span>
+                <Modal.Heading>{action.title}</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <div className="flex flex-wrap items-center gap-2">
+                  {badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : null}
+                  <span className="text-sm font-medium text-foreground">
+                    {action.organization_name}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm leading-relaxed text-foreground">
+                  {action.reason}
+                </p>
+                {action.evidence.length > 0 ? (
+                  <dl className="mt-4 divide-y divide-separator text-sm">
+                    {action.evidence.map((item) => (
+                      <div
+                        key={`${item.label}:${item.value}`}
+                        className="flex items-center justify-between gap-4 py-1.5"
+                      >
+                        <dt className="text-muted">{item.label}</dt>
+                        <dd className="font-medium text-foreground">
+                          {item.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+                {meta.length > 0 ? (
+                  <p className="mt-4 text-xs text-muted">{meta.join(" · ")}</p>
+                ) : null}
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setShowDetail(false)}
+                >
+                  Cerrar
+                </Button>
+                <ButtonLink
+                  href={action.href}
+                  onClick={() => {
+                    leaveForModule();
+                    setShowDetail(false);
+                  }}
+                >
+                  {action.action_label}
+                </ButtonLink>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
     </div>
   );
 }
+
+const HEALTH_STATUS_ORDER: PortfolioHealthRow["status"][] = [
+  "urgente",
+  "revisar",
+  "vigilar",
+  "al_dia",
+];
+
+type HealthFilter = "todos" | PortfolioHealthRow["status"];
 
 /**
  * Todos los clientes, no solo los que tienen problemas: la columna que manda
  * es "siguiente accion", no la puntuacion. Un cliente al dia tambien tiene que
  * verse, porque "no hay nada" es informacion.
+ *
+ * Plegado por defecto (§ pantallazo del consultor): esta era la seccion mas
+ * larga de la mesa y competia por atencion con "Para resolver hoy", que es la
+ * que manda. El resumen de la cabecera ya dice si hace falta mirarla.
  */
 export function PortfolioHealthBoard({
   rows,
@@ -471,19 +612,71 @@ export function PortfolioHealthBoard({
   onOpen: (organizationId: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<HealthFilter>("todos");
   const normalized = query.trim().toLowerCase();
-  const filtered = normalized
-    ? rows.filter((row) =>
-        row.organization_name.toLowerCase().includes(normalized),
-      )
-    : rows;
+
+  const filtered = rows.filter((row) => {
+    if (statusFilter !== "todos" && row.status !== statusFilter) return false;
+    if (normalized && !row.organization_name.toLowerCase().includes(normalized))
+      return false;
+    return true;
+  });
+
+  const urgentCount = rows.filter((row) => row.status === "urgente").length;
+  const reviewCount = rows.filter((row) => row.status === "revisar").length;
 
   return (
-    <Card
-      title="Cartera en salud"
-      description={`${rows.length} ${rows.length === 1 ? "cliente" : "clientes"} · el estado se explica con texto, no solo con color.`}
-      actions={
-        rows.length > 6 ? (
+    <CollapsibleSection
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          <span>Cartera en salud</span>
+          {urgentCount > 0 ? (
+            <Badge tone="danger">{urgentCount} urgente{urgentCount === 1 ? "" : "s"}</Badge>
+          ) : null}
+          {reviewCount > 0 ? (
+            <Badge tone="warn">{reviewCount} por revisar</Badge>
+          ) : null}
+          <span className="text-xs font-normal text-muted">
+            {rows.length} {rows.length === 1 ? "cliente" : "clientes"}
+          </span>
+        </span>
+      }
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label="Filtrar cartera por estado"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={statusFilter === "todos" ? "primary" : "ghost"}
+            aria-pressed={statusFilter === "todos"}
+            onClick={() => setStatusFilter("todos")}
+          >
+            Todos ({rows.length})
+          </Button>
+          {HEALTH_STATUS_ORDER.map((status) => {
+            const count = rows.filter((row) => row.status === status).length;
+            if (count === 0) return null;
+            const badge = STATUS_BADGE[status];
+            const active = statusFilter === status;
+            return (
+              <Button
+                key={status}
+                type="button"
+                size="sm"
+                variant={active ? "primary" : "ghost"}
+                aria-pressed={active}
+                onClick={() => setStatusFilter(status)}
+              >
+                {badge.label} ({count})
+              </Button>
+            );
+          })}
+        </div>
+        {rows.length > 6 ? (
           <input
             type="search"
             aria-label="Buscar cliente en la cartera"
@@ -492,12 +685,12 @@ export function PortfolioHealthBoard({
             onChange={(event) => setQuery(event.target.value)}
             className="w-48 rounded-md border border-edge px-3 py-2 text-sm"
           />
-        ) : null
-      }
-    >
+        ) : null}
+      </div>
+
       {filtered.length === 0 ? (
         <p className="mt-4 text-[13px] text-muted">
-          Sin resultados para &quot;{query}&quot;.
+          Sin resultados para este filtro.
         </p>
       ) : (
         <ul className="mt-4 divide-y divide-separator">
@@ -573,12 +766,28 @@ export function PortfolioHealthBoard({
           })}
         </ul>
       )}
-    </Card>
+    </CollapsibleSection>
   );
 }
 
-/** Lo que vence o se publica en siete dias, agrupado por dia. */
-export function UpcomingWork({ items }: { items: UpcomingItem[] }) {
+/**
+ * Lo que vence o se publica en siete dias, agrupado por dia. Sirve para dos
+ * bloques distintos del mismo dato (`items` ya viene filtrado por quien lo
+ * llama): la agenda de llamadas al lado de la cola, y "esta semana" con
+ * hitos/campanas/tareas debajo de la cartera -- son preguntas distintas
+ * ("con quien hablo" vs. "que tengo que preparar") aunque compartan formato.
+ */
+export function UpcomingWork({
+  items,
+  title = "Próximos siete días",
+  description = "Tareas con fecha, hitos del plan, campañas y llamadas que hay que preparar.",
+  emptyLabel = "Nada fechado en los próximos siete días.",
+}: {
+  items: UpcomingItem[];
+  title?: string;
+  description?: string;
+  emptyLabel?: string;
+}) {
   const byDay = useMemo(() => {
     const groups = new Map<string, UpcomingItem[]>();
     for (const item of items) {
@@ -589,14 +798,9 @@ export function UpcomingWork({ items }: { items: UpcomingItem[] }) {
   }, [items]);
 
   return (
-    <Card
-      title="Próximos siete días"
-      description="Tareas con fecha, hitos del plan, campañas y llamadas que hay que preparar."
-    >
+    <Card title={title} description={description}>
       {byDay.length === 0 ? (
-        <p className="mt-4 text-[13px] text-muted">
-          Nada fechado en los próximos siete días.
-        </p>
+        <p className="mt-4 text-[13px] text-muted">{emptyLabel}</p>
       ) : (
         <div className="mt-4 space-y-4">
           {byDay.map(([day, dayItems]) => (
@@ -634,6 +838,43 @@ export function UpcomingWork({ items }: { items: UpcomingItem[] }) {
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+/**
+ * Atajo a la llamada mas proxima de toda la cartera. No es un widget nuevo de
+ * datos: reutiliza `upcoming` (misma fuente que "Proximos siete dias") y abre
+ * la ficha del cliente, que ya trae "Relacion y proxima conversacion" con el
+ * contexto real (ultimo resumen, mensajes sin leer). Construir aqui una
+ * segunda copia de ese bloque hubiera sido duplicar datos que ya se muestran.
+ */
+export function NextCallWidget({
+  items,
+  onOpen,
+}: {
+  items: UpcomingItem[];
+  onOpen: (organizationId: string) => void;
+}) {
+  const calls = items
+    .filter((item) => item.kind === "call")
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const next = calls[0];
+  if (!next) return null;
+
+  return (
+    <Card title="Próxima llamada" description={next.organization_name}>
+      <p className="mt-1 text-sm font-medium text-foreground">{next.title}</p>
+      <p className="mt-1 text-xs text-muted">{formatDateTime(next.at)}</p>
+      <div className="mt-3">
+        <ButtonLink
+          href={`/consultor?organizationId=${next.organization_id}`}
+          size="sm"
+          onClick={() => onOpen(next.organization_id)}
+        >
+          Preparar llamada
+        </ButtonLink>
+      </div>
     </Card>
   );
 }

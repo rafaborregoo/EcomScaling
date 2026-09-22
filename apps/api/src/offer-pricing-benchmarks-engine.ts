@@ -106,9 +106,9 @@ async function enrichOfferPricingBenchmarksContext(supabase: any, context: Playb
   const sales = first(salesResult); const margin = first(marginResult); const funnel = first(funnelResult); const day = context.as_of.slice(0, 10);
   const source = (name: string, result: any, requireRow = true) => !result?.error && (!requireRow || first(result) !== null) ? `${name}:${organizationId}:${day}` : "";
   return applyOfferPricingBenchmarksEvidence(context, {
-    sales: available(salesResult) ? { available: true, orders_count: sales?.orders_count, revenue: sales?.revenue, units_sold: sales?.units_sold } : { available: false },
-    margin: available(marginResult) ? { available: true, items_with_cost: margin?.items_with_cost, margin: margin?.gross_margin, contribution: margin?.contribution } : { available: false },
-    funnel: available(funnelResult) ? { available: true, sessions: funnel?.sessions, conversion_rate: funnel?.conversion_rate } : { available: false },
+    sales: available(salesResult) ? { available: true, orders_count: sales?.orders_count, revenue: sales?.net_sales, units_sold: sales?.units_sold } : { available: false },
+    margin: available(marginResult) ? { available: true, items_with_cost: margin?.items_with_cost, margin: margin?.gross_margin, contribution: null, /* shopify_margin_summary NO devuelve contribution: leerla era undefined silencioso. La real es shopify_financial_summary.contribution_per_order, que este motor no pide */ } : { available: false },
+    funnel: available(funnelResult) ? { available: true, sessions: funnel?.sessions, conversion_rate: funnel?.conversion_rate_shopify } : { available: false },
     products: !productsResult?.error && Array.isArray(productsResult?.data) && productsResult.data.length > 0 ? { available: true, product_count: productsResult.data.length, top_products_count: productsResult.data.length } : { available: false },
     promotions: !discountResult?.error && Array.isArray(discountResult?.data) && discountResult.data.length > 0 ? { available: true, discount_codes: discountResult.data.length } : { available: false },
     returns: !returnsResult?.error && Array.isArray(returnsResult?.data) && returnsResult.data.length > 0 ? { available: true, return_rate: returnsResult.data[0]?.return_rate } : { available: false },

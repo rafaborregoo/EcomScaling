@@ -62,7 +62,7 @@ export function ScalabilityPlaybookPanel() {
   const observed = FACTS.filter(([key]) => value(key) !== "UNKNOWN").length;
 
   return (
-    <Card id="insight-scalability" title="Escalabilidad y constraints F5.10" description="Localiza la restricción que limita el sistema y exige evidencia de capacidad, headroom, economics y resiliencia antes de escalar.">
+    <Card id="insight-scalability" title="Escalabilidad y constraints" description="Localiza la restricción que limita el sistema y exige evidencia de capacidad, headroom, economics y resiliencia antes de escalar.">
       {current ? (
         <article className="rounded border border-default-200 p-4">
           <div className="flex items-center justify-between gap-3">

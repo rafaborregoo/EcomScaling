@@ -68,7 +68,7 @@ export function PaidMediaBenchmarksPanel() {
   return (
     <Card
       id="insight-paid-media-benchmarks"
-      title="Benchmarks y guardrails de Paid Media F6.04"
+      title="Benchmarks y guardrails de Paid Media"
       description="Descompone la cadena desde spend hasta contribution, separa media efficiency de business efficiency y conserva la diferencia entre atribución e incrementalidad."
     >
       {current ? (

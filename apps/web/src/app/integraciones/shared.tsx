@@ -74,7 +74,6 @@ export type IntegrationConnection = {
 export type IntegrationProvider = {
   id: string;
   name: string;
-  phase: string;
   description: string;
   available: boolean;
   feature_flag: string;
@@ -507,7 +506,7 @@ export function ProviderStatusCard({
           </span>
         </span>
       }
-      description={`${provider.description} · Fase ${provider.phase}`}
+      description={provider.description}
       actions={
         <IntegrationStatusBadge
           available={provider.available}

@@ -45,7 +45,7 @@ export function InterventionEligibilityPanel({ organizationId }: { organizationI
   if (!runs) return <LoadingBlock label="Cargando elegibilidad de intervenciones F7.01..." />;
   const model = interventionEligibilityViewModel(runs[0]);
   return (
-    <Card id="insight-intervention-eligibility" title="Elegibilidad de intervenciones F7.01" description="Filtra qué candidatos pueden pasar a comparación. No prioriza, no elige y no ejecuta.">
+    <Card id="insight-intervention-eligibility" title="Elegibilidad de intervenciones" description="Filtra qué candidatos pueden pasar a comparación. No prioriza, no elige y no ejecuta.">
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-2 text-xs text-muted"><span>{model.candidateCount} candidatos evaluados</span><span>{model.eligibleCount} elegibles para la siguiente etapa</span></div>

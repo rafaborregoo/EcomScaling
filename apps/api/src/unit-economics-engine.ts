@@ -38,6 +38,12 @@ export type UnitEconomicsEvidence = {
     fixed_costs?: number | null;
     net_profit?: number | null;
     items_without_cost?: number | null;
+    // Columnas de `shopify_financial_summary` v2 (migracion 20260929093000).
+    // El motor ya recibia la fila entera; estas tres estaban sin declarar, y
+    // por eso contribution y CAC se fijaban a UNKNOWN teniendo el dato dentro.
+    contribution_per_order?: number | null;
+    cac_blended?: number | null;
+    breakeven_cac_per_order?: number | null;
   } | null;
 };
 
@@ -106,9 +112,15 @@ export function applyUnitEconomicsEvidence(
     "unit_economics.costs.shipping_observed": observed(financial?.shipping_costs),
     "unit_economics.gross_profit.observed": observed(margin?.gross_margin ?? financial?.gross_margin),
     "unit_economics.financial_summary.available": financial ? "TRUE" : UNKNOWN,
-    // Net profit already includes fixed costs in the existing RPC. It is not contribution.
-    "unit_economics.contribution.observed": UNKNOWN,
-    "unit_economics.acquisition.cac_observed": UNKNOWN,
+    // `net_profit` sigue sin ser contribution: incluye costes fijos. Lo que
+    // cambio es que la v2 del RPC anade `contribution_per_order`, que si lo es,
+    // y `cac_blended` (gasto publicitario entre clientes nuevos). El motor ya
+    // recibia las dos columnas y las ignoraba.
+    "unit_economics.contribution.observed": observed(financial?.contribution_per_order),
+    "unit_economics.acquisition.cac_observed": observed(financial?.cac_blended),
+    // Payback sigue UNKNOWN a proposito: `breakeven_cac_per_order` es el umbral
+    // que no hay que superar, no el periodo de recuperacion. Calcularlo pide
+    // decidir horizonte y si va sobre margen o ingreso -- decision de producto.
     "unit_economics.payback.observed": UNKNOWN,
     "unit_economics.cash.observed": UNKNOWN,
     "unit_economics.segmented.observed": UNKNOWN,

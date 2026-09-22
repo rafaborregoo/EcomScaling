@@ -11,25 +11,36 @@ type DatasetKey =
   | "locations"
   | "products"
   | "variants"
+  | "collections"
   | "inventory_items"
   | "inventory_snapshots"
   | "orders"
   | "order_items"
+  | "order_transactions"
+  | "order_discount_applications"
+  | "fulfillments"
   | "refunds"
   | "refund_items"
   | "customers"
-  | "returns"
+  | "abandoned_checkouts"
   | "discounts"
-  | "draft_orders"
-  | "fulfillments"
-  | "payments"
-  | "channels"
-  | "markets"
-  | "publications"
-  | "marketing"
-  | "analytics";
+  | "marketing_events"
+  | "sessions"
+  | "returns";
 
-type SyncBlockKey = "catalog" | "inventory" | "orders" | "refunds" | "customers";
+// Espejo de `BlockKey` en apps/api/src/shopify-sync.ts. Si divergen, la
+// cobertura atribuye una tabla a un bloque que no la escribe.
+type SyncBlockKey =
+  | "catalog"
+  | "inventory"
+  | "orders"
+  | "refunds"
+  | "customers"
+  | "sessions"
+  | "abandoned_checkouts"
+  | "discounts"
+  | "marketing_events"
+  | "collections";
 
 type DatasetDefinition = {
   key: DatasetKey;
@@ -100,126 +111,28 @@ const shopifyScopeCatalog: ShopifyScopeCatalogItem[] = [
     enables: ["ShopifyQL", "reporting agregado", "comparativas por periodo"],
   },
   {
-    scope: "read_channels",
-    area: "Canales",
-    status: "authorized_pending_ingestion",
-    fields: ["channel.id", "name", "handle", "status"],
-    enables: ["Ventas por canal", "normalizacion de sourceName"],
-  },
-  {
-    scope: "read_markets",
-    area: "Mercados",
-    status: "authorized_pending_ingestion",
-    fields: ["market.id", "name", "enabled", "regions", "currencySettings"],
-    enables: ["Ventas por mercado", "moneda/pais", "segmentacion internacional"],
-  },
-  {
-    scope: "read_price_rules",
-    area: "Descuentos",
-    status: "authorized_pending_ingestion",
-    fields: ["priceRule.id", "title", "value", "target", "startsAt", "endsAt"],
-    enables: ["Analisis de promociones", "impacto de descuentos", "calendario comercial"],
-  },
-  {
     scope: "read_discounts",
     area: "Descuentos",
-    status: "authorized_pending_ingestion",
+    status: "active_ingestion",
     fields: ["discountNode.id", "discount", "status", "usageCount"],
     enables: ["Uso de codigos", "descuento por campana", "rentabilidad promocional"],
   },
   {
-    scope: "read_draft_orders",
-    area: "Ventas",
-    status: "authorized_pending_ingestion",
-    fields: ["draftOrder.id", "status", "totalPriceSet", "lineItems", "completedAt"],
-    enables: ["Ventas asistidas", "pedidos manuales", "pipeline B2B/manual"],
-  },
-  {
-    scope: "read_fulfillments",
-    area: "Operaciones",
-    status: "authorized_pending_ingestion",
-    fields: ["fulfillment.id", "status", "trackingInfo", "createdAt", "deliveredAt"],
-    enables: ["Estado logistico", "tiempos de envio", "incidencias fulfillment"],
-  },
-  {
-    scope: "read_order_edits",
-    area: "Ventas",
-    status: "authorized_pending_ingestion",
-    fields: ["orderEdit.id", "staffMember", "changes", "createdAt"],
-    enables: ["Auditoria de cambios de pedido", "impacto economico de ediciones"],
-  },
-  {
-    scope: "read_payment_terms",
-    area: "Pagos",
-    status: "authorized_pending_ingestion",
-    fields: ["paymentTerms.id", "paymentSchedules", "dueInDays", "overdue"],
-    enables: ["Pagos aplazados", "riesgo de cobro", "B2B terms"],
-  },
-  {
-    scope: "read_shopify_payments_accounts",
-    area: "Pagos",
-    status: "authorized_pending_ingestion",
-    fields: ["shopifyPaymentsAccount.id", "balance", "payoutSchedule", "country"],
-    enables: ["Estado de cuenta Shopify Payments", "cashflow operativo"],
-  },
-  {
-    scope: "read_shopify_payments_payouts",
-    area: "Pagos",
-    status: "authorized_pending_ingestion",
-    fields: ["payout.id", "amount", "status", "issuedAt", "transactionType"],
-    enables: ["Cobros recibidos", "conciliacion bancaria", "cashflow"],
-  },
-  {
-    scope: "read_shopify_payments_disputes",
-    area: "Pagos",
-    status: "authorized_pending_ingestion",
-    fields: ["dispute.id", "status", "amount", "reason", "evidenceDueBy"],
-    enables: ["Chargebacks", "riesgo financiero", "alertas de disputa"],
-  },
-  {
-    scope: "read_gift_card_transactions",
-    area: "Pagos",
-    status: "authorized_pending_ingestion",
-    fields: ["giftCardTransaction.id", "amount", "processedAt", "transactionType"],
-    enables: ["Uso de gift cards", "impacto en revenue", "saldo promocional"],
-  },
-  {
-    scope: "read_store_credit_account_transactions",
-    area: "Pagos",
-    status: "authorized_pending_ingestion",
-    fields: ["storeCreditAccountTransaction.id", "amount", "type", "createdAt"],
-    enables: ["Credito de tienda", "compensaciones", "saldo customer credit"],
-  },
-  {
-    scope: "read_product_listings",
-    area: "Publicacion",
-    status: "authorized_pending_ingestion",
-    fields: ["productListing.productId", "channel", "publishedAt"],
-    enables: ["Disponibilidad por canal", "catalogo publicado"],
-  },
-  {
-    scope: "read_publications",
-    area: "Publicacion",
-    status: "authorized_pending_ingestion",
-    fields: ["publication.id", "name", "supportsFuturePublishing", "catalog"],
-    enables: ["Publicaciones por canal", "estado de visibilidad"],
-  },
-  {
     scope: "read_marketing_events",
     area: "Marketing",
-    status: "authorized_pending_ingestion",
+    status: "active_ingestion",
     fields: ["marketingEvent.id", "eventType", "channel", "startedAt", "endedAt"],
     enables: ["Eventos de marketing", "atribucion basica", "calendario de campanas"],
   },
-  {
-    scope: "read_marketing_integrated_campaigns",
-    area: "Marketing",
-    status: "authorized_pending_ingestion",
-    fields: ["marketingActivity.id", "campaign", "status", "utmParameters"],
-    enables: ["Campanas integradas", "atribucion por UTM", "rendimiento por campana"],
-  },
 ];
 
+// Esta lista tiene que decir la verdad sobre lo que el sync escribe hoy, no lo
+// que algun dia nos gustaria volcar: es la pantalla que consulta alguien para
+// saber si un numero se puede calcular. Cada entrada `active` tiene tabla y un
+// bloque de `BlockKey` (apps/api/src/shopify-sync.ts) que la rellena; si
+// anades un bloque alli, anade su fila aqui o la cobertura vuelve a mentir.
+// Lo que no tiene motor no se lista: una fila permanente en gris no es un
+// roadmap, es ruido.
 const datasets: DatasetDefinition[] = [
   {
     key: "stores",
@@ -258,6 +171,15 @@ const datasets: DatasetDefinition[] = [
     syncScope: "catalog",
   },
   {
+    key: "collections",
+    label: "Colecciones",
+    table: "shopify_collections",
+    description: "Colecciones del catalogo y su composicion, para agrupar ventas por familia.",
+    status: "active",
+    scopes: ["read_products"],
+    syncScope: "collections",
+  },
+  {
     key: "inventory_items",
     label: "Inventory items",
     table: "shopify_inventory_items",
@@ -294,12 +216,39 @@ const datasets: DatasetDefinition[] = [
     syncScope: "orders",
   },
   {
+    key: "order_transactions",
+    label: "Cobros por pedido",
+    table: "shopify_order_transactions",
+    description: "Movimientos de cobro y devolucion de cada pedido: pasarela, tipo, estado e importe.",
+    status: "active",
+    scopes: ["read_orders"],
+    syncScope: "orders",
+  },
+  {
+    key: "order_discount_applications",
+    label: "Descuentos aplicados",
+    table: "shopify_order_discount_applications",
+    description: "Que codigo o promocion entro en cada pedido y cuanto se descontó.",
+    status: "active",
+    scopes: ["read_orders"],
+    syncScope: "orders",
+  },
+  {
+    key: "fulfillments",
+    label: "Fulfillment",
+    table: "shopify_fulfillments",
+    description: "Envios por pedido: estado logistico, transportista, tracking y fechas de entrega.",
+    status: "active",
+    scopes: ["read_orders"],
+    syncScope: "orders",
+  },
+  {
     key: "refunds",
     label: "Reembolsos",
     table: "shopify_refunds",
     description: "Cabecera de reembolsos sincronizados contra pedidos.",
     status: "active",
-    scopes: ["read_orders", "read_returns"],
+    scopes: ["read_orders"],
     syncScope: "refunds",
   },
   {
@@ -308,7 +257,7 @@ const datasets: DatasetDefinition[] = [
     table: "shopify_refund_items",
     description: "Detalle de cantidades e importes reembolsados por linea.",
     status: "active",
-    scopes: ["read_orders", "read_returns"],
+    scopes: ["read_orders"],
     syncScope: "refunds",
   },
   {
@@ -321,112 +270,75 @@ const datasets: DatasetDefinition[] = [
     syncScope: "customers",
   },
   {
-    key: "returns",
-    label: "Returns",
-    table: null,
-    description: "Devoluciones operativas, lineas devueltas, motivos, exchanges y reverse fulfillment.",
-    status: "planned",
-    scopes: ["read_returns"],
-    syncScope: null,
+    key: "abandoned_checkouts",
+    label: "Carritos abandonados",
+    table: "shopify_abandoned_checkouts",
+    description: "Checkouts sin completar y su contenido, para medir recuperacion y fuga en el embudo.",
+    status: "active",
+    scopes: ["read_orders"],
+    syncScope: "abandoned_checkouts",
   },
   {
     key: "discounts",
     label: "Promociones",
-    table: null,
-    description: "Price rules, discounts, uso de codigos, calendario promocional e impacto en margen.",
-    status: "planned",
-    scopes: ["read_price_rules", "read_discounts"],
-    syncScope: null,
+    table: "shopify_discounts",
+    description: "Descuentos y price rules del catalogo promocional, con su ventana y su tipo.",
+    status: "active",
+    scopes: ["read_discounts"],
+    syncScope: "discounts",
   },
   {
-    key: "draft_orders",
-    label: "Draft orders",
-    table: null,
-    description: "Pedidos manuales/asistidos, pipeline B2B y ventas completadas desde borradores.",
-    status: "planned",
-    scopes: ["read_draft_orders"],
-    syncScope: null,
-  },
-  {
-    key: "fulfillments",
-    label: "Fulfillment",
-    table: null,
-    description: "Estados logisticos, tracking, tiempos de envio, entregas e incidencias.",
-    status: "planned",
-    scopes: ["read_fulfillments"],
-    syncScope: null,
-  },
-  {
-    key: "payments",
-    label: "Pagos y cashflow",
-    table: null,
-    description: "Payment terms, payouts, disputes, gift cards, store credit y conciliacion Shopify Payments.",
-    status: "planned",
-    scopes: [
-      "read_payment_terms",
-      "read_shopify_payments_accounts",
-      "read_shopify_payments_payouts",
-      "read_shopify_payments_disputes",
-      "read_gift_card_transactions",
-      "read_store_credit_account_transactions",
-    ],
-    syncScope: null,
-  },
-  {
-    key: "channels",
-    label: "Canales",
-    table: null,
-    description: "Canales de venta, product listings y normalizacion de ventas por canal.",
-    status: "planned",
-    scopes: ["read_channels", "read_product_listings"],
-    syncScope: null,
-  },
-  {
-    key: "markets",
-    label: "Markets",
-    table: null,
-    description: "Mercados, regiones, moneda, pais y segmentacion internacional.",
-    status: "planned",
-    scopes: ["read_markets"],
-    syncScope: null,
-  },
-  {
-    key: "publications",
-    label: "Publicaciones",
-    table: null,
-    description: "Publicaciones, catalogos visibles y disponibilidad por canal.",
-    status: "planned",
-    scopes: ["read_publications"],
-    syncScope: null,
-  },
-  {
-    key: "marketing",
+    key: "marketing_events",
     label: "Marketing Shopify",
-    table: null,
-    description: "Marketing events, integrated campaigns, UTMs y calendario de campanas.",
-    status: "planned",
-    scopes: ["read_marketing_events", "read_marketing_integrated_campaigns"],
-    syncScope: null,
+    table: "shopify_marketing_events",
+    description: "Marketing events y campanas integradas declaradas en Shopify, con sus UTMs.",
+    status: "active",
+    scopes: ["read_marketing_events"],
+    syncScope: "marketing_events",
   },
   {
-    key: "analytics",
-    label: "Analytics / ShopifyQL",
-    table: null,
-    description: "Reportes, ShopifyQL, agregados diarios/semanales/mensuales y comparativas.",
-    status: "planned",
+    key: "sessions",
+    label: "Sesiones y conversion",
+    table: "shopify_sessions_daily",
+    description: "Sesiones diarias via ShopifyQL: la unica fuente de tasa de conversion de la tienda.",
+    status: "active",
     scopes: ["read_reports"],
+    syncScope: "sessions",
+  },
+  {
+    // La tabla existe desde la migracion del motor de operaciones, que ya la
+    // lee, pero ningun bloque del sync la escribe todavia: falta el scope
+    // `read_returns` (no esta en SHOPIFY_SCOPES). Se queda listada porque es el
+    // unico hueco decidido -- sin ella sabemos cuanto se devolvio
+    // (shopify_refunds) pero no por que.
+    key: "returns",
+    label: "Devoluciones",
+    table: "shopify_returns",
+    description: "Motivo de cada devolucion, lineas devueltas y cambios. Requiere el permiso read_returns.",
+    status: "planned",
+    scopes: ["read_returns"],
     syncScope: null,
   },
 ];
 
-// shopify_order_items, shopify_refunds y shopify_refund_items no tienen columna store_id propia
-// (se relacionan a la tienda via order_id -> shopify_order_facts.store_id), asi que no se filtran aqui.
+// Tablas con columna `store_id` propia, comprobado contra las migraciones. Las
+// que no estan aqui cuelgan de la tienda por una FK intermedia
+// (shopify_order_items -> order_id -> shopify_order_facts.store_id,
+// shopify_variants -> product_id...), asi que su recuento va por organizacion.
 const storeScopedTables = new Set([
   "shopify_stores",
   "shopify_locations",
   "shopify_products",
+  "shopify_collections",
   "shopify_order_facts",
+  "shopify_order_transactions",
+  "shopify_fulfillments",
   "shopify_customers",
+  "shopify_abandoned_checkouts",
+  "shopify_discounts",
+  "shopify_marketing_events",
+  "shopify_sessions_daily",
+  "shopify_returns",
 ]);
 
 async function countRows(

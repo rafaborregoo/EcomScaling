@@ -21,6 +21,22 @@ test("P06 separa waterfall observado de contribution, CAC, payback y cash", () =
   assert.equal(enriched.facts?.["unit_economics.cash.observed"], "UNKNOWN");
 });
 
+// La v2 de `shopify_financial_summary` anade contribution y CAC mezclado. El
+// motor recibia esas columnas y las fijaba a UNKNOWN a mano. Este test falla si
+// vuelven a ignorarse; el de arriba sigue cubriendo que sin ellas no se
+// inventan a partir de net_profit.
+test("P06 observa contribution y CAC cuando el resumen financiero los trae", () => {
+  const context = buildUnitEconomicsPlaybookContext("org-1", [], null, "2026-09-17T10:00:00.000Z");
+  const enriched = applyUnitEconomicsEvidence(context, {
+    financial: { net_profit: 66, contribution_per_order: 18.4, cac_blended: 11.2 },
+  });
+  assert.equal(enriched.facts?.["unit_economics.contribution.observed"], "TRUE");
+  assert.equal(enriched.facts?.["unit_economics.acquisition.cac_observed"], "TRUE");
+  // Payback no sale de aqui: el umbral de breakeven no es el periodo de
+  // recuperacion, y fingir que si es el error que este fact existe para evitar.
+  assert.equal(enriched.facts?.["unit_economics.payback.observed"], "UNKNOWN");
+});
+
 test("P06 conserva UNKNOWN cuando faltan costes comparables y segmentacion", () => {
   const context = buildUnitEconomicsPlaybookContext("org-1", [], null, "2026-09-17T10:00:00.000Z");
   const enriched = applyUnitEconomicsEvidence(context, { sales: null, margin: null, financial: null });

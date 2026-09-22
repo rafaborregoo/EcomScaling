@@ -76,7 +76,7 @@ export function ConversionCroPlaybookPanel() {
   return (
     <Card
       id="insight-conversion"
-      title="Conversión y CRO F5.03"
+      title="Conversión y CRO"
       description="Localiza la etapa y separa fix, research o test sin confundir cobertura incompleta con una fuga real."
     >
       {current ? (

@@ -79,6 +79,7 @@ import { listConsultantRestraintDecisionRuns } from "./restraint-decision-api.js
 import { listConsultantExpectedOutcomeRuns } from "./expected-outcome-api.js";
 import { listConsultantRecommendationConfidenceRuns } from "./recommendation-confidence-api.js";
 import { listConsultantRecommendationCommunicationRuns } from "./recommendation-communication-api.js";
+import { applyConsultantLifecycleCommand, listConsultantExecutionLifecycleStates, listConsultantExecutionLifecycleTransitions } from "./execution-lifecycle-api.js";
 import { listConsultantHitlApprovalRuns } from "./hitl-approval-api.js";
 import { listConsultantClosureHandoffRuns } from "./closure-handoff-api.js";
 import { listConsultantExecutionPlans } from "./execution-plan-api.js";
@@ -201,6 +202,7 @@ import {
   revokeSubscription,
   type GrantInput,
 } from "./billing.js";
+import { getToolCatalog } from "./tool-catalog.js";
 import {
   getPlatformBillingSettings,
   getPlatformInvoice,
@@ -1065,6 +1067,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
 
     const result = await listPlans(env);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  // Catalogo de tools del copiloto: que sabe hacer y que agente puede usarlo.
+  app.get("/v1/admin/tools", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getToolCatalog(env, auth.context);
     if (isServiceFailure(result)) return sendServiceFailure(reply, result);
     return result.data;
   });
@@ -3156,6 +3168,48 @@ export async function buildApp(): Promise<FastifyInstance> {
       if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
       const query = request.query as { organizationId?: string };
       const result = await listConsultantRecommendationCommunicationRuns(env, authorization, auth.context, query.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get(
+    "/v1/consultant/execution-lifecycle",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const query = request.query as { organizationId?: string };
+      const result = await listConsultantExecutionLifecycleStates(env, authorization, auth.context, query.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get(
+    "/v1/consultant/execution-lifecycle/transitions",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const query = request.query as { organizationId?: string; interventionId?: string };
+      const result = await listConsultantExecutionLifecycleTransitions(env, authorization, auth.context, query.organizationId, query.interventionId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post(
+    "/v1/consultant/execution-lifecycle/commands",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const body = request.body as { organizationId?: string; interventionId?: string; command?: string; planVersion?: number };
+      const result = await applyConsultantLifecycleCommand(env, authorization, auth.context, body ?? {});
       if (isServiceFailure(result)) return sendServiceFailure(reply, result);
       return result.data;
     },

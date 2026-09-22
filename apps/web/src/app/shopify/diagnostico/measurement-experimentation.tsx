@@ -59,7 +59,7 @@ export function MeasurementExperimentationPlaybookPanel() {
   const value = (key: string) => facts[key] ?? "UNKNOWN";
 
   return (
-    <Card id="insight-measurement-experimentation" title="Datos, tracking y experimentación F5.09" description="Valida definición, cobertura y fuentes antes de optimizar; no confunde atribución con causalidad ni una señal de funnel con tracking fiable.">
+    <Card id="insight-measurement-experimentation" title="Datos, tracking y experimentación" description="Valida definición, cobertura y fuentes antes de optimizar; no confunde atribución con causalidad ni una señal de funnel con tracking fiable.">
       {current ? (
         <article className="rounded border border-default-200 p-4">
           <div className="flex items-center justify-between gap-3">

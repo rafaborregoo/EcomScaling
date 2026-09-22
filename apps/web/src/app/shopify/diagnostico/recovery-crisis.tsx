@@ -50,7 +50,7 @@ export function RecoveryCrisisPlaybookPanel() {
   const value = (key: string) => facts[key] ?? "UNKNOWN";
   const observed = FACTS.filter(([key]) => value(key) !== "UNKNOWN").length;
   const profile = current?.result?.selected_instance?.domain_extension?.recovery_crisis;
-  return <Card id="insight-recovery-crisis" title="Recovery, crisis y continuidad F5.11" description="Distingue deterioro normal, incidente y crisis; prioriza contener, estabilizar y recuperar antes de volver a optimizar.">
+  return <Card id="insight-recovery-crisis" title="Recovery, crisis y continuidad" description="Distingue deterioro normal, incidente y crisis; prioriza contener, estabilizar y recuperar antes de volver a optimizar.">
     {current ? <article className="rounded border border-default-200 p-4">
       <div className="flex items-center justify-between gap-3"><span className="text-muted text-xs">{current.organization_id}</span><Badge tone={tone(current.disposition)}>{current.disposition}</Badge></div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">{FACTS.map(([key, label]) => { const fact = value(key); return <div key={key} className="rounded border border-default-200 p-3"><div className="flex items-center justify-between gap-2 text-xs"><span>{label}</span><span className="font-mono text-muted">{fact}</span></div><div className="mt-2 h-1.5 rounded bg-default-100"><div className={`h-1.5 rounded ${fact === "TRUE" ? "bg-success" : fact === "FALSE" ? "bg-danger" : "bg-muted"}`} style={{ width: fact === "UNKNOWN" ? "22%" : "100%" }} /></div></div>; })}</div>

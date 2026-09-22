@@ -135,9 +135,9 @@ async function enrichMeasurementExperimentationContext(
         ? { available: false }
         : {
             available: true,
-            has_sessions: first(funnelResult)?.has_sessions,
+            has_sessions: (first(funnelResult)?.sessions ?? 0) > 0,
             sessions: first(funnelResult)?.sessions,
-            has_funnel_steps: first(funnelResult)?.has_funnel_steps,
+            has_funnel_steps: [first(funnelResult)?.cart_additions, first(funnelResult)?.checkouts_reached].some((v: number | null | undefined) => v !== null && v !== undefined),
             purchases: first(funnelResult)?.purchases,
           },
       daily: dailyResult.error

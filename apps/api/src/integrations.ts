@@ -44,7 +44,6 @@ function isCustomShopifyAppAvailable(env: ApiEnv) {
 type Provider = {
   id: "shopify" | "meta_ads" | "klaviyo" | "instagram" | "fathom";
   name: string;
-  phase: string;
   description: string;
   available: boolean;
   feature_flag: string;

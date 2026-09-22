@@ -56,7 +56,7 @@ export function PlaybookFrameworkPanel() {
   const current = runs[0];
   return (
     <Card
-      title="Framework universal de playbooks F5.00"
+      title="Framework universal de playbooks"
       description="Evalúa contexto, aplicabilidad y trazabilidad. No convierte una métrica en una orden."
     >
       {current ? (

@@ -23,7 +23,7 @@ export function MaturityRecommendationsPanel({ organizationId }: { organizationI
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
   if (!runs) return <LoadingBlock label="Cargando recomendaciones adaptadas por madurez F7.10..." />;
   const model = maturityRecommendationViewModel(runs[0]);
-  return <Card id="insight-maturity-recommendations" title="Recomendaciones por madurez F7.10" description="Separa lo apropiado ahora de lo que conviene dejar para después. No usa facturación o tooling como proxy de madurez y no autoriza ejecución.">
+  return <Card id="insight-maturity-recommendations" title="Recomendaciones por madurez" description="Separa lo apropiado ahora de lo que conviene dejar para después. No usa facturación o tooling como proxy de madurez y no autoriza ejecución.">
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-muted">{model.candidateCount} candidatos adaptados</span><Badge tone={model.disposition === "MATURITY_RECOMMENDATIONS_AVAILABLE" ? "success" : "warn"}>{model.disposition}</Badge></div>
       {model.candidates.length ? <div className="space-y-3">{model.candidates.map((candidate) => <article key={candidate.candidate_id} className="rounded border border-default-200 p-3">

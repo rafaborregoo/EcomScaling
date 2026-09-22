@@ -478,8 +478,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         Ejecuciones de agentes IA
       </Heading>
       <p className="text-[13px] text-muted">
-        Panel técnico (AI-12, Observability &amp; tracing): reconstruye una
-        ejecución completa sin consultar varias tablas a mano. Las salidas con
+        Panel técnico: reconstruye una ejecución completa sin consultar varias tablas a mano. Las salidas con
         propuestas quedan pendientes de revisión humana; esta vista no ejecuta
         cambios por sí sola.
       </p>

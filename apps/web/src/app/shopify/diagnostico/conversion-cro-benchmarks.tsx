@@ -65,7 +65,7 @@ export function ConversionCroBenchmarksPanel() {
   return (
     <Card
       id="insight-conversion-cro-benchmarks"
-      title="Benchmarks y guardrails de conversión / CRO F6.05"
+      title="Benchmarks y guardrails de conversión / CRO"
       description="Valida el denominador, controla el mix, descompone el funnel y separa fricción observable de hipótesis, oportunidad económica y experimento."
     >
       {current ? (

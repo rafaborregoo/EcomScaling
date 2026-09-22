@@ -45,7 +45,7 @@ export function ProductInventoryPlaybookPanel() {
   const profile = current?.result?.selected_instance?.domain_extension?.product_inventory;
   const value = (key: string) => facts[key] ?? "UNKNOWN";
   return (
-    <Card id="insight-product-inventory" title="Producto, catálogo e inventario F5.07" description="Separa catálogo, disponibilidad, demanda y reposición; no convierte un stockout en una compra automática ni el stock absoluto en overstock.">
+    <Card id="insight-product-inventory" title="Producto, catálogo e inventario" description="Separa catálogo, disponibilidad, demanda y reposición; no convierte un stockout en una compra automática ni el stock absoluto en overstock.">
       {current ? (
         <article className="rounded border border-default-200 p-4">
           <div className="flex items-center justify-between gap-3">

@@ -48,6 +48,7 @@ import {
   createOptionalLangSmithTraceable,
   resolveLangSmithRuntimeConfig,
   getToolContract,
+  TOOL_DESCRIPTIONS,
   getToolDefinition,
   normalizeToolConnectorId,
   type AgentInput,
@@ -1621,7 +1622,7 @@ function buildAgentTools(
 
   registerPreparedConnectorReadTool(
     "meta_read_ad_accounts",
-    "Lee las cuentas publicitarias Meta sincronizadas para la organización activa, sin credenciales ni datos crudos.",
+    TOOL_DESCRIPTIONS.meta_read_ad_accounts,
     async (client, input) => {
       let request = client
         .from("meta_ad_accounts")
@@ -1649,7 +1650,7 @@ function buildAgentTools(
 
   registerPreparedConnectorReadTool(
     "meta_read_campaign_insights",
-    "Lee insights diarios Meta ya sincronizados, con filtros de cuenta y fechas y sin exponer payloads crudos.",
+    TOOL_DESCRIPTIONS.meta_read_campaign_insights,
     async (client, input) => {
       let request = client
         .from("meta_insight_rows_daily")
@@ -1690,7 +1691,7 @@ function buildAgentTools(
 
   registerPreparedConnectorReadTool(
     "instagram_read_media",
-    "Lee publicaciones de Instagram sincronizadas para la organización activa, sin credenciales ni payloads crudos.",
+    TOOL_DESCRIPTIONS.instagram_read_media,
     async (client, input) => {
       let request = client
         .from("instagram_media")
@@ -1736,7 +1737,7 @@ function buildAgentTools(
 
   registerPreparedConnectorReadTool(
     "instagram_read_insights",
-    "Lee métricas de publicaciones Instagram ya sincronizadas, filtradas por cuenta y periodo y sin datos crudos.",
+    TOOL_DESCRIPTIONS.instagram_read_insights,
     async (client, input) => {
       let request = client
         .from("instagram_media_insight_values")
@@ -1795,7 +1796,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "shopify_customer_health",
-    "Recurrencia, valor por cliente y cohortes de la tienda: responde si los clientes vuelven y cuanto vale cada uno. Los pedidos contados en unknown_orders NO son clientes nuevos, son pedidos sin el dato de Shopify.",
+    TOOL_DESCRIPTIONS.shopify_customer_health,
     async (client) => {
       const window = insightsWindow();
       // Estas tres RPC no pasan por el SQL Gateway, asi que no dejan fila en
@@ -1831,7 +1832,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "shopify_demand_sources",
-    "De donde vienen los pedidos (primera visita segun Shopify), carritos abandonados y coste de cada codigo de descuento. Esta atribucion es la de Shopify y NO se suma con la de Meta o Klaviyo.",
+    TOOL_DESCRIPTIONS.shopify_demand_sources,
     async (client) => {
       const window = insightsWindow();
       return combineMetricRpcs({
@@ -1850,7 +1851,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "shopify_fulfillment_health",
-    "Plazos de entrega y devoluciones por producto con su motivo. Si with_estimate es 0, Shopify no dio fecha prometida: ahi late_deliveries 0 no significa que todo llegara a tiempo.",
+    TOOL_DESCRIPTIONS.shopify_fulfillment_health,
     async (client) => {
       const window = insightsWindow();
       return combineMetricRpcs({
@@ -1859,6 +1860,39 @@ function buildAgentTools(
           "shopify_return_rate_by_product",
           { ...window, result_limit: 10 },
         ),
+      });
+    },
+  );
+
+  registerScopedReadTool(
+    "shopify_funnel_health",
+    TOOL_DESCRIPTIONS.shopify_funnel_health,
+    async (client) => {
+      const window = insightsWindow();
+      return combineMetricRpcs({
+        embudo: client.rpc("shopify_funnel_summary", window),
+        embudo_diario: client.rpc("shopify_funnel_daily", window),
+        recuperacion_carritos: client.rpc("shopify_checkout_recovery", window),
+      });
+    },
+  );
+
+  registerScopedReadTool(
+    "shopify_margin_health",
+    TOOL_DESCRIPTIONS.shopify_margin_health,
+    async (client) => {
+      const window = insightsWindow();
+      return combineMetricRpcs({
+        margen: client.rpc("shopify_margin_summary", window),
+        productos_top: client.rpc("shopify_top_products", {
+          ...window,
+          result_limit: 10,
+        }),
+        coste_por_codigo: client.rpc("shopify_discount_cost_by_code", {
+          ...window,
+          result_limit: 10,
+        }),
+        ventas_diarias: client.rpc("shopify_sales_daily", window),
       });
     },
   );
@@ -1884,7 +1918,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "meta_creative_health",
-    "Rendimiento por creatividad de Meta y reparto del gasto por veredicto de subasta. hook_rate y hold_rate en null con has_video false significan que el anuncio NO es un video, no que el video sea malo. enough_volume false significa que no hay impresiones suficientes para publicar tasas. UNKNOWN en un ranking es que Meta no tiene volumen para juzgarlo, no un suspenso.",
+    TOOL_DESCRIPTIONS.meta_creative_health,
     async (client) => {
       const window = metaWindow();
       return combineMetricRpcs({
@@ -1902,7 +1936,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "meta_delivery_health",
-    "Si las cifras de Meta se pueden creer: salud del pixel por evento y conjuntos en fase de aprendizaje. days_missing son dias del periodo sin ese evento; un pixel que manda visitas y dejo de mandar compras se ve vivo desde Meta y deja la optimizacion ciega.",
+    TOOL_DESCRIPTIONS.meta_delivery_health,
     async (client) => {
       const window = metaWindow();
       return combineMetricRpcs({
@@ -1913,8 +1947,20 @@ function buildAgentTools(
   );
 
   registerScopedReadTool(
+    "meta_spend_detail",
+    TOOL_DESCRIPTIONS.meta_spend_detail,
+    async (client) => {
+      const window = metaWindow();
+      return combineMetricRpcs({
+        por_campana: client.rpc("meta_spend_by_campaign", window),
+        gasto_diario: client.rpc("meta_spend_daily", window),
+      });
+    },
+  );
+
+  registerScopedReadTool(
     "meta_change_log",
-    "Que se toco en la cuenta de Meta y que paso en los 7 dias siguientes, sobre la misma entidad y con el dia del cambio excluido de las dos ventanas. Es coincidencia en el tiempo, NO causa demostrada: no lo presentes como una relacion probada.",
+    TOOL_DESCRIPTIONS.meta_change_log,
     async (client) =>
       client.rpc("meta_change_impact", {
         ...metaWindow(),
@@ -1931,7 +1977,7 @@ function buildAgentTools(
   // se entienden.
   registerScopedReadTool(
     "klaviyo_email_content",
-    "Los emails que envia esta tienda, de campana y de flujo, con su asunto, su preheader, el cuerpo en texto y sus enlaces. Los de flujo van numerados en el orden en que los recibe el suscriptor. adds_utm false significa que ese email NO etiqueta sus enlaces: su trafico llega sin atribuir, asi que su efecto no se puede medir aunque funcione. cuerpo_cortado true significa que el texto se trunco, no que el email termine ahi.",
+    TOOL_DESCRIPTIONS.klaviyo_email_content,
     async (client) => {
       const { data, error } = await client.rpc("klaviyo_email_inventory", {
         target_organization_id: organizationId,
@@ -1997,7 +2043,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "klaviyo_measurement_health",
-    "Si se puede creer lo que mide el email de esta tienda: cuantos emails no llevan UTM, no tienen cuerpo o no siguen clics, mas el inventario de flujos, campanas, listas y segmentos y el estado del ultimo sync. recursos_no_traidos con valor significa que el catalogo esta INCOMPLETO: que un flujo no aparezca no prueba que no exista.",
+    TOOL_DESCRIPTIONS.klaviyo_measurement_health,
     async (client) =>
       client.rpc("klaviyo_measurement_health", {
         target_organization_id: organizationId,
@@ -2007,7 +2053,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "get_organization_profile",
-    "Lee el perfil operativo de la organizacion activa, sin credenciales ni secretos.",
+    TOOL_DESCRIPTIONS.get_organization_profile,
     async (client) =>
       client
         .from("organizations")
@@ -2020,7 +2066,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "get_strategic_plan",
-    "Lee el plan estrategico activo y sus fases/hitos de la organizacion activa.",
+    TOOL_DESCRIPTIONS.get_strategic_plan,
     async (client) =>
       client
         .from("strategic_plans")
@@ -2036,7 +2082,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "get_current_milestone",
-    "Lee el hito pendiente actual del plan estrategico activo de la organizacion.",
+    TOOL_DESCRIPTIONS.get_current_milestone,
     async (client) => {
       const milestoneId = await findCurrentMilestoneId(client, organizationId);
       if (!milestoneId) return { data: null, error: null };
@@ -2052,7 +2098,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "list_open_tasks",
-    "Lista hasta 50 tareas pendientes o en curso de la organizacion activa, ordenadas por vencimiento.",
+    TOOL_DESCRIPTIONS.list_open_tasks,
     async (client, input) => {
       const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
       const offset =
@@ -2073,7 +2119,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "list_open_alerts",
-    "Lista hasta 50 alertas abiertas o reconocidas de la organizacion activa.",
+    TOOL_DESCRIPTIONS.list_open_alerts,
     async (client, input) => {
       const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
       const offset =
@@ -2094,7 +2140,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "get_task_history",
-    "Lee hasta 100 tareas recientes de la organizacion activa para entender decisiones y resultados previos.",
+    TOOL_DESCRIPTIONS.get_task_history,
     async (client, input) => {
       const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
       const offset =
@@ -2114,7 +2160,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "get_call_history",
-    "Lee hasta 50 llamadas de consultoria de la organizacion activa sin notas internas ni transcripciones completas.",
+    TOOL_DESCRIPTIONS.get_call_history,
     async (client, input) => {
       const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
       const offset =
@@ -2134,7 +2180,7 @@ function buildAgentTools(
 
   registerScopedReadTool(
     "get_financial_settings",
-    "Lee los parametros financieros configurados para la organizacion activa, sin ejecutar calculos ni escrituras.",
+    TOOL_DESCRIPTIONS.get_financial_settings,
     async (client) =>
       client
         .from("organization_financial_settings")
@@ -2653,7 +2699,7 @@ function buildAgentTools(
 
   registerStructuredProposalTool(
     "request_missing_data",
-    "Solicita una conexión o dato que falta; nunca inventa resultados ni modifica el conector.",
+    TOOL_DESCRIPTIONS.request_missing_data,
     {
       type: "object",
       properties: {
@@ -2677,7 +2723,7 @@ function buildAgentTools(
 
   registerStructuredProposalTool(
     "escalate_to_human",
-    "Declara una abstención segura cuando faltan datos o el riesgo supera lo que el agente puede decidir.",
+    TOOL_DESCRIPTIONS.escalate_to_human,
     {
       type: "object",
       properties: {
@@ -2699,7 +2745,7 @@ function buildAgentTools(
 
   registerStructuredProposalTool(
     "flag_data_quality_issue",
-    "Reporta datos incoherentes o incompletos para que el consultor los revise antes de razonar sobre ellos.",
+    TOOL_DESCRIPTIONS.flag_data_quality_issue,
     {
       type: "object",
       properties: {
@@ -2726,7 +2772,7 @@ function buildAgentTools(
 
   registerStructuredProposalTool(
     "report_confidence",
-    "Obliga al agente a declarar su confianza y qué evidencia adicional podría cambiar la conclusión.",
+    TOOL_DESCRIPTIONS.report_confidence,
     {
       type: "object",
       properties: {

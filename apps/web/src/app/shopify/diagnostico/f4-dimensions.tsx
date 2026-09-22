@@ -43,7 +43,7 @@ export function F4DimensionsPanel() {
     return <LoadingBlock label="Cargando dimensiones de decisión F4..." />;
   return (
     <Card
-      title="Dimensiones finales F4"
+      title="Dimensiones finales"
       description="Riesgo, allocation, fit, ranking, portfolio y salida decisional permanecen separados y auditables."
     >
       <div className="grid gap-4 md:grid-cols-2">

@@ -182,6 +182,10 @@ const platformAdminNavGroups: NavGroup[] = [
       // porque el consultor no la gestiona -- el gestiona la de su cliente.
       { href: "/admin/conocimiento", label: "Metodología" },
       { href: "/admin/observabilidad", label: "Observabilidad" },
+      // Que sabe hacer el copiloto y que agente puede hacerlo. Va junto a
+      // observabilidad porque responde a lo mismo: como se esta comportando la
+      // IA, no como se configura un cliente.
+      { href: "/admin/tools", label: "Tools del copiloto" },
       { href: "/admin/logs/auditoria", label: "Auditoría" },
       { href: "/admin/logs/errores-sync", label: "Errores de sync" },
       { href: "/admin/logs/errores-agentes", label: "Errores de agentes" },
@@ -260,19 +264,6 @@ const NAV_ICONS: Record<
 function formatRole(role: string) {
   return role.replaceAll("_", " ");
 }
-
-// FE-02: la banda de avisos trataba "error" y "warning" igual visualmente
-// (siempre rojo de marca) aunque `severity` ya distinguia los dos casos desde
-// el backend -- un error real (integracion caida) y un aviso (permisos
-// pendientes) no deberian competir por la misma urgencia visual.
-const actionSeverityStatus: Record<
-  AccountAction["severity"],
-  "danger" | "warning" | "default"
-> = {
-  error: "danger",
-  warning: "warning",
-  info: "default",
-};
 
 type ShopifyConnectionSummary = {
   id: string;
@@ -898,7 +889,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   const pageActions = inIntegrations
     ? actions.filter((action) => !action.cta_href.startsWith("/integraciones"))
     : actions;
-  const visibleActions = pageActions.slice(0, 3);
   // "Ver como" fuerza el nav y los permisos de un cliente normal aunque el
   // rol real sea platform_admin: es lo que hace que la vista sea la misma
   // que ve el dueño de la organizacion, no la del admin mirandola por encima.
@@ -1358,44 +1348,32 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 />
               ) : null}
 
-              {visibleActions.map((action) => (
-                <div
-                  key={action.id}
-                  className="border-b border-separator px-6 py-3 lg:px-10"
-                >
-                  <Alert
-                    status={actionSeverityStatus[action.severity]}
-                    className="items-center"
+              {pageActions.length > 0 ? (
+                <div className="flex items-center gap-2 border-b border-separator px-6 py-2 font-mono text-xs text-muted lg:px-10">
+                  <span
+                    aria-hidden
+                    className={`size-1.5 shrink-0 rounded-full ${
+                      pageActions.some((action) => action.severity === "error")
+                        ? "bg-danger"
+                        : "bg-warning"
+                    }`}
+                  />
+                  <span className="truncate">
+                    {pageActions.length === 1
+                      ? `${pageActions[0].organization_name ? `${pageActions[0].organization_name}: ` : ""}${pageActions[0].title}`
+                      : `${pageActions.length} integraciones necesitan atención`}
+                  </span>
+                  <Link
+                    className="ml-auto inline-flex items-center gap-1 whitespace-nowrap"
+                    href={
+                      pageActions.length === 1
+                        ? pageActions[0].cta_href
+                        : "/integraciones"
+                    }
                   >
-                    <Alert.Indicator />
-                    <Alert.Content className="flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2">
-                      <div>
-                        <Alert.Title>{action.title}</Alert.Title>
-                        <Alert.Description>
-                          {action.organization_name
-                            ? `${action.organization_name}: `
-                            : ""}
-                          {action.message}
-                          {action.missing_scopes?.length
-                            ? ` (${action.missing_scopes.length} permisos pendientes)`
-                            : ""}
-                        </Alert.Description>
-                      </div>
-                      <Link
-                        className="inline-flex items-center gap-1 whitespace-nowrap"
-                        href={action.cta_href}
-                      >
-                        {action.cta_label}
-                        <IconChevronRight aria-hidden />
-                      </Link>
-                    </Alert.Content>
-                  </Alert>
-                </div>
-              ))}
-              {pageActions.length > visibleActions.length ? (
-                <div className="border-b border-separator px-6 py-2 font-mono text-xs text-muted lg:px-10">
-                  {pageActions.length - visibleActions.length} avisos más en
-                  Integraciones.
+                    Revisar
+                    <IconChevronRight aria-hidden />
+                  </Link>
                 </div>
               ) : null}
               <div className="px-4 pt-4 pb-28 sm:px-6 lg:px-10 lg:pt-6 lg:pb-14">

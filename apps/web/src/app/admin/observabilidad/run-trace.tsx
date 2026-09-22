@@ -296,7 +296,7 @@ export function RunTraceDetail({
           <Fact label="Proveedor">
             {run.provider ?? (
               <span className="text-muted">
-                Sin registrar (ejecución anterior a AI-30)
+                Sin registrar
               </span>
             )}
           </Fact>

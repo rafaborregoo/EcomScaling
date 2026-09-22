@@ -32,7 +32,7 @@ export function InterventionPrioritizationPanel({ organizationId }: { organizati
   if (!runs) return <LoadingBlock label="Cargando priorización de intervenciones F7.03..." />;
   const model = interventionPrioritizationViewModel(runs[0]);
   return (
-    <Card id="insight-intervention-prioritization" title="Prioridad entre intervenciones F7.03" description="Compara candidatos causalmente encajados sin score arbitrario. Expone una prioridad principal cuando hay dominancia clara; nunca autoriza ejecución.">
+    <Card id="insight-intervention-prioritization" title="Prioridad entre intervenciones" description="Compara candidatos causalmente encajados sin score arbitrario. Expone una prioridad principal cuando hay dominancia clara; nunca autoriza ejecución.">
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-2 text-xs text-muted"><span>{model.candidateCount} candidatos comparables</span>{model.primary ? <span>Principal: <span className="font-mono">{model.primary}</span></span> : <span>Sin principal todavía</span>}</div>

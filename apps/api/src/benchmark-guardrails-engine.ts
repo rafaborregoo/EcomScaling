@@ -107,8 +107,8 @@ async function enrichBenchmarkGuardrailsContext(supabase: any, context: Playbook
   return applyBenchmarkGuardrailsEvidence(
     context,
     {
-      sales: salesResult.error ? { available: false } : { available: true, orders_count: first(salesResult)?.orders_count, revenue: first(salesResult)?.revenue },
-      funnel: funnelResult.error ? { available: false } : { available: true, sessions: first(funnelResult)?.sessions, conversion_rate: first(funnelResult)?.conversion_rate },
+      sales: salesResult.error ? { available: false } : { available: true, orders_count: first(salesResult)?.orders_count, revenue: first(salesResult)?.net_sales },
+      funnel: funnelResult.error ? { available: false } : { available: true, sessions: first(funnelResult)?.sessions, conversion_rate: first(funnelResult)?.conversion_rate_shopify },
       margin: marginResult.error ? { available: false } : { available: true, items_with_cost: first(marginResult)?.items_with_cost },
       stock: stockResult.error ? { available: false } : { available: true, tracked_items: first(stockResult)?.tracked_items },
       delivery: deliveryResult.error ? { available: false } : { available: true, fulfillments: first(deliveryResult)?.fulfillments },

@@ -1906,7 +1906,6 @@ function MetaPortfolioWidget() {
     backfilling_accounts?: number;
   }>(`/v1/consultant/meta-portfolio?compare=${compare}`);
   const clients = data?.clients ?? null;
-  const backfilling = data?.backfilling_accounts ?? 0;
   const error = loadError ? "No se pudo cargar la cartera de Meta Ads." : null;
 
   const chip = (active: boolean) =>
@@ -2027,13 +2026,6 @@ function MetaPortfolioWidget() {
         </div>
       }
     >
-      {backfilling > 0 ? (
-        <Banner tone="warn" className="mb-3 text-sm">
-          Importando el histórico de Meta de {backfilling}{" "}
-          {backfilling === 1 ? "cuenta" : "cuentas"}. Los datos y comparativas
-          anteriores irán apareciendo conforme avanza.
-        </Banner>
-      ) : null}
       {error ? (
         <ErrorBlock>{error}</ErrorBlock>
       ) : !clients ? (
@@ -2842,16 +2834,20 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ) : (
             <>
               {!metrics ? (
-                <Banner tone="warn" className="mb-3 text-sm">
-                  <p className="font-medium">
-                    Sin datos sincronizados de Shopify todavía.
-                  </p>
-                  <p className="text-muted">
-                    Los KPIs se muestran a 0 hasta la primera sincronización.{" "}
-                    <Link href="/integraciones">Revisar integración</Link>
-                  </p>
-                </Banner>
-              ) : null}
+                // Antes esto era un aviso amarillo encima de una rejilla de
+                // ceros. El aviso sobraba y los ceros mentian: 0 EUR de
+                // facturacion y "todavia no ha llegado el dato" se pintaban
+                // igual. Sin datos no se pinta la rejilla.
+                <EmptyState
+                  title="Shopify aún no ha sincronizado"
+                  hint="En cuanto termine la primera sincronización aparecerán aquí la facturación, los pedidos y el margen."
+                  action={
+                    <ButtonLink href="/integraciones" variant="secondary">
+                      Ver la integración
+                    </ButtonLink>
+                  }
+                />
+              ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <Metric
                   card
@@ -2938,6 +2934,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   )}
                 />
               </div>
+              )}
 
               {metrics &&
               (!metrics.financial.has_settings ||
@@ -3023,13 +3020,6 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   Reintentar
                 </Button>
               </div>
-            </Banner>
-          ) : null}
-          {metaMetrics?.backfill?.status === "running" ? (
-            <Banner tone="warn" className="mb-3 text-sm">
-              Importando el histórico de Meta ({metaMetrics.backfill.pct}%). Los
-              datos anteriores a los últimos meses irán apareciendo conforme
-              avanza.
             </Banner>
           ) : null}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

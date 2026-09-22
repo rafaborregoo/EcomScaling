@@ -62,7 +62,7 @@ export function OfferPricingPlaybookPanel() {
   return (
     <Card
       id="insight-offer-pricing"
-      title="Oferta, pricing, merchandising y AOV F5.04"
+      title="Oferta, pricing, merchandising y AOV"
       description="Prioriza contribution y evidencia de catálogo, stock y cesta; no convierte AOV aislado en recomendación de precio."
     >
       {current ? (

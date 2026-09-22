@@ -2333,7 +2333,6 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 />
               ) : null}
               <Card
-                kicker="AI-11 · Fase A"
                 title="Crear contenido"
                 description="Describe el objetivo, la audiencia y la oferta. Claude propondrá el contenido con el contexto de la empresa y señalará cualquier dato que falte, sin inventar descuentos ni resultados."
               >

@@ -48,7 +48,7 @@ export function UnitEconomicsPlaybookPanel() {
   const facts = current?.input_envelope?.context?.facts ?? {};
   const profile = current?.result?.selected_instance?.domain_extension?.unit_economics;
   return (
-    <Card id="insight-unit-economics" title="Unit economics y rentabilidad F5.06" description="Muestra el waterfall económico observado y mantiene separados contribution, CAC, payback, cash, cohortes y escenarios cuando no hay datos comparables.">
+    <Card id="insight-unit-economics" title="Unit economics y rentabilidad" description="Muestra el waterfall económico observado y mantiene separados contribution, CAC, payback, cash, cohortes y escenarios cuando no hay datos comparables.">
       {current ? (
         <article className="rounded border border-default-200 p-4">
           <div className="flex items-center justify-between gap-3">

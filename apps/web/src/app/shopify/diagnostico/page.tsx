@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -64,6 +64,7 @@ import { RestraintDecisionPanel } from "./restraint-decision";
 import { ExpectedOutcomePanel } from "./expected-outcome";
 import { RecommendationConfidencePanel } from "./recommendation-confidence";
 import { RecommendationCommunicationPanel } from "./recommendation-communication";
+import { ExecutionLifecyclePanel } from "./execution-lifecycle";
 import { HitlApprovalPanel } from "./hitl-approval";
 import { ClosureHandoffPanel } from "./closure-handoff";
 import { ExecutionPlanPanel } from "./execution-plan";
@@ -266,7 +267,7 @@ const datasetColumns: TableColumnDef<DatasetRow>[] = [
     label: "Tabla",
     render: (row) => (
       <span className="font-mono text-xs text-accent">
-        {row.table ?? "pendiente_modelo"}
+        {row.table ?? "sin_tabla"}
       </span>
     ),
   },
@@ -275,7 +276,7 @@ const datasetColumns: TableColumnDef<DatasetRow>[] = [
     label: "Estado",
     render: (row) => (
       <span className="font-mono text-xs uppercase text-muted">
-        {row.status === "active" ? "guardando datos" : "pendiente de modelo"}
+        {row.status === "active" ? "guardando datos" : "sin volcar"}
       </span>
     ),
   },
@@ -621,6 +622,7 @@ function ShopifyDiagnosticoView({
       <ExpectedOutcomePanel organizationId={selectedOrganizationId} />
       <RecommendationConfidencePanel organizationId={selectedOrganizationId} />
       <RecommendationCommunicationPanel organizationId={selectedOrganizationId} />
+      <ExecutionLifecyclePanel organizationId={selectedOrganizationId} />
       <HitlApprovalPanel organizationId={selectedOrganizationId} />
       <ClosureHandoffPanel organizationId={selectedOrganizationId} />
       <ExecutionPlanPanel organizationId={selectedOrganizationId} />
@@ -820,7 +822,51 @@ function ShopifyDiagnosticoView({
   );
 }
 
+/**
+ * Reintenta el anclaje cuando el panel enlazado todavia no existia.
+ *
+ * Al llegar desde el menu de IA con `#insight-<slug>`, el navegador busca el
+ * ancla en cuanto cambia la URL; pero cada panel de esta pagina pinta despues
+ * de resolver su propia consulta, asi que en ese instante el elemento no esta
+ * en el DOM y no pasa nada. El resultado desde fuera es un enlace que no
+ * funciona.
+ *
+ * Se reintenta unas cuantas veces y se para: si a los ~3 s el panel no ha
+ * aparecido es que esa evaluacion no existe para esta tienda, y seguir
+ * buscando solo gastaria bateria. Se cancela al primer scroll del usuario
+ * para no robarle la pagina si decidio leer otra cosa.
+ */
+function useAnclaDeInsight() {
+  useEffect(() => {
+    const slug = window.location.hash;
+    if (!slug.startsWith("#insight-")) return;
+    if (document.querySelector(slug)) return;
+
+    let cancelado = false;
+    const parar = () => {
+      cancelado = true;
+    };
+    window.addEventListener("wheel", parar, { once: true, passive: true });
+    window.addEventListener("touchmove", parar, { once: true, passive: true });
+
+    let intentos = 0;
+    const id = window.setInterval(() => {
+      intentos += 1;
+      const destino = cancelado ? null : document.querySelector(slug);
+      if (destino) destino.scrollIntoView({ behavior: "smooth" });
+      if (destino || cancelado || intentos >= 12) window.clearInterval(id);
+    }, 250);
+
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("wheel", parar);
+      window.removeEventListener("touchmove", parar);
+    };
+  }, []);
+}
+
 export default function ShopifyDiagnosticoPage() {
+  useAnclaDeInsight();
   return (
     <PortalShell title="Diagnóstico Shopify">
       {(bootstrap) => <ShopifyDiagnosticoView bootstrap={bootstrap} />}

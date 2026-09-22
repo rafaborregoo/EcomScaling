@@ -23,7 +23,7 @@ export function RecommendationPortfolioPanel({ organizationId }: { organizationI
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
   if (!runs) return <LoadingBlock label="Cargando portafolio de recomendaciones F7.12..." />;
   const model = recommendationPortfolioViewModel(runs[0]);
-  return <Card id="insight-recommendation-portfolio" title="Portafolio de recomendaciones F7.12" description="Selecciona una cartera mínima y coherente alrededor de una prioridad, conserva los diferidos y deja explícitas las exclusiones. No asigna recursos ni ejecuta cambios.">
+  return <Card id="insight-recommendation-portfolio" title="Portafolio de recomendaciones" description="Selecciona una cartera mínima y coherente alrededor de una prioridad, conserva los diferidos y deja explícitas las exclusiones. No asigna recursos ni ejecuta cambios.">
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-muted">{model.candidateCount} candidatos evaluados</span><Badge tone={model.disposition === "PORTFOLIO_AVAILABLE" ? "success" : "warn"}>{model.disposition}</Badge></div>
       <div className="grid gap-3 md:grid-cols-3"><div><p className="text-xs text-muted">Primary</p><p className="font-mono text-sm">{model.primaryCandidateId ?? "No declarada"}</p></div><div><p className="text-xs text-muted">Factibilidad agregada</p><p className="text-sm">{model.portfolioFeasibility}</p></div><div><p className="text-xs text-muted">Riesgo de cartera</p><p className="text-sm">{model.portfolioRisk}</p></div></div>

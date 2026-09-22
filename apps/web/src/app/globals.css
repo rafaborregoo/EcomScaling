@@ -379,12 +379,20 @@ div[data-slot="modal-header"] + div[data-slot="modal-footer"] {
    al navegar a otro sitio. El `scroll-margin-top` es por la barra superior
    fija, que si no tapa justo lo que se acaba de anclar. El bloque de
    `prefers-reduced-motion` de mas arriba ya lo desactiva a una sola pasada. */
-[data-insight-target] {
+/* Los 51 paneles de /shopify/diagnostico anclan por `id="insight-<slug>"` y
+   ninguno llevaba `data-insight-target`: el enlace navegaba, pero la barra
+   superior fija tapaba justo la card recien anclada y no parpadeaba nada, asi
+   que desde el menu de IA parecia que el enlace no hacia nada. Se cubren por
+   selector de id en vez de anotar 51 componentes -- y el que anote el atributo
+   sigue funcionando igual. */
+[data-insight-target],
+[id^="insight-"] {
   scroll-margin-top: 6rem;
   border-radius: 0.75rem;
 }
 
-[data-insight-target]:target {
+[data-insight-target]:target,
+[id^="insight-"]:target {
   animation: insight-flash 1.1s ease-out 3;
 }
 

@@ -10,13 +10,13 @@ export const INTEGRATION_PROVIDERS = [
 
 export * from "./meta-ad-write-contract.js";
 export * from "./meta-ad-executor.js";
+export * from "./safe-mutation.js";
 
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 
 export type IntegrationCatalogEntry = {
   id: "shopify" | "meta_ads" | "klaviyo" | "instagram" | "fathom";
   name: string;
-  phase: string;
   description: string;
   available: boolean;
   featureFlag: string;
@@ -28,7 +28,6 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = [
   {
     id: "shopify",
     name: "Shopify",
-    phase: "INT-01",
     description: "Tienda, productos, inventario, pedidos y reembolsos.",
     available: true,
     featureFlag: "integration.shopify",
@@ -44,7 +43,6 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = [
   {
     id: "meta_ads",
     name: "Meta Ads",
-    phase: "INT-02",
     description: "Campañas, conjuntos, anuncios, gasto y ROAS.",
     available: true,
     featureFlag: "integration.meta_ads",
@@ -60,7 +58,6 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = [
   {
     id: "klaviyo",
     name: "Klaviyo",
-    phase: "INT-03",
     description: "Listas, segmentos, flows, campañas y revenue email.",
     available: true,
     featureFlag: "integration.klaviyo",
@@ -76,7 +73,6 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = [
   {
     id: "instagram",
     name: "Instagram",
-    phase: "INT-05",
     description: "Contenido orgánico, publicaciones y rendimiento.",
     available: false,
     featureFlag: "integration.instagram",
@@ -93,7 +89,6 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = [
   {
     id: "fathom",
     name: "Fathom",
-    phase: "INT-04",
     description: "Reuniones, transcripciones y análisis de llamadas con aprobación humana.",
     available: true,
     featureFlag: "integration.fathom",

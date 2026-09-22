@@ -14,7 +14,6 @@ import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
 import {
-  AsyncState,
   Badge,
   Banner,
   Button,
@@ -27,113 +26,8 @@ import {
   List,
   LoadingBlock,
   Select,
-  Table,
   Tabs,
-  type TableColumnDef,
 } from "@/components/ui";
-
-type ShopifyOverviewLite = {
-  authorized_scopes: string[];
-  datasets: Array<{
-    key: string;
-    label: string;
-    table: string | null;
-    status: "active" | "planned";
-    scopes: string[];
-    count: number;
-  }>;
-};
-
-function ShopifyCoverageSection({
-  organizationId,
-}: {
-  organizationId: string;
-}) {
-  const overviewQuery = useCachedQuery<ShopifyOverviewLite>(
-    `/v1/organizations/${organizationId}/shopify/overview`,
-  );
-  const overview = overviewQuery.data ?? null;
-  const error = overviewQuery.error
-    ? "No se pudo cargar la cobertura de Shopify. Revisa la conexión e inténtalo de nuevo."
-    : null;
-  const isLoading = overviewQuery.isLoading;
-
-  if (isLoading) {
-    return (
-      <AsyncState
-        status="loading"
-        loadingLabel="Cargando cobertura de datos..."
-      />
-    );
-  }
-
-  if (error) {
-    return <AsyncState status="error" error={error} />;
-  }
-
-  if (!overview) {
-    return (
-      <Banner tone="warn">
-        Conecta una tienda Shopify para ver la cobertura de datos.
-      </Banner>
-    );
-  }
-
-  const statusLabel = (dataset: ShopifyOverviewLite["datasets"][number]) => {
-    if (dataset.status === "active") {
-      return { label: "se vuelca", tone: "success" as const };
-    }
-    const hasScope = dataset.scopes.some((scope) =>
-      overview.authorized_scopes.includes(scope),
-    );
-    return hasScope
-      ? { label: "autorizado pendiente", tone: "brand" as const }
-      : { label: "requiere permiso", tone: "neutral" as const };
-  };
-
-  const columns: TableColumnDef<
-    ShopifyOverviewLite["datasets"][number] & { id: string }
-  >[] = [
-    {
-      key: "label",
-      label: "Dataset",
-      render: (row) => <span className="font-medium">{row.label}</span>,
-    },
-    {
-      key: "table",
-      label: "Tabla",
-      render: (row) => (
-        <span className="font-mono text-xs text-muted">
-          {row.table ?? "pendiente_modelo"}
-        </span>
-      ),
-    },
-    {
-      key: "status",
-      label: "Estado",
-      render: (row) => {
-        const status = statusLabel(row);
-        return <Badge tone={status.tone}>{status.label}</Badge>;
-      },
-    },
-    {
-      key: "count",
-      label: "Registros",
-      render: (row) => <span className="font-mono">{row.count}</span>,
-    },
-  ];
-
-  return (
-    <Table
-      ariaLabel="Cobertura de datos de Shopify"
-      columns={columns}
-      rows={overview.datasets.map((dataset) => ({
-        id: dataset.key,
-        ...dataset,
-      }))}
-    />
-  );
-}
 
 type FinancialSettings = {
   id: string;
@@ -886,12 +780,7 @@ function InfoRow({
   );
 }
 
-type SettingsTab =
-  | "general"
-  | "accesos"
-  | "alertas"
-  | "cartera"
-  | "shopify";
+type SettingsTab = "general" | "accesos" | "alertas" | "cartera";
 
 // Cartera: el total de tus clientes y tus tiendas. Antes eran dos entradas de
 // nav (/consultor y /tiendas) que no se operan a diario, solo se consultan. Las
@@ -995,9 +884,6 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ...(isConsultant
             ? [{ value: "cartera", label: "Clientes y tiendas" }]
             : []),
-          ...(organization
-            ? [{ value: "shopify", label: "Cobertura Shopify" }]
-            : []),
         ]}
       />
 
@@ -1062,8 +948,6 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         ) : null
       ) : tab === "cartera" ? (
         <PortfolioSection />
-      ) : organization ? (
-        <ShopifyCoverageSection organizationId={organization.id} />
       ) : null}
     </div>
   );

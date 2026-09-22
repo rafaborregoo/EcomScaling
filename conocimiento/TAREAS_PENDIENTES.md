@@ -1,3 +1,4 @@
+
 # Tareas pendientes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â conocimiento a software
 
 Lo que queda abierto de `docs/PLAN_MAESTRO_CONOCIMIENTO_A_SOFTWARE.md`, separado
@@ -93,6 +94,177 @@ auditoría.
       fuera de F7.
 
 ---
+
+## Metricas que no llegan al agente — del inventario, 2026-09-22
+
+Origen: [`docs/INVENTARIO_METRICAS.md`](../docs/INVENTARIO_METRICAS.md), que
+cruza cada funcion SQL con la pantalla que la muestra y la tool que la expone.
+Se regenera con `node scripts/inventario-metricas.mjs`, asi que estas casillas
+se pueden re-comprobar en cualquier momento en vez de creerse.
+
+Lo que enseno el inventario, y no era lo esperado: de **33 metricas de negocio,
+31 tienen pantalla**. El hueco no esta en el pixel — esta en el punto 8 del DoD.
+**10 no las puede leer ningun agente**, y leidas juntas son embudo, margen,
+gasto por campana y productos top: justo lo que un consultor pregunta.
+
+- [x] **Embudo, margen y gasto por campana al agente** (2026-09-22). Tres
+      tools, no siete, respetando el criterio de `tool-layer.ts` de que cada
+      una responda una pregunta entera:
+      `shopify_funnel_health` (funnel_summary + funnel_daily + checkout_recovery),
+      `shopify_margin_health` (margin_summary + top_products + discount_cost_by_code + sales_daily)
+      y `meta_spend_detail` (spend_by_campaign + spend_daily). Concedidas a
+      `a09_copiloto_consultor` en la v11 (migracion 20261104090000,
+      idempotente, mismo prompt: solo cambia el alcance de lectura).
+      Conversion y CRO y Oferta/AOV se quedan a cero metricas sin tool.
+      Las descripciones avisan de lo que el modelo no puede deducir solo:
+      sessions a 0 es falta de permiso, no conversion baja; items_without_cost
+      alto infla el margen; las compras de Meta son atribuidas y no se suman.
+- [ ] **Decidir sobre 4 funciones muertas**: `klaviyo_link_clicks`,
+      `klaviyo_subject_performance`, `meta_attribution_window_rank` y
+      `copilot_bank_organization`. No las llama ni la UI ni un agente —
+      comprobado a mano, solo aparecen en los tipos generados. O se conectan o
+      se borran con su migracion; dejarlas es esquema que miente sobre lo que
+      el producto hace.
+
+*Por que no se hizo en el momento:* el criterio de la capa de tools esta escrito
+a proposito en `packages/ai/src/tool-layer.ts` — "tres tools y no ocho, cada una
+responde una pregunta entera". Anadir siete tools sueltas lo romperia. Hay que
+decidir primero **que preguntas** faltan y agruparlas igual, no exponer una tool
+por funcion SQL.
+
+*Paso 2, hecho el 2026-09-22:* el cruce con el corpus esta debajo. Respuesta
+corta: estas 10 no eran todo el hueco, ni el mayor.
+
+### Motores leyendo columnas que no existen — 2026-09-22
+
+Al cablear el CAC aparecio algo peor que el descuido de "pide la funcion entera
+y lee tres campos": **motores leyendo nombres de columna que la funcion SQL no
+devuelve**. No dan error. Devuelven `undefined`, el motor sigue marcando la
+fuente como `available: true`, y el hecho sale UNKNOWN o FALSE sin que nadie
+sepa por que. Es la forma exacta de fallo que todo el sistema de
+TRUE/FALSE/UNKNOWN existe para evitar, derrotada por una errata.
+
+Corregidos (los tres eran sistemicos, no puntuales):
+
+| Se leia | Existe? | Real |
+| --- | --- | --- |
+| `shopify_sales_summary.revenue` | no | `net_sales` |
+| `shopify_funnel_summary.conversion_rate` | no | `conversion_rate_shopify` |
+| `shopify_margin_summary.contribution` | no | `shopify_financial_summary.contribution_per_order` |
+| `shopify_financial_summary.net_revenue` / `.revenue` | no | `net_revenue_ex_tax` |
+| `shopify_funnel_summary.has_sessions` / `.has_funnel_steps` | no | derivados de `sessions`, `cart_additions`, `checkouts_reached` |
+
+La tasa de conversion se leia mal en **seis** motores a la vez. En
+`conversion-cro-benchmarks` eso hacia que `contribution_per_session` fuese
+siempre falso: se calculaba a partir de dos columnas fantasma.
+
+Donde el motor no pide `shopify_financial_summary` (offer-pricing-benchmarks,
+retention-crm-benchmarks) la contribution queda en `null` con el comentario al
+lado, en vez de rellenarse con `gross_margin`: margen bruto **no** es
+contribution, y sustituir uno por otro habria cambiado un hecho vacio por un
+hecho falso, que es peor.
+
+- [x] Los cinco desajustes de la tabla, con `scripts/auditar-columnas-motores.mjs`
+      guardado para que no vuelva a pasar en silencio.
+- [ ] **Meter el auditor en CI.** Mientras se ejecute a mano, el proximo cambio
+      de firma vuelve a colarse. Es lo unico que cierra esta clase de bug.
+- [ ] **`conversion_cro.product_views`**: el hecho esta declarado y ninguna
+      funcion lo puede llenar — `shopify_funnel_summary` no trae vistas de
+      producto. Hoy es UNKNOWN, que es honesto. Decidir si se trae el dato o se
+      retira el hecho.
+
+*Por que no salta ningun test:* los tests llaman a `applyXEvidence` con objetos
+de evidencia escritos a mano, que siempre usan los nombres correctos. El fallo
+vivia en `enrich`, entre la RPC y ese objeto, que ningun test cubre porque pide
+Supabase. Un test de contrato por motor cerraria el hueco; el auditor estatico
+es el 80% del valor por el 5% del trabajo.
+
+
+### Los motores no leen lo que ya tienen en la mano — paso 2 del cruce, 2026-09-22
+
+Cruzando el destilado (`01-rag-produccion`, 274k palabras) con las 275 columnas
+que devuelven las 37 funciones SQL de negocio.
+
+**Correccion de la primera version de esta seccion.** Dijo que CAC no se
+calculaba. Es falso, y el error era mio: el extractor solo reconocia
+`create or replace function` y se saltaba las definidas con `drop` + `create
+function` — que es el patron que CLAUDE.md exige al cambiar una firma. Se
+perdieron dos funciones, y una era justo la que importaba.
+
+Lo que hay de verdad:
+
+| Metrica | Menciones | Se calcula? |
+| --- | --- | --- |
+| **CAC mezclado** | 530 | **si** — `shopify_financial_summary.cac_blended` = `ads_spend / new_customers`, con `ads_spend_summary` agregando gasto de varias plataformas. Tiene test golden y sale en `/panel` |
+| CVR | 346 | si (`conversion_rate_*`) |
+| **LTV** | 296 | **no** — hay `avg/median/p90_revenue_per_customer`, que es ingreso por cliente, no LTV con margen y horizonte |
+| AOV | 271 | si (`aov`, `aov_ex_tax`) |
+| CTR | 130 | si (`outbound_ctr`, `click_rate`) |
+| **payback** | 105 | **no** — hay `breakeven_cac_per_order` y `mbee`, que es el umbral, no el periodo de recuperacion |
+| ROAS | 82 | si (`roas`, `breakeven_roas`) |
+| **CPM / CPC** | 117 | **no** — derivables de `spend`/`impressions`/`clicks` |
+| COGS | 47 | si (`cogs`, `cogs_per_order`) |
+| **churn** | 58 | **no** |
+| **MER** | 13 | **no** |
+
+El motor financiero del panel esta mejor de lo que parecia: `cac_blended`,
+`contribution_per_order`, `breakeven_cac_per_order`, `breakeven_roas` y `mbee`
+existen y respetan ADR-0021 (`ads_spend_summary` agrega **coste**, que es un
+hecho, no ingreso atribuido).
+
+El hueco real es de **cableado**, y es mas barato de lo que parecia:
+
+- `acquisition-demand-engine.ts` **ya llama** a `shopify_financial_summary`,
+  pero de sus columnas solo lee tres: `net_profit`,
+  `break_even_monthly_revenue` y `has_settings`. **Ignora `cac_blended`,
+  `ads_spend` y `new_customers`, que vienen en la misma respuesta.** Por eso
+  `acquisition.cac.observed` y `.spend.observed` siguen en `UNKNOWN`: no falta
+  el dato, falta leerlo. De los 24 hechos que declara, rellena 8.
+- De los 76 ficheros `apps/api/src/*-engine.ts`, 25 llaman a alguna RPC de
+  metrica: **24 solo a `shopify_*`**, **1 a Meta**
+  (`paid-media-benchmarks-engine.ts`) y **0 a Klaviyo**, pese a que las 6
+  funciones de Klaviyo existen y estan en pantalla.
+- `retention-crm-engine.ts` es el area de retencion, CRM y LTV — o sea,
+  Klaviyo — y hace 2 llamadas, las dos a Shopify.
+
+Tareas, de mas barata a menos:
+
+- [x] **Leer las columnas que ya llegan** (2026-09-22). `cac_blended`,
+      `ads_spend` y `new_customers` en `acquisition-demand-engine.ts`, y
+      `contribution_per_order` y `cac_blended` en `unit-economics-engine.ts`,
+      que ademas los fijaba a UNKNOWN a mano con la fila entera en la variable.
+      Sin migracion, sin RPC nueva y sin datos nuevos: solo leerlos. Cinco
+      hechos dejan de mentir. Tests nuevos en los dos motores.
+      **Queda por revisar el mismo descuido en el resto**: de los 6 motores que
+      llaman a `shopify_financial_summary`, `unit-economics-benchmarks` y
+      `paid-media-benchmarks` leen solo `net_profit`, y `anomalies-red-flags`
+      la llama sin leer ninguna columna.
+- [ ] **Conectar Klaviyo a `retention-crm-engine.ts`**. Las funciones estan
+      hechas y ningun diagnostico las usa.
+- [ ] **`meta_spend_summary.cac` esta mal nombrado.** Divide gasto de Meta entre
+      compras que *Meta se atribuye*: es CPA de Meta, no CAC. Convive con el
+      `cac_blended` bueno, lo que invita a confundirlos —
+      `adversarial-engine.ts` ya lo hace (`cpa: "cac"`). Renombrar cuesta una
+      migracion y tocar a sus lectores (`meta-insights.ts`), asi que decidir si
+      compensa o basta con la etiqueta en pantalla y en la tool.
+- [ ] **LTV, payback, churn, CPM y CPC**. Los unicos que de verdad no existen.
+      CPM y CPC son aritmetica sobre columnas que ya volvemos. LTV y payback
+      necesitan decidir horizonte y si se calculan sobre margen o ingreso, que
+      es decision de producto, no de codigo.
+
+*Por que no se vio antes:* cada motor se escribio junto a su bloque de fase, y
+cada bloque nacio del `.md` de un area. Nadie decidio "solo Shopify" ni "lee
+tres campos": es el resultado acumulado de decisiones locales razonables. Lo
+que lo delata no es leer un motor, es contarlos todos.
+
+*Techo de este analisis:* las menciones se contaron con grep sobre el destilado,
+no consultando el indice vectorial (el MCP de Supabase no estaba autorizado en
+la sesion). Cuenta frecuencia, no importancia. Y este analisis ya se equivoco
+una vez por un regex: comprueba contra el codigo antes de actuar sobre una
+casilla.
+
+---
+
 
 ## Deuda anotada ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â la cierro yo cuando toque
 

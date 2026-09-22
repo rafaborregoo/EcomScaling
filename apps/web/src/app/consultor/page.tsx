@@ -23,6 +23,7 @@ import {
   ButtonLink,
   Card,
   Checkbox,
+  cn,
   CollapsibleSection,
   Dropdown,
   EmptyState,
@@ -50,11 +51,13 @@ import {
   ClientDesk,
   DailyActionInbox,
   DegradedSources,
+  NextCallWidget,
   PortfolioHealthBoard,
   PortfolioPulse,
   UpcomingWork,
   WINDOW_OPTIONS,
   type DailyWorkbench,
+  type InboxFilter,
 } from "./workbench";
 
 // Toda la fila del cliente es un objetivo de clic para plegar/desplegar sus
@@ -1262,15 +1265,21 @@ function PortfolioManagement({
   );
 }
 
-/** Cabecera de la jornada: fecha, periodo y el recuento de lo que hay en cola. */
+/**
+ * Cabecera de la jornada: fecha, periodo y el recuento de lo que hay en cola.
+ * Los contadores que tienen un filtro equivalente en "Para resolver hoy" son
+ * clicables y lo activan -- son la misma cifra, no dos fuentes distintas.
+ */
 function WorkbenchHeader({
   workbench,
   windowDays,
   onWindowChange,
+  onStatClick,
 }: {
   workbench: DailyWorkbench | undefined;
   windowDays: number;
   onWindowChange: (days: number) => void;
+  onStatClick: (filter: InboxFilter) => void;
 }) {
   const today = new Date().toLocaleDateString("es-ES", {
     weekday: "long",
@@ -1278,14 +1287,52 @@ function WorkbenchHeader({
     month: "long",
   });
   const summary = workbench?.summary;
-  const counters = summary
+  // Chips en vez de una frase de seis clausulas: se lee en un vistazo, y solo
+  // lo que pide algo (>0) se pinta en color -- un 0 es informacion buena, no
+  // tiene que competir visualmente con lo que si hay que mirar.
+  const stats: Array<{
+    label: string;
+    value: number;
+    needsAttention: boolean;
+    filter: InboxFilter | null;
+  }> = summary
     ? [
-        `${summary.clients} ${summary.clients === 1 ? "cliente" : "clientes"}`,
-        `${summary.urgent_clients} con algo urgente`,
-        `${summary.overdue_tasks} ${summary.overdue_tasks === 1 ? "tarea vencida" : "tareas vencidas"}`,
-        `${summary.pending_call_summaries} ${summary.pending_call_summaries === 1 ? "resumen por aprobar" : "resúmenes por aprobar"}`,
-        `${summary.pending_ai_proposals} ${summary.pending_ai_proposals === 1 ? "propuesta de IA" : "propuestas de IA"}`,
-        `${summary.unread_threads} ${summary.unread_threads === 1 ? "hilo sin leer" : "hilos sin leer"}`,
+        {
+          label: "clientes",
+          value: summary.clients,
+          needsAttention: false,
+          filter: null,
+        },
+        {
+          label: "con algo urgente",
+          value: summary.urgent_clients,
+          needsAttention: summary.urgent_clients > 0,
+          filter: "urgente",
+        },
+        {
+          label: "tareas vencidas",
+          value: summary.overdue_tasks,
+          needsAttention: summary.overdue_tasks > 0,
+          filter: "vencidas",
+        },
+        {
+          label: "resúmenes por aprobar",
+          value: summary.pending_call_summaries,
+          needsAttention: summary.pending_call_summaries > 0,
+          filter: "decision",
+        },
+        {
+          label: "propuestas de IA",
+          value: summary.pending_ai_proposals,
+          needsAttention: summary.pending_ai_proposals > 0,
+          filter: "decision",
+        },
+        {
+          label: "hilos sin leer",
+          value: summary.unread_threads,
+          needsAttention: summary.unread_threads > 0,
+          filter: "decision",
+        },
       ]
     : [];
 
@@ -1293,11 +1340,6 @@ function WorkbenchHeader({
     <Card
       kicker={today}
       title="Tu mesa de hoy"
-      description={
-        counters.length > 0
-          ? counters.join(" · ")
-          : "Reuniendo alertas, tareas, llamadas, mensajes e integraciones de tu cartera…"
-      }
       actions={
         <Field label="Periodo de las cifras">
           <Select
@@ -1310,7 +1352,44 @@ function WorkbenchHeader({
           />
         </Field>
       }
-    />
+    >
+      {stats.length > 0 ? (
+        <dl className="flex flex-wrap gap-x-6 gap-y-2">
+          {stats.map((stat) => {
+            const valueClass = cn(
+              "text-lg font-semibold tabular-nums",
+              stat.needsAttention ? "text-warning" : "text-foreground",
+            );
+            return (
+              <div key={stat.label} className="flex items-baseline gap-1.5">
+                {stat.filter ? (
+                  <button
+                    type="button"
+                    onClick={() => onStatClick(stat.filter!)}
+                    className="flex items-baseline gap-1.5 hover:opacity-75"
+                  >
+                    <dt className={valueClass}>{stat.value}</dt>
+                    <dd className="text-xs text-muted underline decoration-dotted">
+                      {stat.label}
+                    </dd>
+                  </button>
+                ) : (
+                  <>
+                    <dt className={valueClass}>{stat.value}</dt>
+                    <dd className="text-xs text-muted">{stat.label}</dd>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </dl>
+      ) : (
+        <p className="text-[13px] text-muted">
+          Reuniendo alertas, tareas, llamadas, mensajes e integraciones de tu
+          cartera…
+        </p>
+      )}
+    </Card>
   );
 }
 
@@ -1327,6 +1406,7 @@ function ConsultantPanel({
   // estuviera dentro de un cliente (R-009, la URL es la fuente primaria).
   const focusId = useSearchParams().get("organizationId") ?? "";
   const [windowDays, setWindowDays] = useState(30);
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("todo");
 
   const organizationsQuery = useCachedQuery<{
     organizations?: ConsultantOrganization[];
@@ -1461,6 +1541,7 @@ function ConsultantPanel({
         workbench={workbench}
         windowDays={windowDays}
         onWindowChange={setWindowDays}
+        onStatClick={setInboxFilter}
       />
 
       {workbenchQuery.error ? (
@@ -1473,15 +1554,40 @@ function ConsultantPanel({
       {workbench ? (
         <>
           <DegradedSources sources={workbench.sources} onRetry={reload} />
-          <DailyActionInbox
-            actions={workbench.actions}
-            emptyHint="Ninguna alerta, tarea, llamada, integración ni hito pide decisión. Buen momento para avanzar el plan estratégico de un cliente."
-          />
+          {/* Cola a 2/3 y agenda a 1/3: son las dos cosas que se miran a la
+              vez al planificar el dia, no una debajo de la otra. */}
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <DailyActionInbox
+                actions={workbench.actions}
+                emptyHint="Ninguna alerta, tarea, llamada, integración ni hito pide decisión. Buen momento para avanzar el plan estratégico de un cliente."
+                filter={inboxFilter}
+                onFilterChange={setInboxFilter}
+              />
+            </div>
+            <div className="space-y-6 lg:col-span-1">
+              <NextCallWidget
+                items={workbench.upcoming}
+                onOpen={setOrganizationId}
+              />
+              <UpcomingWork
+                items={workbench.upcoming.filter((item) => item.kind === "call")}
+                title="Agenda"
+                description="Llamadas de los próximos siete días."
+                emptyLabel="Sin llamadas agendadas esta semana."
+              />
+            </div>
+          </div>
           <PortfolioHealthBoard
             rows={workbench.portfolio}
             onOpen={setOrganizationId}
           />
-          <UpcomingWork items={workbench.upcoming} />
+          <UpcomingWork
+            items={workbench.upcoming.filter((item) => item.kind !== "call")}
+            title="Esta semana"
+            description="Hitos del plan, campañas y tareas con fecha en los próximos siete días."
+            emptyLabel="Nada más fechado esta semana."
+          />
         </>
       ) : workbenchQuery.isLoading ? (
         <LoadingBlock label="Reuniendo el trabajo del día..." />

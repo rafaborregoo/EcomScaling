@@ -229,6 +229,13 @@ Lo que queda abierto, separado por quien puede cerrarlo, vive en
 lo que necesita a Rafa y la deuda que dejo anotada cada bloque, con su motivo.
 Una deuda que solo vive en una conversacion esta perdida.
 
+Transversal a los bloques, **[docs/INVENTARIO_METRICAS.md](INVENTARIO_METRICAS.md)**
+responde las tres preguntas del DoD sobre cada metrica que ya existe: si se
+calcula, si alguien la ve (punto 7) y si un agente puede leerla (punto 8). Lo
+genera un script desde el codigo (`node scripts/inventario-metricas.mjs`), asi
+que no envejece como este documento: se regenera. El indice dice que bloques
+faltan; el inventario dice que de lo ya construido no llega a nadie.
+
 Debajo del indice, cada fase tiene su **bitacora**:
 `conocimiento/fase-XX/IMPLEMENTACION.md`. El indice responde *que* esta hecho;
 la bitacora responde *como y por que* Ã¢â‚¬â€ que decision se tomo en cada bloque,

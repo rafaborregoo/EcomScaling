@@ -168,8 +168,8 @@ async function enrichPaidMediaBenchmarksContext(
   return applyPaidMediaBenchmarksEvidence(context, {
     media: available(metaResult) ? { available: true, spend: meta?.spend, impressions: meta?.impressions, clicks: meta?.clicks, days: meta?.days_with_data } : { available: false },
     adsSpend: available(adsResult) ? { available: true, spend: ads?.spend, days: ads?.days_with_data } : { available: false },
-    ecommerce: available(salesResult) || available(funnelResult) ? { available: true, sessions: funnel?.sessions, orders_count: sales?.orders_count, revenue: sales?.revenue, conversion_rate: funnel?.conversion_rate } : { available: false },
-    economics: available(marginResult) || available(financialResult) ? { available: true, contribution: margin?.contribution, gross_margin: margin?.gross_margin, net_profit: financial?.net_profit } : { available: false },
+    ecommerce: available(salesResult) || available(funnelResult) ? { available: true, sessions: funnel?.sessions, orders_count: sales?.orders_count, revenue: sales?.net_sales, conversion_rate: funnel?.conversion_rate_shopify } : { available: false },
+    economics: available(marginResult) || available(financialResult) ? { available: true, contribution: financial?.contribution_per_order, gross_margin: margin?.gross_margin, net_profit: financial?.net_profit } : { available: false },
     attribution: available(metaResult) ? { available: true, attributed_revenue: meta?.purchase_value, purchases: meta?.purchases, roas: meta?.roas, days: meta?.days_with_data } : { available: false },
     customerMix: { available: false },
     incrementality: { available: false },

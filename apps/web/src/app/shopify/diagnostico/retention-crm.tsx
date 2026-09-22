@@ -44,7 +44,7 @@ export function RetentionCrmPlaybookPanel() {
   const profile = current?.result?.selected_instance?.domain_extension?.retention_crm;
   const facts = current?.input_envelope?.context?.facts ?? {};
   return (
-    <Card id="insight-retention-crm" title="Retención, CRM, lifecycle y LTV F5.05" description="Separa repeat observable, experiencia, economics, consentimiento e incrementalidad; no convierte más mensajes ni revenue atribuido en retención real.">
+    <Card id="insight-retention-crm" title="Retención, CRM, lifecycle y LTV" description="Separa repeat observable, experiencia, economics, consentimiento e incrementalidad; no convierte más mensajes ni revenue atribuido en retención real.">
       {current ? (
         <article className="rounded border border-default-200 p-4">
           <div className="flex items-center justify-between gap-3">

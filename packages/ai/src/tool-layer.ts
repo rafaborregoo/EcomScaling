@@ -144,6 +144,11 @@ const readTools = [
   "shopify_customer_health",
   "shopify_demand_sources",
   "shopify_fulfillment_health",
+  // Embudo y margen entraron despues: se veian en pantalla y ningun agente
+  // podia leerlos, asi que el copiloto no sabia responder "donde se cae la
+  // conversion" ni "que me come el margen" con el numero a dos clics.
+  "shopify_funnel_health",
+  "shopify_margin_health",
   // Metricas del modulo de Meta. Mismo criterio que las de Shopify: tres
   // tools y no nueve funciones sueltas, cada una responde una pregunta
   // entera. Las dos viejas (meta_read_ad_accounts,
@@ -152,6 +157,9 @@ const readTools = [
   "meta_creative_health",
   "meta_delivery_health",
   "meta_change_log",
+  // El gasto agregado ya estaba via meta_read_campaign_insights; esta baja a
+  // campana y a serie diaria, que es el nivel al que se decide que se apaga.
+  "meta_spend_detail",
   // Klaviyo: el contenido (asuntos y cuerpos) y si se puede medir. El cuerpo
   // llega ya convertido a texto -- el HTML de un email son 25 KB de tablas.
   "klaviyo_email_content",
@@ -201,6 +209,49 @@ export function normalizeToolConnectorId(provider: string): string {
   return provider === "meta_ads" ? "meta" : provider;
 }
 
+/**
+ * Lo que hace cada tool, en una frase, con sus trampas.
+ *
+ * Vive aqui y no junto a cada `registerScopedReadTool` porque tiene dos
+ * lectores que no pueden discrepar: el modelo, que decide con esto si la
+ * tool le sirve, y el catalogo de /admin/tools, donde alguien mira que sabe
+ * hacer el copiloto. Dos copias del mismo texto se separan al primer cambio
+ * y entonces el panel describe una tool que ya no se comporta asi.
+ *
+ * Las advertencias ("si X viene a 0 no significa Y") son parte de la
+ * descripcion a proposito: son lo que evita que el modelo diagnostique al
+ * reves, y lo que un consultor necesita saber para fiarse de la respuesta.
+ */
+export const TOOL_DESCRIPTIONS = {
+  meta_read_ad_accounts: "Lee las cuentas publicitarias Meta sincronizadas para la organización activa, sin credenciales ni datos crudos.",
+  meta_read_campaign_insights: "Lee insights diarios Meta ya sincronizados, con filtros de cuenta y fechas y sin exponer payloads crudos.",
+  instagram_read_media: "Lee publicaciones de Instagram sincronizadas para la organización activa, sin credenciales ni payloads crudos.",
+  instagram_read_insights: "Lee métricas de publicaciones Instagram ya sincronizadas, filtradas por cuenta y periodo y sin datos crudos.",
+  shopify_customer_health: "Recurrencia, valor por cliente y cohortes de la tienda: responde si los clientes vuelven y cuanto vale cada uno. Los pedidos contados en unknown_orders NO son clientes nuevos, son pedidos sin el dato de Shopify.",
+  shopify_demand_sources: "De donde vienen los pedidos (primera visita segun Shopify), carritos abandonados y coste de cada codigo de descuento. Esta atribucion es la de Shopify y NO se suma con la de Meta o Klaviyo.",
+  shopify_fulfillment_health: "Plazos de entrega y devoluciones por producto con su motivo. Si with_estimate es 0, Shopify no dio fecha prometida: ahi late_deliveries 0 no significa que todo llegara a tiempo.",
+  shopify_funnel_health: "Donde se cae la gente antes de comprar: sesiones, anadidos al carrito, checkouts iniciados y pedidos del periodo, mas la serie diaria para ver si el embudo empeora o es un dia suelto. conversion_rate_shopify es la tasa que calcula Shopify sobre sus propias sesiones. Si sessions viene a 0 o days_with_sessions es mucho menor que el periodo, la tienda no tiene permiso de analitica (read_reports) o no manda sesiones: entonces la tasa de conversion NO es baja, es desconocida, y hay que decirlo asi en vez de diagnosticar una caida.",
+  shopify_margin_health: "Que se come el margen: margen bruto del periodo, los productos que mas venden con su facturacion, y lo que cuesta cada codigo de descuento. items_without_cost es el numero de lineas vendidas SIN coste cargado: si es alto, el margen esta inflado porque a esos productos se les cuenta ingreso y no coste, y hay que avisar antes de dar ninguna cifra de margen por buena. La serie diaria de ventas viene para distinguir una caida de margen de una caida de volumen.",
+  meta_creative_health: "Rendimiento por creatividad de Meta y reparto del gasto por veredicto de subasta. hook_rate y hold_rate en null con has_video false significan que el anuncio NO es un video, no que el video sea malo. enough_volume false significa que no hay impresiones suficientes para publicar tasas. UNKNOWN en un ranking es que Meta no tiene volumen para juzgarlo, no un suspenso.",
+  meta_delivery_health: "Si las cifras de Meta se pueden creer: salud del pixel por evento y conjuntos en fase de aprendizaje. days_missing son dias del periodo sin ese evento; un pixel que manda visitas y dejo de mandar compras se ve vivo desde Meta y deja la optimizacion ciega.",
+  meta_spend_detail: "En que campanas de Meta se va el dinero y como evoluciona el gasto dia a dia. Las compras y el valor de compra que acompanan al gasto son los que **Meta se atribuye** con su modelo (7 dias click / 1 dia view por defecto): NO son facturacion, no se suman a la de Klaviyo ni sustituyen a la de Shopify. Al hablar de ellos di 'atribuido por Meta'. Para saber cuanto cuesta de verdad traer un cliente usa cac_blended del resumen financiero, que divide el gasto entre los clientes nuevos reales de la tienda.",
+  meta_change_log: "Que se toco en la cuenta de Meta y que paso en los 7 dias siguientes, sobre la misma entidad y con el dia del cambio excluido de las dos ventanas. Es coincidencia en el tiempo, NO causa demostrada: no lo presentes como una relacion probada.",
+  klaviyo_email_content: "Los emails que envia esta tienda, de campana y de flujo, con su asunto, su preheader, el cuerpo en texto y sus enlaces. Los de flujo van numerados en el orden en que los recibe el suscriptor. adds_utm false significa que ese email NO etiqueta sus enlaces: su trafico llega sin atribuir, asi que su efecto no se puede medir aunque funcione. cuerpo_cortado true significa que el texto se trunco, no que el email termine ahi.",
+  klaviyo_measurement_health: "Si se puede creer lo que mide el email de esta tienda: cuantos emails no llevan UTM, no tienen cuerpo o no siguen clics, mas el inventario de flujos, campanas, listas y segmentos y el estado del ultimo sync. recursos_no_traidos con valor significa que el catalogo esta INCOMPLETO: que un flujo no aparezca no prueba que no exista.",
+  get_organization_profile: "Lee el perfil operativo de la organizacion activa, sin credenciales ni secretos.",
+  get_strategic_plan: "Lee el plan estrategico activo y sus fases/hitos de la organizacion activa.",
+  get_current_milestone: "Lee el hito pendiente actual del plan estrategico activo de la organizacion.",
+  list_open_tasks: "Lista hasta 50 tareas pendientes o en curso de la organizacion activa, ordenadas por vencimiento.",
+  list_open_alerts: "Lista hasta 50 alertas abiertas o reconocidas de la organizacion activa.",
+  get_task_history: "Lee hasta 100 tareas recientes de la organizacion activa para entender decisiones y resultados previos.",
+  get_call_history: "Lee hasta 50 llamadas de consultoria de la organizacion activa sin notas internas ni transcripciones completas.",
+  get_financial_settings: "Lee los parametros financieros configurados para la organizacion activa, sin ejecutar calculos ni escrituras.",
+  request_missing_data: "Solicita una conexión o dato que falta; nunca inventa resultados ni modifica el conector.",
+  escalate_to_human: "Declara una abstención segura cuando faltan datos o el riesgo supera lo que el agente puede decidir.",
+  flag_data_quality_issue: "Reporta datos incoherentes o incompletos para que el consultor los revise antes de razonar sobre ellos.",
+  report_confidence: "Obliga al agente a declarar su confianza y qué evidencia adicional podría cambiar la conclusión.",
+} as const satisfies Record<string, string>;
+
 const definition = (
   name: string,
   permission: ToolPermission,
@@ -211,7 +262,9 @@ const definition = (
   permission,
   status,
   connector: connectorForTool(name),
-  description: `EcomScaling tool ${name}`,
+  description:
+    (TOOL_DESCRIPTIONS as Record<string, string | undefined>)[name] ??
+    `EcomScaling tool ${name}`,
   estimated_cost: {
     tokens: permission === "read" ? 500 : 900,
     latency_ms: 1500,
@@ -248,9 +301,12 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = [
         "shopify_customer_health",
         "shopify_demand_sources",
         "shopify_fulfillment_health",
+        "shopify_funnel_health",
+        "shopify_margin_health",
         "meta_creative_health",
         "meta_delivery_health",
         "meta_change_log",
+        "meta_spend_detail",
         "klaviyo_email_content",
         "klaviyo_measurement_health",
       ].includes(name)

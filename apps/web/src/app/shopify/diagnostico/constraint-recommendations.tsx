@@ -23,7 +23,7 @@ export function ConstraintRecommendationsPanel({ organizationId }: { organizatio
   if (error) return <ErrorBlock>{error}</ErrorBlock>;
   if (!runs) return <LoadingBlock label="Cargando recomendaciones bajo restricciones F7.11..." />;
   const model = constraintRecommendationViewModel(runs[0]);
-  return <Card id="insight-constraint-recommendations" title="Recomendaciones bajo restricciones F7.11" description="Distingue la mejor acción factible de la ideal, explicando el límite vinculante y sin asignar recursos ni ejecutar cambios.">
+  return <Card id="insight-constraint-recommendations" title="Recomendaciones bajo restricciones" description="Distingue la mejor acción factible de la ideal, explicando el límite vinculante y sin asignar recursos ni ejecutar cambios.">
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-muted">{model.candidateCount} candidatos adaptados</span><Badge tone={model.disposition === "CONSTRAINT_RECOMMENDATIONS_AVAILABLE" ? "success" : "warn"}>{model.disposition}</Badge></div>
       {model.candidates.length ? <div className="space-y-3">{model.candidates.map((candidate) => <article key={candidate.candidate_id} className="rounded border border-default-200 p-3">

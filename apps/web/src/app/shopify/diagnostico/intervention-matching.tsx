@@ -47,7 +47,7 @@ export function InterventionMatchingPanel({ organizationId }: { organizationId?:
   if (!runs) return <LoadingBlock label="Cargando matching causal F7.02..." />;
   const model = interventionMatchingViewModel(runs[0]);
   return (
-    <Card id="insight-intervention-matching" title="Matching problema · intervención F7.02" description="Expone candidatos causalmente plausibles y su cadena de trazabilidad. No prioriza, no selecciona y no ejecuta.">
+    <Card id="insight-intervention-matching" title="Matching problema · intervención" description="Expone candidatos causalmente plausibles y su cadena de trazabilidad. No prioriza, no selecciona y no ejecuta.">
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-2 text-xs text-muted"><span>{model.candidateCount} candidatos revisados</span><span>{model.matchedCount} con encaje causal trazable</span></div>

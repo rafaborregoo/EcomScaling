@@ -50,7 +50,7 @@ export function AcquisitionDemandPanel() {
   return (
     <Card
       id="insight-acquisition-demand"
-      title="Adquisición y generación de demanda F6.03"
+      title="Adquisición y generación de demanda"
       description="Evalúa clientes nuevos, economics, calidad de cliente, dependencia, eficiencia marginal y restricciones. No confunde tráfico con demanda ni atribución con incrementalidad."
     >
       {current ? (

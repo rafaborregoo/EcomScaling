@@ -320,6 +320,7 @@ export * from "./restraint-decision.js";
 export * from "./expected-outcome.js";
 export * from "./recommendation-confidence.js";
 export * from "./recommendation-communication.js";
+export * from "./execution-lifecycle.js";
 
 // FASE 8 / 8.02: autonomía graduada, aprobación humana y separación de estados.
 export * from "./hitl-approval.js";

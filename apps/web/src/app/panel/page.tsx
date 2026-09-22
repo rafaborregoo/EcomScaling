@@ -10,7 +10,6 @@ import { formatMoney } from "@/lib/money";
 import {
   AsyncState,
   Badge,
-  Banner,
   BarChart,
   Card,
   EmptyState,
@@ -285,20 +284,18 @@ function PanelContent() {
   // Lo que invalida el panel entero va ARRIBA, no en una nota al pie: sin
   // costes de producto el beneficio y todo lo que cuelga de el son ficcion.
   const blockers: string[] = [];
+  // Frases cortas a proposito: ya no van en una banda de ancho completo sino
+  // en la linea de apoyo del beneficio, y ahi una frase larga se come la card.
+  // El orden importa -- se muestra la primera, y sin coste de producto el
+  // beneficio no se parece al real ni de lejos.
   if (financial.cogs === 0) {
-    blockers.push(
-      "No hay ningún coste de producto cargado: el beneficio y el margen de abajo cuentan el producto como si fuera gratis.",
-    );
+    blockers.push("cuenta el producto como si fuera gratis.");
   }
   if (financial.fixed_expenses_count === 0) {
-    blockers.push(
-      "No hay gastos fijos configurados: el beneficio está por encima del real y el break-even no significa nada.",
-    );
+    blockers.push("no descuenta gastos fijos.");
   }
   if (!financial.has_settings) {
-    blockers.push(
-      "Faltan las comisiones de pago y el envío medio por pedido.",
-    );
+    blockers.push("faltan comisiones de pago y envío por pedido.");
   }
 
   return (
@@ -319,22 +316,6 @@ function PanelContent() {
         />
       </div>
 
-      {blockers.length > 0 ? (
-        <Banner tone="warn">
-          <p className="font-medium">Estas cifras todavía no son reales.</p>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-muted">
-            {blockers.map((blocker) => (
-              <li key={blocker}>{blocker}</li>
-            ))}
-          </ul>
-          <p className="mt-2 text-sm">
-            <Link href="/configuracion">Configurar costes y gastos fijos</Link>
-            {" · "}
-            <Link href="/shopify#shopify-costes">Cargar costes de producto</Link>
-          </p>
-        </Banner>
-      ) : null}
-
       {/* Banda 1: cuánto ganas */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
@@ -342,7 +323,20 @@ function PanelContent() {
           label="Beneficio neto"
           value={formatMoney(financial.net_profit)}
           tone={financial.net_profit >= 0 ? "success" : "danger"}
-          hint={`${formatPct(financial.net_margin_pct)} de margen`}
+          // El aviso viaja con la cifra que invalida, no como banda amarilla
+          // sobre todo el panel: quien mira el beneficio lee ahi mismo por que
+          // no es fiable, y quien no tiene el problema no ve nada.
+          hint={
+            blockers.length > 0 ? (
+              <>
+                {formatPct(financial.net_margin_pct)} de margen ·{" "}
+                <span className="text-warning">estimado</span>: {blockers[0]}{" "}
+                <Link href="/configuracion">Configurar</Link>
+              </>
+            ) : (
+              `${formatPct(financial.net_margin_pct)} de margen`
+            )
+          }
           delta={
             <span className="flex flex-wrap gap-1">
               <DeltaBadge

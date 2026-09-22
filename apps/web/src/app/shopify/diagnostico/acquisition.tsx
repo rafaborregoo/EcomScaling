@@ -69,7 +69,7 @@ export function AcquisitionPlaybookPanel() {
   return (
     <Card
       id="insight-acquisition"
-      title="Adquisición y demanda F5.01"
+      title="Adquisición y demanda"
       description="Distingue demanda cualificada de tráfico y conserva la incertidumbre de canal, audiencia, economics y capacidad."
     >
       {current ? (

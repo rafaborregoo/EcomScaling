@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   insightSpotsFromFindingAreas,
@@ -179,4 +180,18 @@ test("el feed F7.17 enlaza confianza calibrada con su card", () => {
 test("el feed F7.18 enlaza comunicación de recomendaciones con su card", () => {
   const spots = insightSpotsFromAiAssessments({ organizationId: "org-1", connectionId: "", isConsultant: true }, [{ domain: "F7_18_RECOMMENDATION_COMMUNICATION", disposition: "VALIDATION_REQUIRED", reason_codes: ["COMMUNICATION.DECISION_CONTEXT_UNKNOWN"] }]);
   assert.equal(spots[0]?.href, "/shopify/diagnostico#insight-recommendation-communication");
+});
+
+// El modal de IA mostraba "Diagnóstico · F9" y "Diagnóstico · F7.10": nombres
+// internos de la metodologia, que al consultor no le dicen nada y le hacen
+// pensar que la aplicacion habla otro idioma. El `label` ya dice de que va
+// ("Aprendizaje continuo"); el codigo de bloque sobra en pantalla y se queda
+// donde sirve, que es el nombre de estos tests y conocimiento/.
+test("ninguna etiqueta visible del registro lleva el codigo de fase", () => {
+  const fuente = readFileSync(new URL("./insights-registry.ts", import.meta.url), "utf8");
+  const visibles = [
+    ...fuente.matchAll(/(?:location|label): "([^"]*)"/g),
+  ].map((m) => m[1] ?? "");
+  const conCodigo = visibles.filter((texto) => /\bF\d+(\.\d+)?\b|\bF3\.D\d+\b/.test(texto));
+  assert.deepEqual(conCodigo, []);
 });

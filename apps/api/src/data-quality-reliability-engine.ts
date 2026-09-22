@@ -115,8 +115,8 @@ async function enrichDataQualityReliability(supabase: any, context: PlaybookFram
   return applyDataQualityReliabilityEvidence(context, {
     assessments: assessmentsResult.error ? { available: false } : { available: true, count: assessments.length, with_coverage: assessments.filter((row: any) => row.coverage !== null && row.coverage !== undefined).length, with_freshness: assessments.filter((row: any) => row.freshness !== null && row.freshness !== undefined).length },
     issues: issuesResult.error ? { available: false } : { available: true, open_material: issues.filter((row: any) => row.material === true).length },
-    sales: salesResult.error ? { available: false } : { available: true, orders_count: first(salesResult)?.orders_count, revenue: first(salesResult)?.revenue },
-    funnel: funnelResult.error ? { available: false } : { available: true, sessions: first(funnelResult)?.sessions, conversion_rate: first(funnelResult)?.conversion_rate },
+    sales: salesResult.error ? { available: false } : { available: true, orders_count: first(salesResult)?.orders_count, revenue: first(salesResult)?.net_sales },
+    funnel: funnelResult.error ? { available: false } : { available: true, sessions: first(funnelResult)?.sessions, conversion_rate: first(funnelResult)?.conversion_rate_shopify },
     measurement: dailyResult.error ? { available: false } : { available: true, days: Array.isArray(dailyResult.data) ? dailyResult.data.length : null },
   }, [
     !assessmentsResult.error ? `data_quality_assessments:${organizationId}:${day}` : "",

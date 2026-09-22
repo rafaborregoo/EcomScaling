@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync, readdirSync } from "node:fs";
 import { combineMetricRpcs } from "./ai-runtime.js";
 
 const ok = (data: unknown) => Promise.resolve({ data, error: null });
@@ -71,4 +72,91 @@ test("data null se trata como lista vacia y no revienta", async () => {
 
   assert.deepEqual(result.data.entregas, []);
   assert.equal(result.error, null);
+});
+
+// --- Contrato estatico entre la capa de tools, el runtime y el esquema ------
+//
+// Estos tres no se ejecutan contra Supabase, asi que nada los comprobaba. El
+// resultado fue una familia de bugs silenciosos: nombres que no existen no dan
+// error, devuelven undefined y el agente responde "no lo se" con el dato
+// delante. Parsear los ficheros es feo, pero es el unico chequeo que corre en
+// CI sin base de datos.
+const RUNTIME = readFileSync(new URL("./ai-runtime.ts", import.meta.url), "utf8");
+const TOOL_LAYER = readFileSync(
+  new URL("../../../packages/ai/src/tool-layer.ts", import.meta.url),
+  "utf8",
+);
+
+function toolsRegistradas() {
+  const nombres = new Set<string>();
+  for (const m of RUNTIME.matchAll(/register[A-Za-z]*ReadTool\(\s*"([a-z_0-9]+)"/g)) {
+    if (m[1]) nombres.add(m[1]);
+  }
+  return nombres;
+}
+
+function toolsDeclaradas() {
+  const bloque = TOOL_LAYER.slice(
+    TOOL_LAYER.indexOf("const readTools"),
+    TOOL_LAYER.indexOf("const proposedTools"),
+  );
+  return new Set([...bloque.matchAll(/"([a-z_0-9]+)"/g)].map((m) => m[1]));
+}
+
+function funcionesSql() {
+  const dir = new URL("../../../supabase/migrations/", import.meta.url);
+  const nombres = new Set<string>();
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith(".sql")) continue;
+    const src = readFileSync(new URL(f, dir), "utf8");
+    for (const m of src.matchAll(/create (?:or replace )?function public\.([a-z_0-9]+)\s*\(/gi)) {
+      if (m[1]) nombres.add(m[1]);
+    }
+  }
+  return nombres;
+}
+
+test("las tools nuevas de embudo, margen y gasto estan registradas y declaradas", () => {
+  const registradas = toolsRegistradas();
+  const declaradas = toolsDeclaradas();
+  for (const tool of ["shopify_funnel_health", "shopify_margin_health", "meta_spend_detail"]) {
+    assert.ok(registradas.has(tool), `${tool} no esta registrada en ai-runtime.ts`);
+    assert.ok(declaradas.has(tool), `${tool} no esta en readTools de tool-layer.ts`);
+  }
+});
+
+// Estar en readTools NO basta: registerScopedReadTool solo la monta si su
+// definicion esta en estado `implemented_partial`. Una tool declarada pero en
+// `planned` se concede al agente y luego no existe en el runtime -- fallo mudo
+// que casi se cuela con estas tres.
+test("las tools nuevas estan en estado implemented_partial, no planned", async () => {
+  const { getToolDefinition } = await import("@ecomscaling/ai");
+  for (const tool of ["shopify_funnel_health", "shopify_margin_health", "meta_spend_detail"]) {
+    assert.equal(getToolDefinition(tool)?.status, "implemented_partial", tool);
+  }
+});
+
+test("toda tool registrada en el runtime esta declarada en la capa de tools", () => {
+  const declaradas = toolsDeclaradas();
+  const huerfanas = [...toolsRegistradas()].filter((t) => !declaradas.has(t));
+  assert.deepEqual(huerfanas, [], "registradas sin declarar: el runtime las rechaza");
+});
+
+// El que habria cazado `shopify_funnel_summary.conversion_rate`, que se leia en
+// seis motores y no existe. Aqui cubre el nombre de la funcion; el de las
+// columnas lo lleva scripts/auditar-columnas-motores.mjs.
+test("toda tool llama a funciones SQL que existen en las migraciones", () => {
+  const sql = funcionesSql();
+  const rotas: string[] = [];
+  const marcas = [...RUNTIME.matchAll(/register[A-Za-z]*\(\s*"([a-z_0-9]+)"/g)];
+  marcas.forEach((marca, i) => {
+    const siguiente = marcas[i + 1];
+    const hasta = siguiente?.index ?? RUNTIME.length;
+    const cuerpo = RUNTIME.slice(marca.index ?? 0, hasta);
+    for (const llamada of cuerpo.matchAll(/\.rpc\(\s*"([a-z_0-9]+)"/g)) {
+      const fn = llamada[1];
+      if (fn && !sql.has(fn)) rotas.push(`${marca[1]} -> ${fn}`);
+    }
+  });
+  assert.deepEqual(rotas, [], "tools llamando a funciones SQL inexistentes");
 });

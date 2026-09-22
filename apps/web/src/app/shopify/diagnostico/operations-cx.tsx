@@ -56,7 +56,7 @@ export function OperationsCxPlaybookPanel() {
   const value = (key: string) => facts[key] ?? "UNKNOWN";
 
   return (
-    <Card id="insight-operations-cx" title="Operaciones, fulfillment y CX F5.08" description="Separa entrega, promesa, capacidad, devoluciones y soporte; conserva UNKNOWN cuando la tienda no aporta SLA, backlog o experiencia de cliente.">
+    <Card id="insight-operations-cx" title="Operaciones, fulfillment y CX" description="Separa entrega, promesa, capacidad, devoluciones y soporte; conserva UNKNOWN cuando la tienda no aporta SLA, backlog o experiencia de cliente.">
       {current ? (
         <article className="rounded border border-default-200 p-4">
           <div className="flex items-center justify-between gap-3">
