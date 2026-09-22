@@ -6,6 +6,14 @@
 FROM node:24-alpine AS builder
 WORKDIR /app
 
+# El VPS de produccion solo tiene 1.6GB de RAM fisica (con swap de sobra): el
+# heap por defecto de Node reserva segun la RAM que ve el host y el tsc del
+# monorepo completo (7 paquetes + api) lo agota a mitad de compilacion con
+# "JavaScript heap out of memory", incluso compilando un solo servicio. Subir
+# el limite deja que V8 use el swap en vez de abortar; en una runner de CI con
+# mas RAM esto no reserva nada de mas, solo levanta el techo.
+ENV NODE_OPTIONS=--max-old-space-size=2048
+
 COPY package.json package-lock.json ./
 COPY packages/ai/package.json packages/ai/package.json
 COPY packages/config/package.json packages/config/package.json
