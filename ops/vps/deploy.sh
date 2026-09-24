@@ -63,13 +63,27 @@ else
 fi
 
 echo "==> 2/6 Codigo -> $host:$remote/src  ($sha)"
-rsync -az --delete \
-  --exclude '.git' --exclude 'node_modules' --exclude 'dist' --exclude '.next' \
-  --exclude 'conocimiento' --exclude 'docs' --exclude 'roadmap' \
-  --exclude 'Agentes IA' --exclude 'Base de Datos' \
-  --exclude '.claude' --exclude '.agents' --exclude '.codex' --exclude '.impeccable' \
-  --exclude '*.bundle' \
-  ./ "$host:$remote/src/"
+if command -v rsync >/dev/null 2>&1; then
+  rsync -az --delete \
+    --exclude '.git' --exclude 'node_modules' --exclude 'dist' --exclude '.next' \
+    --exclude 'conocimiento' --exclude 'docs' --exclude 'roadmap' \
+    --exclude 'Agentes IA' --exclude 'Base de Datos' \
+    --exclude '.claude' --exclude '.agents' --exclude '.codex' --exclude '.impeccable' \
+    --exclude '*.bundle' \
+    ./ "$host:$remote/src/"
+else
+  # Git Bash en Windows no trae rsync. git archive sube exactamente HEAD, asi
+  # que con el arbol sucio no puede cumplir lo que promete ECOM_ALLOW_DIRTY.
+  case "$sha" in *-dirty)
+    echo "ABORTADO: sin rsync solo se puede desplegar un commit; commitea o instala rsync." >&2
+    exit 1 ;;
+  esac
+  git archive --format=tar HEAD -- . \
+    ':(exclude)conocimiento' ':(exclude)docs' ':(exclude)roadmap' \
+    ':(exclude)Agentes IA' ':(exclude)Base de Datos' \
+    | ssh "$host" "set -e; rm -rf $remote/src.next; mkdir -p $remote/src.next; \
+        tar -x -C $remote/src.next; rm -rf $remote/src; mv $remote/src.next $remote/src"
+fi
 
 echo "==> 3/6 IMAGE_TAG=$sha"
 # Ya no elige ninguna imagen: con el override de build todo es :local. Sirve solo
