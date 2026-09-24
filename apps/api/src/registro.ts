@@ -5,6 +5,7 @@ import { recordAuditLog } from "./audit-log.js";
 import type { AuthContext } from "./auth-context.js";
 import { assignPartnersToOrganization } from "./consultant-partners.js";
 import { resolveInvite } from "./consultant.js";
+import { attachReferral } from "./referidos.js";
 
 const logger = createLogger("registro");
 
@@ -80,7 +81,12 @@ export function nombreDeOrganizacion(input: {
 export async function ensureOwnOrganization(
   env: RegistroEnv,
   context: AuthContext,
-  body: { business_name?: string | undefined; invite_code?: string | undefined },
+  body: {
+    business_name?: string | undefined;
+    invite_code?: string | undefined;
+    referral_code?: string | undefined;
+    referral_contact_consent?: boolean | undefined;
+  },
 ) {
   const supabase = createServiceClient(env);
 
@@ -116,6 +122,7 @@ export async function ensureOwnOrganization(
         display_name: organizacion?.display_name ?? "Mi tienda",
         created: false,
         invite_linked: false,
+        referral_linked: false,
       },
     };
   }
@@ -235,11 +242,26 @@ export async function ensureOwnOrganization(
     }
   }
 
+  // Codigo de referido: solo si no entro por invitacion. La vinculacion ya
+  // trae su consultor y su descuento; dos atribuciones serian dos verdades.
+  const referralLinked =
+    !inviteLinked && body.referral_code
+      ? await attachReferral(supabase, {
+          organizationId: organization.id,
+          userId: context.user.id,
+          code: body.referral_code,
+          contactConsent: body.referral_contact_consent === true,
+          contactName: context.profile.full_name ?? null,
+          contactEmail: context.user.email ?? null,
+        })
+      : false;
+
   return {
     ok: true as const,
     data: {
       organization_id: organization.id,
       invite_linked: inviteLinked,
+      referral_linked: referralLinked,
       display_name: organization.display_name,
       created: true,
     },

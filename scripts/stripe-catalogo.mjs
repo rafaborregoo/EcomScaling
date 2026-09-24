@@ -69,12 +69,26 @@ const CATALOGO = [
  * vuelve sola a la estandar. Que es exactamente lo que pide §30 -- el
  * descuento se DERIVA de la vinculacion, no se guarda como un numero suelto.
  */
-const CUPON = {
-  id: "vinculado-10",
-  name: "Cliente vinculado a consultora",
-  percent_off: 10,
-  duration: "forever",
-};
+/**
+ * Descuento de bienvenida del codigo de referido (`referidos.ts`). El id se
+ * deriva de `referral_codes`: `referido-{pct}-{meses}m`. Este es el de por
+ * defecto; si platform_admin configura otro, hay que anadirlo aqui.
+ */
+const CUPONES = [
+  {
+    id: "vinculado-10",
+    name: "Cliente vinculado a consultora",
+    percent_off: 10,
+    duration: "forever",
+  },
+  {
+    id: "referido-10-3m",
+    name: "Referido por consultor",
+    percent_off: 10,
+    duration: "repeating",
+    duration_in_months: 3,
+  },
+];
 
 async function stripe(path, body) {
   const response = await fetch(`${API}/${path}`, {
@@ -153,28 +167,32 @@ async function main() {
     cambios += 1;
   }
 
-  // El cupon del 10%
-  let cupon = null;
-  try {
-    cupon = await stripe(`coupons/${CUPON.id}`);
-  } catch {
-    cupon = null;
-  }
+  for (const CUPON of CUPONES) {
+    let cupon = null;
+    try {
+      cupon = await stripe(`coupons/${CUPON.id}`);
+    } catch {
+      cupon = null;
+    }
 
-  if (cupon) {
-    console.log(`ok   cupon       ${cupon.id} -${cupon.percent_off}%`);
-  } else if (APLICAR) {
-    const creado = await stripe("coupons", {
-      id: CUPON.id,
-      name: CUPON.name,
-      percent_off: String(CUPON.percent_off),
-      duration: CUPON.duration,
-    });
-    console.log(`creado cupon       ${creado.id} -${creado.percent_off}%`);
-    cambios += 1;
-  } else {
-    console.log(`falta cupon       ${CUPON.id} -${CUPON.percent_off}%`);
-    cambios += 1;
+    if (cupon) {
+      console.log(`ok   cupon       ${cupon.id} -${cupon.percent_off}%`);
+    } else if (APLICAR) {
+      const creado = await stripe("coupons", {
+        id: CUPON.id,
+        name: CUPON.name,
+        percent_off: String(CUPON.percent_off),
+        duration: CUPON.duration,
+        ...(CUPON.duration_in_months
+          ? { duration_in_months: String(CUPON.duration_in_months) }
+          : {}),
+      });
+      console.log(`creado cupon       ${creado.id} -${creado.percent_off}%`);
+      cambios += 1;
+    } else {
+      console.log(`falta cupon       ${CUPON.id} -${CUPON.percent_off}%`);
+      cambios += 1;
+    }
   }
 
   if (!APLICAR && cambios > 0) {

@@ -1,6 +1,7 @@
 "use client";
 
-import { type FormEvent, Suspense, useState } from "react";
+import { type FormEvent, Suspense, useEffect, useState } from "react";
+import { apiUrl } from "@/lib/bootstrap";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -18,6 +19,7 @@ import {
   BrandLogo,
   Button,
   Card,
+  Checkbox,
   ErrorBlock,
   Field,
   Heading,
@@ -38,6 +40,13 @@ import {
  * /v1/mi-organizacion, que vincula la organizacion nueva a la consultora que
  * lo genero en la MISMA llamada que la crea.
  */
+type ReferralInfo = {
+  code: string;
+  consultant_name: string | null;
+  discount_percent: number;
+  discount_months: number;
+};
+
 function RegistroContent() {
   const router = useRouter();
   const params = useSearchParams();
@@ -50,6 +59,41 @@ function RegistroContent() {
   const [error, setError] = useState<string | null>(null);
   const [enviado, setEnviado] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Codigo de referido (programa de consultores): de `/r/<code>` llega como
+  // `?ref=` y queda en la cookie `ecom_ref` por si vuelve otro dia. No aplica
+  // si entra con invitacion: esa ya trae consultor y descuento.
+  const [referralCode, setReferralCode] = useState("");
+  const [referral, setReferral] = useState<ReferralInfo | null>(null);
+  const [contactConsent, setContactConsent] = useState(false);
+
+  useEffect(() => {
+    const fromCookie = document.cookie.match(/(?:^|; )ecom_ref=([^;]*)/)?.[1];
+    const initial = params.get("ref") ?? (fromCookie ? decodeURIComponent(fromCookie) : "");
+    setReferralCode(initial.trim().toLowerCase());
+  }, [params]);
+
+  useEffect(() => {
+    const code = referralCode.trim();
+    if (inviteCode || code.length < 3) {
+      setReferral(null);
+      return;
+    }
+    let cancelado = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `${apiUrl}/v1/referidos/${encodeURIComponent(code)}`,
+        );
+        if (!cancelado) setReferral(response.ok ? await response.json() : null);
+      } catch {
+        if (!cancelado) setReferral(null);
+      }
+    }, 300);
+    return () => {
+      cancelado = true;
+      window.clearTimeout(timer);
+    };
+  }, [referralCode, inviteCode]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -83,6 +127,13 @@ function RegistroContent() {
               // contraseña y nombre puestos por su dueño.
               self_signup: true,
               ...(inviteCode ? { pending_invite_code: inviteCode } : {}),
+              // Solo un codigo que el API reconoce: uno mal escrito no viaja.
+              ...(!inviteCode && referral
+                ? {
+                    pending_referral_code: referral.code,
+                    referral_contact_consent: contactConsent,
+                  }
+                : {}),
             },
           },
         });
@@ -183,6 +234,37 @@ function RegistroContent() {
             value={confirm}
             onChange={setConfirm}
           />
+
+          {inviteCode ? null : (
+            <Field label="Código de consultor (opcional)">
+              <Input
+                value={referralCode}
+                onChange={(event) =>
+                  setReferralCode(event.target.value.toLowerCase())
+                }
+                autoComplete="off"
+              />
+            </Field>
+          )}
+
+          {referral ? (
+            <>
+              <Banner tone="success">
+                {referral.discount_percent}% de descuento durante{" "}
+                {referral.discount_months}{" "}
+                {referral.discount_months === 1 ? "mes" : "meses"}
+                {referral.consultant_name
+                  ? `, de parte de ${referral.consultant_name}`
+                  : ""}
+                .
+              </Banner>
+              {/* Si cambia este texto, sube CONSENT_TEXT_VERSION en apps/api/src/referidos.ts */}
+              <Checkbox checked={contactConsent} onChange={setContactConsent}>
+                Quiero que el consultor asociado a este código pueda
+                contactarme para conocer sus servicios de consultoría.
+              </Checkbox>
+            </>
+          ) : null}
 
           {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 

@@ -69,6 +69,11 @@ function PlanesContent() {
         // consume -- la organizacion todavia no existe hasta esta llamada, y
         // es ahi (registro.ts) donde el codigo la vincula a la consultora.
         const inviteCode = session?.user.user_metadata?.pending_invite_code;
+        // Codigo de referido: igual que el de invitacion, se consume al crear
+        // la organizacion (registro.ts) y de ahi sale el descuento del checkout.
+        const referralCode = session?.user.user_metadata?.pending_referral_code;
+        const referralConsent =
+          session?.user.user_metadata?.referral_contact_consent === true;
 
         const orgResponse = await apiFetch("/v1/mi-organizacion", {
           method: "POST",
@@ -79,6 +84,12 @@ function PlanesContent() {
               : {}),
             ...(typeof inviteCode === "string" && inviteCode.trim()
               ? { invite_code: inviteCode.trim() }
+              : {}),
+            ...(typeof referralCode === "string" && referralCode.trim()
+              ? {
+                  referral_code: referralCode.trim(),
+                  referral_contact_consent: referralConsent,
+                }
               : {}),
           }),
         });

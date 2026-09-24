@@ -8,6 +8,7 @@ import {
   stripeErrorDetail,
   stripeErrorStatus,
 } from "./stripe-client.js";
+import { cuponReferidoDeOrganizacion } from "./referidos.js";
 import { consultoraVinculada, descuentosDeCheckout } from "./vinculacion.js";
 import {
   STRIPE_CUSTOMER_TAX_ID_METADATA_KEY,
@@ -126,17 +127,23 @@ export async function createStripeCheckout(
   // El 10% del cliente vinculado (§2.1) NO se guarda en ningun sitio: se
   // deriva de que exista una asignacion viva a una consultora, aqui y ahora.
   // Si manana deja de estar vinculado, el checkout siguiente ya no lo lleva.
+  const service = createClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { transport: WebSocket as never },
+    },
+  );
   const vinculada = organizationId
-    ? Boolean(
-        await consultoraVinculada(
-          createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
-            auth: { persistSession: false, autoRefreshToken: false },
-            realtime: { transport: WebSocket as never },
-          }),
-          organizationId,
-        ),
-      )
+    ? Boolean(await consultoraVinculada(service, organizationId))
     : false;
+  // Descuento de bienvenida del codigo de referido. Tiene duracion propia en
+  // Stripe (`repeating`), asi que caduca solo sin que nadie lo retire.
+  const cuponReferido =
+    organizationId && !vinculada
+      ? await cuponReferidoDeOrganizacion(service, organizationId)
+      : null;
 
   const origin = (env.WEB_ORIGIN ?? "http://localhost:3001").replace(/\/$/, "");
   const params: Stripe.Checkout.SessionCreateParams = {
@@ -160,7 +167,7 @@ export async function createStripeCheckout(
     tax_id_collection: { enabled: true },
     metadata,
     subscription_data: { metadata },
-    ...descuentosDeCheckout({ vinculada }),
+    ...descuentosDeCheckout({ vinculada, cuponReferido }),
   };
 
   try {

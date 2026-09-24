@@ -26,7 +26,7 @@ const rlsTables = names(
 const policyTables = names(
   /create\s+policy\s+[^\n]+\s+on\s+public\.([a-z0-9_]+)/gi,
 );
-const serviceOnlyTables = new Set(["client_invites", "memory_ingestion_queue"]);
+const serviceOnlyTables = new Set(["client_invites", "memory_ingestion_queue", "referrals"]);
 
 const missingRls = [...tables].filter((name) => !rlsTables.has(name));
 const unclassifiedPolicyless = [...tables].filter(

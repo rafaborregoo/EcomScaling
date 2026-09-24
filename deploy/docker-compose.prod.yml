@@ -2,7 +2,8 @@ name: ecomscaling
 
 # Produccion en el VPS: api + worker + redis + caddy (TLS automatico).
 # La web (Next.js) va en Vercel, no aqui.
-# El tag de imagen lo fija el deploy escribiendo IMAGE_TAG en ./.env
+# IMAGE_TAG se escribe A MANO en ./.env con el SHA del commit desplegado: desde
+# que no hay GitHub Actions (2b2ab70) nadie lo actualiza solo. Ver deploy/README.md.
 
 services:
   redis:
@@ -27,9 +28,12 @@ services:
       REDIS_URL: redis://redis:6379
       # AI-30: se guarda en agent_runs.deployment_version para poder atar un
       # comportamiento de produccion al codigo exacto que lo produjo. IMAGE_TAG
-      # ya es el SHA del commit (lo escribe .github/workflows/deploy.yml), asi
-      # que el default coincide con la etiqueta de la imagen de arriba: lo que
-      # se registra es siempre lo que de verdad esta corriendo.
+      # es el SHA del commit desplegado.
+      #
+      # OJO: al construir en el VPS (docker-compose.build.yml) la imagen se
+      # llama :local y IMAGE_TAG deja de elegirla, pero SIGUE etiquetando esta
+      # variable. Si no se actualiza a mano, deployment_version miente. Por eso
+      # el deploy escribe el SHA real en ./.env aunque no se use para el pull.
       GIT_SHA: ${IMAGE_TAG:-latest}
       # R-020: OPENAI_API_KEY y OPENAI_MODEL NO se declaran aqui a proposito.
       # `env_file: .env.production` ya las inyecta. Declararlas en `environment`

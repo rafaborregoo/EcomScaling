@@ -56,8 +56,13 @@ export async function consultoraVinculada(
  * decide en una sola funcion evita que alguien anada el segundo mas adelante y
  * se encuentre un 400 sin saber de donde sale.
  */
-export function descuentosDeCheckout(input: { vinculada: boolean }) {
-  return input.vinculada ? { discounts: [{ coupon: CUPON_VINCULADO }] } : {};
+export function descuentosDeCheckout(input: {
+  vinculada: boolean;
+  cuponReferido?: string | null;
+}) {
+  // Un solo cupon: la vinculacion (10% mientras dure) gana al de referido.
+  const coupon = input.vinculada ? CUPON_VINCULADO : input.cuponReferido;
+  return coupon ? { discounts: [{ coupon }] } : {};
 }
 
 /**

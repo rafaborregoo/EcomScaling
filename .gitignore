@@ -30,3 +30,6 @@ apps/web/PRODUCT.md
 !.env.example
 !deploy/.env.production.example
 klaviyo-backup-codes.txt
+
+# Documento privado de colaboracion
+BASES_COLABORACION.md

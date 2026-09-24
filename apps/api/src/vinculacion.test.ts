@@ -28,6 +28,17 @@ test("sin vinculacion no se manda nada, ni un descuento del 0%", () => {
   assert.deepEqual(descuentosDeCheckout({ vinculada: false }), {});
 });
 
+test("el cupon de referido solo entra si no hay vinculacion", () => {
+  assert.deepEqual(
+    descuentosDeCheckout({ vinculada: false, cuponReferido: "referido-10-3m" }),
+    { discounts: [{ coupon: "referido-10-3m" }] },
+  );
+  assert.deepEqual(
+    descuentosDeCheckout({ vinculada: true, cuponReferido: "referido-10-3m" }),
+    { discounts: [{ coupon: CUPON_VINCULADO }] },
+  );
+});
+
 test("quitar el descuento envia una lista vacia al SDK", async () => {
   let capturado: { id: string; params: { discounts: [] } } | null = null;
   const resultado = await quitarDescuentoDeStripe(

@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
 import { PortalShell } from "@/components/portal-shell";
 import { AvatarPicker } from "@/components/avatar-picker";
 import { getSupabaseClient } from "@/lib/supabase";
@@ -16,6 +18,55 @@ import {
   Link,
   toast,
 } from "@/components/ui";
+
+/**
+ * Consentimiento de contacto dado en /registro con un codigo de referido. Se
+ * retira aqui: el API borra los datos de contacto del lead y el metadata deja
+ * de marcarlo para que la tarjeta desaparezca.
+ */
+function ReferralConsentCard() {
+  const supabase = useMemo(() => getSupabaseClient(), []);
+  const [consent, setConsent] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void supabase.auth.getUser().then(({ data }) => {
+      setConsent(data.user?.user_metadata?.referral_contact_consent === true);
+    });
+  }, [supabase]);
+
+  if (!consent) return null;
+
+  async function revoke() {
+    setBusy(true);
+    const response = await apiFetch("/v1/mi-organizacion/referido-consentimiento", {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      setBusy(false);
+      toast.danger(await readApiError(response));
+      return;
+    }
+    await supabase.auth.updateUser({ data: { referral_contact_consent: false } });
+    setBusy(false);
+    setConsent(false);
+    toast.success("Tu consultor ya no verá tus datos de contacto.");
+  }
+
+  return (
+    <Card title="Contacto de tu consultor">
+      <p className="text-sm">
+        Al registrarte aceptaste que el consultor de tu código pudiera
+        contactarte para ofrecerte sus servicios.
+      </p>
+      <div className="mt-4">
+        <Button variant="secondary" disabled={busy} onClick={() => void revoke()}>
+          {busy ? "Retirando..." : "Retirar permiso"}
+        </Button>
+      </div>
+    </Card>
+  );
+}
 
 function ProfileContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const supabase = useMemo(() => getSupabaseClient(), []);
@@ -91,6 +142,8 @@ function ProfileContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           </div>
         </div>
       </Card>
+
+      <ReferralConsentCard />
 
       <Card title="Cuenta" description="Estos datos no se pueden cambiar aquí.">
         <dl className="space-y-3 text-sm">
