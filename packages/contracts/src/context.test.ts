@@ -27,6 +27,8 @@ import {
   type ContextCheckInput,
   type MixSegment,
   type SegmentObservation,
+  findContextContradictions,
+  observedMainChannel,
 } from "./context.js";
 import { dataQualityAssessmentSchema } from "./data-quality.js";
 
@@ -618,4 +620,39 @@ test("D02 motor: dos dimensiones no se contaminan los pesos entre si", () => {
     assert.ok(Math.abs(suma(dimension, "weight_before") - 1) < 1e-9, `${dimension} antes`);
     assert.ok(Math.abs(suma(dimension, "weight_after") - 1) < 1e-9, `${dimension} despues`);
   }
+});
+
+test("D02 paso 13: declarado contra observado se nombra, no se resuelve", () => {
+  const contradicciones = findContextContradictions([
+    { dimension: "main_channel", value: "Meta Ads", source: "declared" },
+    { dimension: "main_channel", value: "organic", source: "observed" },
+    { dimension: "business_model", value: "DTC", source: "declared" },
+    { dimension: "market", value: "España", source: "declared" },
+    { dimension: "market", value: "  españa ", source: "observed" },
+    { dimension: "main_channel", value: "email", source: "observed", effective_to: "2026-01-01T00:00:00Z" },
+  ]);
+  assert.equal(contradicciones.length, 1);
+  assert.equal(contradicciones[0]?.dimension, "main_channel");
+
+  const salida = assessContext({
+    metric: "net_sales",
+    scope: "business_global",
+    analysis: { start: "2026-09-01T00:00:00.000Z", end: "2026-09-15T00:00:00.000Z" },
+    contradictions: contradicciones,
+  });
+  assert.equal(salida.assessment.declared_contradictions.length, 1);
+  assert.equal(salida.assessment.context_sufficient, false);
+});
+
+test("D02 paso 13: canal principal observado solo si hay uno que manda", () => {
+  assert.equal(observedMainChannel([
+    { dimension: "channel", segment: "organic", volume: 40 },
+    { dimension: "channel", segment: "paid", volume: 12 },
+    { dimension: "customer_type", segment: "new", volume: 99 },
+  ]), "organic");
+  assert.equal(observedMainChannel([
+    { dimension: "channel", segment: "organic", volume: 10 },
+    { dimension: "channel", segment: "paid", volume: 10 },
+  ]), null);
+  assert.equal(observedMainChannel([]), null);
 });

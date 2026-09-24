@@ -175,7 +175,7 @@ function TrackingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       "aov",
       "gasto_ads",
       "roas",
-      "cac",
+      "cpa_atribuido_meta",
       "beneficio_neto",
       "notas",
     ];

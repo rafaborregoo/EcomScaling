@@ -18,12 +18,24 @@ import {
   Heading,
   LoadingBlock,
   Modal,
+  Select,
   Table,
   Textarea,
   toast,
   type Tone,
   type TableColumnDef,
 } from "@/components/ui";
+
+// AI-30 fase 7: el rechazo categorizado es la señal de calidad que agrupa
+// /admin/observabilidad. Mismos valores que el check de agent_approvals.
+const REJECTION_CATEGORY_OPTIONS = [
+  { value: "incorrecto", label: "Dato o conclusión incorrecta" },
+  { value: "sin_evidencia", label: "Sin evidencia suficiente" },
+  { value: "irrelevante", label: "No aplica a este negocio" },
+  { value: "incompleto", label: "Incompleta" },
+  { value: "duplicado", label: "Repite algo ya propuesto" },
+  { value: "otro", label: "Otro motivo" },
+];
 
 type AgentRunOutput = {
   id: string;
@@ -165,6 +177,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     output: Exclude<AgentRunOutput, null>;
   } | null>(null);
   const [reviewReason, setReviewReason] = useState("");
+  const [reviewCategory, setReviewCategory] = useState("");
   const [isDeciding, setIsDeciding] = useState(false);
   const [budget, setBudget] = useState<AgentBudgetStatus | null>(null);
   const [budgetLoading, setBudgetLoading] = useState(false);
@@ -294,6 +307,10 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           body: JSON.stringify({
             decision,
             reason: reviewReason.trim() || undefined,
+            reason_category:
+              decision === "rejected" && reviewCategory
+                ? reviewCategory
+                : undefined,
           }),
         },
       );
@@ -310,6 +327,7 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         );
         setReviewOutput(null);
         setReviewReason("");
+        setReviewCategory("");
         await loadRuns();
       }
     } catch {
@@ -625,6 +643,17 @@ function AgentRunsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                           onChange={(event) =>
                             setReviewReason(event.target.value)
                           }
+                          disabled={isDeciding}
+                        />
+                      </Field>
+                      <Field label="Si la rechazas, ¿por qué? (opcional)">
+                        <Select
+                          aria-label="Motivo del rechazo"
+                          className="mt-2"
+                          placeholder="Sin categoría"
+                          value={reviewCategory}
+                          onChange={setReviewCategory}
+                          options={REJECTION_CATEGORY_OPTIONS}
                           disabled={isDeciding}
                         />
                       </Field>

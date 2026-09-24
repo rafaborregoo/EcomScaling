@@ -590,7 +590,7 @@ function MetaMiniCard({
           />
           <Metric
             size="sm"
-            label="CAC"
+            label="CPA atribuido (Meta)"
             value={
               metaMetrics.acquisition.cac != null
                 ? formatMoney(metaMetrics.acquisition.cac)
@@ -1940,7 +1940,8 @@ function MetaPortfolioWidget() {
         delta: client.delta.roas_pct,
       },
       {
-        label: "CAC",
+        // Gasto de Meta / compras que Meta se atribuye: es CPA, no CAC (ADR-0021).
+        label: "CPA atribuido (Meta)",
         value: money(client.cac),
         delta: client.delta.cac_pct,
         invert: true,
@@ -3071,11 +3072,11 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </div>
             <Metric
               card
-              label="CAC"
+              label="CPA atribuido (Meta)"
               value={
                 metaMetrics?.acquisition.cac != null
                   ? formatMoney(metaMetrics.acquisition.cac)
-                  : formatMoney(0)
+                  : "—"
               }
             />
             <Metric

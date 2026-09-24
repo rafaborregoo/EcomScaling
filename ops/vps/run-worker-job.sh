@@ -3,7 +3,22 @@ set -Euo pipefail
 
 job="${1:-}"
 case "$job" in
-  anomalies-red-flags|benchmark-confidence|conversion-cro-benchmarks|klaviyo-reconcile|meta-reconcile|offer-pricing-benchmarks|operations-cx-benchmarks|product-inventory-benchmarks|purge-expired-deletions|retention-crm-benchmarks|scalability-benchmarks|unit-economics-benchmarks)
+  # Integraciones y mantenimiento
+  klaviyo-reconcile|meta-reconcile|purge-expired-deletions)
+    ;;
+  # Benchmarks por dimension + lectura transversal
+  anomalies-red-flags|benchmark-confidence|conversion-cro-benchmarks|\
+offer-pricing-benchmarks|operations-cx-benchmarks|product-inventory-benchmarks|\
+retention-crm-benchmarks|scalability-benchmarks|unit-economics-benchmarks)
+    ;;
+  # F7 (recomendacion) y F8/F9 (ejecucion y aprendizaje), migrados desde
+  # GitHub Actions el 2026-09-24 al borrarse los workflows en 2b2ab70.
+  expected-outcome|recommendation-confidence|recommendation-communication|\
+execution-plan|readiness|hitl-approval|closure-handoff|\
+action-envelope|execution-supervision|continuous-learning)
+    ;;
+  # Cadena nocturna F3 -> F7 en orden de fase (apps/worker/src/nightly-chain-once.ts)
+  nightly-chain)
     ;;
   *)
     echo "Unknown worker job: ${job:-<missing>}" >&2
@@ -24,8 +39,21 @@ fi
 
 exec >>"$log_dir/${job}.log" 2>&1
 echo "[$(date -Is)] starting ${job}"
+
+# El override de build NO es opcional. Sin el, compose resuelve el worker desde
+# docker-compose.prod.yml, o sea ghcr.io/...:${IMAGE_TAG}. Desde que se construye
+# en el VPS esa imagen o no existe (el job no arranca) o es la del ultimo deploy
+# por GHCR, y entonces el cron ejecuta codigo VIEJO mientras los contenedores
+# largos sirven el nuevo. Las dos cosas pasaron el 2026-09-24.
+if ! docker image inspect ecomscaling-worker:local >/dev/null 2>&1; then
+  echo "Falta la imagen ecomscaling-worker:local; despliega con ops/vps/deploy.sh" >&2
+  echo "[$(date -Is)] finished ${job} status=69"
+  exit 69
+fi
+
 if docker compose --project-directory "$base_dir" \
     -f "$base_dir/docker-compose.prod.yml" \
+    -f "$base_dir/docker-compose.build.yml" \
     run --rm --no-deps worker \
     node "apps/worker/dist/${job}-once.js"; then
   status=0

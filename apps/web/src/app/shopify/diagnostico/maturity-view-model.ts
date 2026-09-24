@@ -44,8 +44,19 @@ export type CapabilityView = {
 
 export type ComplexityView = { key: string; label: string; value: number; unit: string };
 
+/** Lo que un consultor declaro y el dato no puede ver (guardrail 20). */
+export type MaturityDeclarationView = {
+  capability: string;
+  influences_decisions: boolean;
+  has_ownership: boolean;
+  owner_role: string | null;
+  note: string | null;
+  declared_at: string;
+};
+
 export type MaturityProfileView = {
   id: string;
+  organization_id: string;
   organization_name: string | null;
   business_stage: string | null;
   change_type: string | null;
@@ -56,6 +67,7 @@ export type MaturityProfileView = {
   unobserved: { capability: string; reason: string }[];
   complexity: ComplexityView[];
   dependencies: { capability: string; depends_on: string; relation: string; rationale: string }[];
+  declarations?: MaturityDeclarationView[];
 };
 
 export type MaturityTone = "neutral" | "brand" | "success" | "warn" | "danger";

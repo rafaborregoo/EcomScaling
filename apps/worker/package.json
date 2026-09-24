@@ -178,7 +178,7 @@
     "start:agent-evals": "node dist/agent-evals-once.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/repeatable-jobs.test.ts src/cron-workflow-env.test.ts src/metrics.test.ts"
+    "test": "tsx --test src/repeatable-jobs.test.ts src/metrics.test.ts src/job-context.test.ts src/worker-http.test.ts src/nightly-chain.test.ts"
   },
   "dependencies": {
     "@ecomscaling/api": "0.1.0",

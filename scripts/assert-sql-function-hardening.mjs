@@ -32,6 +32,14 @@ const functions = [
   ["public.reorder_strategic_milestones", "uuid, uuid[]", "pg_catalog, public"],
   ["private.gateway_org_id", "", "pg_catalog"],
   ["public.organization_activity_digest", "uuid", "pg_catalog, public"],
+  ["public.consultant_referrals", "uuid", "pg_catalog, public"],
+  ["public.consultant_referral_summary", "uuid", "pg_catalog, public"],
+  ["public.admin_referral_program", "", "pg_catalog, public"],
+  ["public.agent_runs_snapshot_prompt", "", "pg_catalog, public"],
+  ["public.admin_agent_quality_stats", "timestamptz", "pg_catalog, public"],
+  ["public.admin_ai_failure_clusters", "timestamptz", "pg_catalog, public"],
+  ["public.admin_data_quality_portfolio", "", "pg_catalog, public"],
+  ["private.capture_inventory_snapshot", "", "pg_catalog, public"],
 ];
 
 const normalize = (value) => value.replace(/\s+/g, " ").trim().toLowerCase();

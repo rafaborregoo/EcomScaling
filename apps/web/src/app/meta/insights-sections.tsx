@@ -128,6 +128,8 @@ export type MetaInsights = {
     purchase_value: number;
     roas: number | null;
     cac: number | null;
+    cpm?: number | null;
+    cpc?: number | null;
     days_with_data: number;
     purchase_action_types: string[];
   } | null;
@@ -357,8 +359,18 @@ function OverviewSection({ insights }: { insights: MetaInsights }) {
           />
           <Metric
             card
-            label="Coste por compra"
+            label="Coste por compra atribuida"
             value={money(summary.cac, insights.currency)}
+          />
+          <Metric
+            card
+            label="CPM"
+            value={money(summary.cpm ?? null, insights.currency)}
+          />
+          <Metric
+            card
+            label="CPC"
+            value={money(summary.cpc ?? null, insights.currency)}
           />
         </div>
 

@@ -1,6 +1,6 @@
 # AI Architecture — EcomScaling / NORA
 
-**Estado:** fases 0, 1+2, 4 y 9 implementadas. Documento vivo.
+**Estado:** fases 0 a 10 cerradas (la 5 por decisión). Documento vivo.
 **Diagnóstico de partida:** [AI_INFRASTRUCTURE_AUDIT.md](AI_INFRASTRUCTURE_AUDIT.md)
 
 Este documento describe la arquitectura **real**, no la deseada. Lo que todavía no existe
@@ -192,14 +192,48 @@ otro dejaba el panel igual de poco fiable.
 | ----- | ----------------------------------------------------------------------- | ----------------------------------------------------------- |
 | 0     | Audit real                                                              | ✅ [AI_INFRASTRUCTURE_AUDIT.md](AI_INFRASTRUCTURE_AUDIT.md) |
 | 1 + 2 | Adaptadores + fundamentos de run/trace + tokens/costes/latencia/errores | ✅ ver abajo                                                |
-| 3     | Prompt / skill / context tracking                                       | ⬜ pendiente                                                |
+| 3     | Prompt / skill / context tracking                                       | ✅ ver "fases 3 a 10"                                       |
 | 4     | Tools + permisos + eventos de seguridad                                 | ✅ ver abajo                                                |
-| 5     | Subagentes, paralelo, background/headless                               | ⬜ base de datos lista, sin uso                             |
-| 6     | Memoria: consolidación y procedencia                                    | ⬜ parcial ya existente                                     |
-| 7     | Evals + feedback humano                                                 | ⬜ parcial ya existente                                     |
-| 8     | Propuestas de mejora + CI/CD de agentes                                 | ⬜ pendiente                                                |
+| 5     | Subagentes, paralelo, background/headless                               | ✅ cerrada por decisión, con criterio de reapertura         |
+| 6     | Memoria: consolidación y procedencia                                    | ✅ ver "fases 3 a 10"                                       |
+| 7     | Evals + feedback humano                                                 | ✅ ver "fases 3 a 10"                                       |
+| 8     | Propuestas de mejora + CI/CD de agentes                                 | ✅ ver "fases 3 a 10"                                       |
 | 9     | UI de observabilidad                                                    | ✅ detalle de traza en `/admin/observabilidad`              |
-| 10    | Hardening, retención, rendimiento, RLS, documentación                   | ⬜ pendiente                                                |
+| 10    | Hardening, retención, rendimiento, RLS, documentación                   | ✅ ver "fases 3 a 10"                                       |
+
+### Qué entregaron las fases 3 a 10 (2026-09-23)
+
+Una migración ([`20261108090000`](../../supabase/migrations/20261108090000_ai_30_fases_3_6_7_8.sql)),
+ninguna tabla nueva.
+
+- **Fase 3.** `AgentTurnResult` devuelve `systemPromptHash` (SHA-256 del prompt de sistema
+  **efectivo**), `declaredTools` y `contextTruncated`; `agentRunCompletionFields` los lleva a
+  `agent_runs`. `prompt_code`/`prompt_version` se copian de `agent_versions` con un trigger
+  al insertar, así los seis puntos que crean runs lo heredan sin tocarse. El detalle de traza
+  pinta prompt@versión + hash, contexto completo/recortado y tools declaradas/usadas.
+  _No se hizo:_ `loaded_skills` (hoy sería siempre igual a `prompt_code`) ni el % de uso de
+  ventana (`contextWindowMax` sigue en `null` a propósito hasta verificarlo por modelo).
+- **Fase 5 — cerrada por decisión.** Headless ya existía (HTTP, worker, tick interno). Las
+  columnas de jerarquía están listas. Subagentes y encolar runs **no se construyen**: con 175
+  runs reales ningún agente se acerca al techo (ver "Fiabilidad"). Se reabre cuando un agente
+  roce las 16 llamadas, el contexto se acerque a la ventana o un turno dure minutos.
+- **Fase 6.** `knowledge_documents.superseded_by`: al ingerir una versión nueva de la misma
+  fuente, la anterior queda `superseded` **y apunta a quien la sustituyó**. _No se hizo:_
+  `expires_at` ni `confidence` — no hay ningún productor que sepa rellenarlos.
+- **Fase 7.** `agent_approvals.reason_category` (incorrecto, sin evidencia, irrelevante,
+  incompleto, duplicado, otro), elegible al rechazar en `/agentes`. `admin_agent_quality_stats`
+  da por agente@versión: correctas, aprobadas/rechazadas y runs con contexto recortado.
+- **Fase 8.** `admin_ai_failure_clusters` agrupa fallos técnicos (mensaje sin ids ni números)
+  y rechazos humanos (por categoría) por agente@versión: es el _failure cluster_ del audit, y
+  se ve en la tarjeta "Calidad" de `/admin/observabilidad`. La propuesta de cambio sigue
+  siendo humana. `scripts/assert-ai-tests-not-weakened.mjs` falla si bajan los asserts de
+  `packages/ai`, aparecen `skip` o se reduce el dataset de evals respecto a `HEAD`.
+  `npm run verify` ejecuta todas las guardas, que desde que se retiraron los workflows de
+  GitHub Actions no corría nadie.
+- **Fase 10.** Funciones nuevas con `search_path` fijado y registradas en la guarda de
+  hardening; las de panel solo ejecutables por `service_role`. Retención de eventos de
+  seguridad y cierre de runs colgados ya existían. La guarda de idempotencia vuelve a verde
+  (excepción documentada para `20261106090000`).
 
 ### Qué entregó la fase 1 (verificable)
 

@@ -130,6 +130,7 @@ const consultantNavGroups: NavGroup[] = [
     items: [
       { href: "/camino", label: "Camino" },
       { href: "/planificacion", label: "Planificación" },
+      { href: "/contexto", label: "Contexto" },
       { href: "/tareas", label: "Tareas" },
       { href: "/marketing", label: "Marketing IA" },
     ],
@@ -150,6 +151,7 @@ const consultantNavGroups: NavGroup[] = [
       { href: "/mi-trabajo", label: "Mi trabajo" },
       { href: "/consultor", label: "Clientes" },
       { href: "/tiendas", label: "Mis tiendas" },
+      { href: "/consultor/referidos", label: "Mi código" },
     ],
   },
   {
@@ -176,6 +178,7 @@ const platformAdminNavGroups: NavGroup[] = [
     label: "Plataforma",
     items: [
       { href: "/admin/consultores", label: "Consultores" },
+      { href: "/admin/programa-consultores", label: "Programa de consultores" },
       { href: "/admin/clientes", label: "Clientes" },
       // La metodologia de EcomScaling: alimenta al copiloto de todos los
       // clientes y es lo unico del conocimiento que es nuestro. Vive aqui
@@ -219,6 +222,7 @@ const clientNavGroups: NavGroup[] = [
     label: "Trabajar",
     items: [
       { href: "/camino", label: "Mi camino" },
+      { href: "/contexto", label: "Mi negocio" },
       { href: "/tareas", label: "Tareas" },
       { href: "/marketing", label: "Marketing" },
     ],

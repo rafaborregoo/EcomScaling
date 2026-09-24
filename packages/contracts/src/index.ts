@@ -333,6 +333,20 @@ export * from "./execution-plan.js";
 export * from "./readiness.js";
 export * from "./action-envelope.js";
 export * from "./execution-supervision.js";
+// FASE 8: un evaluador por bloque sobre la misma foto de la intervencion.
+export * from "./execution-snapshot.js";
+export * from "./execution-framework.js";
+export * from "./executability-authorization.js";
+export * from "./execution-capabilities.js";
+export * from "./safe-execution.js";
+export * from "./execution-monitoring.js";
+export * from "./execution-guardrails.js";
+export * from "./execution-incidents.js";
+export * from "./rollback-recovery.js";
+export * from "./override-escalation.js";
+export * from "./execution-concurrency.js";
+export * from "./execution-verification.js";
+export * from "./execution-reporting.js";
 
 // FASE 9: experience, outcome classification y learning gates.
 export * from "./continuous-learning.js";

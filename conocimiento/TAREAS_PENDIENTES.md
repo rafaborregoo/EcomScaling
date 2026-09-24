@@ -74,6 +74,7 @@ auditoría.
       (`pending` es "recien creada", no "averiada"), asi que se quedan
       invisibles: ni dan dato ni dan aviso. O se completan o se descartan.
 - [ ] **Activar los `schedule` de los workflows de motores**, si procede.
+      **Actualizacion 2026-09-24: los workflows de GitHub Actions se borraron (commit `2b2ab70`), asi que hoy NINGUN motor de F3–F9 corre solo, ni siquiera a mano desde Actions: solo con los `*-once.ts` del worker. Si se quieren programar, el sitio es el worker (BullMQ), como ya hacen la reconciliacion de Shopify y el tick de IA.**
       `Data Quality Engine`, `Signal Engine`, `Context Engine`, `Symptom
       Engine` y `Maturity Engine` estan sin
       disparador automatico por decision tuya del 2026-08-03: hoy solo corren a
@@ -89,7 +90,7 @@ auditoría.
       no.
 - [ ] **Commits.** Hay ficheros sin commitear y la instruccion es no hacer
       commits ni push. Cuando quieras, dime y los preparo.
-- [ ] **Destilar el bloque que sigue sin capas** (`8.12`): `7.15`, `7.17` y
+- [ ] **Destilar el bloque que sigue sin capas** (`8.12`) *(el motor de 8.12 ya existe desde el 2026-09-24, implementado desde el corpus maestro; falta la destilacion en capas, que es trabajo de contenido)*: `7.15`, `7.17` y
       `7.18` ya están implementados end-to-end y documentados; `8.12` queda
       fuera de F7.
 
@@ -166,8 +167,9 @@ hecho falso, que es peor.
 
 - [x] Los cinco desajustes de la tabla, con `scripts/auditar-columnas-motores.mjs`
       guardado para que no vuelva a pasar en silencio.
-- [ ] **Meter el auditor en CI.** Mientras se ejecute a mano, el proximo cambio
+- [x] **Meter el auditor en CI.** Mientras se ejecute a mano, el proximo cambio
       de firma vuelve a colarse. Es lo unico que cierra esta clase de bug.
+      **Hecho 2026-09-24: `npm run verify` lo ejecuta junto a las demas guardas (ya no hay CI de GitHub). Se arreglo su emparejamiento posicional, que escondia un desajuste real: `retention-crm-benchmarks` leia `shopify_margin_summary.contribution`, inexistente.**
 - [ ] **`conversion_cro.product_views`**: el hecho esta declarado y ninguna
       funcion lo puede llenar — `shopify_funnel_summary` no trae vistas de
       producto. Hoy es UNKNOWN, que es honesto. Decidir si se trae el dato o se
@@ -239,15 +241,17 @@ Tareas, de mas barata a menos:
       llaman a `shopify_financial_summary`, `unit-economics-benchmarks` y
       `paid-media-benchmarks` leen solo `net_profit`, y `anomalies-red-flags`
       la llama sin leer ninguna columna.
-- [ ] **Conectar Klaviyo a `retention-crm-engine.ts`**. Las funciones estan
+- [x] **Conectar Klaviyo a `retention-crm-engine.ts`**. Las funciones estan
       hechas y ningun diagnostico las usa.
-- [ ] **`meta_spend_summary.cac` esta mal nombrado.** Divide gasto de Meta entre
+      **Hecho 2026-09-24: flujos activos, envios reales de la ventana y fiabilidad de la medicion (UTM, clics, ultimo sync) como hechos nuevos del motor, con test.**
+- [x] **`meta_spend_summary.cac` esta mal nombrado.** Divide gasto de Meta entre
       compras que *Meta se atribuye*: es CPA de Meta, no CAC. Convive con el
       `cac_blended` bueno, lo que invita a confundirlos —
       `adversarial-engine.ts` ya lo hace (`cpa: "cac"`). Renombrar cuesta una
       migracion y tocar a sus lectores (`meta-insights.ts`), asi que decidir si
       compensa o basta con la etiqueta en pantalla y en la tool.
-- [ ] **LTV, payback, churn, CPM y CPC**. Los unicos que de verdad no existen.
+      **Hecho 2026-09-24 sin migracion: en pantalla se llama "CPA atribuido (Meta)" y al agente le llega como `cpa_atribuido_meta`.**
+- [ ] **LTV, payback, churn, CPM y CPC**. *(CPM y CPC hechos el 2026-09-24 en /meta y en el contexto del agente; quedan LTV, payback y churn, que son decision de producto.)* Los unicos que de verdad no existen.
       CPM y CPC son aritmetica sobre columnas que ya volvemos. LTV y payback
       necesitan decidir horizonte y si se calculan sobre margen o ingreso, que
       es decision de producto, no de codigo.
@@ -273,11 +277,12 @@ siendo buena idea dejarla.
 
 ### De `D01` (calidad de datos)
 
-- [ ] **Vista de platform_admin: que fuentes fallan en toda la cartera.**
+- [x] **Vista de platform_admin: que fuentes fallan en toda la cartera.**
       Un `permission_gap` en doce clientes es un problema de producto, no de
       doce clientes. *Por que se dejo:* es observabilidad entre organizaciones y
       vive en `/admin/observabilidad`; tiene mas sentido hacerla una vez para
       varios bloques de la fase que bloque a bloque.
+      **Hecho 2026-09-24: `admin_data_quality_portfolio()` y tarjeta "Fuentes que fallan en la cartera" en /admin/observabilidad.**
 - [ ] **Reconciliacion entre fuentes** (`data_source_reconciliations`, pasos 4,
       5, 6 y 17 del runtime). *Por que se dejo:* hace falta una **segunda fuente
       comparable** sobre el mismo fenomeno, y hoy solo Shopify tiene serie
@@ -296,10 +301,11 @@ siendo buena idea dejarla.
       cuelga de un caso. Si `D06` abriera el caso, `D02` no podria escribir
       antes y `D06` no tendria contexto que leer: es un ciclo. El caso lo abre
       quien lo necesita primero, que es `D02`, y se queda ahi.
-- [ ] **Dejar que el cliente escriba su contexto declarado**
+- [x] **Dejar que el cliente escriba su contexto declarado**
       (`tenant_context_facts`, en onboarding y en su perfil). El motor ya lo lee
       si existe; sin eso, los pasos 9 y 13 del runtime --cambios internos y
       contradicciones declarado/observado-- no tienen materia prima.
+      **Hecho 2026-09-24: pagina /contexto ("Mi negocio" para el cliente) con hechos declarados y cambios internos; el paso 13 (declarado contra observado) ya corre, con el canal principal como primer hecho observado.**
 - [ ] **Dimensiones `device`, `market` y `product` en el mix.**
       *Por que se dejo:* `shopify_order_facts` no las sostiene. No se simulan:
       el motor las declara en `missing_context`.
@@ -325,8 +331,9 @@ siendo buena idea dejarla.
 - [ ] **Composicion de sintomas superiores** (paso 16). *Por que se dejo:*
       agrupar familias distintas bajo un mismo padre exige declarar que las
       relaciona, y hoy la unica relacion declarada es aritmetica.
-- [ ] **`D07` no recorre el grafo de relaciones candidatas.** El motor las
+- [x] **`D07` no recorre el grafo de relaciones candidatas.** El motor las
       escribe (`often_cooccurs`) y nadie las lee todavia.
+      **Hecho 2026-09-24: las co-ocurrencias de D06 se nombran en cada ruta que no pasa por ellas, sin crear aristas.**
 
 ### De `D03` (madurez por capacidad)
 
@@ -343,10 +350,11 @@ siendo buena idea dejarla.
       umbrales.
 - [ ] **Conectar el `business_stage` de la fase 2.** `D03` lo consume y no lo
       redefine; hoy se queda nulo porque la fase 2 no esta implementada.
-- [ ] **Dejar que una persona suba una capacidad por encima de `defined`.** El
+- [x] **Dejar que una persona suba una capacidad por encima de `defined`.** El
       motor tiene techo estructural ahi: `measured` exige que la medida cambie
       decisiones (guardrail 20) y eso no esta en ninguna tabla. Falta la pantalla
       donde el consultor marque `influences_decisions` y `has_ownership`.
+      **Hecho 2026-09-24: `capability_maturity_declarations` + formulario en el panel de madurez; solo sube a `measured` si el dato ya demuestra medicion.**
 - [x] ~~**El 96% de los pedidos no trae origen.**~~ **Arreglado el 2026-09-15.**
       No era un problema de permisos: el webhook de Shopify no trae el customer
       journey y la reconciliacion incremental filtra por `updated_at`, asi que
@@ -369,8 +377,9 @@ siendo buena idea dejarla.
 - [ ] **Coste por referencia: 43 de 44 vacias.** Sin coste no hay margen, y sin
       margen `D03` declara la economia unitaria no observable. Se rellena en
       Shopify (coste por variante) o conectando la fuente que lo tenga.
-- [ ] **No hay historico de existencias** (`shopify_inventory_level_snapshots`
+- [x] **No hay historico de existencias** (`shopify_inventory_level_snapshots`
       esta a cero). Se sabe el stock de hoy, no el de la semana pasada.
+      **Hecho 2026-09-24: foto diaria desde `shopify_inventory_current_state` en la reconciliacion nocturna (`private.capture_inventory_snapshot`).**
 
 ### De la fase 3 entera
 
@@ -383,14 +392,16 @@ bitÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡cora, pero no representan trabajo a
 - [x] ~~**D12: verificar el motor y flujo runtime en staging.**~~ **Hecho el
       2026-09-16** usando `env.local`: dos pasadas, revisiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n vigente e
       histÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rica, conteo de confusores/checks y limpieza verificada a cero.
-- [ ] **2 bloques que necesitan motor y no tienen flujo escrito**: `D13`,
+- [x] **2 bloques que necesitan motor y no tienen flujo escrito**: `D13`,
       `D14`. Ahi si hay diseno que hacer. (`D04` y `D08` ya tienen motor
       propio, escrito sin flujo formal.)
-- [ ] **Pantalla en 2 de los 15 bloques** (`D13`, `D14`; `D00` no necesita).
+      **Ya estaba hecho el 2026-09-16 (addendum de cierre D13/D14); la casilla no se habia marcado.**
+- [x] **Pantalla en 2 de los 15 bloques** (`D13`, `D14`; `D00` no necesita).
       La matriz de audiencia de
       [`fase-03/IMPLEMENTACION.md`](fase-03/IMPLEMENTACION.md) ya dice que lleva
       cada una.
-- [ ] **`D09` cierra la cadena causal, y `D11` no se ha vuelto a mirar desde
+      **Ya estaba hecho el 2026-09-16: `temporal.tsx` y `diagnostic-output.tsx`.**
+- [x] **`D09` cierra la cadena causal, y `D11` no se ha vuelto a mirar desde
       entonces.** Las capas `why`, `root_cause` y `constraint` de
       `packages/contracts/src/confidence.ts` siguen escribiendo "no puede
       determinarse... D07, D08 y D09 no tienen motor" **codigo por codigo**, y
@@ -402,14 +413,17 @@ bitÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡cora, pero no representan trabajo a
       texto sigue siendo honesto: **sigue** sin haber una causa cerrada), pero
       la pantalla ya no explica **por que** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â el motivo real hoy es "la
       evidencia es correlacion", no "no existe el motor".
-- [ ] **Ningun agente lee todavia una tabla de fase 3.** Conectarlos es anadir
+      **Ya estaba hecho (addendum de cierre D11): el texto fijo "no tienen motor" no existe en el codigo.**
+- [x] **Ningun agente lee todavia una tabla de fase 3.** Conectarlos es anadir
       una tool y subir una version de `agent_versions`, no tocar el runtime
       (apartado 10 del plan).
-- [ ] **Retirar o corregir `.env.tests` obsoleto.** `env.local` ya apunta al
+      **Ya estaba hecho el 2026-09-18: A09 lee F3 via `decision-playbook-chat-context.ts`.**
+- [x] **Retirar o corregir `.env.tests` obsoleto.** `env.local` ya apunta al
       staging documentado `kopcblejsxpkxoykldyh`; `.env.tests` sigue
       referenciando un proyecto sin DNS y puede provocar una verificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n en el
       entorno equivocado. No reutilizar una clave entre proyectos ni apuntar a
       producciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n.
+      **Hecho 2026-09-24: `test:remote` usa `.env.local`. El fichero `.env.tests` sigue en disco (es tuyo); ya no lo usa nada y se puede borrar.**
 - [ ] **D12: decidir el presupuesto de recursiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n y su efecto en D11.** El motor
       deja la reapertura explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­cita (`revision_triggered`, `reopened_blocks`),
       pero no reabre ni consume presupuesto automÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ticamente hasta que esa
@@ -417,11 +431,14 @@ bitÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡cora, pero no representan trabajo a
 
 ### Anteriores, aun abiertas
 
-- [ ] **No existe drenaje de reintentos de webhooks.** Un webhook fallido se
+- [x] **No existe drenaje de reintentos de webhooks.** Un webhook fallido se
       queda ahi; `D01` ahora lo detecta y lo reporta, pero nadie lo reprocesa.
-- [ ] **`fase-06/02-contratos-IA` tiene 17 ficheros legacy** a granel, sin el
+      **Hecho 2026-09-24: `drainFailedShopifyWebhooks`, con tope de 5 intentos, en la reconciliacion nocturna.**
+- [x] **`fase-06/02-contratos-IA` tiene 17 ficheros legacy** a granel, sin el
       renombrado que tienen las demas capas.
-- [ ] **El bypass del guardrail de `pending_deletion` sigue sin explicacion.**
+      **Hecho 2026-09-24: renombrados a `C6.00`…`C6.16-contrato-*.md` (son contratos transversales, no por bloque).**
+- [x] **El bypass del guardrail de `pending_deletion` sigue sin explicacion.**
+      **Explicado y cerrado 2026-09-24: los syncs manuales de Meta, Klaviyo y Shopify pasaban la conexion a `syncing` sin mirar su estado, y como la purga solo borra conexiones en `pending_deletion`, el borrado pedido no llegaba nunca. Ahora se rechaza (`assertConnectionIngestible`).**
 
 ### Apertura F4/P00 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-09-16
 

@@ -4,6 +4,7 @@
 // - Toda salida se valida contra schema antes de persistirse.
 // - Las escrituras propuestas (proposed_writes) no se ejecutan: quedan
 //   pendientes de aprobacion humana segun approval_mode.
+import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { z } from "zod";
@@ -1653,6 +1654,16 @@ export type AgentTurnResult<TOutput = AgentOutput> = {
   stopReason: string | null;
   modelCalls: number;
   toolCallCount: number;
+  /**
+   * AI-30 fase 3: SHA-256 del prompt de sistema EFECTIVO (politica runtime +
+   * prompt del agente + esquema SQL inyectado), que no es exactamente
+   * `prompt_versions.content`. Responde "que texto recibio el modelo".
+   */
+  systemPromptHash: string;
+  /** Herramientas declaradas al modelo tras el filtrado por permisos/conector. */
+  declaredTools: string[];
+  /** El contexto se recorto por limite de tamano: el modelo vio menos evidencia. */
+  contextTruncated: boolean;
 };
 
 /**
@@ -1680,7 +1691,7 @@ function addReported(
 function serializeContextWithSecurityEvents(
   blocks: Array<{ label: string; data: unknown }>,
   onSecurityEvent: AgentSecurityEventSink | undefined,
-): string {
+): { text: string; truncated: boolean } {
   const serialized = serializeUntrustedContextBlocks(blocks);
 
   if (serialized.blockedPatterns > 0) {
@@ -1708,7 +1719,7 @@ function serializeContextWithSecurityEvents(
     });
   }
 
-  return serialized.text;
+  return { text: serialized.text, truncated: serialized.truncated };
 }
 
 /**
@@ -2498,6 +2509,19 @@ function parseTurnOutput<TOutput>(
  * Los tres campos de coste van juntos siempre: la cifra, por que vale eso, y
  * con que tarifa se calculo. Un coste sin su base no es auditable.
  */
+/** AI-30 fase 3: que prompt, que tools y que contexto recibio el modelo. */
+function turnPromptFields(
+  systemPrompt: string,
+  tools: AgentToolDefinition[],
+  contextTruncated: boolean,
+) {
+  return {
+    systemPromptHash: createHash("sha256").update(systemPrompt).digest("hex"),
+    declaredTools: tools.map((tool) => tool.name),
+    contextTruncated,
+  };
+}
+
 function turnPricingFields(
   model: string,
   inputTokens: number,
@@ -2549,10 +2573,12 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     params.outputContract ??
     (defaultOutputContract as unknown as OutputContract<TOutput>);
 
-  const contextText = serializeContextWithSecurityEvents(
+  const context = serializeContextWithSecurityEvents(
     params.contextBlocks,
     params.onSecurityEvent,
   );
+  const contextText = context.text;
+  const systemPrompt = buildAgentSystemPrompt(params.systemPrompt);
 
   const attachedImages = (params.images ?? []).slice(0, 8);
   const imageBlocks: Anthropic.ImageBlockParam[] = attachedImages.map(
@@ -2591,7 +2617,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     system: [
       {
         type: "text" as const,
-        text: buildAgentSystemPrompt(params.systemPrompt),
+        text: systemPrompt,
         cache_control: { type: "ephemeral" as const },
       },
     ],
@@ -2732,6 +2758,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     stopReason: response.stop_reason,
     modelCalls: usage.modelCalls,
     toolCallCount: usage.toolCallCount,
+    ...turnPromptFields(systemPrompt, tools, context.truncated),
   };
 }
 
@@ -2769,13 +2796,15 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     params.outputContract ??
     (defaultOutputContract as unknown as OutputContract<TOutput>);
 
-  const contextText = serializeContextWithSecurityEvents(
+  const context = serializeContextWithSecurityEvents(
     params.contextBlocks,
     params.onSecurityEvent,
   );
+  const contextText = context.text;
+  const systemPrompt = buildAgentSystemPrompt(params.systemPrompt);
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: buildAgentSystemPrompt(params.systemPrompt) },
+    { role: "system", content: systemPrompt },
     { role: "user", content: buildTurnUserText(input, contextText) },
   ];
 
@@ -2941,6 +2970,7 @@ export async function runAgentTurnOpenAI<TOutput = AgentOutput>(params: {
     stopReason: choice.finish_reason,
     modelCalls: usage.modelCalls,
     toolCallCount: usage.toolCallCount,
+    ...turnPromptFields(systemPrompt, tools, context.truncated),
   };
 }
 

@@ -25,6 +25,15 @@ export type RetentionCrmEvidence = {
   margin?: { items_with_cost?: number | null; gross_margin?: number | null } | null;
   crm?: { account_count?: number | null; flows_count?: number | null; campaigns_count?: number | null } | null;
   consent?: { consent_events?: number | null } | null;
+  /** Klaviyo: lo que ya calculan sus funciones y ningun diagnostico leia. */
+  klaviyo?: {
+    active_flows?: number | null;
+    recipients?: number | null;
+    emails_total?: number | null;
+    emails_without_utm?: number | null;
+    emails_without_click_tracking?: number | null;
+    last_sync_status?: string | null;
+  } | null;
 };
 
 export function buildRetentionCrmPlaybookContext(
@@ -54,8 +63,22 @@ export function buildRetentionCrmPlaybookContext(
       "retention.subscription.observed": UNKNOWN,
       "retention.incrementality.supported": UNKNOWN,
       "retention.customer_quality.available": UNKNOWN,
+      "retention.crm.lifecycle_flows_active": UNKNOWN,
+      "retention.crm.sending_observed": UNKNOWN,
+      "retention.crm.measurement_reliable": UNKNOWN,
     },
   };
+}
+
+/**
+ * La medicion de email es fiable si todos los emails llevan UTM y seguimiento
+ * de clics y el ultimo sync no fallo (uno en curso no cuenta como fallo). Sin inventario de emails no se sabe.
+ */
+function klaviyoMeasurementReliable(klaviyo: RetentionCrmEvidence["klaviyo"]): PlaybookTriState {
+  if (!klaviyo || !klaviyo.emails_total) return UNKNOWN;
+  if (klaviyo.last_sync_status === "failed" || klaviyo.last_sync_status === "cancelled") return "FALSE";
+  if (klaviyo.emails_without_utm == null || klaviyo.emails_without_click_tracking == null) return UNKNOWN;
+  return klaviyo.emails_without_utm === 0 && klaviyo.emails_without_click_tracking === 0 ? "TRUE" : "FALSE";
 }
 
 function observed(value: number | null | undefined): PlaybookTriState {
@@ -86,6 +109,9 @@ export function applyRetentionCrmEvidence(
     "retention.subscription.observed": UNKNOWN,
     "retention.incrementality.supported": UNKNOWN,
     "retention.customer_quality.available": UNKNOWN,
+    "retention.crm.lifecycle_flows_active": observed(evidence.klaviyo?.active_flows),
+    "retention.crm.sending_observed": observed(evidence.klaviyo?.recipients),
+    "retention.crm.measurement_reliable": klaviyoMeasurementReliable(evidence.klaviyo),
   } satisfies Record<string, PlaybookTriState>;
   return {
     ...context,
@@ -99,6 +125,7 @@ async function enrichRetentionCrmContext(
   context: PlaybookFrameworkInputLike["context"],
   organizationId: string,
 ) {
+  const first = (result: any) => (Array.isArray(result.data) ? result.data[0] : null);
   const periodEnd = new Date(context.as_of);
   const periodStart = new Date(periodEnd.getTime() - 90 * 24 * 60 * 60 * 1000);
   const period = { gte: periodStart.toISOString(), lte: periodEnd.toISOString() };
@@ -108,7 +135,7 @@ async function enrichRetentionCrmContext(
     period_end: periodEnd.toISOString(),
     target_store_id: null,
   };
-  const [customersResult, repeatResult, stateResult, salesResult, marginResult, accountResult, flowsResult, campaignsResult, consentResult] = await Promise.all([
+  const [customersResult, repeatResult, stateResult, salesResult, marginResult, accountResult, flowsResult, campaignsResult, consentResult, klaviyoHealthResult, klaviyoReportResult] = await Promise.all([
     supabase.from("shopify_customers").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("is_active", true),
     supabase.from("shopify_customers").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("is_active", true).gt("number_of_orders", 1),
     supabase.from("shopify_customers").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("is_active", true).not("state", "is", null),
@@ -118,8 +145,21 @@ async function enrichRetentionCrmContext(
     supabase.from("klaviyo_flows").select("id", { count: "exact", head: true }).eq("organization_id", organizationId),
     supabase.from("klaviyo_campaigns").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).not("send_time", "is", null),
     supabase.from("klaviyo_tracking_consents").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).gte("occurred_at", period.gte).lte("occurred_at", period.lte),
+    supabase.rpc("klaviyo_measurement_health", { target_organization_id: organizationId, target_store_id: null }),
+    supabase.rpc("klaviyo_email_report", {
+      target_organization_id: organizationId,
+      period_start: period.gte.slice(0, 10),
+      period_end: period.lte.slice(0, 10),
+      target_store_id: null,
+    }),
   ]);
-  const first = (result: any) => (Array.isArray(result.data) ? result.data[0] : null);
+  const health = klaviyoHealthResult.error ? null : first(klaviyoHealthResult);
+  // Destinatarios sumados entre filas del informe: es volumen enviado, un
+  // hecho. Los ingresos del informe son atribuidos por Klaviyo (ADR-0021) y
+  // no se usan aqui.
+  const recipients = klaviyoReportResult.error || !Array.isArray(klaviyoReportResult.data)
+    ? null
+    : klaviyoReportResult.data.reduce((sum: number, row: any) => sum + Number(row?.recipients ?? 0), 0);
   return applyRetentionCrmEvidence(
     context,
     {
@@ -132,6 +172,16 @@ async function enrichRetentionCrmContext(
         ? null
         : { account_count: accountResult.count, flows_count: flowsResult.count, campaigns_count: campaignsResult.count },
       consent: consentResult.error ? null : { consent_events: consentResult.count },
+      klaviyo: health || recipients !== null
+        ? {
+            active_flows: health?.flujos_activos ?? null,
+            recipients,
+            emails_total: health?.emails_total ?? null,
+            emails_without_utm: health?.emails_sin_utm ?? null,
+            emails_without_click_tracking: health?.emails_sin_seguimiento_clics ?? null,
+            last_sync_status: health?.ultimo_sync_estado ?? null,
+          }
+        : null,
     },
     [
       !customersResult.error && !repeatResult.error && !stateResult.error ? `shopify_customers:${organizationId}:${context.as_of.slice(0, 10)}` : "",
@@ -139,6 +189,8 @@ async function enrichRetentionCrmContext(
       !marginResult.error ? `shopify_margin_summary:${organizationId}:${context.as_of.slice(0, 10)}` : "",
       !accountResult.error && !flowsResult.error && !campaignsResult.error ? `klaviyo_configuration:${organizationId}:${context.as_of.slice(0, 10)}` : "",
       !consentResult.error ? `klaviyo_tracking_consents:${organizationId}:${context.as_of.slice(0, 10)}` : "",
+      health ? `klaviyo_measurement_health:${organizationId}:${context.as_of.slice(0, 10)}` : "",
+      recipients !== null ? `klaviyo_email_report:${organizationId}:${context.as_of.slice(0, 10)}` : "",
     ].filter(Boolean),
   );
 }

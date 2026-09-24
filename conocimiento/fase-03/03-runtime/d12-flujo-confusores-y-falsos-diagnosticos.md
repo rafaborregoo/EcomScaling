@@ -87,6 +87,7 @@ invalidar un check determinista ni cambiar el estado de supervivencia.
 
 La verificación operacional requiere sembrar un caso, un evento, una ruptura y
 datos de mix en el proyecto de tests; ejecutar dos pasadas; contar las filas de
-las seis tablas; y borrar la semilla comprobando cero filas. Esa pasada queda
-pendiente mientras `.env.tests` no tenga URL y service key válidas del staging
-documentado.
+las seis tablas; y borrar la semilla comprobando cero filas. Esa pasada se hizo
+el 2026-09-16 contra el staging documentado usando `.env.local`; `test:remote`
+usa ese mismo fichero desde el 2026-09-23 (`.env.tests` apuntaba a un proyecto
+que ya no existe).

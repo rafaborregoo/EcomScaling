@@ -25,8 +25,11 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import {
+  applyMaturityDeclarations,
   classifyProfileChange,
+  maturityDeclarationSchema,
   observeMaturity,
+  type MaturityDeclaration,
   type BusinessFacts,
   type CapabilityMaturity,
 } from "@ecomscaling/contracts";
@@ -123,6 +126,19 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
     .eq("organization_id", organizationId);
   if (errorTiendas) throw new Error(`shopify_stores_load_failed: ${errorTiendas.message}`);
 
+  const { data: filasDeclaradas, error: errorDeclaraciones } = await supabase
+    .from("capability_maturity_declarations")
+    .select("capability, influences_decisions, has_ownership, owner_role, note")
+    .eq("organization_id", organizationId);
+  if (errorDeclaraciones) {
+    throw new Error(`maturity_declarations_load_failed: ${errorDeclaraciones.message}`);
+  }
+  // Una fila que ya no encaja en el contrato se ignora, no tumba la pasada.
+  const declaraciones: MaturityDeclaration[] = (filasDeclaradas ?? []).flatMap((fila) => {
+    const parsed = maturityDeclarationSchema.safeParse(fila);
+    return parsed.success ? [parsed.data] : [];
+  });
+
   for (const tienda of tiendas ?? []) {
     resumen.stores += 1;
     const storeId = tienda.id as string;
@@ -137,6 +153,8 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
 
     const observacion = observeMaturity(hechos);
     resumen.unobserved += observacion.unobserved.length;
+    // Lo que el dato no ve y un consultor ha declarado (guardrail 20).
+    const observadas = applyMaturityDeclarations(observacion.observed, declaraciones);
 
     // El perfil vigente, con sus capacidades, para poder comparar.
     const { data: vigente } = await supabase
@@ -158,7 +176,7 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
       };
     }
 
-    const cambio = classifyProfileChange(previo, { capabilities: observacion.observed });
+    const cambio = classifyProfileChange(previo, { capabilities: observadas });
     if (!cambio) {
       // Nada se movio. No se escribe un perfil nuevo para repetir lo de ayer:
       // eso convertiria el historico en ruido y la supersesion en una mentira.
@@ -168,8 +186,8 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
 
     // La confianza del perfil es la mas baja de sus capacidades: un perfil no
     // puede ser mas fiable que la pieza peor sostenida que contiene.
-    const confianza = observacion.observed.some((c) => c.confidence === "medium")
-      ? observacion.observed.every((c) => c.confidence === "medium")
+    const confianza = observadas.some((c) => c.confidence === "medium")
+      ? observadas.every((c) => c.confidence === "medium")
         ? "medium"
         : "low"
       : "low";
@@ -211,7 +229,7 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
     }
     resumen.profiles += 1;
 
-    for (const c of observacion.observed) {
+    for (const c of observadas) {
       const { data: fila, error: errorCapacidad } = await supabase
         .from("capability_maturity")
         .insert({
@@ -226,6 +244,8 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
           has_repeatability: c.has_repeatability,
           has_measurement: c.has_measurement,
           influences_decisions: c.influences_decisions,
+          has_ownership: c.has_ownership,
+          owner_role: c.owner_role ?? null,
           confidence: c.confidence,
         })
         .select("id")

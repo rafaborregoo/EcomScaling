@@ -143,7 +143,17 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
     }
   }
 
+  // Foto diaria del stock ya reconciliado: sin ella solo se sabe el stock de
+  // hoy, nunca el de la semana pasada. Idempotente por dia.
+  const { data: snapshot, error: snapshotError } = await supabase
+    .schema("private")
+    .rpc("capture_inventory_snapshot");
+  if (snapshotError) {
+    logger.error("Shopify inventory snapshot failed", { error: snapshotError.message });
+  }
+
   logger.info("Shopify reconciliation pass completed", {
+    inventory_snapshot: snapshot ?? null,
     attempted,
     failed,
     skipped,

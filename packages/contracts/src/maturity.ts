@@ -896,3 +896,63 @@ const ORDEN_CONFIANZA_MADUREZ = ["insufficient_data", "low", "medium", "high"];
 function confianzaRank(c: string): number {
   return ORDEN_CONFIANZA_MADUREZ.indexOf(c);
 }
+
+// --- Lo que declara una persona ---------------------------------------------
+//
+// El techo observable es `defined` porque `measured` exige que la medida cambie
+// decisiones (guardrail 20), y eso no esta en ninguna tabla. Lo dice el
+// consultor: `influences_decisions` y `has_ownership`. La declaracion vive
+// aparte del perfil (el motor lo reescribe en cada pasada) y se aplica aqui.
+//
+// Una declaracion solo puede subir a `measured`, y solo si el dato ya demuestra
+// medicion: afirmar que una medida cambia decisiones no crea la medida.
+// `optimized` sigue exigiendo `has_optimization`, que tampoco se observa, asi
+// que no se alcanza por declaracion.
+
+export const maturityDeclarationSchema = z.object({
+  capability: z.enum(CAPABILITIES),
+  influences_decisions: z.boolean(),
+  has_ownership: z.boolean(),
+  owner_role: z.string().trim().min(1).max(60).nullable().optional(),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+
+export type MaturityDeclaration = z.infer<typeof maturityDeclarationSchema>;
+
+export function applyMaturityDeclarations(
+  observed: CapabilityMaturity[],
+  declarations: MaturityDeclaration[],
+): CapabilityMaturity[] {
+  const byCapability = new Map(declarations.map((d) => [d.capability, d]));
+  return observed.map((c) => {
+    const declared = byCapability.get(c.capability);
+    if (!declared) return c;
+    const raises =
+      c.current_level === TECHO_OBSERVABLE && c.has_measurement && declared.influences_decisions;
+    return capabilityMaturitySchema.parse({
+      ...c,
+      current_level: raises ? "measured" : c.current_level,
+      influences_decisions: declared.influences_decisions,
+      has_ownership: declared.has_ownership,
+      owner_role: declared.owner_role ?? c.owner_role ?? null,
+      evidence: [
+        ...c.evidence,
+        {
+          evidence_type: "user_claim",
+          description: [
+            declared.influences_decisions
+              ? "El consultor declara que esta medida cambia decisiones"
+              : "El consultor declara que esta medida no cambia decisiones",
+            declared.has_ownership ? "con responsable asignado" : "sin responsable asignado",
+            declared.note ? `(${declared.note})` : null,
+          ]
+            .filter(Boolean)
+            .join(", "),
+          source: "consultant_declaration",
+          supports: raises ? "advancement" : "current_level",
+          persistent: true,
+        },
+      ],
+    });
+  });
+}

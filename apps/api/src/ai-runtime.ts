@@ -104,6 +104,7 @@ import {
   sanitizeChatUiActions,
 } from "./copilot-ui-actions.js";
 import { getOrgMetaBackfillStatus } from "./meta-sync.js";
+import { metaCostRates } from "./meta-insights.js";
 import { isErr } from "./result-guard.js";
 import {
   loadAssignmentCandidates,
@@ -212,6 +213,9 @@ function agentRunCompletionFields(
     | "stopReason"
     | "modelCalls"
     | "toolCallCount"
+    | "systemPromptHash"
+    | "declaredTools"
+    | "contextTruncated"
   >,
 ) {
   return {
@@ -232,7 +236,30 @@ function agentRunCompletionFields(
     stop_reason: turn.stopReason,
     model_calls: turn.modelCalls,
     tool_call_count: turn.toolCallCount,
+    system_prompt_hash: turn.systemPromptHash,
+    declared_tools: turn.declaredTools,
+    context_truncated: turn.contextTruncated,
     finished_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * `meta_spend_summary.cac` divide el gasto de Meta entre las compras que Meta
+ * se atribuye: es CPA atribuido, no CAC. El CAC real es `cac_blended` del
+ * resumen financiero. Al agente le llega con su nombre verdadero (ADR-0021).
+ */
+function metaSpendForAgent(row: unknown) {
+  if (!row || typeof row !== "object") return row ?? null;
+  const { cac, ...rest } = row as Record<string, unknown>;
+  const rates = metaCostRates(
+    Number(rest.spend ?? 0),
+    Number(rest.impressions ?? 0),
+    Number(rest.clicks ?? 0),
+  );
+  return {
+    ...rest,
+    ...rates,
+    ...(cac === undefined ? {} : { cpa_atribuido_meta: cac }),
   };
 }
 
@@ -4086,7 +4113,7 @@ export async function runMonitorAgent(
         },
         {
           label: `Adquisicion Meta (${lookbackDays} dias)`,
-          data: meta.data?.[0] ?? "sin_datos_meta",
+          data: metaSpendForAgent(meta.data?.[0]) ?? "sin_datos_meta",
         },
         { label: "Alertas activas", data: alerts.data ?? [] },
       ];
@@ -4732,7 +4759,7 @@ export async function runCampaignStrategist(
         },
         {
           label: `Adquisicion pagada en Meta (${lookbackDays} dias). EUR atribuidos por Meta, no sumables con Klaviyo ni Shopify`,
-          data: meta.data?.[0] ?? "sin_datos",
+          data: metaSpendForAgent(meta.data?.[0]) ?? "sin_datos",
         },
         {
           label: "Plan estrategico activo (las campanas deberian empujarlo)",
@@ -5814,11 +5841,11 @@ export async function runOperativaMetaAgent(
         ...(backfillNotice ? [backfillNotice] : []),
         {
           label: `Adquisicion Meta (${OPERATIVA_LOOKBACK_DAYS} dias)`,
-          data: meta.data?.[0] ?? "sin_datos_meta",
+          data: metaSpendForAgent(meta.data?.[0]) ?? "sin_datos_meta",
         },
         {
           label: "Adquisicion Meta (periodo anterior, para comparar)",
-          data: prevMeta.data?.[0] ?? "sin_datos_periodo_anterior",
+          data: metaSpendForAgent(prevMeta.data?.[0]) ?? "sin_datos_periodo_anterior",
         },
         {
           label: `Resumen financiero de la tienda (${OPERATIVA_LOOKBACK_DAYS} dias) -- para juzgar si ROAS/CAC son sostenibles`,
@@ -10376,6 +10403,15 @@ export function approvalCandidate(input: {
   return "none";
 }
 
+const REJECTION_REASON_CATEGORIES = [
+  "incorrecto",
+  "sin_evidencia",
+  "irrelevante",
+  "incompleto",
+  "duplicado",
+  "otro",
+];
+
 export async function decideAgentOutput(
   env: ApiEnv,
   context: AuthContext,
@@ -10384,6 +10420,7 @@ export async function decideAgentOutput(
   decisionInput: string | undefined,
   reason: string | undefined,
   edits?: ProposedWriteEdit[],
+  reasonCategory?: string,
 ) {
   const access = requireMembership(context, organizationId);
   if (access.ok === false) {
@@ -10424,6 +10461,20 @@ export async function decideAgentOutput(
 
   if (!decisionInput || !["approved", "rejected"].includes(decisionInput)) {
     return { ok: false as const, statusCode: 400, error: "invalid_decision" };
+  }
+
+  // AI-30 fase 7: solo un rechazo lleva categoria; el check de la tabla es la
+  // fuente de verdad, esto solo evita un 500 por un valor mal escrito.
+  if (
+    reasonCategory !== undefined &&
+    (decisionInput !== "rejected" ||
+      !REJECTION_REASON_CATEGORIES.includes(reasonCategory))
+  ) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "invalid_reason_category",
+    };
   }
 
   const supabase = createServiceClient(env);
@@ -10483,6 +10534,7 @@ export async function decideAgentOutput(
       decision: decisionInput,
       decided_by: context.user.id,
       reason: reason ?? null,
+      reason_category: reasonCategory ?? null,
     })
     .select("id")
     .single();
@@ -10832,7 +10884,7 @@ export async function getAgentRunTrace(
   const { data: run, error: runError } = await supabase
     .from("agent_runs")
     .select(
-      "id, trace_id, parent_run_id, root_run_id, parallel_group_id, deployment_version, trigger_type, objective, status, execution_mode, stop_reason, provider, model, model_calls, tool_call_count, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens, estimated_cost_usd, cost_basis, pricing_version, budget_max_cost_usd, budget_max_tool_calls, latency_ms, error_message, started_at, finished_at, agent_versions(version, model, prompt_code, prompt_version, agent_definitions(code))",
+      "id, trace_id, parent_run_id, root_run_id, parallel_group_id, deployment_version, trigger_type, objective, status, execution_mode, stop_reason, provider, model, model_calls, tool_call_count, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens, estimated_cost_usd, cost_basis, pricing_version, budget_max_cost_usd, budget_max_tool_calls, latency_ms, error_message, started_at, finished_at, prompt_code, prompt_version, system_prompt_hash, declared_tools, context_truncated, agent_versions(version, model, prompt_code, prompt_version, agent_definitions(code))",
     )
     .eq("id", runId)
     .eq("organization_id", organizationId)

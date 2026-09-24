@@ -20,6 +20,7 @@ import { getValidShopifyAccessToken } from "./shopify-token-store.js";
 import {
   checkOperationalOrganization,
   isOperationalOrganizationError,
+  assertConnectionIngestible,
 } from "./operational-organization.js";
 
 type ApiEnv = LoadedApiEnv;
@@ -689,6 +690,7 @@ export async function runShopifyInitialSync(
   if (!connection) {
     throw new Error("shopify_connection_not_found");
   }
+  assertConnectionIngestible(connection.status);
 
   const operational = await checkOperationalOrganization(
     supabase,

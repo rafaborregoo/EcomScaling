@@ -16,6 +16,7 @@ import {
 import {
   checkOperationalOrganization,
   isOperationalOrganizationError,
+  assertConnectionIngestible,
 } from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
 
@@ -236,6 +237,7 @@ export async function runKlaviyoSync(
       `klaviyo_connection_load_failed:${connectionError.message}`,
     );
   if (!connection) throw new Error("klaviyo_connection_not_found");
+  assertConnectionIngestible(connection.status);
 
   const operational = await checkOperationalOrganization(
     client,

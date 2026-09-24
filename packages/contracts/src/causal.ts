@@ -534,6 +534,12 @@ export type CausalEngineInput = {
   measuredMetrics: readonly string[];
   /** Profundidad maxima del recorrido hacia arriba (paso 14). */
   maxDepth?: number;
+  /**
+   * Metricas cuyo sintoma D06 marco como `often_cooccurs` con el del caso.
+   * Co-ocurrir no es causar (guardrail 8): no crean aristas, se nombran en
+   * cada ruta que no pasa por ellas como rival sin modelar o confusor.
+   */
+  cooccurringMetrics?: readonly string[];
 };
 
 export type CausalStepDraft = {
@@ -833,6 +839,20 @@ export function exploreCausalPaths(input: CausalEngineInput): CausalPathDraft[] 
     // Guardrail 11: nadie ha revisado los confusores de D02, y callarlo seria
     // presentar la ruta como mas limpia de lo que esta.
     faltan.push("Los confusores declarados en D02 no se han revisado contra esta ruta.");
+
+    // Las co-ocurrencias de D06 que esta ruta no recorre: algo se movio a la
+    // vez y el grafo no dice que tenga que ver. O falta una arista o es un
+    // confusor; lo que no se puede es ignorarlo.
+    const enRuta = new Set(
+      enOrden.flatMap((e) => [porId.get(e.from_node_id)?.code, porId.get(e.to_node_id)?.code]),
+    );
+    for (const metrica of input.cooccurringMetrics ?? []) {
+      if (enRuta.has(metrica) || metrica === input.targetCode) continue;
+      const etiqueta = porCodigo.get(metrica)?.label ?? metrica;
+      faltan.push(
+        `"${etiqueta}" se movio a la vez (D06 los marca como co-ocurrentes) y esta ruta no pasa por el: puede ser una rival sin modelar o un confusor.`,
+      );
+    }
 
     const hayContradicho = pasos.some((p) => p.case_support === "contradicted");
     const nadieComprobado = pasos.every((p) => p.case_support === "untested");

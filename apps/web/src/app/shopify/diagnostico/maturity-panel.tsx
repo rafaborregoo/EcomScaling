@@ -21,7 +21,17 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  ErrorBlock,
+  Input,
+  LoadingBlock,
+  toast,
+} from "@/components/ui";
 
 import {
   capabilityLabel,
@@ -32,10 +42,93 @@ import {
   missingDimensions,
   sortUnobserved,
   type CapabilityView,
+  type MaturityDeclarationView,
   type MaturityProfileView,
 } from "./maturity-view-model";
 
-function CapabilityRow({ capability }: { capability: CapabilityView }) {
+/**
+ * Lo que el dato no puede ver lo dice el consultor: si la medida cambia
+ * decisiones y quien responde de la capacidad. Solo eso levanta el techo de
+ * "definida" a "medida", y solo si el dato ya demuestra la medicion.
+ */
+function DeclarationForm({
+  organizationId,
+  capability,
+  declaration,
+  onSaved,
+}: {
+  organizationId: string;
+  capability: string;
+  declaration: MaturityDeclarationView | undefined;
+  onSaved: () => void;
+}) {
+  const [influences, setInfluences] = useState(declaration?.influences_decisions ?? false);
+  const [ownership, setOwnership] = useState(declaration?.has_ownership ?? false);
+  const [ownerRole, setOwnerRole] = useState(declaration?.owner_role ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const response = await apiFetch("/v1/consultant/maturity/declarations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organization_id: organizationId,
+          capability,
+          influences_decisions: influences,
+          has_ownership: ownership,
+          owner_role: ownership && ownerRole.trim() ? ownerRole.trim() : null,
+        }),
+      });
+      if (!response.ok) {
+        toast.danger(`No se pudo guardar: ${await readApiError(response)}`);
+        return;
+      }
+      toast.success("Declaración guardada.");
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <Checkbox checked={influences} onChange={setInfluences} disabled={saving}>
+        La medida cambia decisiones
+      </Checkbox>
+      <Checkbox checked={ownership} onChange={setOwnership} disabled={saving}>
+        Tiene responsable
+      </Checkbox>
+      {ownership ? (
+        <Input
+          aria-label="Rol del responsable"
+          className="w-48"
+          placeholder="Rol del responsable"
+          maxLength={60}
+          value={ownerRole}
+          onChange={(event) => setOwnerRole(event.target.value)}
+          disabled={saving}
+        />
+      ) : null}
+      <Button size="sm" variant="secondary" onClick={() => void save()} disabled={saving}>
+        {saving ? "Guardando..." : "Guardar"}
+      </Button>
+    </div>
+  );
+}
+
+function CapabilityRow({
+  capability,
+  organizationId,
+  declaration,
+  onSaved,
+}: {
+  capability: CapabilityView;
+  organizationId: string;
+  declaration: MaturityDeclarationView | undefined;
+  onSaved: () => void;
+}) {
   const nivel = levelLabel(capability.current_level);
   const brecha = gapLabel(capability);
   const faltan = missingDimensions(capability);
@@ -61,11 +154,24 @@ function CapabilityRow({ capability }: { capability: CapabilityView }) {
       {faltan.length > 0 ? (
         <p className="text-muted mt-2 text-xs">Para el siguiente escalón: {faltan.join("; ")}.</p>
       ) : null}
+
+      <DeclarationForm
+        organizationId={organizationId}
+        capability={capability.capability}
+        declaration={declaration}
+        onSaved={onSaved}
+      />
     </li>
   );
 }
 
-function ProfileCard({ profile }: { profile: MaturityProfileView }) {
+function ProfileCard({
+  profile,
+  onSaved,
+}: {
+  profile: MaturityProfileView;
+  onSaved: () => void;
+}) {
   const cambio = changeLabel(profile.change_type);
   const huecos = sortUnobserved(profile.unobserved);
 
@@ -99,7 +205,15 @@ function ProfileCard({ profile }: { profile: MaturityProfileView }) {
       {profile.capabilities.length > 0 ? (
         <ul className="mt-5">
           {profile.capabilities.map((c) => (
-            <CapabilityRow key={c.id} capability={c} />
+            <CapabilityRow
+              key={c.id}
+              capability={c}
+              organizationId={profile.organization_id}
+              declaration={profile.declarations?.find(
+                (d) => d.capability === c.capability,
+              )}
+              onSaved={onSaved}
+            />
           ))}
         </ul>
       ) : (
@@ -137,6 +251,7 @@ export function MaturityPanel() {
   const [profiles, setProfiles] = useState<MaturityProfileView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,7 +275,7 @@ export function MaturityPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   if (isLoading && !profiles) {
     return <LoadingBlock label="Leyendo de qué es capaz el negocio..." />;
@@ -173,7 +288,11 @@ export function MaturityPanel() {
   return (
     <div className="space-y-6">
       {profiles.map((p) => (
-        <ProfileCard key={p.id} profile={p} />
+        <ProfileCard
+          key={p.id}
+          profile={p}
+          onSaved={() => setReloadKey((key) => key + 1)}
+        />
       ))}
     </div>
   );

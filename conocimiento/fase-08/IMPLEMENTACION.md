@@ -169,3 +169,25 @@ La migración `20260920204900_f8_p00_p01_stage_roots.sql` amplía la constraint
 de etapas de `execution_supervision_runs`. La pantalla y el Copiloto muestran
 ahora F8.00 y F8.01 junto al resto de la supervisión. Smoke y cleanup real se
 repiten sobre `.env.local` al cerrar la fase.
+
+## Cierre de los bloques en esqueleto — 2026-09-24
+
+| Bloque | Evaluador | Decisión propia |
+| --- | --- | --- |
+| `8.00` | `execution-framework.ts` | etapa alcanzada del flujo universal; `SEQUENCE_BROKEN` si se ejecutó saltándose un paso; context drift |
+| `8.01` | `executability-authorization.ts` | ejecutabilidad por acción; capacidad, acceso y autoridad separados; preparar ≠ ejecutar; modo de ejecución y handoff |
+| `8.06` | `execution-capabilities.ts` | acción → capacidad → tools candidatas del registro real; mínimo privilegio; hueco de capacidad nombrado |
+| `8.07` | `safe-execution.ts` | pre-commit check del plan (pre-state, diff, punto de no retorno, presupuesto); `PREPARE_ONLY` sin operación de proveedor |
+| `8.08` | `execution-monitoring.ts` | plan de monitorización antes; salud (`HEALTHY`…`BLIND`) y respuesta del §37 durante |
+| `8.09` | `execution-guardrails.ts` | siete guardrails con estado y respuesta; señal ausente en uno duro = fail closed; gana la respuesta más protectora |
+| `8.11` | `execution-incidents.ts` | bloqueo ≠ fallo; resultado desconocido; severidad por factores; contención |
+| `8.12` | `rollback-recovery.ts` | preparación de recovery; reversibilidad técnica ≠ de negocio; rollback / roll forward / compensar / contener; no declarar recuperado sin verificación |
+| `8.13` | `override-escalation.ts` | motivos, destino, urgencia; overrides que admite la máquina de 8.10; sin destino = vacío de control |
+| `8.14` | `execution-concurrency.ts` | admisión `ADMIT` / `COORDINATE` / `QUEUE` (single writer) / `DUPLICATE` |
+| `8.15` | `execution-verification.ts` | verificable antes; `PENDING` hasta observar el estado real; esperado ≠ real es `FAILED` aunque la tool dijera éxito |
+| `8.17` | `execution-reporting.ts` | informe al consultor y al cliente compuesto con los demás bloques; nunca "hecho" de algo sin ejecutar |
+
+Tests: `packages/contracts/src/execution-supervision-blocks.test.ts` (38),
+`apps/api/src/execution-supervision-engine.test.ts` (4, traducción filas → foto),
+`apps/web/.../execution-supervision-view-model.test.ts` (4; de paso arregla que el
+panel mostraba la evaluación más antigua de cada etapa en vez de la más reciente).

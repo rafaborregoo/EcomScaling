@@ -558,7 +558,7 @@ function FiscalInvoicingPanel() {
   );
 }
 
-export function FinancialDashboard() {
+function FinancialDashboard() {
   const [days, setDays] = useState(30);
   const { data, error, isLoading, isValidating, reload } =
     useCachedQuery<FinancialPayload>(

@@ -101,6 +101,44 @@ async function leerGrafo(
 }
 
 /** Una pasada causal para una organizacion. */
+/**
+ * Las metricas de los sintomas que D06 marco como `often_cooccurs` con el del
+ * caso. D06 las escribia y nadie las leia; aqui entran como rivales sin
+ * modelar, nunca como aristas.
+ */
+async function leerCoocurrencias(
+  supabase: ReturnType<typeof createServiceClient>,
+  symptomId: string,
+): Promise<string[]> {
+  const { data: relaciones, error } = await supabase
+    .from("symptom_relations")
+    .select("from_symptom_id, to_symptom_id")
+    .eq("relation", "often_cooccurs")
+    .or(`from_symptom_id.eq.${symptomId},to_symptom_id.eq.${symptomId}`);
+  if (error) {
+    logger.error("symptom_relations_load_failed", { symptom_id: symptomId, error: error.message });
+    return [];
+  }
+  const otros = [
+    ...new Set(
+      (relaciones ?? []).map((r) =>
+        (r.from_symptom_id as string) === symptomId ? (r.to_symptom_id as string) : (r.from_symptom_id as string),
+      ),
+    ),
+  ];
+  if (otros.length === 0) return [];
+
+  const { data: enlaces } = await supabase
+    .from("symptom_signals")
+    .select("signal_id")
+    .in("symptom_id", otros);
+  const signalIds = (enlaces ?? []).map((e) => e.signal_id as string);
+  if (signalIds.length === 0) return [];
+
+  const { data: senales } = await supabase.from("signals").select("metric").in("id", signalIds);
+  return [...new Set((senales ?? []).map((s) => s.metric as string))];
+}
+
 export async function runCausalEngine(env: LoadedApiEnv, organizationId: string) {
   const supabase = createServiceClient(env);
   const resumen = { cases: 0, paths: 0, contradicted: 0, untested: 0, steps: 0 };
@@ -173,8 +211,13 @@ export async function runCausalEngine(env: LoadedApiEnv, organizationId: string)
       }
     }
 
+    const cooccurringMetrics = symptomId
+      ? await leerCoocurrencias(supabase, symptomId)
+      : [];
+
     const entrada: CausalEngineInput = {
       caseId: caso.id as string,
+      cooccurringMetrics,
       symptomId,
       targetCode: caso.target_metric as string,
       targetScope: caso.scope as string,

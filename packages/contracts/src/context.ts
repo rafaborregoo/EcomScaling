@@ -82,6 +82,36 @@ export const PROMOTIONAL_EVENT_TYPES = [
   "discount_policy_change",
 ] as const;
 
+/**
+ * Lo que el cliente puede declarar de su negocio (tenant apartado 22). El
+ * catalogo de la tabla es abierto; este es el que la pantalla ofrece hoy.
+ * `main_channel` es el unico que el dato puede contrastar (paso 13).
+ */
+export const DECLARED_CONTEXT_DIMENSIONS = [
+  "main_channel",
+  "business_model",
+  "main_market",
+  "price_positioning",
+  "seasonality",
+  "growth_goal",
+] as const;
+
+export const declaredContextFactSchema = z.object({
+  dimension: z.enum(DECLARED_CONTEXT_DIMENSIONS),
+  value: z.string().trim().min(1).max(200),
+});
+
+export const declaredChangeEventSchema = z
+  .object({
+    event_type: z.enum(CHANGE_EVENT_TYPES),
+    description: z.string().trim().min(3).max(500),
+    occurred_at: z.string().datetime({ offset: true }),
+    ended_at: z.string().datetime({ offset: true }).nullable().optional(),
+  })
+  .refine((e) => !e.ended_at || e.ended_at >= e.occurred_at, {
+    message: "un cambio no puede terminar antes de empezar",
+  });
+
 /** Guardrail 20: la relacion es temporal, nunca causal. */
 export const TEMPORAL_RELATIONS = ["before", "concurrent", "after", "unknown"] as const;
 
@@ -711,6 +741,8 @@ export type ContextEngineInput = {
   dataQuality?: { reliability: string; period_settlement: string; source: string }[];
   /** Cambios internos declarados, si alguien los ha escrito (paso 9). */
   declaredChanges?: { occurred_at: string; description: string }[];
+  /** Declarado contra observado, ya comparado (paso 13). */
+  contradictions?: ContextContradiction[];
   /** Dimensiones que el motor sabe que existen pero hoy no puede mirar. */
   blindDimensions?: string[];
 };
@@ -770,6 +802,17 @@ export function assessContext(input: ContextEngineInput): ContextEngineOutput {
       ? ["no se puede distinguir cambio de rendimiento de cambio de composicion"]
       : [];
 
+  // Paso 13 -- la contradiccion no se resuelve eligiendo un lado (guardrail
+  // 28): se nombra, y como es contexto que no se sabe cual es el bueno, resta
+  // suficiencia.
+  const contradicciones = (input.contradictions ?? []).map(
+    (c) =>
+      `${c.dimension}: el cliente declara "${c.declared_value}" y el dato muestra "${c.observed_value}"`,
+  );
+  if (contradicciones.length > 0) {
+    falta.push("el contexto declarado contradice al observado y no se sabe cual rige");
+  }
+
   const factores: string[] = [];
   for (const cambio of input.declaredChanges ?? []) {
     factores.push(`${cambio.description} (${cambio.occurred_at.slice(0, 10)})`);
@@ -804,6 +847,7 @@ export function assessContext(input: ContextEngineInput): ContextEngineOutput {
     missing_context: falta,
     critical_unknowns: incognitas,
     primary_factors: factores,
+    declared_contradictions: contradicciones,
     uncertainty_notes: razones.length > 0 ? razones.join("; ") : null,
   });
 
@@ -833,4 +877,48 @@ export function combineInterpretations(
   if (decididas.size === 0) return "undetermined";
   if (decididas.size === 1) return [...decididas][0] as AggregateInterpretation;
   return "mixed";
+}
+
+/**
+ * Paso 13: declarado contra observado, dimension a dimension.
+ *
+ * Solo se comparan los hechos vigentes, y solo cuando existen los dos lados:
+ * sin observacion no hay contradiccion, hay contexto sin contrastar. La
+ * comparacion ignora mayusculas y espacios; cualquier otra diferencia se
+ * conserva como contradiccion (guardrail 28), sin decidir quien tiene razon.
+ */
+export function findContextContradictions(
+  facts: { dimension: string; value: string; source: string; effective_to?: string | null }[],
+): ContextContradiction[] {
+  const vigentes = facts.filter((f) => !f.effective_to);
+  const norm = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  const contradicciones: ContextContradiction[] = [];
+  for (const dimension of [...new Set(vigentes.map((f) => f.dimension))].sort()) {
+    const declarado = vigentes.find((f) => f.dimension === dimension && f.source === "declared");
+    const observado = vigentes.find((f) => f.dimension === dimension && f.source === "observed");
+    if (!declarado || !observado || norm(declarado.value) === norm(observado.value)) continue;
+    contradicciones.push(
+      contextContradictionSchema.parse({
+        dimension,
+        declared_value: declarado.value,
+        observed_value: observado.value,
+        material: true,
+      }),
+    );
+  }
+  return contradicciones;
+}
+
+/**
+ * El canal principal observado: el segmento de canal con mas pedidos. Es la
+ * unica dimension del contexto declarado que el dato de pedidos sostiene hoy.
+ * Sin pedidos, o con dos canales empatados, no se afirma ninguno.
+ */
+export function observedMainChannel(segments: SegmentObservation[]): string | null {
+  const canales = segments
+    .filter((s) => s.dimension === "channel" && s.volume > 0)
+    .sort((a, b) => b.volume - a.volume);
+  if (canales.length === 0) return null;
+  if (canales.length > 1 && canales[0]!.volume === canales[1]!.volume) return null;
+  return canales[0]!.segment;
 }

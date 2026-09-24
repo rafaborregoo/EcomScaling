@@ -738,3 +738,20 @@ test("lo que el motor escribe pasa los invariantes del propio bloque", () => {
 
   assert.deepEqual(violaciones, []);
 });
+
+test("D07 lee las co-ocurrencias de D06: se nombran donde la ruta no pasa, sin crear causa", () => {
+  const rutas = exploreCausalPaths(
+    entrada({ cooccurringMetrics: ["orders_count", "sessions", "net_sales"] }),
+  );
+  const porPedidos = rutas.find((r) => r.steps[0]?.edge_id === "E-oc-ns");
+  const porTicket = rutas.find((r) => r.steps[0]?.edge_id === "E-aov-ns");
+
+  // La ruta que ya pasa por pedidos no se avisa a si misma.
+  assert.ok(!porPedidos?.missing_evidence.some((m) => m.includes("co-ocurrentes") && m.includes("Pedidos")));
+  // La del ticket no pasa por pedidos: se le nombra la rival.
+  assert.ok(porTicket?.missing_evidence.some((m) => m.includes("co-ocurrentes")));
+  // El propio target nunca es su co-ocurrencia.
+  assert.ok(!rutas.some((r) => r.missing_evidence.some((m) => m.startsWith('"net_sales"') || m.includes('"Ventas netas" se movio a la vez'))));
+  // Co-ocurrir no anade aristas ni rutas.
+  assert.equal(rutas.length, exploreCausalPaths(entrada()).length);
+});

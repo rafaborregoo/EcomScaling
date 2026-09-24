@@ -19,6 +19,7 @@
     "typecheck": "npm run build:packages && npm run build -w @ecomscaling/api && npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "verify": "node scripts/verify.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "seed:demo-user": "dotenv -e .env.local -- tsx scripts/seed-demo-user.ts",

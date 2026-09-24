@@ -12,6 +12,7 @@ import {
 import {
   causalEdgeInputSchema,
   healthReferenceInputSchema,
+  maturityDeclarationSchema,
   healthResponseSchema,
   readinessResponseSchema,
 } from "@ecomscaling/contracts";
@@ -110,6 +111,7 @@ import {
   listConsultantMaturity,
   listConsultantCapabilityHealth,
   createConsultantHealthReference,
+  declareConsultantCapabilityMaturity,
   listConsultantHealthReferences,
   retireConsultantHealthReference,
   createConsultantCausalEdge,
@@ -160,6 +162,13 @@ import {
   upsertOrganizationMember,
   updateOrganization,
 } from "./consultant.js";
+import { runMaturityEngine } from "./maturity-engine.js";
+import {
+  declareChangeEvent,
+  declareContextFact,
+  deleteChangeEvent,
+  getTenantContext,
+} from "./tenant-context-api.js";
 import {
   getDailyWorkbench,
   markClientReviewed,
@@ -191,9 +200,21 @@ import { getShopifyMetrics } from "./shopify-metrics.js";
 import { getShopifyInsights } from "./shopify-insights.js";
 import { getMetaInsights } from "./meta-insights.js";
 import { getKlaviyoInsights } from "./klaviyo-insights.js";
-import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
+import {
+  drainFailedShopifyWebhooks,
+  handleShopifyWebhookRequest,
+} from "./shopify-webhook-handler.js";
 import { handleFathomWebhookRequest } from "./fathom-webhook-handler.js";
 import { ensureOwnOrganization } from "./registro.js";
+import {
+  createMyReferralCode,
+  getMyReferralProgram,
+  getPublicReferralCode,
+  listConsultantReferralsAdmin,
+  listReferralProgramAdmin,
+  revokeReferralConsent,
+  upsertReferralCodeAdmin,
+} from "./referidos.js";
 import {
   grantSubscription,
   getPlatformFinancialDashboard,
@@ -1046,7 +1067,105 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
-  app.post<{ Body: { business_name?: string; invite_code?: string } }>(
+  // Sin sesion: lo abre quien llega por `/r/<code>` antes de registrarse.
+  app.get<{ Params: { code: string } }>(
+    "/v1/referidos/:code",
+    async (request, reply) => {
+      const result = await getPublicReferralCode(env, request.params.code);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.get("/v1/consultant/referidos", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getMyReferralProgram(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{ Body: { code?: string } }>(
+    "/v1/consultant/referidos",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await createMyReferralCode(
+        env,
+        auth.context,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.get("/v1/admin/referidos", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await listReferralProgramAdmin(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.get<{ Params: { userId: string } }>(
+    "/v1/admin/referidos/:userId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await listConsultantReferralsAdmin(
+        env,
+        auth.context,
+        request.params.userId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.put<{
+    Params: { userId: string };
+    Body: {
+      code?: string;
+      discount_percent?: number;
+      discount_months?: number;
+      is_active?: boolean;
+    };
+  }>("/v1/admin/referidos/:userId", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await upsertReferralCodeAdmin(
+      env,
+      auth.context,
+      request.params.userId,
+      request.body ?? {},
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.delete("/v1/mi-organizacion/referido-consentimiento", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await revokeReferralConsent(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post<{
+    Body: {
+      business_name?: string;
+      invite_code?: string;
+      referral_code?: string;
+      referral_contact_consent?: boolean;
+    };
+  }>(
     "/v1/mi-organizacion",
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
@@ -2181,6 +2300,106 @@ export async function buildApp(): Promise<FastifyInstance> {
     );
     if (isServiceFailure(result)) return sendServiceFailure(reply, result);
     return result.data;
+  });
+
+  // F3/D02. El contexto que declara el cliente (y su consultor): hechos de su
+  // negocio y cambios internos. Es la materia prima de los pasos 9 y 13 del
+  // runtime de D02 (cambios internos y declarado contra observado).
+  app.get<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/context",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await getTenantContext(env, auth.context, request.params.organizationId);
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  app.post<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/context/facts",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await declareContextFact(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.post<{ Params: { organizationId: string } }>(
+    "/v1/organizations/:organizationId/context/events",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await declareChangeEvent(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  app.delete<{ Params: { organizationId: string; eventId: string } }>(
+    "/v1/organizations/:organizationId/context/events/:eventId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const result = await deleteChangeEvent(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.params.eventId,
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return result.data;
+    },
+  );
+
+  // F3/D03. El consultor declara lo que el dato no ve: si la medida de una
+  // capacidad cambia decisiones y si tiene responsable. Tras guardar se pasa el
+  // motor de esa organizacion para que el nivel lo refleje ya.
+  app.post("/v1/consultant/maturity/declarations", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const authorization = request.headers.authorization;
+    if (!authorization) {
+      return reply.code(401).send({ error: "missing_bearer_token" });
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const parsed = maturityDeclarationSchema.safeParse(body);
+    if (!parsed.success || typeof body.organization_id !== "string") {
+      return reply.code(400).send({
+        error: "invalid_maturity_declaration",
+        detail: parsed.success ? "organization_id_required" : parsed.error.message,
+      });
+    }
+
+    const result = await declareConsultantCapabilityMaturity(
+      env,
+      authorization,
+      auth.context,
+      { ...parsed.data, organization_id: body.organization_id },
+    );
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+
+    try {
+      await runMaturityEngine(env, body.organization_id);
+    } catch (error) {
+      // La declaracion ya esta guardada; la proxima pasada programada la aplica.
+      request.log.warn({ error }, "maturity_engine_after_declaration_failed");
+    }
+    return reply.code(201).send(result.data);
   });
 
   app.post("/v1/consultant/health-references", async (request, reply) => {
@@ -7212,7 +7431,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     Params: { organizationId: string; outputId: string };
     // `edits`: el consultor reescribe o descarta propuestas sueltas antes de
     // que se creen como tareas reales (ver ProposedWriteEdit en ai-runtime).
-    Body: { decision?: string; reason?: string; edits?: ProposedWriteEdit[] };
+    Body: {
+      decision?: string;
+      reason?: string;
+      reason_category?: string;
+      edits?: ProposedWriteEdit[];
+    };
   }>(
     "/v1/organizations/:organizationId/ai/outputs/:outputId/decision",
     async (request, reply) => {
@@ -7230,6 +7454,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.body?.decision,
         request.body?.reason,
         Array.isArray(request.body?.edits) ? request.body.edits : undefined,
+        request.body?.reason_category,
       );
 
       if (isServiceFailure(result)) {
@@ -8400,6 +8625,13 @@ export async function buildApp(): Promise<FastifyInstance> {
     void reconcileAllShopifyConnections(env).catch((error: unknown) => {
       logger.error("Shopify reconciliation pass failed", error);
     });
+
+    // Despues de la reconciliacion, los webhooks que se quedaron sin aplicar.
+    void drainFailedShopifyWebhooks(env)
+      .then((summary) => logger.info("Shopify webhook drain finished", summary))
+      .catch((error: unknown) => {
+        logger.error("Shopify webhook drain failed", error);
+      });
 
     return reply.code(202).send({ status: "reconciliation_started" });
   });

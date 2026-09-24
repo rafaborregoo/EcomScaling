@@ -83,3 +83,18 @@ export async function checkOperationalOrganization(
 
   return classifyOperationalOrganization(organization.status);
 }
+
+/**
+ * Una conexion marcada para borrado no se sincroniza. Era el bypass del
+ * guardrail de `pending_deletion`: un sync manual la pasaba a `syncing`, y como
+ * la purga solo borra conexiones en `pending_deletion`, el borrado pedido no
+ * llegaba a ejecutarse nunca y los datos se repoblaban. Mismo criterio que
+ * `acceptsWebhookIngest` para los webhooks.
+ */
+export const RETIRING_CONNECTION_STATUSES = ["pending_deletion", "disconnected", "revoked"];
+
+export function assertConnectionIngestible(status: string | null | undefined) {
+  if (status && RETIRING_CONNECTION_STATUSES.includes(status)) {
+    throw new Error(`connection_not_ingestible:${status}`);
+  }
+}

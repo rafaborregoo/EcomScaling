@@ -30,3 +30,25 @@ test("P05 conserva UNKNOWN para churn, suscripción, incrementalidad y calidad",
   assert.equal(enriched.facts?.["retention.customer_quality.available"], "UNKNOWN");
   assert.equal(enriched.facts?.["retention.consent.observed"], "UNKNOWN");
 });
+
+test("P05 lee Klaviyo: flujos activos, envios y medicion fiable solo con UTM y clics en todos", () => {
+  const context = buildRetentionCrmPlaybookContext("org-1", [], null, "2026-09-17T10:00:00.000Z");
+  const klaviyo = { active_flows: 2, recipients: 1800, emails_total: 12, emails_without_utm: 0, emails_without_click_tracking: 0, last_sync_status: "succeeded" };
+  const ok = applyRetentionCrmEvidence(context, { klaviyo });
+  assert.equal(ok.facts?.["retention.crm.lifecycle_flows_active"], "TRUE");
+  assert.equal(ok.facts?.["retention.crm.sending_observed"], "TRUE");
+  assert.equal(ok.facts?.["retention.crm.measurement_reliable"], "TRUE");
+
+  const sinUtm = applyRetentionCrmEvidence(context, { klaviyo: { ...klaviyo, emails_without_utm: 3 } });
+  assert.equal(sinUtm.facts?.["retention.crm.measurement_reliable"], "FALSE");
+
+  const syncFallido = applyRetentionCrmEvidence(context, { klaviyo: { ...klaviyo, last_sync_status: "failed" } });
+  assert.equal(syncFallido.facts?.["retention.crm.measurement_reliable"], "FALSE");
+
+  const enCurso = applyRetentionCrmEvidence(context, { klaviyo: { ...klaviyo, last_sync_status: "running" } });
+  assert.equal(enCurso.facts?.["retention.crm.measurement_reliable"], "TRUE");
+
+  const sinKlaviyo = applyRetentionCrmEvidence(context, { klaviyo: null });
+  assert.equal(sinKlaviyo.facts?.["retention.crm.sending_observed"], "UNKNOWN");
+  assert.equal(sinKlaviyo.facts?.["retention.crm.measurement_reliable"], "UNKNOWN");
+});

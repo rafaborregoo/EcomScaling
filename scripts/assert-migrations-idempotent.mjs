@@ -24,7 +24,11 @@ const migrationsDir = path.join(root, "supabase", "migrations");
 
 /** Migraciones con permiso explicito para saltarse una regla, y por que. */
 const EXCEPCIONES = new Map([
-  // (vacio: si anades una, escribe el motivo aqui)
+  // Solo corrige el cuerpo (desempate por created_at) conservando la firma y el
+  // returns table de 20260907240000: `create or replace` basta y es
+  // reaplicable. Un `drop` delante borraria los grants y el search_path que
+  // fijaron migraciones anteriores, y esta ya esta aplicada en produccion.
+  ["20261106090000_klaviyo_email_report_created_at.sql", ["function-returns-table"]],
 ]);
 
 /** Quita comentarios y cuerpos $$...$$ para no analizar el texto de un prompt. */

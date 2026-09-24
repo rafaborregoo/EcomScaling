@@ -9,6 +9,7 @@ import { getValidMetaAccessToken } from "./meta.js";
 import {
   checkOperationalOrganization,
   isOperationalOrganizationError,
+  assertConnectionIngestible,
 } from "./operational-organization.js";
 import { mapWithConcurrency } from "./async-concurrency.js";
 
@@ -2052,7 +2053,7 @@ export async function runMetaSync(
 
   const { data: connection, error: connectionError } = await supabase
     .from("integration_connections")
-    .select("id, organization_id")
+    .select("id, organization_id, status")
     .eq("id", connectionId)
     .single();
 
@@ -2061,6 +2062,7 @@ export async function runMetaSync(
       `meta_sync_connection_load_failed: ${connectionError?.message ?? "not_found"}`,
     );
   }
+  assertConnectionIngestible(connection.status);
 
   const operational = await checkOperationalOrganization(
     supabase,

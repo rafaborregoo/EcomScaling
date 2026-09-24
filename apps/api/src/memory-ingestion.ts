@@ -67,19 +67,6 @@ export async function enqueueMemoryIngestion(
   const supabase = createServiceClient(env);
   const sourceVersion = input.sourceVersion ?? 1;
 
-  if (sourceVersion > 1) {
-    // Ciclo de vida (criterio de cierre): una version mas nueva de la misma
-    // fuente sustituye a la anterior, nunca queda duplicada.
-    await supabase
-      .from("knowledge_documents")
-      .update({ status: "superseded" })
-      .eq("organization_id", input.organizationId)
-      .eq("source_type", input.sourceType)
-      .eq("source_entity_id", input.sourceEntityId)
-      .lt("source_version", sourceVersion)
-      .in("status", ["pending_indexing", "active"]);
-  }
-
   const { data: queueRow, error: queueError } = await supabase
     .from("memory_ingestion_queue")
     .upsert(
@@ -162,6 +149,21 @@ export async function enqueueMemoryIngestion(
     .from("memory_ingestion_queue")
     .update({ document_id: document.id })
     .eq("id", queueRow.id);
+
+  if (sourceVersion > 1) {
+    // Ciclo de vida (criterio de cierre): una version mas nueva de la misma
+    // fuente sustituye a la anterior, nunca queda duplicada. Va despues de
+    // crear el documento nuevo para dejar rastro de QUIEN la sustituyo
+    // (AI-30 fase 6: procedencia de la sustitucion).
+    await supabase
+      .from("knowledge_documents")
+      .update({ status: "superseded", superseded_by: document.id })
+      .eq("organization_id", input.organizationId)
+      .eq("source_type", input.sourceType)
+      .eq("source_entity_id", input.sourceEntityId)
+      .lt("source_version", sourceVersion)
+      .in("status", ["pending_indexing", "active"]);
+  }
 
   return { ok: true as const, queueId: queueRow.id, documentId: document.id };
 }

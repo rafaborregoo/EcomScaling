@@ -96,6 +96,12 @@ type TraceRun = {
   budget_max_cost_usd: number | null;
   budget_max_tool_calls: number | null;
   latency_ms: number | null;
+  // AI-30 fase 3. null en ejecuciones anteriores a la fase.
+  prompt_code?: string | null;
+  prompt_version?: string | null;
+  system_prompt_hash?: string | null;
+  declared_tools?: string[] | null;
+  context_truncated?: boolean | null;
   agent_versions?: {
     version: string;
     model: string;
@@ -348,9 +354,30 @@ export function RunTraceDetail({
             {formatReportedTokens(run.reasoning_tokens)}
           </Fact>
           <Fact label="Prompt">
-            {run.agent_versions?.prompt_code
-              ? `${run.agent_versions.prompt_code}@${run.agent_versions.prompt_version ?? "?"}`
+            {/* El del run es la copia del momento de ejecución; el de
+                agent_versions solo sirve para runs anteriores a la fase 3. */}
+            {(run.prompt_code ?? run.agent_versions?.prompt_code)
+              ? `${run.prompt_code ?? run.agent_versions?.prompt_code}@${run.prompt_version ?? run.agent_versions?.prompt_version ?? "?"}`
               : "—"}
+            {run.system_prompt_hash ? (
+              <code className="text-muted ml-2 text-xs">
+                #{run.system_prompt_hash.slice(0, 12)}
+              </code>
+            ) : null}
+          </Fact>
+          <Fact label="Contexto">
+            {run.context_truncated == null ? (
+              <span className="text-muted">Sin registrar</span>
+            ) : run.context_truncated ? (
+              <Badge tone="warn">Recortado por tamaño</Badge>
+            ) : (
+              "Completo"
+            )}
+          </Fact>
+          <Fact label="Herramientas declaradas / usadas">
+            {run.declared_tools == null
+              ? "—"
+              : `${run.declared_tools.length} / ${new Set(data.tool_calls.map((call) => call.tool_name)).size}`}
           </Fact>
           <Fact label="Versión desplegada">
             {run.deployment_version ?? (

@@ -2,6 +2,18 @@ import { createLogger } from "@ecomscaling/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 
+/**
+ * CPM y CPC: aritmetica sobre gasto, impresiones y clics, que son hechos (no
+ * atribucion). null cuando el denominador es 0: sin impresiones no hay CPM,
+ * no hay un CPM de 0.
+ */
+export function metaCostRates(spend: number, impressions: number, clicks: number) {
+  return {
+    cpm: impressions > 0 ? Math.round((spend / impressions) * 1000 * 100) / 100 : null,
+    cpc: clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : null,
+  };
+}
+
 const logger = createLogger("api:meta-insights");
 
 type ApiEnv = {
@@ -78,6 +90,8 @@ export type MetaInsightsData = {
     purchase_value: number;
     roas: number | null;
     cac: number | null;
+    cpm: number | null;
+    cpc: number | null;
     days_with_data: number;
     // Que accion cuenta Meta como compra en esta cuenta. Si hay mas de una,
     // las cifras de abajo no son comparables entre cuentas del ambito.
@@ -361,6 +375,11 @@ export async function getMetaInsights(
             purchase_value: num(summaryRow.purchase_value),
             roas: nullableNum(summaryRow.roas),
             cac: nullableNum(summaryRow.cac),
+            ...metaCostRates(
+              num(summaryRow.spend),
+              num(summaryRow.impressions),
+              num(summaryRow.clicks),
+            ),
             days_with_data: num(summaryRow.days_with_data),
             purchase_action_types: Array.isArray(
               summaryRow.purchase_action_types,

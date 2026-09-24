@@ -31,6 +31,7 @@ import {
   classifyAuthorizationAttempt,
   isPurgeableAuthorizationAttempt,
   observeMaturity,
+  type MaturityDeclaration,
 } from "@ecomscaling/contracts";
 import { leerHechos } from "./maturity-engine.js";
 import { createLogger } from "@ecomscaling/observability";
@@ -6367,6 +6368,9 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
     { data: organizations, error: orgsError },
     { data: stores, error: storesError },
     { data: assignments, error: assignmentsError },
+    { data: qualityStats, error: qualityStatsError },
+    { data: failureClusters, error: failureClustersError },
+    { data: dataQualityPortfolio, error: dataQualityPortfolioError },
   ] = await Promise.all([
     supabase.rpc("admin_agent_runtime_stats", { since }),
     supabase.rpc("admin_organization_ai_stats", { since }),
@@ -6388,6 +6392,11 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
       .from("consultant_assignments")
       .select("organization_id, consultant_user_id, is_primary")
       .eq("is_active", true),
+    // AI-30 fases 7 y 8: aprobacion/rechazo por version y fallos agrupados.
+    supabase.rpc("admin_agent_quality_stats", { since }),
+    supabase.rpc("admin_ai_failure_clusters", { since }),
+    // D01: fuentes que fallan en toda la cartera, no cliente a cliente.
+    supabase.rpc("admin_data_quality_portfolio"),
   ]);
 
   if (runsError || orgsError) {
@@ -6407,9 +6416,15 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
     orgStatsError ||
     consultantStatsError ||
     storesError ||
-    assignmentsError
+    assignmentsError ||
+    qualityStatsError ||
+    failureClustersError ||
+    dataQualityPortfolioError
   ) {
     logger.info("admin_observability_partial", {
+      qualityStatsError: qualityStatsError?.message,
+      failureClustersError: failureClustersError?.message,
+      dataQualityPortfolioError: dataQualityPortfolioError?.message,
       agentStatsError: agentStatsError?.message,
       orgStatsError: orgStatsError?.message,
       consultantStatsError: consultantStatsError?.message,
@@ -6593,6 +6608,40 @@ export async function getAdminObservability(env: ApiEnv, context: AuthContext) {
       by_agent: byAgent,
       by_client: byClient,
       by_consultant: byConsultant,
+      quality_by_version: (
+        (qualityStats ?? []) as Array<Record<string, unknown>>
+      ).map((row) => ({
+        agent_code: String(row.agent_code ?? ""),
+        agent_version: String(row.agent_version ?? ""),
+        run_count: Number(row.run_count ?? 0),
+        succeeded_count: Number(row.succeeded_count ?? 0),
+        context_truncated_count: Number(row.context_truncated_count ?? 0),
+        approved_count: Number(row.approved_count ?? 0),
+        rejected_count: Number(row.rejected_count ?? 0),
+      })),
+      failure_clusters: (
+        (failureClusters ?? []) as Array<Record<string, unknown>>
+      ).map((row) => ({
+        agent_code: String(row.agent_code ?? ""),
+        agent_version: String(row.agent_version ?? ""),
+        source: String(row.source ?? ""),
+        failure_class: String(row.failure_class ?? ""),
+        occurrences: Number(row.occurrences ?? 0),
+        last_seen: String(row.last_seen ?? ""),
+        sample_run_id: String(row.sample_run_id ?? ""),
+      })),
+      data_quality_portfolio: (
+        (dataQualityPortfolio ?? []) as Array<Record<string, unknown>>
+      ).map((row) => ({
+        source: String(row.source ?? ""),
+        issue_type: String(row.issue_type ?? ""),
+        organizations_affected: Number(row.organizations_affected ?? 0),
+        open_issues: Number(row.open_issues ?? 0),
+        blocking_issues: Number(row.blocking_issues ?? 0),
+        client_actionable_issues: Number(row.client_actionable_issues ?? 0),
+        worst_severity: String(row.worst_severity ?? ""),
+        oldest_detected_at: String(row.oldest_detected_at ?? ""),
+      })),
       runs,
       organizations: (organizations ?? []).map((org) => ({
         id: org.id as string,
@@ -8274,6 +8323,14 @@ export async function listConsultantMaturity(
         .in("capability_maturity_id", capabilityIds)
     : { data: [] };
 
+  // D03: lo que el consultor ha declarado y el dato no puede ver.
+  const { data: declaraciones } = await supabase
+    .from("capability_maturity_declarations")
+    .select(
+      "organization_id, capability, influences_decisions, has_ownership, owner_role, note, declared_at",
+    )
+    .in("organization_id", ids);
+
   // El grafo de capacidades: sin organizacion, lo lee cualquier autenticado.
   const { data: dependencias } = await supabase
     .from("capability_dependencies")
@@ -8318,10 +8375,64 @@ export async function listConsultantMaturity(
       unobserved,
       complexity,
       dependencies: dependencias ?? [],
+      declarations: (declaraciones ?? []).filter(
+        (d) => d.organization_id === perfil.organization_id,
+      ),
     });
   }
 
   return { ok: true as const, data: { profiles } };
+}
+
+/**
+ * D03: el consultor declara si la medida de una capacidad cambia decisiones y
+ * si tiene responsable. Es lo unico que puede levantar el techo de `defined`
+ * (guardrail 20); el motor lo aplica en su siguiente pasada.
+ */
+export async function declareConsultantCapabilityMaturity(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  input: MaturityDeclaration & { organization_id: string },
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+
+  // ADR-0006 punto 7: escritura con service role, permiso comprobado a mano.
+  if (!orgsResult.data.organizations.some((o) => o.id === input.organization_id)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_not_assigned",
+      message: "Esa tienda no esta en tu cartera.",
+    };
+  }
+
+  const supabase = createServiceClient(env);
+  const { error } = await supabase.from("capability_maturity_declarations").upsert(
+    {
+      organization_id: input.organization_id,
+      capability: input.capability,
+      influences_decisions: input.influences_decisions,
+      has_ownership: input.has_ownership,
+      owner_role: input.owner_role ?? null,
+      note: input.note ?? null,
+      declared_by: context.user.id,
+      declared_at: new Date().toISOString(),
+    },
+    { onConflict: "organization_id,capability" },
+  );
+
+  if (error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "maturity_declaration_write_failed",
+      detail: error.message,
+    };
+  }
+
+  return { ok: true as const, data: { organization_id: input.organization_id } };
 }
 
 /**

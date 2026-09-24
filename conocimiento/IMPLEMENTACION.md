@@ -83,9 +83,9 @@ falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 | `D09` | Root cause constraint engine | `CRPET` | **1** | **hecho** | migracion `20260920090000` + `packages/contracts/src/root-cause.ts` + motor `apps/api/src/root-cause-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/root-cause.tsx`. Recorte grande y deliberado: **casi todo sale `unresolved` o `latent`**, porque la evidencia de D07-D08 es siempre correlacion y la plataforma no mide capacidad ni demanda de ninguna capacidad. `probable`/`confirmed`/`binding` quedan fuera de alcance hasta que eso cambie |
 | `D10` | Severidad e impacto | `CRPET` | **1** | **hecho** | migracion `20260921090000` + `packages/contracts/src/severity.ts` + motor `apps/api/src/severity-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/severity-panel.tsx`. Recorte grande y deliberado: **no pone ninguna severidad**, las cinco salen `unknown`. El apartado 29 dice que la fuente no define formula ni umbral; lo que si hace es medir el impacto con su denominador razonado |
 | `D11` | Confianza e incertidumbre | `CRPET` | **1** | **hecho** | migracion `20260922090000` + `packages/contracts/src/confidence.ts` + motor `apps/api/src/confidence-engine.ts` + pantalla `apps/web/src/app/shopify/diagnostico/confidence-panel.tsx`. Recorte: las capas causales (`why`, `root_cause`, `constraint`) salen siempre desconocidas porque `D07` a `D09` no tienen motor ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â y escribirlo es justo lo que impide leer un caso descrito como un caso explicado |
-| `D12` | Contrato de confusores y falsos diagnosticos | `CÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·` | **1** | **contrato** | migracion `20260923090000` + `packages/contracts/src/adversarial.ts` |
-| `D13` | Contrato de diagnostico temporal y regresion | `CÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·` | **1** | **contrato** | migracion `20260924090000` + `packages/contracts/src/temporal.ts` |
-| `D14` | Contrato de salida diagnostica trazabilidad y validacion | `CÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·` | **1** | **contrato** | migracion `20260925090000` + `packages/contracts/src/output.ts` |
+| `D12` | Contrato de confusores y falsos diagnosticos | `CÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·` | **1** | **hecho** | migracion `20260923090000` + `packages/contracts/src/adversarial.ts` |
+| `D13` | Contrato de diagnostico temporal y regresion | `CÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·` | **1** | **hecho** | migracion `20260924090000` + `packages/contracts/src/temporal.ts` |
+| `D14` | Contrato de salida diagnostica trazabilidad y validacion | `CÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·` | **1** | **hecho** | migracion `20260925090000` + `packages/contracts/src/output.ts` |
 
 ## fase-04 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Priorizacion y decision
 
@@ -166,24 +166,24 @@ falta el motor de 4 de ellos y la pantalla de 4. El detalle, en
 
 | Bloque | Tema | Capas | Ola | Estado | Codigo |
 | --- | --- | --- | --- | --- | --- |
-| `8.00` | Framework universal de ejecucion supervisada | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.01` | Ejecutabilidad y autorizacion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
+| `8.00` | Framework universal de ejecucion supervisada | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/execution-framework.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
+| `8.01` | Ejecutabilidad y autorizacion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/executability-authorization.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
 | `8.02` | Human in the loop y niveles de aprobacion | `CRPET` | **1** | **hecho** | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.03` | Descomposicion recommendation execution plan | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.04` | Precondiciones y readiness | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
 | `8.05` | Scope limites y action envelope | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.06` | Herramientas capacidades y permisos | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.07` | Ejecucion segura y control de cambios | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.08` | Supervision durante la ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.09` | Guardrails y condiciones de intervencion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
+| `8.06` | Herramientas capacidades y permisos | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/execution-capabilities.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
+| `8.07` | Ejecucion segura y control de cambios | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/safe-execution.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
+| `8.08` | Supervision durante la ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/execution-monitoring.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
+| `8.09` | Guardrails y condiciones de intervencion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/execution-guardrails.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
 | `8.10` | Lifecycle de una ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato `packages/contracts/src/execution-lifecycle.ts` + migracion `20260922100000_f8_p10_execution_lifecycle.sql` + motor `apps/api/src/execution-lifecycle-engine.ts` + worker `apps/worker/src/execution-lifecycle-once.ts` + endpoints `GET/POST /v1/consultant/execution-lifecycle` + panel `apps/web/src/app/shopify/diagnostico/execution-lifecycle.tsx`. |
-| `8.11` | Fallos excepciones e incidentes | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.12` | Rollback recovery y compensacion | `ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.13` | Human override y escalado | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.14` | Concurrencia y coordinacion de intervenciones | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.15` | Verificacion de ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
+| `8.11` | Fallos excepciones e incidentes | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/execution-incidents.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
+| `8.12` | Rollback recovery y compensacion | `ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/rollback-recovery.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24); implementado desde el corpus maestro, sin capas destiladas |
+| `8.13` | Human override y escalado | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/override-escalation.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
+| `8.14` | Concurrencia y coordinacion de intervenciones | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/execution-concurrency.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
+| `8.15` | Verificacion de ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/execution-verification.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
 | `8.16` | Cierre handoff y captura del resultado | `CRPET` | **1** | **hecho** | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
-| `8.17` | Comunicacion y reporting de ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | `esqueleto` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â |
+| `8.17` | Comunicacion y reporting de ejecucion | `CRPET` | ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â | **hecho** | contrato+motor puro `packages/contracts/src/execution-reporting.ts` + motor `apps/api/src/execution-supervision-engine.ts` + panel `#insight-f8-…` (2026-09-24) |
 
 ## fase-09 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Aprendizaje continuo
 
@@ -556,3 +556,31 @@ no hay ni un solo scope de escritura en `packages/integrations`.
 De paso: el script de test del paquete era `tsx --test src/index.test.ts`, asi que
 los tests de `meta-ad-executor` y `meta-ad-write-contract` no se ejecutaban nunca.
 Cambiado a glob; 45 pruebas pasan.
+
+### Cierre de F3 y F8 — 2026-09-24
+
+**F3 cerrada.** `D12`, `D13` y `D14` pasan a **hecho** en la tabla: tienen contrato,
+motor puro, motor persistente, worker, endpoint y panel desde el 2026-09-16 (ver
+`fase-03/IMPLEMENTACION.md`, addenda D12 y D13/D14); la tabla no se había
+actualizado. `D00` sigue en **contrato** a propósito: define qué es un diagnóstico y
+no diagnostica nada, así que no tiene motor ni pantalla que hacer.
+
+**F8 cerrada.** Los doce bloques que la corrección del 2026-09-22 devolvió a
+`esqueleto` (`8.00`, `8.01`, `8.06`–`8.09`, `8.11`–`8.15`, `8.17`) tienen ahora cada uno
+su evaluador propio en `packages/contracts/src/` —su fichero, sus estados, sus reglas
+y sus tests (`execution-supervision-blocks.test.ts`, 38)— en lugar del `switch`
+compartido con checks fijos. Todos leen la misma foto de la intervención
+(`execution-snapshot.ts`), que el motor (`apps/api/src/execution-supervision-engine.ts`)
+arma con lo que escribieron 8.02–8.05, 8.10 y 8.16, **más dos hechos que nadie leía**:
+el registro real de tools (hoy ninguna tool de escritura está implementada, así que
+el resultado honesto de 8.01/8.06/8.07 es "se prepara, la aplica una persona") y las
+demás intervenciones abiertas de la organización (8.14). El panel da a cada bloque su
+sección y su ancla (`#insight-f8-…`) con lo que ese bloque sabe decir.
+
+`8.12` no tiene capas destiladas: se implementó desde el corpus maestro
+(`fase-08/00-corpus-maestro/8.12`), citando sus apartados en el código. Destilar sus
+capas sigue siendo trabajo de contenido pendiente.
+
+Verificado: contracts 900/900, api 591/591, web 409/409, worker 11/11, typecheck de
+api, web y worker, 17 guardas en verde. Sin migración: `execution_supervision_runs`
+ya admite las etapas y guarda la salida de cada bloque en `result`.

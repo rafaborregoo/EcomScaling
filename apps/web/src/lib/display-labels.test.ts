@@ -3,7 +3,7 @@ import test from "node:test";
 import { displayBoolean, displayLabel, displayValue } from "./display-labels.js";
 
 test("traduce enums canónicos de conectores para la interfaz", () => {
-  assert.equal(displayValue("pending_deletion"), "Pending Deletion");
+  assert.equal(displayValue("pending_deletion"), "borrado pendiente");
   assert.equal(displayValue("reauthorization_required"), "requiere reautorización");
   assert.equal(displayValue("OUTCOME_SALES"), "ventas");
   assert.equal(displayValue("OUTCOME_TRAFFIC"), "tráfico");

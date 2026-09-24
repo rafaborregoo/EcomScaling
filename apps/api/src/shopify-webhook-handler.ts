@@ -950,3 +950,105 @@ export async function handleShopifyWebhookRequest(
     return { statusCode: 500, body: { error: "webhook_processing_failed" } };
   }
 }
+
+/**
+ * Drenaje de reintentos (D01 detectaba los webhooks fallidos y nadie los
+ * reprocesaba). Shopify reintenta un webhook ~48 h; lo que falla despues, o lo
+ * que se quedo en `received` porque el proceso murio a mitad, se reprocesa aqui
+ * con el payload guardado y los mismos handlers. Tope de intentos para que un
+ * evento envenenado no se reintente para siempre.
+ */
+export const WEBHOOK_DRAIN_MAX_ATTEMPTS = 5;
+
+export async function drainFailedShopifyWebhooks(env: ApiEnv, limit = 100) {
+  const supabase = createServiceClient(env);
+  const staleBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const summary = { candidates: 0, processed: 0, failed: 0, skipped: 0 };
+
+  const { data: events, error } = await supabase
+    .schema("private")
+    .from("webhook_events")
+    .select("id, connection_id, topic, status, payload, retry_count")
+    .eq("provider", "shopify")
+    .lt("retry_count", WEBHOOK_DRAIN_MAX_ATTEMPTS)
+    .or(`status.eq.failed,and(status.eq.received,received_at.lt.${staleBefore})`)
+    .order("received_at", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(`webhook_drain_load_failed: ${error.message}`);
+
+  for (const event of events ?? []) {
+    summary.candidates += 1;
+    const entry = TOPIC_HANDLERS[event.topic as string];
+    const handle = entry?.handle ?? COMPLIANCE_TOPIC_HANDLERS[event.topic as string];
+    const ctx = event.connection_id
+      ? await resolveConnectionContextById(supabase, event.connection_id as string)
+      : null;
+    if (!handle || !ctx) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    // Reclamo condicionado al estado leido: si otro proceso lo cogio, se salta.
+    const attempts = Number(event.retry_count ?? 0) + 1;
+    const { data: claimed } = await supabase
+      .schema("private")
+      .from("webhook_events")
+      .update({ status: "queued", retry_count: attempts })
+      .eq("id", event.id as string)
+      .eq("status", event.status as string)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    try {
+      await handle(supabase, ctx, event.payload as Record<string, unknown>);
+      await supabase
+        .schema("private")
+        .from("webhook_events")
+        .update({ status: "processed", processed_at: new Date().toISOString(), error_message: null })
+        .eq("id", event.id as string);
+      if (entry?.scope) {
+        await recordBlockRun(supabase, ctx.connectionId, ctx.organizationId, entry.scope, "succeeded");
+      }
+      summary.processed += 1;
+    } catch (processError) {
+      const message = processError instanceof Error ? processError.message : "webhook_retry_failed";
+      await supabase
+        .schema("private")
+        .from("webhook_events")
+        .update({ status: "failed", processed_at: new Date().toISOString(), error_message: message })
+        .eq("id", event.id as string);
+      summary.failed += 1;
+      logger.error("Shopify webhook retry failed", {
+        organization_id: ctx.organizationId,
+        topic: event.topic,
+        attempt: attempts,
+        error: message,
+      });
+    }
+  }
+
+  return summary;
+}
+
+async function resolveConnectionContextById(
+  supabase: SupabaseClient,
+  connectionId: string,
+): Promise<ConnectionContext | null> {
+  const { data: connection } = await supabase
+    .from("integration_connections")
+    .select("id, organization_id, status")
+    .eq("id", connectionId)
+    .maybeSingle();
+  if (!connection || !acceptsWebhookIngest(connection.status)) return null;
+  const { data: store } = await supabase
+    .from("shopify_stores")
+    .select("id")
+    .eq("connection_id", connection.id)
+    .maybeSingle();
+  if (!store) return null;
+  return { connectionId: connection.id, organizationId: connection.organization_id, storeId: store.id };
+}

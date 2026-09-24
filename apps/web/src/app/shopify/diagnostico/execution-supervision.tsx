@@ -1,5 +1,94 @@
 "use client";
-import { useEffect, useState } from "react"; import { apiFetch } from "@/lib/bootstrap"; import { readApiError } from "@/lib/api-error"; import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui"; import { executionSupervisionViewModel, supervisionTone, type ExecutionSupervisionRun } from "./execution-supervision-view-model";
-const labels: Record<string, string> = { UNIVERSAL: "F8.00 Framework universal", EXECUTABILITY_AUTHORIZATION: "F8.01 Ejecutabilidad y autorización", CAPABILITIES: "F8.06 Capabilities y tools", SAFE_EXECUTION: "F8.07 Ejecución segura", MONITORING: "F8.08 Supervisión", GUARDRAILS: "F8.09 Guardrails", LIFECYCLE: "F8.10 Lifecycle", INCIDENTS: "F8.11 Incidentes", ROLLBACK_RECOVERY: "F8.12 Rollback y recovery", OVERRIDE_ESCALATION: "F8.13 Override y escalado", CONCURRENCY: "F8.14 Concurrencia", VERIFICATION: "F8.15 Verificación", REPORTING: "F8.17 Reporting" };
-const list = (items: string[]) => items.length ? items.join(" · ") : "—";
-export function ExecutionSupervisionPanel({ organizationId }: { organizationId?: string }) { const [runs, setRuns] = useState<ExecutionSupervisionRun[] | null>(null); const [error, setError] = useState<string | null>(null); useEffect(() => { if (!organizationId) { setRuns([]); return; } let cancelled = false; apiFetch(`/v1/consultant/execution-supervision?organizationId=${encodeURIComponent(organizationId)}`).then(async (response) => { if (!response.ok) throw new Error(await readApiError(response)); return response.json() as Promise<{ assessments: ExecutionSupervisionRun[] }>; }).then((payload) => { if (!cancelled) setRuns(payload.assessments); }).catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "No se pudo cargar la supervisión F8."); }); return () => { cancelled = true; }; }, [organizationId]); if (error) return <ErrorBlock>{error}</ErrorBlock>; if (!runs) return <LoadingBlock label="Cargando supervisión F8.00–F8.17..." />; const model = executionSupervisionViewModel(runs); return <Card id="insight-execution-supervision" title="Supervisión de ejecución" description="Resume contrato universal, ejecutabilidad, capabilities, uso seguro de tools, guardrails, lifecycle, incidentes, recovery, override, concurrencia, verificación y reporting. No ejecuta ni concede autoridad."><div className="space-y-3">{Object.entries(labels).map(([stage, label]) => { const item = model[stage] ?? { decision: "SIN_EVALUACION", blockers: [], warnings: [], next: [] }; return <div key={stage} className="rounded-lg border border-subtle p-3"><div className="flex items-center justify-between gap-3"><span className="text-sm">{label}</span><Badge tone={supervisionTone(item.decision)}>{item.decision}</Badge></div>{item.blockers.length ? <p className="mt-2 text-xs text-muted">Bloqueos: {list(item.blockers)}.</p> : null}{item.warnings.length ? <p className="mt-1 text-xs text-muted">Warnings: {list(item.warnings)}.</p> : null}{item.next.length ? <p className="mt-1 text-xs text-muted">Siguiente: {list(item.next)}.</p> : null}</div>; })}</div></Card>; }
+
+/**
+ * F8.00–F8.17 (salvo 8.02-8.05, 8.10 y 8.16, que tienen su panel): una
+ * seccion por bloque, cada una con su ancla para InsightsMenu y el Copiloto.
+ * Solo consultor. Nada de esto ejecuta ni concede autoridad.
+ */
+
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/bootstrap";
+import { readApiError } from "@/lib/api-error";
+import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
+import {
+  executionSupervisionViewModel,
+  supervisionTone,
+  type ExecutionSupervisionRun,
+  type SupervisionBlockView,
+} from "./execution-supervision-view-model";
+
+function BlockSection({ view }: { view: SupervisionBlockView }) {
+  return (
+    <section id={view.anchor} className="border-t border-default-200 py-4 first:border-t-0 first:pt-0">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="font-medium">
+          {view.block} · {view.label}
+        </span>
+        <Badge tone={supervisionTone(view.decision)}>{view.blockDecision}</Badge>
+      </div>
+      <p className="mt-1 max-w-prose text-sm leading-6">{view.why}</p>
+      {view.highlights.length ? (
+        <ul className="text-muted mt-2 space-y-1 text-sm">
+          {view.highlights.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {view.failedChecks.length ? (
+        <ul className="mt-2 space-y-1 text-xs">
+          {view.failedChecks.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-baseline gap-2">
+              <Badge tone={c.hard ? "danger" : "warn"}>{c.status === "UNKNOWN" ? "sin dato" : "no cumple"}</Badge>
+              <span>{c.detail}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {view.next.length ? <p className="text-muted mt-2 text-xs">Siguiente: {view.next.join(" · ")}.</p> : null}
+    </section>
+  );
+}
+
+export function ExecutionSupervisionPanel({ organizationId }: { organizationId?: string }) {
+  const [runs, setRuns] = useState<ExecutionSupervisionRun[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!organizationId) {
+      setRuns([]);
+      return;
+    }
+    let cancelled = false;
+    apiFetch(`/v1/consultant/execution-supervision?organizationId=${encodeURIComponent(organizationId)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await readApiError(response));
+        return response.json() as Promise<{ assessments: ExecutionSupervisionRun[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setRuns(payload.assessments);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "No se pudo cargar la supervisión F8.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
+  if (error) return <ErrorBlock>{error}</ErrorBlock>;
+  if (!runs) return <LoadingBlock label="Cargando supervisión de ejecución..." />;
+
+  return (
+    <Card
+      id="insight-execution-supervision"
+      title="Supervisión de ejecución"
+      description="Lo que decide cada bloque de la fase 8 sobre la intervención vigente. No ejecuta ni concede autoridad."
+    >
+      <div>
+        {executionSupervisionViewModel(runs).map((view) => (
+          <BlockSection key={view.stage} view={view} />
+        ))}
+      </div>
+    </Card>
+  );
+}

@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  applyMaturityDeclarations,
   capabilityMaturityFields,
   capabilityMaturitySchema,
   checkMaturityInvariants,
@@ -674,4 +675,54 @@ test("D03 cambio: si no cambio nada, no hay perfil nuevo", () => {
 
 test("D03 cambio: el primero es `initial`", () => {
   assert.equal(classifyProfileChange(null, { capabilities: [] })!.change_type, "initial");
+});
+
+// --- Declaraciones del consultor --------------------------------------------
+
+const definida = capabilityMaturitySchema.parse({
+  capability: "finance",
+  current_level: "defined",
+  has_existence: true,
+  has_consistency: true,
+  has_repeatability: true,
+  has_measurement: true,
+});
+
+test("declarar que la medida cambia decisiones sube de defined a measured", () => {
+  const c = applyMaturityDeclarations([definida], [
+    { capability: "finance", influences_decisions: true, has_ownership: true, owner_role: "CFO" },
+  ])[0]!;
+  assert.equal(c.current_level, "measured");
+  assert.equal(c.has_ownership, true);
+  assert.equal(c.owner_role, "CFO");
+  assert.equal(c.evidence.at(-1)?.evidence_type, "user_claim");
+  assert.equal(c.evidence.at(-1)?.supports, "advancement");
+});
+
+test("una declaracion no crea la medida: sin medicion observada no sube", () => {
+  const repetible = capabilityMaturitySchema.parse({
+    capability: "retention",
+    current_level: "repeatable",
+    has_existence: true,
+    has_consistency: true,
+    has_repeatability: true,
+    has_measurement: false,
+  });
+  const c = applyMaturityDeclarations([repetible], [
+    { capability: "retention", influences_decisions: true, has_ownership: true },
+  ])[0]!;
+  assert.equal(c.current_level, "repeatable");
+  assert.equal(c.influences_decisions, true);
+});
+
+test("ninguna declaracion alcanza optimized: exige optimizacion, que no se observa", () => {
+  const c = applyMaturityDeclarations([definida], [
+    { capability: "finance", influences_decisions: true, has_ownership: true },
+  ])[0]!;
+  assert.notEqual(c.current_level, "optimized");
+});
+
+test("sin declaracion la capacidad sale igual", () => {
+  const c = applyMaturityDeclarations([definida], [])[0]!;
+  assert.deepEqual(c, definida);
 });

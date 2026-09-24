@@ -1,17 +1,64 @@
-import { z } from "zod";
+/**
+ * F8: supervision por bloques.
+ *
+ * Antes este fichero era un unico evaluador compartido por doce bloques, con
+ * los checks escritos a mano por etapa y varios en `UNKNOWN` fijo (la
+ * correccion del 2026-09-22 los devolvio a `esqueleto` por eso). Ahora cada
+ * bloque tiene su evaluador en su fichero; aqui solo quedan las etapas que
+ * admite `execution_supervision_runs` y el runner que los evalua en orden.
+ *
+ * LIFECYCLE no se evalua aqui: 8.10 tiene su propio motor y su propia tabla.
+ */
 
-export const supervisionStages = ["UNIVERSAL", "EXECUTABILITY_AUTHORIZATION", "CAPABILITIES", "SAFE_EXECUTION", "MONITORING", "GUARDRAILS", "LIFECYCLE", "INCIDENTS", "ROLLBACK_RECOVERY", "OVERRIDE_ESCALATION", "CONCURRENCY", "VERIFICATION", "REPORTING"] as const;
-export type SupervisionStage = typeof supervisionStages[number];
-const checkSchema = z.object({ id: z.string().min(1), statement: z.string().min(1), status: z.enum(["SATISFIED", "NOT_SATISFIED", "UNKNOWN", "DEGRADED", "NOT_APPLICABLE"]), hard: z.boolean(), evidence: z.array(z.string()).default([]), owner: z.string().min(1).default("tenant-configured-owner") });
-const inputSchema = z.object({ context_id: z.string().min(1), business_id: z.string().min(1), stage: z.enum(supervisionStages), action_id: z.string().min(1), plan_id: z.string().min(1), environment: z.enum(["UNKNOWN", "TEST", "STAGING", "PRODUCTION"]), envelope_zone: z.enum(["INSIDE", "INSIDE_WITH_CONDITIONS", "OUTSIDE", "FORBIDDEN"]), checks: z.array(checkSchema).min(1), observed_state: z.enum(["NOT_STARTED", "REQUESTED", "RUNNING", "SUCCEEDED", "FAILED", "PARTIAL", "UNKNOWN"]).default("NOT_STARTED"), source_refs: z.array(z.string()), unresolved_unknowns: z.array(z.string()).default([]) });
-const resultSchema = z.object({ context_id: z.string(), business_id: z.string(), stage: z.enum(supervisionStages), action_id: z.string(), plan_id: z.string(), decision: z.enum(["READY", "CONDITIONAL", "BLOCKED", "WAITING", "UNKNOWN", "COMPLETED"]), check_results: z.array(checkSchema), blockers: z.array(z.string()), warnings: z.array(z.string()), next_actions: z.array(z.string()), observed_state: z.string(), source_refs: z.array(z.string()), unresolved_unknowns: z.array(z.string()), execution_authorized: z.literal(false), evaluated_at: z.string(), deterministic: z.literal(true) });
-export type ExecutionSupervisionInput = z.input<typeof inputSchema>;
-export type ExecutionSupervisionResult = z.infer<typeof resultSchema>;
-export function evaluateExecutionSupervision(raw: ExecutionSupervisionInput, evaluatedAt = new Date().toISOString()): ExecutionSupervisionResult {
-  const parsed = inputSchema.safeParse(raw);
-  if (!parsed.success) return resultSchema.parse({ context_id: "invalid", business_id: "invalid", stage: "SAFE_EXECUTION", action_id: "invalid", plan_id: "invalid", decision: "BLOCKED", check_results: [], blockers: ["input_schema"], warnings: [], next_actions: ["repair_input"], observed_state: "UNKNOWN", source_refs: [], unresolved_unknowns: ["input_schema"], execution_authorized: false, evaluated_at: evaluatedAt, deterministic: true });
-  const input = parsed.data; const blockers = input.checks.filter((check) => check.hard && ["NOT_SATISFIED", "UNKNOWN"].includes(check.status)).map((check) => check.id); const warnings = input.checks.filter((check) => !check.hard && ["NOT_SATISFIED", "UNKNOWN", "DEGRADED"].includes(check.status)).map((check) => check.id);
-  if (input.envelope_zone === "FORBIDDEN" || input.envelope_zone === "OUTSIDE") blockers.push("action_envelope_outside");
-  const decision = blockers.length ? "BLOCKED" : input.observed_state === "UNKNOWN" ? "UNKNOWN" : warnings.length ? "CONDITIONAL" : ["VERIFICATION", "REPORTING"].includes(input.stage) && input.observed_state === "NOT_STARTED" ? "WAITING" : input.observed_state === "SUCCEEDED" ? "COMPLETED" : "READY";
-  return resultSchema.parse({ context_id: input.context_id, business_id: input.business_id, stage: input.stage, action_id: input.action_id, plan_id: input.plan_id, decision, check_results: input.checks, blockers: [...new Set(blockers)], warnings: [...new Set(warnings)], next_actions: blockers.length ? ["stop", "revalidate", "escalate_if_material"] : warnings.length ? ["observe", "revalidate_before_material_change"] : input.stage === "CAPABILITIES" ? ["use_least_capability"] : ["record_evidence", "verify_next_transition"], observed_state: input.observed_state, source_refs: input.source_refs, unresolved_unknowns: input.unresolved_unknowns, execution_authorized: false, evaluated_at: evaluatedAt, deterministic: true });
+import { evaluateExecutabilityAuthorization } from "./executability-authorization.js";
+import { evaluateExecutionCapabilities } from "./execution-capabilities.js";
+import { evaluateExecutionConcurrency } from "./execution-concurrency.js";
+import { evaluateExecutionFramework } from "./execution-framework.js";
+import { evaluateExecutionGuardrails } from "./execution-guardrails.js";
+import { evaluateExecutionIncidents } from "./execution-incidents.js";
+import { evaluateExecutionMonitoring } from "./execution-monitoring.js";
+import { evaluateExecutionReporting } from "./execution-reporting.js";
+import { evaluateExecutionVerification } from "./execution-verification.js";
+import { evaluateOverrideEscalation } from "./override-escalation.js";
+import { evaluateRollbackRecovery } from "./rollback-recovery.js";
+import { evaluateSafeExecution } from "./safe-execution.js";
+import type { ExecutionSnapshot, SupervisionBlockResult } from "./execution-snapshot.js";
+
+export const supervisionStages = [
+  "UNIVERSAL",
+  "EXECUTABILITY_AUTHORIZATION",
+  "CAPABILITIES",
+  "SAFE_EXECUTION",
+  "MONITORING",
+  "GUARDRAILS",
+  "LIFECYCLE",
+  "INCIDENTS",
+  "ROLLBACK_RECOVERY",
+  "OVERRIDE_ESCALATION",
+  "CONCURRENCY",
+  "VERIFICATION",
+  "REPORTING",
+] as const;
+
+export type SupervisionStage = (typeof supervisionStages)[number];
+
+/**
+ * Los doce bloques en el orden del flujo universal (8.00 §1). 8.17 va el
+ * ultimo porque compone el informe con lo que dijeron los demas.
+ */
+export function evaluateSupervisionBlocks(snapshot: ExecutionSnapshot): SupervisionBlockResult[] {
+  const results: SupervisionBlockResult[] = [
+    evaluateExecutionFramework(snapshot),
+    evaluateExecutabilityAuthorization(snapshot),
+    evaluateExecutionCapabilities(snapshot),
+    evaluateSafeExecution(snapshot),
+    evaluateExecutionMonitoring(snapshot),
+    evaluateExecutionGuardrails(snapshot),
+    evaluateExecutionIncidents(snapshot),
+    evaluateRollbackRecovery(snapshot),
+    evaluateOverrideEscalation(snapshot),
+    evaluateExecutionConcurrency(snapshot),
+    evaluateExecutionVerification(snapshot),
+  ];
+  return [...results, evaluateExecutionReporting(snapshot, results)];
 }

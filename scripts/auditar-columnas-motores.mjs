@@ -30,16 +30,42 @@ for (const f of readdirSync(MIG).sort().filter((x) => x.endsWith(".sql"))) {
   }
 }
 
-// variable -> funcion SQL, por posicion dentro del Promise.all
+// Parte el contenido de un array en sus elementos de primer nivel.
+function topLevelItems(body) {
+  const items = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of body) {
+    if ("([{".includes(ch)) depth++;
+    if (")]}".includes(ch)) depth--;
+    if (ch === "," && depth === 0) {
+      items.push(current);
+      current = "";
+    } else current += ch;
+  }
+  if (current.trim()) items.push(current);
+  return items;
+}
+
+// variable -> funcion SQL, por posicion dentro del Promise.all. Se empareja
+// elemento a elemento: un .from() entre dos .rpc() ya no desalinea el resto.
 function bindings(src) {
   const map = new Map();
-  const re = /const \[([^\]]+)\]\s*=\s*await Promise\.all\(\[([\s\S]*?)\]\)/g;
+  const re = /const \[([^\]]+)\]\s*=\s*await Promise\.all\(\[/g;
   let m;
   while ((m = re.exec(src))) {
     const vars = m[1].split(",").map((s) => s.trim());
-    const fns = [...m[2].matchAll(/\.rpc\(\s*"([a-z_0-9]+)"/g)].map((x) => x[1]);
-    vars.forEach((v, i) => {
-      if (fns[i]) map.set(v, fns[i]);
+    // Recorre hasta el `]` que cierra el array, respetando anidamiento.
+    let depth = 1;
+    let end = re.lastIndex;
+    while (end < src.length && depth > 0) {
+      if ("([{".includes(src[end])) depth++;
+      if (")]}".includes(src[end])) depth--;
+      end++;
+    }
+    topLevelItems(src.slice(re.lastIndex, end - 1)).forEach((item, i) => {
+      const fn = item.match(/\.rpc\(\s*"([a-z_0-9]+)"/)?.[1];
+      if (fn && vars[i]) map.set(vars[i], fn);
     });
   }
   for (const x of src.matchAll(/const ([A-Za-z0-9_]+) = first\(([A-Za-z0-9_]+)\)/g)) {
@@ -88,6 +114,16 @@ function accesses(src) {
   return out;
 }
 
+// Propiedades del resultado de Supabase o del envoltorio del motor, no de la fila.
+const RESULT_PROPS = new Set(["data", "error", "available", "days"]);
+
+// Lecturas de un campo que ninguna funcion devuelve, a sabiendas, con su motivo.
+const ACEPTADOS = new Map([
+  // Hecho declarado sin fuente: queda UNKNOWN, que es honesto
+  // (conocimiento/TAREAS_PENDIENTES.md, "conversion_cro.product_views").
+  ["conversion-cro-benchmarks-engine.ts:shopify_funnel_summary.product_views", "sin fuente"],
+]);
+
 const dir = "apps/api/src";
 const bad = [];
 for (const f of readdirSync(dir).filter((x) => x.endsWith("-engine.ts") && !x.includes(".test."))) {
@@ -97,10 +133,14 @@ for (const f of readdirSync(dir).filter((x) => x.endsWith("-engine.ts") && !x.in
     const fn = bind.get(a.varName);
     if (!fn) continue;
     const real = cols.get(fn);
-    if (!real || real.has(a.col)) continue;
+    if (!real || real.has(a.col) || RESULT_PROPS.has(a.col)) continue;
+    if (ACEPTADOS.has(`${f}:${fn}.${a.col}`)) continue;
     bad.push(f.padEnd(42) + fn.padEnd(30) + "-> ." + a.col);
   }
 }
 const uniq = [...new Set(bad)].sort();
-console.log(uniq.length ? uniq.join("\n") : "sin desajustes");
-console.log("\ntotal:", uniq.length);
+if (uniq.length) {
+  console.error("Motores leyendo columnas que su funcion SQL no devuelve:\n" + uniq.join("\n"));
+  process.exit(1);
+}
+console.log("ENGINE_COLUMNS_OK: cada columna leida por un motor existe en su funcion SQL");

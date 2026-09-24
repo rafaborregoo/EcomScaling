@@ -31,6 +31,8 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   assessContext,
+  findContextContradictions,
+  observedMainChannel,
   selectBaseline,
   type SegmentObservation,
 } from "@ecomscaling/contracts";
@@ -135,6 +137,11 @@ export async function runContextEngine(env: LoadedApiEnv, organizationId: string
     .eq("organization_id", organizationId)
     .gte("occurred_at", new Date(Date.now() - 60 * DIA_MS).toISOString());
 
+  // Paso 13 -- declarado contra observado. El unico hecho de contexto que el
+  // dato de pedidos sostiene hoy es el canal principal: se observa sobre los
+  // ultimos 30 dias de toda la organizacion y se compara con lo declarado.
+  const contradicciones = await contrastarContextoDeclarado(supabase, organizationId);
+
   for (const senal of senales ?? []) {
     resumen.signals += 1;
 
@@ -171,6 +178,7 @@ export async function runContextEngine(env: LoadedApiEnv, organizationId: string
         description: c.description as string,
       })),
       blindDimensions: DIMENSIONES_CIEGAS,
+      contradictions: contradicciones,
     });
 
     const caseId = await abrirCaso(supabase, organizationId, storeId, senal, analysis, baseline);
@@ -195,6 +203,7 @@ export async function runContextEngine(env: LoadedApiEnv, organizationId: string
           missing_context: salida.assessment.missing_context,
           critical_unknowns: salida.assessment.critical_unknowns,
           primary_factors: salida.assessment.primary_factors,
+          declared_contradictions: salida.assessment.declared_contradictions,
           uncertainty_notes: salida.assessment.uncertainty_notes,
           assessed_at: new Date().toISOString(),
         },
@@ -241,6 +250,76 @@ export async function runContextEngine(env: LoadedApiEnv, organizationId: string
 }
 
 /** Paso 6: las dos fotos por segmento, agregadas en SQL (ADR-0006 punto 6). */
+/**
+ * Escribe el canal principal observado (si el dato lo sostiene) y devuelve las
+ * contradicciones con el contexto declarado. Un fallo aqui no tumba la pasada:
+ * sin contraste, la lectura sigue sin contradicciones, que es lo que habia.
+ */
+async function contrastarContextoDeclarado(
+  supabase: ReturnType<typeof createServiceClient>,
+  organizationId: string,
+) {
+  const fin = new Date();
+  const inicio = new Date(fin.getTime() - 30 * DIA_MS);
+  const canal = observedMainChannel(
+    await leerMix(supabase, organizationId, null, inicio.toISOString(), fin.toISOString()),
+  );
+
+  if (canal) {
+    const { data: vigente } = await supabase
+      .from("tenant_context_facts")
+      .select("id, value")
+      .eq("organization_id", organizationId)
+      .is("store_id", null)
+      .eq("dimension", "main_channel")
+      .eq("source", "observed")
+      .is("effective_to", null)
+      .maybeSingle();
+    if (vigente?.value !== canal) {
+      // Historico, no sobrescritura: el canal de ayer queda cerrado con fecha.
+      if (vigente) {
+        await supabase
+          .from("tenant_context_facts")
+          .update({ effective_to: fin.toISOString() })
+          .eq("id", vigente.id as string);
+      }
+      const { error } = await supabase.from("tenant_context_facts").insert({
+        organization_id: organizationId,
+        store_id: null,
+        dimension: "main_channel",
+        value: canal,
+        source: "observed",
+        origin: "shopify",
+        effective_from: fin.toISOString(),
+      });
+      if (error) {
+        logger.error("context_observed_fact_write_failed", {
+          organization_id: organizationId,
+          error: error.message,
+        });
+      }
+    }
+  }
+
+  const { data: hechos, error } = await supabase
+    .from("tenant_context_facts")
+    .select("dimension, value, source, effective_to")
+    .eq("organization_id", organizationId)
+    .is("effective_to", null);
+  if (error) {
+    logger.error("context_facts_load_failed", { organization_id: organizationId, error: error.message });
+    return [];
+  }
+  return findContextContradictions(
+    (hechos ?? []).map((h) => ({
+      dimension: h.dimension as string,
+      value: h.value as string,
+      source: h.source as string,
+      effective_to: (h.effective_to as string | null) ?? null,
+    })),
+  );
+}
+
 async function leerMix(
   supabase: ReturnType<typeof createServiceClient>,
   organizationId: string,

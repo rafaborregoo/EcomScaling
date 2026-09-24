@@ -76,6 +76,39 @@ type ObservabilityRun = {
   consultant_name: string | null;
 };
 
+// AI-30 fases 7 y 8: calidad por version de agente y fallos agrupados.
+type QualityStat = {
+  agent_code: string;
+  agent_version: string;
+  run_count: number;
+  succeeded_count: number;
+  context_truncated_count: number;
+  approved_count: number;
+  rejected_count: number;
+};
+
+type FailureCluster = {
+  agent_code: string;
+  agent_version: string;
+  source: string;
+  failure_class: string;
+  occurrences: number;
+  last_seen: string;
+  sample_run_id: string;
+};
+
+// D01: issues de calidad de datos abiertos, agrupados en toda la cartera.
+type DataQualityPortfolioRow = {
+  source: string;
+  issue_type: string;
+  organizations_affected: number;
+  open_issues: number;
+  blocking_issues: number;
+  client_actionable_issues: number;
+  worst_severity: string;
+  oldest_detected_at: string;
+};
+
 type ObservabilityPayload = {
   window_days: number;
   summary: {
@@ -88,6 +121,9 @@ type ObservabilityPayload = {
   by_agent: AgentStat[];
   by_client: ClientStat[];
   by_consultant: ConsultantStat[];
+  quality_by_version?: QualityStat[];
+  failure_clusters?: FailureCluster[];
+  data_quality_portfolio?: DataQualityPortfolioRow[];
   runs: ObservabilityRun[];
   organizations: { id: string; display_name: string }[];
 };
@@ -448,6 +484,120 @@ function ObservabilidadPanel() {
     id: row.consultant_user_id,
   }));
 
+  const qualityRows = (data.quality_by_version ?? []).map((row) => ({
+    ...row,
+    id: `${row.agent_code}@${row.agent_version}`,
+  }));
+  const clusterRows = (data.failure_clusters ?? []).map((row) => ({
+    ...row,
+    id: `${row.agent_code}@${row.agent_version}:${row.source}:${row.failure_class}`,
+  }));
+
+  const portfolioRows = (data.data_quality_portfolio ?? []).map((row) => ({
+    ...row,
+    id: `${row.source}:${row.issue_type}`,
+  }));
+  const portfolioColumns: TableColumnDef<(typeof portfolioRows)[number]>[] = [
+    { key: "source", label: "Fuente", render: (row) => row.source },
+    {
+      key: "issue_type",
+      label: "Problema",
+      render: (row) => <code className="text-xs">{row.issue_type}</code>,
+    },
+    {
+      key: "organizations_affected",
+      label: "Clientes afectados",
+      render: (row) => String(row.organizations_affected),
+    },
+    {
+      key: "blocking",
+      label: "Bloquean diagnóstico",
+      render: (row) =>
+        row.blocking_issues > 0 ? (
+          <Badge tone="danger">{row.blocking_issues}</Badge>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      key: "client_actionable",
+      label: "Los arregla el cliente",
+      render: (row) =>
+        row.client_actionable_issues > 0
+          ? String(row.client_actionable_issues)
+          : "—",
+    },
+    {
+      key: "worst_severity",
+      label: "Peor severidad",
+      render: (row) => row.worst_severity,
+    },
+  ];
+
+  const qualityColumns: TableColumnDef<(typeof qualityRows)[number]>[] = [
+    { key: "id", label: "Agente@versión", render: (row) => row.id },
+    {
+      key: "succeeded",
+      label: "Correctas",
+      render: (row) => `${row.succeeded_count} / ${row.run_count}`,
+    },
+    {
+      key: "review",
+      label: "Aprobadas / rechazadas",
+      render: (row) =>
+        row.approved_count + row.rejected_count === 0 ? (
+          "—"
+        ) : (
+          <span className={row.rejected_count > 0 ? "text-danger" : undefined}>
+            {row.approved_count} / {row.rejected_count}
+          </span>
+        ),
+    },
+    {
+      key: "truncated",
+      label: "Contexto recortado",
+      render: (row) =>
+        row.context_truncated_count > 0 ? (
+          <Badge tone="warn">{row.context_truncated_count}</Badge>
+        ) : (
+          "—"
+        ),
+    },
+  ];
+
+  const clusterColumns: TableColumnDef<(typeof clusterRows)[number]>[] = [
+    {
+      key: "agent",
+      label: "Agente@versión",
+      render: (row) => `${row.agent_code}@${row.agent_version}`,
+    },
+    {
+      key: "source",
+      label: "Origen",
+      render: (row) =>
+        row.source === "human_rejection" ? (
+          <Badge tone="warn">Rechazo humano</Badge>
+        ) : (
+          <Badge tone="danger">Fallo técnico</Badge>
+        ),
+    },
+    {
+      key: "failure_class",
+      label: "Clase",
+      render: (row) => <span className="text-xs">{row.failure_class}</span>,
+    },
+    {
+      key: "occurrences",
+      label: "Veces",
+      render: (row) => String(row.occurrences),
+    },
+    {
+      key: "sample",
+      label: "Último run",
+      render: (row) => <code className="text-xs">{row.sample_run_id}</code>,
+    },
+  ];
+
   const agentColumns: TableColumnDef<(typeof agentRows)[number]>[] = [
     { key: "agent_name", label: "Agente", render: (row) => row.agent_name },
     {
@@ -688,6 +838,32 @@ function ObservabilidadPanel() {
         }
       >
         {groupTable}
+      </Card>
+
+      <Card kicker="Datos" title="Fuentes que fallan en la cartera">
+        <Table
+          ariaLabel="Problemas de calidad de datos abiertos por fuente y tipo"
+          columns={portfolioColumns}
+          rows={portfolioRows}
+          emptyLabel="Ninguna fuente con problemas abiertos."
+        />
+      </Card>
+
+      <Card kicker="Calidad" title="Fallos agrupados y revisión humana">
+        <div className="space-y-6">
+          <Table
+            ariaLabel="Fallos agrupados por agente, versión y clase"
+            columns={clusterColumns}
+            rows={clusterRows}
+            emptyLabel="Sin fallos ni rechazos en la ventana."
+          />
+          <Table
+            ariaLabel="Calidad por versión de agente"
+            columns={qualityColumns}
+            rows={qualityRows}
+            emptyLabel="Sin ejecuciones en la ventana."
+          />
+        </div>
       </Card>
 
       <Card
