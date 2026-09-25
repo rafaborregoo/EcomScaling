@@ -221,6 +221,7 @@ export * from "./context.js";
 // FASE 3 / D03: madurez por capacidad y sus invariantes estructurales.
 export * from "./maturity.js";
 export * from "./customer-lifetime.js";
+export * from "./intervention-effect.js";
 
 // FASE 3 / D04: salud por capacidad, separada de la madurez de D03.
 export * from "./health.js";

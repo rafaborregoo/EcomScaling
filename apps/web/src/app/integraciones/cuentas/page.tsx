@@ -2,6 +2,7 @@
 
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
+import { type BootstrapResponse } from "@/lib/bootstrap";
 import { AsyncState, IconChevronLeft, Link } from "@/components/ui";
 import { StoreScopeCard } from "../store-scope-card";
 
@@ -16,13 +17,27 @@ import { StoreScopeCard } from "../store-scope-card";
 export default function StoreScopePage() {
   return (
     <PortalShell title="Cuentas por tienda">
-      {() => <StoreScopeSection />}
+      {(bootstrap) => <StoreScopeSection bootstrap={bootstrap} />}
     </PortalShell>
   );
 }
 
-function StoreScopeSection() {
-  const { organizationId } = useActiveOrganization();
+function StoreScopeSection({ bootstrap }: { bootstrap: BootstrapResponse }) {
+  const { organizationId: selectedOrganizationId } = useActiveOrganization();
+
+  // Igual que useIntegrations (../shared.tsx): repartir cuentas entre tiendas
+  // es del cliente, no de la cartera. El selector del header puede tener un
+  // cliente puesto para dashboard/tareas, pero esta pantalla toca conexiones
+  // reales -- solo opera sobre una tienda propia.
+  const ownMemberships = bootstrap.memberships.filter(
+    (membership) => membership.accessSource !== "consultant_assignment",
+  );
+  const selectedIsOwn = ownMemberships.some(
+    (membership) => membership.organization_id === selectedOrganizationId,
+  );
+  const organizationId = selectedIsOwn
+    ? selectedOrganizationId
+    : (ownMemberships[0]?.organization_id ?? null);
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
@@ -38,8 +53,8 @@ function StoreScopeSection() {
       ) : (
         <AsyncState
           status="empty"
-          emptyTitle="No hay cliente activo"
-          emptyHint="Elige un cliente en el selector del encabezado para repartir sus cuentas entre tiendas."
+          emptyTitle="No hay tienda propia"
+          emptyHint="Esto reparte las cuentas de una tienda tuya. Las de un cliente se gestionan desde su panel, no desde aquí."
         />
       )}
     </div>

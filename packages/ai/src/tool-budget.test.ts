@@ -256,8 +256,8 @@ test("un modelo tarifado registra coste y la version de precios aplicada", async
     usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 },
   });
 
-  // claude-sonnet-5: $3/1M entrada + $15/1M salida.
-  assert.equal(result.estimatedCostUsd, 18);
+  // claude-sonnet-5: $2/1M entrada + $10/1M salida.
+  assert.equal(result.estimatedCostUsd, 12);
   assert.equal(result.costBasis, "priced");
   assert.equal(result.pricingVersion, PRICING_VERSION);
 });

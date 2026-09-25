@@ -67,6 +67,7 @@ import { RecommendationCommunicationPanel } from "./recommendation-communication
 import { ExecutionLifecyclePanel } from "./execution-lifecycle";
 import { HitlApprovalPanel } from "./hitl-approval";
 import { ClosureHandoffPanel } from "./closure-handoff";
+import { InterventionEffectsPanel } from "./intervention-effects-panel";
 import { ExecutionPlanPanel } from "./execution-plan";
 import { ReadinessPanel } from "./readiness";
 import { ActionEnvelopePanel } from "./action-envelope";
@@ -627,6 +628,7 @@ function ShopifyDiagnosticoView({
       <ExecutionLifecyclePanel organizationId={selectedOrganizationId} />
       <HitlApprovalPanel organizationId={selectedOrganizationId} />
       <ClosureHandoffPanel organizationId={selectedOrganizationId} />
+      <InterventionEffectsPanel organizationId={selectedOrganizationId} />
       <ExecutionPlanPanel organizationId={selectedOrganizationId} />
       <ReadinessPanel organizationId={selectedOrganizationId} />
       <ActionEnvelopePanel organizationId={selectedOrganizationId} />

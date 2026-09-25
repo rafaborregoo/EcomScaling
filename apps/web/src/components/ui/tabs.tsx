@@ -11,12 +11,14 @@ export function Tabs({
   onChange,
   className,
   panels,
+  hideNavigation = false,
 }: {
   items: TabItem[];
   value: string;
   onChange: (value: string) => void;
   className?: string;
   panels?: Record<string, ReactNode>;
+  hideNavigation?: boolean;
 }) {
   return (
     <HeroTabs
@@ -25,7 +27,7 @@ export function Tabs({
       onSelectionChange={(key) => onChange(String(key))}
       className={className}
     >
-      <HeroTabs.ListContainer>
+      <HeroTabs.ListContainer className={hideNavigation ? "hidden" : undefined}>
         <HeroTabs.List
           aria-label="Navegacion por pestañas"
           data-scrollbar="none"

@@ -23,11 +23,12 @@ bash ops/vps/deploy.sh  ->  verificacion en local  ->  rsync a /opt/ecomscaling/
 [../ops/vps/ecomscaling.crontab](../ops/vps/ecomscaling.crontab), que `deploy.sh` reinstala en cada
 despliegue. Cada linea llama a `/opt/ecomscaling/run-worker-job.sh <job>`, que toma un `flock` por
 job, lanza `docker compose run --rm --no-deps worker node apps/worker/dist/<job>-once.js` y escribe
-en `/opt/ecomscaling/logs/<job>.log`. **22 jobs**:
+en `/opt/ecomscaling/logs/<job>.log`. **24 jobs**:
 
 | Bloque | Jobs | Cuando (UTC) |
 |---|---|---|
-| Integraciones y mantenimiento | `meta-reconcile`, `klaviyo-reconcile`, `purge-expired-deletions` | 3:17 / cada 6 h / 3:07 |
+| Integraciones y mantenimiento | `meta-reconcile`, `klaviyo-reconcile`, `purge-expired-deletions`, `ai-pricing-sync` (tarifa de modelos desde LiteLLM) | 0:17 / cada 6 h / 3:07 / 0:40 |
+| Cadena nocturna F3 -> F7 | `nightly-chain`: los 57 motores de diagnostico, playbooks y recomendacion, en orden y en serie ([nightly-chain-once.ts](../apps/worker/src/nightly-chain-once.ts)) | 1:00 |
 | Benchmarks por dimension | `conversion-cro`, `offer-pricing`, `retention-crm`, `unit-economics`, `operations-cx`, `product-inventory`, `scalability` | 3:35 -> 4:50 |
 | Lectura transversal | `anomalies-red-flags`, `benchmark-confidence` | 5:05, 5:20 |
 | F7 recomendacion | `expected-outcome`, `recommendation-confidence`, `recommendation-communication` | 5:35, 5:50, 6:05 |
@@ -36,8 +37,6 @@ en `/opt/ecomscaling/logs/<job>.log`. **22 jobs**:
 
 Los minutos no se eligen al azar: el VPS tiene 1.6 GB y cada job levanta su propio contenedor, asi
 que no deben coincidir dos. El `flock` cubre lo otro (que un job se solape consigo mismo).
-
-`run-worker-job.sh` tiene una **lista blanca**: un job que no este ahi sale con codigo 64 sin
 
 `run-worker-job.sh` tiene dos guardas, y las dos importan:
 
@@ -87,12 +86,12 @@ ahora estan en el crontab del VPS y no cuestan nada.
 
 Distinguirlo importa, porque lo primero hay que taparlo y lo segundo no hay que "arreglarlo":
 
+- **Motores de F3**: apagados el 2026-08-03 y reactivados el 2026-09-24 por decision tuya, dentro
+  de `nightly-chain` (Meta se reconcilia a las 0:17 para que la cadena lea el gasto de ayer).
 - **Apagado por decision tuya del 2026-08-03**, escrito en la cabecera de cada workflow borrado
-  (`git show 2b2ab70^:.github/workflows/<x>.yml`): los motores `causal`, `confidence`, `context`,
-  `data-quality`, `health`, `hypothesis`, `maturity`, `root-cause`, `severity`, `signal` y
-  `symptom`, mas `agent-evals`, `alert-rules`, `memory-ingestion` y `ops-health-check`. Tienen su
-  `<job>-once.js` en la imagen y se lanzan a mano con `./run-worker-job.sh` cuando se quieran
-  (habria que anadirlos a la lista blanca). **No los programes sin preguntar.**
+  (`git show 2b2ab70^:.github/workflows/<x>.yml`): `agent-evals`, `alert-rules`,
+  `memory-ingestion` y `ops-health-check`. Tienen su `<job>-once.js` en la imagen; programarlos
+  exige anadirlos a la lista blanca. **No los programes sin preguntar.**
 - **Backup de base de datos**: `backup-database.yml` tambien tenia el cron comentado de antes. Lo
   unico que hay es el backup propio de Supabase. Esto si es una decision pendiente.
 - **Verificacion sobre un clon limpio**: la puerta del punto 3 corre en tu arbol, no en un checkout

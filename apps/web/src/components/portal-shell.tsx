@@ -17,24 +17,19 @@ import {
   Alert,
   Avatar,
   AsyncState,
-  Breadcrumbs,
   BrandLogo,
   Button,
   CloseIcon,
-  CompassIcon,
   ConfirmDialog,
-  DotGridIcon,
   EmptyState,
   ErrorBlock,
-  HomeIcon,
   IconChevronRight,
   Link,
   LoadingBlock,
   MenuIcon,
-  PhoneIcon,
+  PanelLeftIcon,
+  Popover,
   Select,
-  TasksIcon,
-  UsersIcon,
 } from "@/components/ui";
 import {
   ACTIVE_ORGANIZATION_STORAGE_KEY,
@@ -53,19 +48,27 @@ import {
 import { NotificationsBell } from "@/components/notifications-bell";
 import { InsightsMenu } from "@/components/insights-menu";
 import { InsightsProvider } from "@/components/insights-context";
+import {
+  getActivePortalModule,
+  getPortalNavigation,
+  isPortalNavItemActive,
+  type PortalNavItem,
+  type PortalNavModule,
+  type PortalRole,
+} from "@/components/portal-navigation";
 
 type PortalShellProps = {
   title: string;
   children: (bootstrap: BootstrapResponse, token: string) => ReactNode;
 };
 
-type NavItem = { href: string; label: string };
-type NavGroup = { label: string; items: NavItem[] };
-
 // Valores centinela para las opciones "Vista general" (cliente) y "Todas las
 // tiendas" de los selectores del header (el control no admite key vacia).
 const GENERAL_VIEW_KEY = "__all__";
 const ALL_STORES_KEY = "__all_stores__";
+const PRIMARY_NAV_MODE_STORAGE_KEY = "ecomscaling:primary-nav-mode";
+
+type PrimaryNavMode = "hover" | "collapsed" | "expanded";
 
 // Rutas que operan sobre un cliente concreto y todavia NO tienen estado de
 // "vista general" propio: en vista general (sin cliente activo) muestran un
@@ -77,197 +80,6 @@ const ALL_STORES_KEY = "__all_stores__";
 // pantalla desde la que podia conseguir uno. La pagina ya degrada por pestaña
 // cuando no hay organizacion activa.
 const ORG_SCOPED_PREFIXES = ["/agentes"];
-
-// Nav del consultor, agrupado por LO QUE ESTAS HACIENDO (decision de Rafa,
-// 2026-09-17). Era una lista plana de 17 entradas: cabia, pero para encontrar
-// una habia que leerlas todas. Ningun grupo pasa de cuatro, que es lo que se
-// abarca de un vistazo sin contar.
-//
-// Los grupos no son categorias de producto sino verbos, porque la pregunta que
-// uno se hace al mirar el nav no es "de que modulo es esto" sino "que quiero
-// hacer ahora". Por eso Shopify/Meta/Klaviyo van juntos (mirar cifras) aunque
-// sean tres integraciones distintas, y Marketing va con Tareas (hacer cosas)
-// aunque tecnicamente sea el generador de Klaviyo.
-//
-// El ultimo grupo va sin etiqueta a proposito: es el cajon de lo que se toca
-// una vez y se olvida, y ponerle titulo seria darle una importancia que no
-// tiene. Configuración vive aun mas abajo (settingsNavItem).
-//
-// "Ejecuciones IA" (/agentes) sigue fuera del nav.
-//
-// /tiendas SI entra desde 2026-09-10: es el unico sitio donde el consultor da
-// de alta y gestiona sus tiendas propias, y sin entrada de nav no se llegaba
-// salvo buscandolo en Configuración > Cartera.
-//
-// /shopify SI entra desde 2026-09-07. Estaba fuera por ser "el detalle de una
-// integracion", y esa premisa ya no se sostiene: deja de contar el estado de
-// una conexion -- eso se queda en Integraciones -- y pasa a ser los numeros de
-// la tienda (recurrencia, LTV, atribucion, devoluciones, entregas).
-const consultantNavGroups: NavGroup[] = [
-  {
-    // Las dos pantallas de entrada, sin titulo: son el sitio al que se vuelve.
-    label: "",
-    items: [
-      { href: "/dashboard", label: "Dashboard" },
-      // Rentabilidad va pegada al dashboard porque es su version de asesoramiento:
-      // las mismas cifras llevadas hasta el margen por pedido y el CAC de
-      // break-even. Solo del consultor a proposito -- son numeros que hay que
-      // saber interpretar (ver docs/PLAN_PANEL_MANAGER.md).
-      { href: "/panel", label: "Rentabilidad" },
-    ],
-  },
-  {
-    label: "Medir",
-    items: [
-      // En este orden: primero la tienda, luego lo que la alimenta.
-      { href: "/shopify", label: "Shopify" },
-      { href: "/meta", label: "Meta Ads" },
-      { href: "/klaviyo", label: "Klaviyo" },
-    ],
-  },
-  {
-    label: "Trabajar",
-    items: [
-      { href: "/camino", label: "Camino" },
-      { href: "/planificacion", label: "Planificación" },
-      { href: "/contexto", label: "Contexto" },
-      { href: "/tareas", label: "Tareas" },
-      { href: "/marketing", label: "Marketing IA" },
-    ],
-  },
-  {
-    label: "Hablar",
-    items: [
-      { href: "/mensajes", label: "Chats" },
-      { href: "/llamadas", label: "Llamadas" },
-      { href: "/agenda", label: "Agenda" },
-    ],
-  },
-  {
-    // Lo unico del nav que NO es de un cliente: no cambia al cambiar de tienda
-    // activa. Agrupado y etiquetado, esa diferencia por fin se ve.
-    label: "Tuyo",
-    items: [
-      { href: "/mi-trabajo", label: "Mi trabajo" },
-      { href: "/consultor", label: "Clientes" },
-      { href: "/tiendas", label: "Mis tiendas" },
-      { href: "/consultor/referidos", label: "Mi código" },
-    ],
-  },
-  {
-    label: "",
-    items: [
-      { href: "/integraciones", label: "Integraciones" },
-      { href: "/conocimiento", label: "Conocimiento" },
-    ],
-  },
-];
-
-// Configuración vive al fondo del nav, junto a la cuenta (convención de
-// paneles minimalistas), no dentro de un grupo.
-const settingsNavItem: NavItem = {
-  href: "/configuracion",
-  label: "Configuración",
-};
-
-// Vista platform_admin: operacion de plataforma, no de clientes. Solo Rafa la
-// usa. Conocimiento / dashboard / integraciones etc. son del consultor, no de
-// aqui.
-const platformAdminNavGroups: NavGroup[] = [
-  {
-    label: "Plataforma",
-    items: [
-      { href: "/admin/consultores", label: "Consultores" },
-      { href: "/admin/programa-consultores", label: "Programa de consultores" },
-      { href: "/admin/clientes", label: "Clientes" },
-      // La metodologia de EcomScaling: alimenta al copiloto de todos los
-      // clientes y es lo unico del conocimiento que es nuestro. Vive aqui
-      // porque el consultor no la gestiona -- el gestiona la de su cliente.
-      { href: "/admin/conocimiento", label: "Metodología" },
-      { href: "/admin/observabilidad", label: "Observabilidad" },
-      // Que sabe hacer el copiloto y que agente puede hacerlo. Va junto a
-      // observabilidad porque responde a lo mismo: como se esta comportando la
-      // IA, no como se configura un cliente.
-      { href: "/admin/tools", label: "Tools del copiloto" },
-      { href: "/admin/logs/auditoria", label: "Auditoría" },
-      { href: "/admin/logs/errores-sync", label: "Errores de sync" },
-      { href: "/admin/logs/errores-agentes", label: "Errores de agentes" },
-      { href: "/admin/finanzas", label: "Finanzas" },
-      { href: "/admin/facturacion", label: "Facturación" },
-    ],
-  },
-];
-
-// Nav del cliente final: los mismos grupos que el consultor, sin lo que no es
-// suyo. Sin selector de cliente ni "vista general".
-//
-// "Trabajar" y "Hablar" van ANTES de "Medir", al reves que en el del consultor.
-// No es un descuido: el cliente entra a hacer sus tareas y a contestar, y mira
-// las cifras de vez en cuando; el consultor entra a mirar cifras. Ademas la
-// barra inferior de movil son las cuatro primeras rutas del nav, asi que este
-// orden es tambien el que decide que ve cada rol en el movil.
-//
-// Sin grupo "Tuyo": Mi trabajo, Clientes y Mis tiendas son del consultor.
-//
-// /planificacion NO esta a proposito -- es una herramienta del consultor y el
-// cliente no debe verla en navegacion ni llegar por un enlace accidental.
-// Antes se quitaba con un filtro por href despues de construir la lista; ahora
-// simplemente no se escribe, que es mas dificil de deshacer sin querer.
-const clientNavGroups: NavGroup[] = [
-  {
-    label: "",
-    items: [{ href: "/dashboard", label: "Dashboard" }],
-  },
-  {
-    label: "Trabajar",
-    items: [
-      { href: "/camino", label: "Mi camino" },
-      { href: "/contexto", label: "Mi negocio" },
-      { href: "/tareas", label: "Tareas" },
-      { href: "/marketing", label: "Marketing" },
-    ],
-  },
-  {
-    label: "Hablar",
-    items: [
-      { href: "/mensajes", label: "Chats" },
-      { href: "/llamadas", label: "Llamadas" },
-    ],
-  },
-  {
-    label: "Medir",
-    items: [
-      { href: "/shopify", label: "Shopify" },
-      { href: "/meta", label: "Meta Ads" },
-      { href: "/klaviyo", label: "Klaviyo" },
-    ],
-  },
-  {
-    label: "",
-    items: [
-      { href: "/integraciones", label: "Integraciones" },
-      { href: "/conocimiento", label: "Conocimiento" },
-    ],
-  },
-];
-
-// Iconos para la barra de navegacion inferior en movil (las 4 primeras rutas
-// del nav del rol + "Mas"). Sin icono -> icono generico.
-const NAV_ICONS: Record<
-  string,
-  (props: { className?: string; "aria-hidden"?: boolean }) => ReactNode
-> = {
-  "/dashboard": HomeIcon,
-  "/consultor": UsersIcon,
-  "/tiendas": UsersIcon,
-  "/camino": CompassIcon,
-  "/tareas": TasksIcon,
-  "/llamadas": PhoneIcon,
-};
-
-function formatRole(role: string) {
-  return role.replaceAll("_", " ");
-}
 
 type ShopifyConnectionSummary = {
   id: string;
@@ -534,7 +346,38 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     return isConsultantRole ? "" : (validIds[0] ?? "");
   });
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const [primaryNavMode, setPrimaryNavMode] = useState<PrimaryNavMode>(
+    "collapsed",
+  );
+  const [isPrimaryNavHovered, setIsPrimaryNavHovered] = useState(false);
+  const [isPrimaryNavControlOpen, setIsPrimaryNavControlOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+
+  useEffect(() => {
+    const savedMode = window.localStorage.getItem(PRIMARY_NAV_MODE_STORAGE_KEY);
+    if (savedMode !== "expanded" && savedMode !== "hover") return;
+
+    const restorePrimaryNavMode = window.setTimeout(() => {
+      setPrimaryNavMode(savedMode);
+    }, 0);
+
+    return () => window.clearTimeout(restorePrimaryNavMode);
+  }, []);
+
+  const handleModuleNavigation = (href: string) => {
+    router.push(href);
+  };
+
+  const selectPrimaryNavMode = (nextMode: PrimaryNavMode) => {
+    window.localStorage.setItem(PRIMARY_NAV_MODE_STORAGE_KEY, nextMode);
+    setPrimaryNavMode(nextMode);
+    setIsPrimaryNavHovered(false);
+    setIsPrimaryNavControlOpen(false);
+  };
+
+  const isPrimaryNavExpanded =
+    primaryNavMode === "expanded" ||
+    (primaryNavMode === "hover" && isPrimaryNavHovered);
   // Pregunta con la que un módulo abre el Consultor IA (ver copilot-ask.tsx).
   // Vive aquí porque el panel vive aquí: el módulo solo dice qué preguntar.
   const [copilotAsk, setCopilotAsk] = useState<CopilotAsk | null>(null);
@@ -549,10 +392,13 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   >([]);
   const [activeConnectionId, setActiveConnectionId] = useState("");
 
-  // El menú móvil se cierra al navegar a otra ruta.
+  const searchParamsKey = searchParams.toString();
+
+  // El menú móvil se cierra al cambiar de ruta o de sección. Las secciones de
+  // segundo nivel comparten pathname y cambian solo el query string.
   useEffect(() => {
     setIsMobileNavOpen(false);
-  }, [pathname]);
+  }, [pathname, searchParamsKey]);
 
   // WCAG 2.4.2 (Page Titled): antes todas las paginas compartian el mismo
   // <title>"EcomScaling IA" del layout raiz (los componentes de pagina son
@@ -912,30 +758,26 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     ORG_SCOPED_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     );
-  const visibleGroups = isPlatformAdmin
-    ? platformAdminNavGroups
+  const navigationRole: PortalRole = isPlatformAdmin
+    ? "platform_admin"
     : isConsultant
-      ? consultantNavGroups
-      : clientNavGroups;
+      ? "consultant"
+      : "client";
+  const navigationModules = getPortalNavigation(
+    navigationRole,
+    Boolean(activeOrganizationId),
+  );
+  const activeModule = getActivePortalModule(navigationModules, pathname);
 
-  const navRowClass = (active: boolean) =>
-    [
-      "flex items-center px-2 py-1 text-[0.8125rem] no-underline transition-colors hover:no-underline active:no-underline",
-      active ? "font-medium text-accent" : "text-muted hover:text-foreground",
-    ].join(" ");
-
-  // Numeritos por ruta del nav ("igual que las notificaciones"). Ampliable a
-  // otros módulos.
+  // Numeritos por ruta del nav. El rail los agrega por módulo y el segundo
+  // nivel los deja junto a la opción concreta.
   const navBadges: Record<string, number> = {
     "/mensajes": messagesUnread,
     "/tareas": tasksUnread,
   };
 
   // Chats sirve para hablar con el consultor. Sin consultor asignado no hay
-  // nadie al otro lado, así que el módulo se apaga -- y se enciende solo en
-  // cuanto le asignen uno. No hay interruptor que se pueda quedar apagado con
-  // consultor puesto. Al consultor no se le apaga nunca: su lista vacía ya le
-  // dice lo que pasa.
+  // nadie al otro lado; al consultor no se le desactiva nunca.
   const chatsDisabled = !isConsultant && hasConsultantThread === false;
 
   // Un consultor puede tener tiendas propias (membership real) ademas de las de
@@ -943,135 +785,169 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   const ownMemberships = bootstrap.memberships.filter(
     (membership) => membership.accessSource === "membership",
   );
-  // Las tiendas propias no son "un cliente mas": son suyas, y las visita a
-  // diario. Iban mezcladas con la cartera en el selector de cliente del header,
-  // asi que entrar en la tuya era buscarla entre los clientes. Aqui esta a un
-  // clic desde cualquier pagina.
-  //
-  // Elegir una hace exactamente lo mismo que elegir un cliente -- escribe el
-  // mismo activeOrganizationId -- asi que Shopify, Meta, Klaviyo, Tareas y el
-  // resto del programa pasan a operar sobre ella sin nada especifico.
   const activeIsOwnStore = ownMemberships.some(
     (membership) => membership.organization_id === activeOrganizationId,
   );
 
-  const navigation = (
-    <nav className="grid gap-1" aria-label="Navegacion principal">
-      {/* La clave es el indice y no `group.label`: hay dos grupos sin etiqueta
-          (el de entrada y el cajon del final) y con el label como clave React
-          los veria como el mismo. */}
-      {visibleGroups.map((group, index) => (
-        <div
-          key={index}
-          className={index === 0 ? undefined : "border-t border-separator pt-2"}
-        >
-          <div className="grid gap-px">
-            {group.items.map((item) => {
-              const badge = navBadges[item.href] ?? 0;
+  const navItemPath = (item: PortalNavItem) => item.href.split("?")[0];
 
-              if (item.href === "/mensajes" && chatsDisabled) {
-                return (
+  const renderModuleItems = (
+    module: PortalNavModule,
+    compact = false,
+  ) => (
+    <div className={compact ? "grid gap-1" : "grid gap-0.5"}>
+      {module.items.map((item, index) => {
+        const itemPath = navItemPath(item);
+        const active = isPortalNavItemActive(item, pathname, searchParams);
+        const badge = navBadges[itemPath] ?? 0;
+        const previousGroup = module.items[index - 1]?.group;
+        const showGroup = Boolean(item.group && item.group !== previousGroup);
+
+        return (
+          <div key={item.href}>
+            {showGroup ? (
+              <p className="mb-1 mt-5 px-2 text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-muted first:mt-0">
+                {item.group}
+              </p>
+            ) : null}
+            {itemPath === "/mensajes" && chatsDisabled ? (
+              <span
+                aria-disabled="true"
+                title="Se activa en cuanto tengas un consultor asignado"
+                className="flex cursor-not-allowed items-center rounded-md px-2.5 py-2 text-[0.8125rem] text-muted opacity-50"
+              >
+                <span className="flex-1">{item.label}</span>
+              </span>
+            ) : (
+              <Link
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={[
+                  "group flex min-h-9 items-center rounded-md px-2.5 py-2 text-[0.8125rem] no-underline transition-[background-color,color,transform] duration-200 hover:bg-surface hover:no-underline active:translate-y-px",
+                  active
+                    ? "bg-surface font-medium text-foreground"
+                    : "text-muted hover:text-foreground",
+                ].join(" ")}
+              >
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {badge > 0 ? (
                   <span
-                    key={item.href}
-                    aria-disabled="true"
-                    title="Se activa en cuanto tengas un consultor asignado"
-                    className={`${navRowClass(false)} cursor-not-allowed opacity-50 hover:text-muted`}
+                    className="ml-2 inline-flex min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.65rem] font-medium leading-4 text-white"
+                    aria-label={`${badge} sin leer`}
                   >
-                    <span className="flex-1">{item.label}</span>
+                    {badge > 99 ? "99+" : badge}
                   </span>
-                );
-              }
-
-              return (
-                <Link
-                  key={item.href}
-                  aria-current={pathname === item.href ? "page" : undefined}
-                  className={navRowClass(pathname === item.href)}
-                  href={item.href}
-                >
-                  <span className="flex-1">{item.label}</span>
-                  {badge > 0 ? (
-                    <span
-                      className="ml-2 inline-flex min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.65rem] font-medium leading-4 text-white"
-                      aria-label={`${badge} sin leer`}
-                    >
-                      {badge > 99 ? "99+" : badge}
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })}
+                ) : null}
+              </Link>
+            )}
           </div>
-        </div>
-      ))}
-      {!isPlatformAdmin ? (
-        <div className="border-t border-separator pt-2">
-          <Link
-            aria-current={
-              pathname === settingsNavItem.href ? "page" : undefined
-            }
-            className={navRowClass(pathname === settingsNavItem.href)}
-            href={settingsNavItem.href}
-          >
-            {settingsNavItem.label}
-          </Link>
-        </div>
-      ) : null}
-    </nav>
-  );
-
-  const accountBlock = (
-    <div className="border-t border-separator pt-4 text-sm text-muted">
-      <Link
-        href="/perfil"
-        aria-current={pathname === "/perfil" ? "page" : undefined}
-        className="flex items-center gap-2.5 rounded-md px-2 py-1 no-underline transition-colors hover:bg-surface hover:no-underline"
-      >
-        <Avatar
-          name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"}
-          src={bootstrap.profile.avatar_url ?? undefined}
-          size="sm"
-          color="accent"
-        />
-        <div className="min-w-0">
-          <p className="truncate text-[0.8125rem] text-foreground">
-            {bootstrap.profile.full_name ?? bootstrap.user.email}
-          </p>
-          {/* Para consultor/admin el rol es informativo; para un cliente final
-            "user" no dice nada -- se muestra su organizacion. */}
-          <p className="truncate text-xs text-muted">
-            {isConsultant
-              ? formatRole(bootstrap.profile.platform_role)
-              : (bootstrap.memberships.find(
-                  (membership) =>
-                    membership.organization_id === activeOrganizationId,
-                )?.organization?.display_name ??
-                bootstrap.memberships[0]?.organization?.display_name ??
-                "")}
-          </p>
-        </div>
-      </Link>
-      <ConfirmDialog
-        trigger={
-          <Button
-            variant="secondary"
-            className="mt-1.5 flex w-full items-center border-0 bg-transparent px-2 py-1.5 text-left text-[0.8125rem] text-muted transition-colors hover:text-foreground"
-          >
-            Cerrar sesión
-          </Button>
-        }
-        title="Cerrar sesión"
-        description="Vas a salir de tu cuenta en este dispositivo."
-        confirmLabel="Cerrar sesión"
-        status="default"
-        onConfirm={signOut}
-      />
+        );
+      })}
     </div>
   );
 
-  // Barra inferior movil: las 4 primeras rutas del nav del rol + "Mas".
-  const bottomNavItems = visibleGroups
-    .flatMap((group) => group.items)
+  const contextNavigation = (
+    <nav aria-label={`${activeModule.label}: secciones`}>
+      {renderModuleItems(activeModule)}
+    </nav>
+  );
+
+  const contextPanel = (
+    <aside className="sticky top-0 hidden h-dvh min-h-0 flex-col overflow-hidden border-r border-separator bg-white text-foreground lg:flex">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-separator px-4">
+        <BrandLogo className="h-4 min-w-0 max-w-[9.5rem]" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+        {contextNavigation}
+      </div>
+    </aside>
+  );
+
+  const mobileNavigation = (
+    <nav className="grid gap-6" aria-label="Navegación principal">
+      {navigationModules.map((module) => (
+        <section key={module.id} aria-labelledby={`mobile-module-${module.id}`}>
+          <div className="mb-2 flex items-center gap-2 px-2">
+            <module.icon className="size-4 text-muted" aria-hidden />
+            <h2
+              id={`mobile-module-${module.id}`}
+              className="text-sm font-semibold text-foreground"
+            >
+              {module.label}
+            </h2>
+          </div>
+          {renderModuleItems(module, true)}
+        </section>
+      ))}
+    </nav>
+  );
+  const profileMenu = (
+    <Popover>
+      <Popover.Trigger>
+        <button
+          type="button"
+          aria-label="Abrir menú de perfil"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent pointer-coarse:size-11"
+        >
+          <Avatar
+            name={bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"}
+            src={bootstrap.profile.avatar_url ?? undefined}
+            size="sm"
+            color="accent"
+          />
+        </button>
+      </Popover.Trigger>
+      <Popover.Content
+        placement="bottom end"
+        className="w-64 overflow-hidden rounded-xl p-0 shadow-lg"
+      >
+        <Popover.Dialog aria-label="Menú de perfil" className="p-2">
+          <div className="border-b border-separator px-2.5 pb-3 pt-1">
+            <p className="truncate text-sm font-medium text-foreground">
+              {bootstrap.profile.full_name ?? "Tu perfil"}
+            </p>
+            <p className="truncate text-xs text-muted">{bootstrap.user.email}</p>
+          </div>
+          <div className="grid gap-0.5 py-2">
+            <Link
+              href="/perfil"
+              className="rounded-md px-2.5 py-2 text-sm text-foreground no-underline transition-colors hover:bg-surface hover:no-underline"
+            >
+              Ver perfil
+            </Link>
+            <Link
+              href="/configuracion?section=general"
+              className="rounded-md px-2.5 py-2 text-sm text-foreground no-underline transition-colors hover:bg-surface hover:no-underline"
+            >
+              Configuración
+            </Link>
+          </div>
+          <div className="border-t border-separator pt-2">
+            <ConfirmDialog
+              trigger={
+                <Button
+                  variant="secondary"
+                  className="flex w-full justify-start border-0 bg-transparent px-2.5 py-2 text-sm text-muted hover:bg-surface hover:text-foreground"
+                >
+                  Cerrar sesión
+                </Button>
+              }
+              title="Cerrar sesión"
+              description="Vas a salir de tu cuenta en este dispositivo."
+              confirmLabel="Cerrar sesión"
+              status="default"
+              onConfirm={signOut}
+            />
+          </div>
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
+  );
+
+  // Barra inferior móvil: cuatro módulos, no cuatro páginas sueltas. Así la
+  // jerarquía es la misma que en escritorio y "Más" abre el mapa completo.
+  const bottomNavItems = navigationModules
+    .filter((module) => !module.utility)
     .slice(0, 4);
 
   // Selector de cliente / tienda: se muestra en la barra superior en desktop y
@@ -1218,25 +1094,19 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               </button>
             </div>
           ) : null}
-          {/* App móvil (estilo Claude): barra superior aireada -- avatar/menú
-          circular a la izquierda, título + eyebrow centrados, notificaciones a
-          la derecha. La navegación vive en la barra inferior fija. */}
+          {/* En móvil, menú a la izquierda y acciones de cuenta a la derecha.
+          La navegación completa vive en la barra inferior y en «Más». */}
           <div className="sticky top-0 z-30 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
             <div className="flex items-center gap-2 px-3 py-2.5 text-foreground">
               <button
                 type="button"
-                aria-label="Menú y cuenta"
+                aria-label="Abrir navegación"
                 aria-controls="mobile-nav"
                 aria-expanded={isMobileNavOpen}
                 onClick={() => setIsMobileNavOpen(true)}
                 className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface pointer-coarse:size-11"
               >
-                <Avatar
-                  name={
-                    bootstrap.profile.full_name ?? bootstrap.user.email ?? "?"
-                  }
-                  size="sm"
-                />
+                <MenuIcon aria-hidden className="size-5" />
               </button>
               <div className="min-w-0 flex-1 text-center">
                 <BrandLogo className="mx-auto h-3 w-auto" />
@@ -1247,6 +1117,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               <div className="flex shrink-0 items-center">
                 <InsightsMenu />
                 <NotificationsBell token={token} />
+                {profileMenu}
               </div>
             </div>
             {clientSelectNode || storeSelectNode || ownStoreSelectNode ? (
@@ -1260,7 +1131,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             ) : null}
           </div>
 
-          {/* Hoja inferior "Más": el resto del nav + la cuenta. */}
+          {/* Hoja inferior «Más»: el resto de módulos. */}
           {isMobileNavOpen ? (
             <div className="fixed inset-0 z-50 lg:hidden">
               <button
@@ -1274,41 +1145,242 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto rounded-t-[1rem] border-t border-separator bg-white px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-3 [&_a]:py-2.5 pointer-coarse:[&_a]:py-3"
               >
                 <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-edge" />
-                {navigation}
-                <div className="mt-6">{accountBlock}</div>
+                {mobileNavigation}
               </div>
             </div>
           ) : null}
 
           <div
             className={[
-              "grid min-h-dvh",
+              "relative grid min-h-dvh",
               isCopilotOpen
-                ? "lg:grid-cols-[232px_minmax(0,1fr)_26rem]"
-                : "lg:grid-cols-[232px_minmax(0,1fr)]",
+                ? primaryNavMode === "expanded"
+                  ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)_26rem]"
+                  : "lg:grid-cols-[4.25rem_15.5rem_minmax(0,1fr)_26rem]"
+                : primaryNavMode === "expanded"
+                  ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)]"
+                  : "lg:grid-cols-[4.25rem_15.5rem_minmax(0,1fr)]",
             ].join(" ")}
           >
-            <aside className="sticky top-0 hidden h-dvh flex-col overflow-hidden border-r border-separator bg-white px-3 py-4 text-foreground lg:flex">
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="flex h-8 items-center">
-                  <BrandLogo className="ml-2 h-5 w-auto" />
-                </div>
-                <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
-                  {navigation}
-                </div>
+            <aside
+              onMouseEnter={() => {
+                if (primaryNavMode === "hover") setIsPrimaryNavHovered(true);
+              }}
+              onMouseLeave={() => {
+                if (primaryNavMode === "hover") setIsPrimaryNavHovered(false);
+              }}
+              className={[
+                "sticky top-0 z-40 hidden h-dvh shrink-0 flex-col overflow-hidden border-r border-separator bg-white py-2 text-foreground transition-[width] duration-200 ease-out lg:flex",
+                isPrimaryNavExpanded ? "w-[13rem] items-stretch" : "w-[4.25rem] items-center",
+              ].join(" ")}
+            >
+              <Link
+                href="/dashboard"
+                aria-label="EcomScaling"
+                className={[
+                  "mb-3 flex h-11 shrink-0 items-center rounded-md no-underline hover:bg-surface hover:no-underline",
+                  isPrimaryNavExpanded ? "mx-3 gap-3 px-2" : "size-11 justify-center",
+                ].join(" ")}
+              >
+                <span className="flex size-7 items-center justify-center rounded-md bg-accent text-[0.65rem] font-semibold tracking-[-0.02em] text-white shadow-sm">
+                  ES
+                </span>
+                <span
+                  className={[
+                    "truncate text-sm font-semibold transition-opacity duration-150",
+                    isPrimaryNavExpanded ? "opacity-100" : "opacity-0",
+                  ].join(" ")}
+                >
+                  EcomScaling
+                </span>
+              </Link>
+
+              <nav
+                aria-label="Módulos"
+                className={[
+                  "flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-2",
+                  isPrimaryNavExpanded ? "items-stretch" : "items-center",
+                ].join(" ")}
+              >
+                {navigationModules
+                  .filter((module) => !module.utility)
+                  .map((module) => {
+                    const Icon = module.icon;
+                    const active = module.id === activeModule.id;
+                    const badge = module.items.reduce(
+                      (total, item) => total + (navBadges[navItemPath(item)] ?? 0),
+                      0,
+                    );
+                    return (
+                      <Link
+                        key={module.id}
+                        href={module.items[0].href}
+                        aria-label={module.label}
+                        aria-current={active ? "page" : undefined}
+                        onClick={() => handleModuleNavigation(module.items[0].href)}
+                        className={[
+                          "relative flex h-10 shrink-0 items-center rounded-md no-underline transition-[background-color,color,transform] duration-200 hover:bg-surface hover:no-underline active:translate-y-px",
+                          isPrimaryNavExpanded
+                            ? "w-full gap-3 px-3"
+                            : "size-10 justify-center",
+                          active
+                            ? "bg-surface text-foreground ring-1 ring-inset ring-separator"
+                            : "text-muted hover:text-foreground",
+                        ].join(" ")}
+                      >
+                        <Icon className="size-[1.15rem]" aria-hidden />
+                        {badge > 0 ? (
+                          <span
+                            aria-label={`${badge} sin leer`}
+                            className="absolute right-0.5 top-0.5 size-2 rounded-full bg-accent ring-2 ring-white"
+                          />
+                        ) : null}
+                        <span
+                          className={[
+                            "min-w-0 truncate text-[0.8125rem] font-medium transition-opacity duration-150",
+                            isPrimaryNavExpanded ? "opacity-100" : "opacity-0",
+                          ].join(" ")}
+                        >
+                          {module.label}
+                        </span>
+                      </Link>
+                    );
+                  })}
+              </nav>
+
+              <div
+                className={[
+                  "mt-2 flex w-full shrink-0 flex-col gap-1 border-t border-separator px-2 pt-2",
+                  isPrimaryNavExpanded ? "items-stretch" : "items-center",
+                ].join(" ")}
+              >
+                {navigationModules
+                  .filter((module) => module.utility)
+                  .map((module) => {
+                    const Icon = module.icon;
+                    const active = module.id === activeModule.id;
+                    return (
+                      <Link
+                        key={module.id}
+                        href={module.items[0].href}
+                        aria-label={module.label}
+                        aria-current={active ? "page" : undefined}
+                        onClick={() => handleModuleNavigation(module.items[0].href)}
+                        className={[
+                          "flex h-10 items-center rounded-md no-underline transition-colors hover:bg-surface hover:no-underline",
+                          isPrimaryNavExpanded
+                            ? "w-full gap-3 px-3"
+                            : "size-10 justify-center",
+                          active
+                            ? "bg-surface text-foreground"
+                            : "text-muted hover:text-foreground",
+                        ].join(" ")}
+                      >
+                        <Icon className="size-[1.1rem]" aria-hidden />
+                        <span
+                          className={[
+                            "truncate text-[0.8125rem] font-medium transition-opacity duration-150",
+                            isPrimaryNavExpanded ? "opacity-100" : "opacity-0",
+                          ].join(" ")}
+                        >
+                          {module.label}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                <Popover
+                  isOpen={isPrimaryNavControlOpen}
+                  onOpenChange={setIsPrimaryNavControlOpen}
+                >
+                  <Popover.Trigger>
+                    <button
+                      type="button"
+                      title="Control de navegación"
+                      aria-label="Control de navegación lateral"
+                      className={[
+                        "flex h-10 items-center rounded-md text-muted transition-colors hover:bg-surface hover:text-foreground",
+                        isPrimaryNavExpanded
+                          ? "w-full gap-3 px-3"
+                          : "size-10 justify-center",
+                      ].join(" ")}
+                    >
+                      <PanelLeftIcon className="size-[1.1rem]" aria-hidden />
+                      <span
+                        className={[
+                          "truncate text-[0.8125rem] font-medium transition-opacity duration-150",
+                          isPrimaryNavExpanded ? "opacity-100" : "opacity-0",
+                        ].join(" ")}
+                      >
+                        Navegación
+                      </span>
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Content
+                    placement="top start"
+                    className="w-60 overflow-hidden rounded-xl p-0 shadow-lg"
+                  >
+                    <Popover.Dialog aria-label="Control de navegación lateral">
+                      <p className="border-b border-separator px-4 py-3 text-sm font-medium text-foreground">
+                        Control de navegación
+                      </p>
+                      <div className="grid gap-0.5 p-2">
+                        {(
+                          [
+                            ["hover", "Expandir al pasar"],
+                            ["collapsed", "Solo iconos"],
+                            ["expanded", "Iconos y nombres"],
+                          ] as const
+                        ).map(([mode, label]) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            aria-pressed={primaryNavMode === mode}
+                            onClick={() => selectPrimaryNavMode(mode)}
+                            className={[
+                              "flex min-h-9 items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+                              primaryNavMode === mode
+                                ? "bg-surface font-medium text-foreground"
+                                : "text-muted hover:bg-surface hover:text-foreground",
+                            ].join(" ")}
+                          >
+                            <span
+                              aria-hidden
+                              className={[
+                                "size-2 rounded-full",
+                                primaryNavMode === mode
+                                  ? "bg-foreground"
+                                  : "bg-transparent ring-1 ring-inset ring-edge",
+                              ].join(" ")}
+                            />
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </Popover.Dialog>
+                  </Popover.Content>
+                </Popover>
               </div>
-              <div className="shrink-0 pt-3">{accountBlock}</div>
             </aside>
+
+            {contextPanel}
 
             <section id="portal-content" tabIndex={-1} className="min-w-0">
               {/* Barra superior fija: una sola fila, estilo Supabase --
-              selectores de ambito (cliente/tienda) a la izquierda, seguidos
-              del breadcrumb, notificaciones (IA y normales) a la derecha. El
+              ubicación de la pantalla y selectores de ámbito a la izquierda;
+              notificaciones y cuenta a la derecha. El
               consultor siempre tiene el selector de cliente, con "Vista
               general" (sin cliente) como estado por defecto. Un cliente
               normal solo lo ve si pertenece a mas de una organizacion. Al
               elegir un cliente/tienda todo se scopea a el. */}
               <div className="sticky top-0 z-20 hidden h-12 items-center gap-3 border-b border-separator bg-white px-6 py-2 lg:flex lg:px-10">
+                <p className="shrink-0 text-[0.8125rem] font-medium text-foreground">
+                  {title}
+                </p>
+                {clientSelectNode ? (
+                  <span aria-hidden className="text-line">
+                    /
+                  </span>
+                ) : null}
                 {clientSelectNode}
                 {/* El selector de tienda solo aporta con >=2 tiendas. Con una
                 sola, "Todas" y esa tienda son lo mismo. */}
@@ -1320,16 +1392,11 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                     {storeSelectNode}
                   </>
                 ) : null}
-                {clientSelectNode || storeSelectNode ? (
-                  <span aria-hidden className="text-line">
-                    /
-                  </span>
-                ) : null}
-                <Breadcrumbs items={[{ label: title }]} />
                 <div className="ml-auto flex items-center gap-3">
                   {ownStoreSelectNode}
                   <InsightsMenu />
                   <NotificationsBell token={token} />
+                  {profileMenu}
                 </div>
               </div>
 
@@ -1456,13 +1523,13 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             aria-label="Navegación principal"
             className="fixed inset-x-0 bottom-0 z-40 flex border-t border-separator bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
           >
-            {bottomNavItems.map((item) => {
-              const Icon = NAV_ICONS[item.href] ?? DotGridIcon;
-              const active = pathname === item.href;
+            {bottomNavItems.map((module) => {
+              const Icon = module.icon;
+              const active = module.id === activeModule.id;
               return (
                 <Link
-                  key={item.href}
-                  href={item.href}
+                  key={module.id}
+                  href={module.items[0].href}
                   aria-current={active ? "page" : undefined}
                   className={[
                     "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[0.65rem] no-underline transition-colors hover:no-underline",
@@ -1470,7 +1537,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   ].join(" ")}
                 >
                   <Icon className="size-5 shrink-0" aria-hidden />
-                  <span className="max-w-full truncate">{item.label}</span>
+                  <span className="max-w-full truncate">{module.label}</span>
                 </Link>
               );
             })}

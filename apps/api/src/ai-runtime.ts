@@ -85,6 +85,7 @@ import {
   loadDecisionPlaybookContextBlocks,
 } from "./decision-playbook-chat-context.js";
 import { apiMetrics } from "./metrics.js";
+import { refreshLiveModelPricing } from "./ai-model-pricing.js";
 import {
   type AuthContext,
   createUserScopedClient,
@@ -1112,6 +1113,8 @@ async function runAgentTurnWithFallback<TOutput>(
    */
   seedSecurityEvents: readonly AgentSecurityEvent[] = [],
 ): Promise<Awaited<ReturnType<typeof runAgentTurn<TOutput>>>> {
+  // La tarifa de ai_model_prices, no la del codigo (cache de 1 h; nunca lanza).
+  await refreshLiveModelPricing(env);
   // El colector se crea aqui, en el unico punto por el que pasan los seis
   // agentes y los dos proveedores. Ponerlo en cada funcion de agente serian
   // seis sitios donde olvidarse de drenarlo.

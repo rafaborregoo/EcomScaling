@@ -11,7 +11,7 @@ import { z } from "zod";
 import {
   costBasisFor,
   estimateCostUsd,
-  PRICING_VERSION,
+  getPricingVersion,
   type AIProviderId,
   type CostBasis,
 } from "./provider-capabilities.js";
@@ -2530,7 +2530,7 @@ function turnPricingFields(
   return {
     estimatedCostUsd: estimateCostUsd(model, inputTokens, outputTokens),
     costBasis: costBasisFor(model),
-    pricingVersion: PRICING_VERSION,
+    pricingVersion: getPricingVersion(),
   };
 }
 

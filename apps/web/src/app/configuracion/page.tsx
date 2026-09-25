@@ -13,6 +13,7 @@ import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
+import { useUrlSection } from "@/lib/use-url-section";
 import {
   Badge,
   Banner,
@@ -781,6 +782,12 @@ function InfoRow({
 }
 
 type SettingsTab = "general" | "accesos" | "alertas" | "cartera";
+const SETTINGS_SECTIONS = [
+  "general",
+  "accesos",
+  "alertas",
+  "cartera",
+] as const satisfies readonly SettingsTab[];
 
 // Cartera: el total de tus clientes y tus tiendas. Antes eran dos entradas de
 // nav (/consultor y /tiendas) que no se operan a diario, solo se consultan. Las
@@ -868,13 +875,18 @@ function SettingsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         (membership) => membership.organization_id === organization?.id,
       )?.role ?? "",
     );
-  const [tab, setTab] = useState<SettingsTab>("general");
+  const [tab, setTab] = useUrlSection(
+    "section",
+    SETTINGS_SECTIONS,
+    "general",
+  );
 
   return (
     <div className="portal-page space-y-5 sm:space-y-6">
       <Tabs
         value={tab}
         onChange={(value) => setTab(value as SettingsTab)}
+        hideNavigation
         items={[
           { value: "general", label: "General" },
           // Sin cliente activo la pestaña sigue teniendo sentido: con quién

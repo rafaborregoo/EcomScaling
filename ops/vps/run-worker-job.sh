@@ -20,6 +20,9 @@ action-envelope|execution-supervision|continuous-learning)
   # Cadena nocturna F3 -> F7 en orden de fase (apps/worker/src/nightly-chain-once.ts)
   nightly-chain)
     ;;
+  # Tarifa de modelos de IA desde LiteLLM (apps/worker/src/ai-pricing-sync-once.ts)
+  ai-pricing-sync)
+    ;;
   *)
     echo "Unknown worker job: ${job:-<missing>}" >&2
     exit 64

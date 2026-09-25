@@ -32,6 +32,7 @@ import {
   isPurgeableAuthorizationAttempt,
   observeMaturity,
   type MaturityDeclaration, DEFAULT_SEVERITY_THRESHOLDS, type SeverityThresholds,
+  type InterventionEffectMetric,
 } from "@ecomscaling/contracts";
 import { leerHechos } from "./maturity-engine.js";
 import { createLogger } from "@ecomscaling/observability";
@@ -9138,6 +9139,147 @@ export async function setSeverityThresholds(
     return { ok: false as const, statusCode: 500, error: "severity_thresholds_write_failed", detail: error.message };
   }
   return getSeverityThresholds(env, authorization, context, organizationId);
+}
+
+/**
+ * F8: las intervenciones cerradas de una tienda, con la metrica objetivo que
+ * declaro el consultor y su efecto medido. Una intervencion sin declaracion
+ * sale con `effect: null`: es la que hay que rellenar para que F9 aprenda.
+ */
+export async function listInterventionEffects(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const denied = await assertInPortfolio(env, authorization, context, organizationId);
+  if (denied) return denied;
+  const supabase = createServiceClient(env);
+  const [closures, effects, stores] = await Promise.all([
+    supabase
+      .from("execution_closure_runs")
+      .select("intervention_id, recommendation_id, evaluated_at, closure_state, operational_outcome, final_state_snapshot")
+      .eq("organization_id", organizationId)
+      .order("evaluated_at", { ascending: false })
+      .limit(300),
+    supabase
+      .from("intervention_effects")
+      .select("intervention_id, store_id, metric, expected_direction, started_at, declared_at, baseline_value, observed_value, change_relative, observed_direction, material, sample_sufficient, pre_days, post_days, maturity, measured_at")
+      .eq("organization_id", organizationId),
+    supabase.from("shopify_stores").select("id, shop_name, myshopify_domain").eq("organization_id", organizationId),
+  ]);
+  const failed = [closures, effects, stores].find((r) => r.error);
+  if (failed?.error) {
+    return { ok: false as const, statusCode: 500, error: "intervention_effects_load_failed", detail: failed.error.message };
+  }
+  const effectBy = new Map((effects.data ?? []).map((e) => [e.intervention_id as string, e]));
+  const seen = new Set<string>();
+  const interventions = (closures.data ?? [])
+    .filter((c) => !seen.has(c.intervention_id as string) && Boolean(seen.add(c.intervention_id as string)))
+    .map((c) => {
+      const snapshot = (c.final_state_snapshot ?? {}) as Record<string, unknown>;
+      return {
+        intervention_id: c.intervention_id as string,
+        closed_at: c.evaluated_at as string,
+        closure_state: c.closure_state as string,
+        operational_outcome: c.operational_outcome as string,
+        expected_state: typeof snapshot.expected === "string" ? snapshot.expected : null,
+        effect: effectBy.get(c.intervention_id as string) ?? null,
+      };
+    });
+  return {
+    ok: true as const,
+    data: {
+      interventions,
+      stores: (stores.data ?? []).map((st) => ({ id: st.id as string, name: (st.shop_name ?? st.myshopify_domain) as string })),
+    },
+  };
+}
+
+/**
+ * F8: el consultor declara que metrica deberia mover una intervencion cerrada
+ * y hacia donde. El arranque se toma de la primera transicion de su ciclo de
+ * vida (o del cierre, si no hay ninguna): es desde cuando se mide el "despues".
+ */
+export async function declareInterventionEffect(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+  interventionId: string,
+  target: { metric: InterventionEffectMetric; expected_direction: "up" | "down"; store_id: string | null },
+) {
+  const denied = await assertInPortfolio(env, authorization, context, organizationId);
+  if (denied) return denied;
+  const supabase = createServiceClient(env);
+
+  const [closure, firstTransition] = await Promise.all([
+    supabase
+      .from("execution_closure_runs")
+      .select("as_of")
+      .eq("organization_id", organizationId)
+      .eq("intervention_id", interventionId)
+      .order("evaluated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("execution_lifecycle_transitions")
+      .select("event_at")
+      .eq("organization_id", organizationId)
+      .eq("intervention_id", interventionId)
+      .order("event_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (closure.error || firstTransition.error) {
+    return {
+      ok: false as const,
+      statusCode: 500,
+      error: "intervention_lookup_failed",
+      detail: (closure.error ?? firstTransition.error)!.message,
+    };
+  }
+  if (!closure.data) {
+    return { ok: false as const, statusCode: 404, error: "intervention_not_closed", message: "Esa intervencion no tiene cierre en F8." };
+  }
+  if (target.store_id) {
+    const { data: store } = await supabase
+      .from("shopify_stores")
+      .select("id")
+      .eq("id", target.store_id)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (!store) return { ok: false as const, statusCode: 400, error: "store_not_in_organization" };
+  }
+
+  const { error } = await supabase.from("intervention_effects").upsert(
+    {
+      organization_id: organizationId,
+      intervention_id: interventionId,
+      store_id: target.store_id,
+      metric: target.metric,
+      expected_direction: target.expected_direction,
+      started_at: (firstTransition.data?.event_at ?? closure.data.as_of) as string,
+      declared_by: context.user.id,
+      declared_at: new Date().toISOString(),
+      // La medida anterior era de otra declaracion: se vacia hasta que el motor la rehaga.
+      baseline_value: null,
+      observed_value: null,
+      change_relative: null,
+      observed_direction: null,
+      material: false,
+      sample_sufficient: false,
+      pre_days: 0,
+      post_days: 0,
+      maturity: null,
+      measured_at: null,
+    },
+    { onConflict: "organization_id,intervention_id" },
+  );
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "intervention_effect_write_failed", detail: error.message };
+  }
+  return { ok: true as const, data: { intervention_id: interventionId } };
 }
 
 /**

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, type ComponentType } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   getLocalTimeZone,
   today,
@@ -77,6 +76,7 @@ import {
   MessageThread,
   MessageThreadsCard,
 } from "@/components/consultant-messages";
+import { useUrlSection } from "@/lib/use-url-section";
 
 const DASHBOARD_TABS = ["todo", "shopify", "meta", "klaviyo"] as const;
 type DashboardTab = (typeof DASHBOARD_TABS)[number];
@@ -2439,8 +2439,11 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [metaMetrics, setMetaMetrics] = useState<MetaMetrics | null>(null);
   const [metaMetricsError, setMetaMetricsError] = useState<string | null>(null);
   const [metricsReloadKey, setMetricsReloadKey] = useState(0);
-  const [activeTab, setActiveTab] = useState<DashboardTab>("todo");
-  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useUrlSection(
+    "tab",
+    DASHBOARD_TABS,
+    "todo",
+  );
 
   // Enlace desde la zona de IA del header: `?tab=meta#insight-roas`. La
   // pestaña se resuelve al montar y no en el estado inicial -- el servidor no
@@ -2448,16 +2451,12 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // tampoco vale el nativo: cuando el navegador lo intenta, la pestaña de
   // destino todavia no se ha renderizado y el elemento no existe.
   useEffect(() => {
-    const requested = searchParams.get("tab");
-    if (!requested) return;
-    if (!DASHBOARD_TABS.includes(requested as DashboardTab)) return;
-    setActiveTab(requested as DashboardTab);
     const anchor = window.location.hash.slice(1);
     if (!anchor) return;
     requestAnimationFrame(() => {
       document.getElementById(anchor)?.scrollIntoView({ block: "center" });
     });
-  }, [searchParams]);
+  }, [activeTab]);
 
   const organization =
     bootstrap.memberships.find(
@@ -2624,6 +2623,7 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <Tabs
         value={activeTab}
         onChange={(value) => setActiveTab(value as DashboardTab)}
+        hideNavigation
         items={[
           { value: "todo", label: "Prioridades" },
           {

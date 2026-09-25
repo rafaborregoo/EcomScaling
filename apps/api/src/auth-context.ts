@@ -93,6 +93,40 @@ export type AuthContextError = {
 export type AuthContextResult =
   { ok: true; context: AuthContext } | { ok: false; error: AuthContextError };
 
+/**
+ * Integraciones (y solo integraciones, de momento) es del cliente: cuentas,
+ * tokens y estado de Shopify/Meta/Klaviyo de SU organizacion. El selector de
+ * cabecera deja a un consultor "entrar" en un cliente sin membership real
+ * (accessSource `consultant_assignment`) para operar dashboard, tareas y
+ * marketing en su nombre -- eso es lo que hace el panel consultor. Pero
+ * /integraciones renderizaba igual con esa membership sintetica, asi que
+ * elegir un cliente en el selector le enseñaba (y a veces le dejaba tocar) sus
+ * conexiones reales sin que el cliente lo supiera. Un consultor solo ve aqui
+ * lo que sea suyo de verdad (`membership`) o de su consultora
+ * (`consulting_organization`); para gestionar la conexion de un cliente esta
+ * el CRUD de `/v1/consultant/organizations/:id/stores`, que es un sitio
+ * distinto y ya pide su propia autoridad.
+ */
+export function requireOwnOrganizationAccess(
+  context: AuthContext,
+  organizationId: string,
+): OperationalOrganizationResult {
+  const operational = requireOperationalOrganization(context, organizationId);
+  if (!operational.ok) return operational;
+
+  if (operational.membership.accessSource === "consultant_assignment") {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "consultant_integrations_access_denied",
+      message:
+        "Las integraciones de un cliente se gestionan desde el panel consultor, no desde /integraciones.",
+    };
+  }
+
+  return operational;
+}
+
 export function isOperationalOrganizationError(
   result: OperationalOrganizationResult,
 ): result is Extract<OperationalOrganizationResult, { ok: false }> {

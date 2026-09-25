@@ -9,6 +9,7 @@ import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { buildMarketingBrief } from "@/lib/marketing-brief";
 import { formatMoney } from "@/lib/money";
+import { useUrlSection } from "@/lib/use-url-section";
 import { ModuleSummary } from "@/components/module-summary";
 import { CampaignPlanProposal } from "@/components/campaign-plan-proposal";
 import { isUpcoming, isWithinLastDays } from "@/lib/elapsed";
@@ -64,6 +65,7 @@ import {
   templatePlainText,
   type TemplateDesign,
 } from "./template-design";
+
 import {
   AsyncState,
   LoadingBlock,
@@ -90,6 +92,13 @@ import {
   UploadButton,
   type Tone,
 } from "@/components/ui";
+
+const MARKETING_SECTIONS = [
+  "plan",
+  "contenido",
+  "crear",
+  "rendimiento",
+] as const;
 
 type MarketingDraftEdit = {
   subject: string;
@@ -765,7 +774,11 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     ["owner", "manager"].includes(activeMembership?.role ?? "");
   // Los tres trabajos del modulo. Antes eran tres zonas del mismo scroll y se
   // navegaba con `scrollIntoView`; ahora la pestaña ES la navegacion.
-  const [tab, setTab] = useState("plan");
+  const [tab, setTab] = useUrlSection(
+    "section",
+    MARKETING_SECTIONS,
+    "plan",
+  );
   // Campaña para la que se esta escribiendo. Es lo que convierte "generar
   // contenido" en "sacar ESTA campaña": al terminar, la pieza queda enlazada.
   const [campaignTarget, setCampaignTarget] = useState<CampaignItem | null>(
@@ -1547,7 +1560,10 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           atajo con scrollIntoView para llegar a cualquiera de ellos. */}
       <Tabs
         value={tab}
-        onChange={setTab}
+        onChange={(value) =>
+          setTab(value as (typeof MARKETING_SECTIONS)[number])
+        }
+        hideNavigation
         items={[
           { value: "plan", label: "Plan" },
           {

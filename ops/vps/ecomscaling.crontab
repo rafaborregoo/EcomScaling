@@ -21,6 +21,8 @@ MAILTO=""
 17 0 * * * /opt/ecomscaling/run-worker-job.sh meta-reconcile
 43 */6 * * * /opt/ecomscaling/run-worker-job.sh klaviyo-reconcile
 7 3 * * * /opt/ecomscaling/run-worker-job.sh purge-expired-deletions
+# Tarifa de modelos de IA (LiteLLM -> ai_model_prices) y coste de las ejecuciones sin el.
+40 0 * * * /opt/ecomscaling/run-worker-job.sh ai-pricing-sync
 
 # --- Cadena nocturna F3 -> F7 (diagnostico, decision, playbooks, 6.00-6.04,
 # 7.01-7.14), en orden y en serie dentro de un solo job. Tiene hasta las 3:35,

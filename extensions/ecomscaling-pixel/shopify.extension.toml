@@ -6,6 +6,7 @@
 type = "web_pixel_extension"
 name = "ecomscaling-pixel"
 runtime_context = "strict"
+uid = "69602717-feac-0294-c635-f91a7e4dde4bbd78b79a"
 
 # Solo analitica: sin consentimiento de analitica del comprador, Shopify no
 # ejecuta el pixel.

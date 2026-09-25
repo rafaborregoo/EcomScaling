@@ -1610,6 +1610,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   );
   const canManage =
     isConsultantView || ["owner", "manager"].includes(membership?.role ?? "");
+  // Igual que en Tareas: el consultor propone y edita el plan (canManage), pero
+  // marcar una tarea como hecha es del cliente, no de una membership sintetica
+  // de consultant_assignment. El backend ya lo exige (updateTaskStatus).
+  const canResolveTasks =
+    canManage && membership?.accessSource !== "consultant_assignment";
   // Un cliente sin consultor no espera a nadie: decirle "tu consultor está
   // preparando el plan" lo deja mirando una pantalla que no va a cambiar sola.
   const { isAutonomous } = useAssignedConsultant(organization?.id ?? null);
@@ -2416,7 +2421,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                                                   numberLabel={`${phase.position}.${milestoneIndex + 1}.${taskIndex + 1}`}
                                                                   task={task}
                                                                   canManage={
-                                                                    canManage
+                                                                    canResolveTasks
                                                                   }
                                                                   onToggleDone={() =>
                                                                     toggleTaskDone(

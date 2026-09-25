@@ -1,14 +1,8 @@
 # Propuesta: grafo de capacidades (D03) y relaciones entre métricas (D06)
 
-**Estado: borrador para validar.** Nada de esto se ha insertado en la base de
-datos. Cuando lo valides (tachando, cambiando o añadiendo filas), se convierte en
-una migración idempotente y los motores lo leen en la siguiente pasada nocturna
-sin tocar código.
-
-Por qué hace falta tu validación: el artefacto de D03 escribe solo 7 aristas, y
-D06 solo tiene la relación aritmética ventas = pedidos × ticket. El resto es
-conocimiento de ecommerce, no del documento, y ponerlo a ojo sin revisar es
-inventar umbrales.
+**Estado: validada el 2026-09-25.** Sembrada con `supabase/migrations/20261108190000_d03_d06_grafos_validados.sql`:
+las 17 aristas de capacidades (C1-C17) y M1-M3 de metricas. M4-M12 quedan fuera hasta que D05 emita
+esas metricas: el nombre lo fija quien la calcula, no esta tabla.
 
 ## 1. Grafo de capacidades (`capability_dependencies`)
 

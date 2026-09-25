@@ -69,7 +69,7 @@ auditoría.
       `credential_expired` / `blocked`, asi que mientras no se reconecte
       **ninguna senal de esa tienda sostiene un diagnostico** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â que es el
       comportamiento correcto, pero deja la tienda a ciegas.
-- [ ] **Decidir que pasa con las cuatro conexiones de Meta Ads en `pending`.** *(2026-09-25: decidido borrarlas. Estan en produccion y el borrado lo tiene que lanzar Rafa; ver el resumen de la sesion)*
+- [x] **Decidir que pasa con las cuatro conexiones de Meta Ads en `pending`.** *(2026-09-25: decidido borrarlas; borradas por Rafa en produccion el 2026-09-25)*
       Nunca han sincronizado. El motor no las marca como rotas a proposito
       (`pending` es "recien creada", no "averiada"), asi que se quedan
       invisibles: ni dan dato ni dan aviso. O se completan o se descartan.
@@ -93,6 +93,9 @@ auditoría.
 - [x] **Destilar el bloque que sigue sin capas** (`8.12`) *(el motor de 8.12 ya existe desde el 2026-09-24, implementado desde el corpus maestro; falta la destilacion en capas, que es trabajo de contenido)*: `7.15`, `7.17` y *(Hecho 2026-09-25: capas 01-06 y manifest 99)*
       `7.18` ya están implementados end-to-end y documentados; `8.12` queda
       fuera de F7.
+
+- [ ] **Clave de OpenAI vacia en todos los entornos.** `OPENAI_MODEL=gpt-5.5` esta puesto y tarifado, pero sin
+      `OPENAI_API_KEY` el respaldo de OpenAI no puede entrar si Anthropic falla. *(2026-09-25)*
 
 ---
 
@@ -120,7 +123,7 @@ gasto por campana y productos top: justo lo que un consultor pregunta.
       Las descripciones avisan de lo que el modelo no puede deducir solo:
       sessions a 0 es falta de permiso, no conversion baja; items_without_cost
       alto infla el margen; las compras de Meta son atribuidas y no se suman.
-- [ ] **Decidir sobre 4 funciones muertas**: `klaviyo_link_clicks`, *(2026-09-25: klaviyo_link_clicks y klaviyo_subject_performance conectadas al panel de Klaviyo (enlaces mas pulsados y rasgos del asunto). meta_attribution_window_rank y copilot_bank_organization siguen sin uso)*
+- [x] **Decidir sobre 4 funciones muertas**: `klaviyo_link_clicks`, *(2026-09-25: klaviyo_link_clicks y klaviyo_subject_performance conectadas al panel de Klaviyo (enlaces mas pulsados y rasgos del asunto). meta_attribution_window_rank y copilot_bank_organization siguen sin uso)* *(Cerrado 2026-09-25: las otras dos no estaban muertas, las llaman funciones SQL (meta_spend_summary y copilot_tokens_consumidos); el inventario solo miraba Node. De paso, copilot_* quedan solo para service_role: estaban abiertas a cualquier usuario con sesion)*
       `klaviyo_subject_performance`, `meta_attribution_window_rank` y
       `copilot_bank_organization`. No las llama ni la UI ni un agente —
       comprobado a mano, solo aparecen en los tipos generados. O se conectan o
@@ -170,7 +173,7 @@ hecho falso, que es peor.
 - [x] **Meter el auditor en CI.** Mientras se ejecute a mano, el proximo cambio
       de firma vuelve a colarse. Es lo unico que cierra esta clase de bug.
       **Hecho 2026-09-24: `npm run verify` lo ejecuta junto a las demas guardas (ya no hay CI de GitHub). Se arreglo su emparejamiento posicional, que escondia un desajuste real: `retention-crm-benchmarks` leia `shopify_margin_summary.contribution`, inexistente.**
-- [x] **`conversion_cro.product_views`**: el hecho esta declarado y ninguna *(Hecho 2026-09-25: pixel propio extensions/ecomscaling-pixel -> shopify_pixel_events -> shopify_product_views -> motor 6.05. Falta `shopify app deploy` y reautorizar con write_pixels/read_customer_events)*
+- [x] **`conversion_cro.product_views`**: el hecho esta declarado y ninguna *(Hecho 2026-09-25: pixel propio extensions/ecomscaling-pixel -> shopify_pixel_events -> shopify_product_views -> motor 6.05. Publicado 2026-09-25 (ecomscaling-dev-4, ecomscaling-custom-5) y scopes en los env; falta que cada tienda acepte los permisos nuevos)*
       funcion lo puede llenar — `shopify_funnel_summary` no trae vistas de
       producto. Hoy es UNKNOWN, que es honesto. Decidir si se trae el dato o se
       retira el hecho.
@@ -316,11 +319,11 @@ siendo buena idea dejarla.
 
 ### De `D06` (motor de sintomas)
 
-- [ ] **Ampliar la libreria de patrones** (`SYMPTOM_TEMPLATES`). Tiene cuatro
+- [x] **Ampliar la libreria de patrones** (`SYMPTOM_TEMPLATES`). Tiene cuatro *(Hecho 2026-09-25: D05 emite tambien ticket medio, sesiones y conversion, con sus seis patrones en D06)*
       entradas: las dos metricas que `D05` sabe emitir, en sus dos direcciones.
       *Por que se dejo:* una libreria con entradas para metricas que nadie
       calcula solo sirve para aparentar cobertura. Crece con `D05`.
-- [ ] **Declarar mas relaciones entre metricas** en `metric_dependencies`. Hoy *(2026-09-25: propuesta en conocimiento/fase-03/PROPUESTA_GRAFOS_D03_D06.md pendiente de validar)*
+- [x] **Declarar mas relaciones entre metricas** en `metric_dependencies`. Hoy *(2026-09-25: validada y sembrada: M1-M3; M4-M12 esperan a que D05 emita esas metricas)*
       solo esta la aritmetica de ventas y pedidos, asi que la unica jerarquia
       posible es esa. Cada relacion nueva --embudo, economica, operacional--
       amplia lo que el motor puede relacionar **sin tocar codigo**, que es el
@@ -344,7 +347,7 @@ siendo buena idea dejarla.
       este negocio". Sin esto no hay brecha, y sin brecha no hay pasos 5 a 14
       del runtime (asimetrias, cuellos de botella, regresion, riesgo latente,
       growth-system fit, sobreingenieria).
-- [ ] **Escribir el resto del grafo de capacidades.** Van 7 aristas, que son *(2026-09-25: propuesta de 17 aristas en conocimiento/fase-03/PROPUESTA_GRAFOS_D03_D06.md pendiente de validar)*
+- [x] **Escribir el resto del grafo de capacidades.** Van 7 aristas, que son *(2026-09-25: validadas y sembradas las 17 aristas, migracion 20261108190000)*
       literalmente las que el artefacto escribe. Las demas son conocimiento de
       ecommerce por escribir, y ponerlas a ojo seria lo mismo que inventar los
       umbrales.
@@ -374,7 +377,7 @@ siendo buena idea dejarla.
       sacando las cinco severidades en `unknown` porque nadie ha dicho **a partir
       de que cuota esto es grave** -- y eso es otra pregunta, con otra respuesta
       por tienda. Antes del formulario hace falta la decision.
-- [ ] **Coste por referencia: 43 de 44 vacias.** Sin coste no hay margen, y sin
+- [ ] **Coste por referencia: 43 de 44 vacias.** Sin coste no hay margen, y sin *(2026-09-25: la tienda es la de ejemplo de Shopify (snowboards); el coste se pone en Shopify por variante o con el CSV de costes, no se inventa)*
       margen `D03` declara la economia unitaria no observable. Se rellena en
       Shopify (coste por variante) o conectando la fuente que lo tenga.
 - [x] **No hay historico de existencias** (`shopify_inventory_level_snapshots`
@@ -1096,4 +1099,4 @@ F8 queda cerrada completa, incluyendo 8.00, 8.01, 8.02–8.17. F9 queda habilita
 - [x] Runtime, persistencia RLS, worker, workflow, API, Copiloto, panel de diagnóstico e `InsightsMenu`.
 - [x] Migración F9 aplicada en desarrollo y producción.
 - [x] Verificación real con `.env.local`: 6 organizaciones, 240 evaluaciones, cero fallos y cero duplicados; smoke temporal sembrado/borrado con cleanup completo.
-- [ ] Pendiente operativo, no de implementación: cada tenant necesita outcomes métricos y evidencia causal suficientes para que el gate pase de `WAITING_FOR_EVIDENCE` a `READY`. F9 no inventa esos datos.
+- [ ] Pendiente operativo, no de implementación: cada tenant necesita outcomes métricos y evidencia causal suficientes para que el gate pase de `WAITING_FOR_EVIDENCE` a `READY`. F9 no inventa esos datos. *(2026-09-25: F8 ya mide el efecto de negocio (intervention_effects, panel ¿Movio el negocio?). Falta que el consultor declare la metrica objetivo de cada intervencion cerrada)*

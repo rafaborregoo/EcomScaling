@@ -11,6 +11,9 @@ import {
   buildAgentSystemPrompt,
   renderAgentPromptSections,
   estimateCostUsd,
+  getPricingVersion,
+  PRICING_VERSION,
+  setLiveModelPricing,
   costBasisFor,
   getModelCapabilities,
   evaluateAgentBudget,
@@ -459,6 +462,19 @@ test("estimateCostUsd calcula coste real por modelo conocido", () => {
   const cost = estimateCostUsd("claude-opus-4-8", 1_000_000, 1_000_000);
   assert.equal(cost, 30);
   assert.equal(costBasisFor("claude-opus-4-8"), "priced");
+});
+
+test("la tarifa de ai_model_prices gana al respaldo y el id fechado cae en su alias", () => {
+  assert.equal(estimateCostUsd("claude-haiku-4-5-20251001", 1_000_000, 0), 1);
+  setLiveModelPricing({ "gpt-5.5": { inputPerMTok: 6, outputPerMTok: 36 } }, "2026-10-01");
+  try {
+    assert.equal(estimateCostUsd("gpt-5.5-2026-04-23", 1_000_000, 1_000_000), 42);
+    assert.equal(getPricingVersion(), "2026-10-01");
+    // Lo que la tabla no tiene sigue saliendo del respaldo.
+    assert.equal(estimateCostUsd("claude-opus-4-8", 1_000_000, 1_000_000), 30);
+  } finally {
+    setLiveModelPricing({}, PRICING_VERSION);
+  }
 });
 
 // AI-30: este test afirmaba lo contrario (que un modelo desconocido costaba 0)

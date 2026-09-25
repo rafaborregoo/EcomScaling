@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import { RunTraceDetail } from "./run-trace";
+import { ModelPricesPanel } from "./model-prices";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import {
   AsyncState,
@@ -789,6 +790,7 @@ function ObservabilidadPanel() {
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       <OrchestratorPanel />
+      <ModelPricesPanel />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric

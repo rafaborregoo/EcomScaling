@@ -218,7 +218,11 @@ function TaskDetail({
   isInternalDraft: boolean;
   onInternalChange: (value: boolean) => void;
   onSubmitComment: (event: FormEvent<HTMLFormElement>) => void;
-  onStatusChange: (status: string) => void;
+  /** Sin ella (un consultor mirando la tarea de un cliente asignado): la
+   * tarea se puede proponer y comentar, pero no resolver -- eso es del
+   * cliente. El backend ya lo exige (updateTaskStatus); esto evita ademas
+   * enseñar un boton que devolveria 403 al pulsarlo. */
+  onStatusChange?: (status: string) => void;
 }) {
   const meta = [
     task.categories.map((c) => CATEGORY_LABELS[c] ?? c).join(" · "),
@@ -242,7 +246,7 @@ function TaskDetail({
           <p className="mt-1 text-xs text-muted">{meta.join(" · ")}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
-          {task.status === "pending" ? (
+          {onStatusChange && task.status === "pending" ? (
             <Button
               variant="ghost"
               size="sm"
@@ -251,7 +255,8 @@ function TaskDetail({
               Empezar
             </Button>
           ) : null}
-          {["pending", "in_progress"].includes(task.status) ? (
+          {onStatusChange &&
+          ["pending", "in_progress"].includes(task.status) ? (
             <>
               <Button size="sm" onClick={() => onStatusChange("completed")}>
                 Completar
@@ -525,7 +530,8 @@ function TaskRow({
   viewerUserId?: string;
   clientName?: string;
   isPending: boolean;
-  onStatusChange: (status: string) => void;
+  /** Sin ella: proponer y comentar, no resolver (ver TaskDetail). */
+  onStatusChange?: (status: string) => void;
   onOpenDetail: () => void;
 }) {
   const due = dueSignal(task);
@@ -591,7 +597,7 @@ function TaskRow({
         {due.text}
       </span>
       <div className="flex shrink-0 items-center gap-1.5">
-        {task.status === "pending" ? (
+        {onStatusChange && task.status === "pending" ? (
           <Button
             size="sm"
             variant="ghost"
@@ -601,7 +607,8 @@ function TaskRow({
             Empezar
           </Button>
         ) : null}
-        {["pending", "in_progress"].includes(task.status) ? (
+        {onStatusChange &&
+        ["pending", "in_progress"].includes(task.status) ? (
           <Button
             size="sm"
             disabled={isPending}
@@ -910,9 +917,25 @@ function ClientSummaryGrid({
   );
 }
 
-function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
+function ConsultantOperationsView({
+  isConsultant,
+  bootstrap,
+}: {
+  isConsultant: boolean;
+  bootstrap: BootstrapResponse;
+}) {
   const operationsQuery = useCachedQuery<ConsultantOperations>(
     "/v1/consultant/operations",
+  );
+  // Esta vista mezcla la cartera de clientes con la tienda propia del
+  // consultor (listConsultantOrganizations la incluye a proposito, ver
+  // consultant.ts). Proponer/comentar vale para las dos; resolver
+  // (completar/ignorar/cambiar estado) solo para lo suyo -- el backend ya lo
+  // exige (updateTaskStatus), esto evita enseñar un boton que daria 403.
+  const ownOrganizationIds = new Set(
+    bootstrap.memberships
+      .filter((membership) => membership.accessSource !== "consultant_assignment")
+      .map((membership) => membership.organization_id),
   );
   const data = operationsQuery.data ?? null;
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1253,12 +1276,15 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
                     showVisibility={isConsultant}
                     clientName={task.organization_name}
                     isPending={pendingTaskId === task.id}
-                    onStatusChange={(status) =>
-                      void changeTaskStatus(
-                        task.organization_id,
-                        task.id,
-                        status,
-                      )
+                    onStatusChange={
+                      ownOrganizationIds.has(task.organization_id)
+                        ? (status) =>
+                            void changeTaskStatus(
+                              task.organization_id,
+                              task.id,
+                              status,
+                            )
+                        : undefined
                     }
                     onOpenDetail={() => setDetailTaskId(task.id)}
                   />
@@ -1341,12 +1367,15 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
                         detailTask.id,
                       )
                     }
-                    onStatusChange={(status) =>
-                      void changeTaskStatus(
-                        detailTask.organization_id,
-                        detailTask.id,
-                        status,
-                      )
+                    onStatusChange={
+                      ownOrganizationIds.has(detailTask.organization_id)
+                        ? (status) =>
+                            void changeTaskStatus(
+                              detailTask.organization_id,
+                              detailTask.id,
+                              status,
+                            )
+                        : undefined
                     }
                   />
                 </Modal.Body>
@@ -1361,12 +1390,18 @@ function ConsultantOperationsView({ isConsultant }: { isConsultant: boolean }) {
 
 function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
-  const organization =
+  const activeMembership =
     bootstrap.memberships.find(
       (membership) => membership.organization_id === selectedOrganizationId,
-    )?.organization ??
-    bootstrap.memberships[0]?.organization ??
+    ) ??
+    bootstrap.memberships[0] ??
     null;
+  const organization = activeMembership?.organization ?? null;
+  // El consultor propone tareas para un cliente asignado y las comenta, pero
+  // no las resuelve por el (completar/ignorar/cambiar estado): eso es lo que
+  // decide el cliente. El backend ya lo exige (updateTaskStatus); esto evita
+  // enseñar un boton que devolveria 403.
+  const canResolveTasks = activeMembership?.accessSource !== "consultant_assignment";
   const isConsultant = ["platform_admin", "consultant"].includes(
     bootstrap.profile.platform_role,
   );
@@ -1879,8 +1914,10 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       showVisibility={isConsultant}
                       viewerUserId={bootstrap.profile.id}
                       isPending={pendingTaskId === task.id}
-                      onStatusChange={(status) =>
-                        void changeTaskStatus(task.id, status)
+                      onStatusChange={
+                        canResolveTasks
+                          ? (status) => void changeTaskStatus(task.id, status)
+                          : undefined
                       }
                       onOpenDetail={() => setDetailTaskId(task.id)}
                     />
@@ -1992,8 +2029,10 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                     onSubmitComment={(event) =>
                       submitComment(event, detailTask.id)
                     }
-                    onStatusChange={(status) =>
-                      void changeTaskStatus(detailTask.id, status)
+                    onStatusChange={
+                      canResolveTasks
+                        ? (status) => void changeTaskStatus(detailTask.id, status)
+                        : undefined
                     }
                   />
                 </Modal.Body>
@@ -2016,7 +2055,9 @@ function TasksRouter({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // solo tiene una tienda no hay cartera que ver: va directo a su dashboard
   // (OperationsContent ya cae al unico membership cuando organizationId es "").
   if (isConsultant && !organizationId && bootstrap.memberships.length > 1) {
-    return <ConsultantOperationsView isConsultant={isConsultant} />;
+    return (
+      <ConsultantOperationsView isConsultant={isConsultant} bootstrap={bootstrap} />
+    );
   }
 
   return <OperationsContent bootstrap={bootstrap} />;

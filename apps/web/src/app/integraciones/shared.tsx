@@ -307,13 +307,26 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
   const { organizationId: selectedOrganizationId, setOrganizationId } =
     useActiveOrganization();
 
-  const organization =
-    bootstrap.memberships.find(
-      (membership) => membership.organization_id === selectedOrganizationId,
-    )?.organization ??
-    bootstrap.memberships[0]?.organization ??
-    null;
+  // Integraciones es de cada tienda, no de la cartera: las cuentas, tokens y
+  // errores de Shopify/Meta/Klaviyo de un cliente no se ven ni se tocan desde
+  // aqui, aunque el selector del header lo tenga puesto como "activo" (eso
+  // solo sirve para dashboard/tareas/marketing, que si son del panel
+  // consultor). El backend ya lo exige (requireOwnOrganizationAccess); esto
+  // evita el viaje a la API y, sobre todo, que la pantalla intente pintar la
+  // tienda de un cliente durante el instante antes de que llegue el 403.
+  const ownMemberships = bootstrap.memberships.filter(
+    (membership) => membership.accessSource !== "consultant_assignment",
+  );
+  const selectedIsOwn = ownMemberships.some(
+    (membership) => membership.organization_id === selectedOrganizationId,
+  );
+  const organization = selectedIsOwn
+    ? (bootstrap.memberships.find(
+        (membership) => membership.organization_id === selectedOrganizationId,
+      )?.organization ?? null)
+    : (ownMemberships[0]?.organization ?? null);
   const organizationId = organization?.id ?? null;
+  const noOwnStore = !selectedIsOwn && ownMemberships.length === 0;
 
   const integrationsQuery = useCachedQuery<IntegrationsResponse>(
     organizationId ? `/v1/organizations/${organizationId}/integrations` : null,
@@ -321,7 +334,9 @@ export function useIntegrations(bootstrap: BootstrapResponse) {
   const payload = integrationsQuery.data ?? null;
   const error = organizationId
     ? integrationsQuery.error
-    : "No hay organización activa.";
+    : noOwnStore
+      ? "Las integraciones son de cada tienda: solo se ven aquí si tienes una propia. Las de un cliente se gestionan desde su panel."
+      : "No hay organización activa.";
   const isLoading = organizationId ? integrationsQuery.isLoading : false;
   const reload = integrationsQuery.reload;
   const [pending, setPending] = useState<string | null>(null);

@@ -850,6 +850,23 @@ export async function updateTaskStatus(
     return access;
   }
 
+  // Proponer no es decidir: un consultor (persona hoy, agente IA manana) puede
+  // crear una tarea para un cliente, pero completarla, ignorarla o cambiarle
+  // el estado es del cliente -- si no, la trazabilidad "propuesta -> decidida"
+  // se pierde porque las dos mitades las escribiria la misma mano. Solo
+  // cuenta como "ser el cliente" una membership real (o platform_admin, igual
+  // que en el resto del programa); la membership sintetica de
+  // consultant_assignment no.
+  if (access.membership.accessSource === "consultant_assignment") {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "consultant_cannot_resolve_client_task",
+      message:
+        "Solo el cliente puede completar, ignorar o cambiar el estado de sus tareas. El consultor puede proponerlas, no resolverlas.",
+    };
+  }
+
   if (
     !statusInput ||
     !TASK_STATUSES.includes(statusInput as (typeof TASK_STATUSES)[number])

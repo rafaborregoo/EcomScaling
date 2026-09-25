@@ -84,6 +84,9 @@ export const NIGHTLY_CHAIN = [
   "recommendation-portfolio", // 7.12
   "dynamic-decision", // 7.13
   "restraint-decision", // 7.14
+  // F8: efecto de negocio de las intervenciones cerradas con metrica objetivo.
+  // Al final: F9 (cada hora) lo lee como observed_effect.
+  "intervention-effect",
 ] as const;
 
 function main() {

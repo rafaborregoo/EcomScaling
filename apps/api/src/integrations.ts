@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { type AuthContext, createUserScopedClient } from "./auth-context.js";
+import {
+  type AuthContext,
+  createUserScopedClient,
+  isOperationalOrganizationError,
+  requireOwnOrganizationAccess,
+} from "./auth-context.js";
 import { isErr } from "./result-guard.js";
 import {
   deriveIntegrationHealth,
@@ -412,16 +417,13 @@ export async function listIntegrations(
 ) {
   const providers = buildProviders(env);
 
-  if (
-    !context.memberships.some(
-      (membership) => membership.organization_id === organizationId,
-    )
-  ) {
+  const access = requireOwnOrganizationAccess(context, organizationId);
+  if (isOperationalOrganizationError(access)) {
     return {
       ok: false as const,
-      statusCode: 403,
-      error: "organization_access_denied",
-      message: "El usuario no pertenece a la organizacion solicitada.",
+      statusCode: access.statusCode,
+      error: access.error,
+      message: access.message,
     };
   }
 

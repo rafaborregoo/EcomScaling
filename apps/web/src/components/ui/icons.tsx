@@ -220,6 +220,105 @@ export function DotGridIcon(props: ComponentPropsWithoutRef<"svg">) {
   );
 }
 
+export function ChartIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="M3 3v18h18" />
+      <path d="m7 16 4-5 4 3 5-7" />
+    </LucideIcon>
+  );
+}
+
+export function MegaphoneIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="m3 11 18-5v12L3 14v-3Z" />
+      <path d="M11.6 16.1 13 21H7l-1.5-6" />
+    </LucideIcon>
+  );
+}
+
+export function MessageSquareIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
+      <path d="M8 9h8" />
+      <path d="M8 13h5" />
+    </LucideIcon>
+  );
+}
+
+export function PlugIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="M12 22v-5" />
+      <path d="M9 8V2" />
+      <path d="M15 8V2" />
+      <path d="M18 8v3a6 6 0 0 1-12 0V8h12Z" />
+    </LucideIcon>
+  );
+}
+
+export function BookOpenIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2Z" />
+      <path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7Z" />
+    </LucideIcon>
+  );
+}
+
+export function SlidersIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="M4 21v-7" />
+      <path d="M4 10V3" />
+      <path d="M12 21v-9" />
+      <path d="M12 8V3" />
+      <path d="M20 21v-5" />
+      <path d="M20 12V3" />
+      <path d="M1 14h6" />
+      <path d="M9 8h6" />
+      <path d="M17 16h6" />
+    </LucideIcon>
+  );
+}
+
+export function ActivityIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="M3 12h4l3-9 4 18 3-9h4" />
+    </LucideIcon>
+  );
+}
+
+export function WalletIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <path d="M20 7V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h15v12H5a3 3 0 0 1-3-3V6" />
+      <path d="M16 14h.01" />
+    </LucideIcon>
+  );
+}
+
+export function PanelLeftIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+    </LucideIcon>
+  );
+}
+
+export function GearIcon(props: ComponentPropsWithoutRef<"svg">) {
+  return (
+    <LucideIcon {...props}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06-2 2-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V20h-3v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06-2-2 .06-.06A1.65 1.65 0 0 0 7.4 15a1.65 1.65 0 0 0-1.51-1H5.8v-3h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L7 8.12l2-2 .06.06a1.65 1.65 0 0 0 1.82.33h.02a1.65 1.65 0 0 0 1-1.51V4.9h3V5a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06 2 2-.06.06A1.65 1.65 0 0 0 19.4 10v.02a1.65 1.65 0 0 0 1.51 1h.09v3h-.09a1.65 1.65 0 0 0-1.51.98Z" />
+    </LucideIcon>
+  );
+}
+
 export function AlertTriangleIcon(props: ComponentPropsWithoutRef<"svg">) {
   return (
     <LucideIcon {...props}>

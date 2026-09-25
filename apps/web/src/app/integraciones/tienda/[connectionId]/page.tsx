@@ -50,15 +50,21 @@ function ProviderCard({
   retrying,
   onDiscard,
   discarding,
+  discardLabel,
 }: {
   provider: StoreProviderView;
   storeName: string;
   onRetry?: () => void;
   retrying: boolean;
-  /** Solo se pasa cuando lo que hay es un intento de OAuth sin terminar: no se
-   * ofrece "descartar" sobre una tienda con datos detras. */
+  /** Solo se pasa cuando no hay datos detras que perder: un intento de OAuth
+   * sin terminar, o una conexion en error que nunca llego a sincronizar nada
+   * (p.ej. se autorizo la cuenta de Shopify equivocada). No se ofrece
+   * "eliminar" sobre una tienda con historico. */
   onDiscard?: () => void;
   discarding: boolean;
+  /** Texto del boton: distingue "descartar un intento" de "eliminar una
+   * conexion rota" para que el owner sepa que esta tirando. */
+  discardLabel?: string;
 }) {
   const slug = PROVIDER_SLUG[provider.provider];
   const { explanation } = provider;
@@ -154,9 +160,9 @@ function ProviderCard({
                   : "Configurar"}
           </ButtonLink>
         ) : null}
-        {/* Descartar borra de verdad y al momento: en un intento sin terminar
-            no hay datos que perder, y el borrado programado de 30 dias lo
-            dejaria ocupando cupo del plan un mes por nada. */}
+        {/* Descartar borra de verdad y al momento: sin datos detras que
+            perder, el borrado programado de 30 dias solo dejaria ocupando
+            cupo del plan un mes por nada. */}
         {onDiscard ? (
           <Button
             variant="secondary"
@@ -164,7 +170,7 @@ function ProviderCard({
             onClick={onDiscard}
             disabled={discarding}
           >
-            {discarding ? "Descartando..." : "Descartar intento"}
+            {discarding ? "Eliminando..." : (discardLabel ?? "Descartar intento")}
           </Button>
         ) : null}
       </div>
@@ -297,8 +303,15 @@ function StoreDetail({
         {store.providers.map((provider) => {
           const kind = retryable[provider.provider];
           const target = provider.connections[0];
+          // Misma logica que el backend (esConexionRotaSinDatos en
+          // consultant.ts): un OAuth que termino contra la cuenta equivocada
+          // y nunca trajo un dato es tan basura como un intento abandonado.
+          const rotaSinDatos =
+            provider.target?.status === "error" && !provider.lastSyncAt;
           const descartable =
-            canDiscard && provider.attempt === "abandoned" && provider.target;
+            canDiscard &&
+            (provider.attempt === "abandoned" || rotaSinDatos) &&
+            provider.target;
           return (
             <ProviderCard
               key={provider.provider}
@@ -311,6 +324,7 @@ function StoreDetail({
                   : undefined
               }
               discarding={pending === `discard-${provider.target?.id}`}
+              discardLabel={rotaSinDatos ? "Eliminar conexión" : undefined}
               onDiscard={
                 descartable
                   ? () => void discardAndLeave(provider.target!.id)

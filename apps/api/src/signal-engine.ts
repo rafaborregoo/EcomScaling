@@ -22,7 +22,7 @@
  * senales: se hace upsert sobre la misma huella.
  */
 import { createClient } from "@supabase/supabase-js";
-import { detectSignals, type SeriesPoint } from "@ecomscaling/contracts";
+import { detectSignals, type InterventionEffectMetric, type SeriesPoint } from "@ecomscaling/contracts";
 import { createLogger } from "@ecomscaling/observability";
 import { type LoadedApiEnv } from "@ecomscaling/config";
 
@@ -38,10 +38,55 @@ const VENTANA_DIAS = 60;
  * guardrail 8 dice que la relevancia depende de cuanto pesa esa metrica en el
  * negocio, y eso es del tenant (`tenant_capability_config`), no una constante.
  */
-const METRICAS = [
-  { metric: "net_sales", capability: "unit_economics" as const, columna: "net_sales" },
-  { metric: "orders_count", capability: "conversion" as const, columna: "orders_count" },
+const METRICAS: { metric: Metrica; capability: string }[] = [
+  { metric: "net_sales", capability: "unit_economics" },
+  { metric: "orders_count", capability: "conversion" },
+  { metric: "average_order_value", capability: "offer" },
+  { metric: "sessions", capability: "acquisition" },
+  { metric: "conversion_rate", capability: "conversion" },
 ];
+
+// Las mismas que F8 puede medir como efecto de una intervencion.
+type Metrica = InterventionEffectMetric;
+
+type FilaDiaria = { bucket_date: string; net_sales: number; orders_count: number };
+
+/**
+ * La serie diaria de cada metrica. Un dia sin denominador no es un cero: sin
+ * pedidos no hay ticket medio, y un dia sin fila de sesiones es un dia que no
+ * se pidio a Shopify. Esos dias se saltan en vez de fingir una caida.
+ *
+ * `sample` es el tamano de muestra real de cada punto (pedidos o sesiones), de
+ * donde sale el `low_sample` de los guardrails 21 y 22.
+ */
+export function seriesPorMetrica(
+  filas: FilaDiaria[],
+  sesionesPorDia: Map<string, number>,
+): Record<Metrica, SeriesPoint[]> {
+  const series: Record<Metrica, SeriesPoint[]> = {
+    net_sales: [],
+    orders_count: [],
+    average_order_value: [],
+    sessions: [],
+    conversion_rate: [],
+  };
+  for (const f of filas) {
+    const date = f.bucket_date;
+    const pedidos = Number(f.orders_count ?? 0);
+    const ventas = Number(f.net_sales ?? 0);
+    series.net_sales.push({ date, value: ventas, sample: pedidos });
+    series.orders_count.push({ date, value: pedidos, sample: pedidos });
+    if (pedidos > 0) {
+      series.average_order_value.push({ date, value: ventas / pedidos, sample: pedidos });
+    }
+    const sesiones = sesionesPorDia.get(date);
+    if (sesiones != null && sesiones > 0) {
+      series.sessions.push({ date, value: sesiones, sample: sesiones });
+      series.conversion_rate.push({ date, value: pedidos / sesiones, sample: sesiones });
+    }
+  }
+  return series;
+}
 
 /**
  * Las metricas que alguien vigila de verdad, para quien necesite distinguir
@@ -50,15 +95,13 @@ const METRICAS = [
  * D07 la necesita: sin ella, una rama sin senal se poda igual la mire alguien o
  * no, y eso convierte "no lo se" en "no lo hay".
  */
-export const METRICAS_VIGILADAS = METRICAS.map((m) => m.metric);
+export const METRICAS_VIGILADAS: string[] = METRICAS.map((m) => m.metric);
 
 function createServiceClient(env: LoadedApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
-
-type FilaDiaria = { bucket_date: string; net_sales: number; orders_count: number };
 
 /**
  * La fiabilidad de D01 traducida a la confianza del dato de una senal.
@@ -161,15 +204,22 @@ export async function runSignalEngine(env: LoadedApiEnv, organizationId: string)
     const filas = ((data ?? []) as FilaDiaria[]).slice(0, -1);
     if (filas.length === 0) continue;
 
+    // Sesiones de ShopifyQL (`shopify_sessions_daily`), mismas fechas que la
+    // serie de ventas, que ya viene sin el dia en curso.
+    const { data: sesiones } = await supabase
+      .from("shopify_sessions_daily")
+      .select("bucket_date, sessions")
+      .eq("store_id", tienda.id)
+      .gte("bucket_date", filas[0]!.bucket_date)
+      .lte("bucket_date", filas[filas.length - 1]!.bucket_date);
+    const series = seriesPorMetrica(
+      filas,
+      new Map((sesiones ?? []).map((r) => [r.bucket_date as string, Number(r.sessions)])),
+    );
+
     for (const definicion of METRICAS) {
-      const serie: SeriesPoint[] = filas.map((f) => ({
-        date: f.bucket_date,
-        value: Number(f[definicion.columna as keyof FilaDiaria] ?? 0),
-        // El numero de pedidos ES el tamano de muestra de cualquier metrica
-        // derivada de pedidos: de ahi sale el low_sample de los guardrails 21
-        // y 22 sin inventarse nada.
-        sample: Number(f.orders_count ?? 0),
-      }));
+      const serie = series[definicion.metric];
+      if (serie.length === 0) continue;
 
       const exposure = exposicionPor.get(definicion.capability);
       const detectadas = detectSignals(definicion.metric, serie, {

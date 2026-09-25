@@ -52,6 +52,8 @@ export type LearningSources = {
   signals: Row[];
   expectedOutcomes: number;
   priorLearnings: Row[];
+  /** F8: metrica objetivo declarada y efecto medido (`intervention_effects`). */
+  effects?: Row[];
 };
 
 /** Filas de las tablas -> foto de aprendizaje. Pura: todo lo que no esta, queda null. */
@@ -74,6 +76,8 @@ export function learningSnapshotFromSources(organizationId: string, src: Learnin
     if (id) transitionsBy.set(id, [...(transitionsBy.get(id) ?? []), t]);
   }
 
+  const effectBy = new Map((src.effects ?? []).map((e) => [text(e.intervention_id), e]));
+
   const experiences: LearningExperience[] = [...latestClosure.values()].map((c) => {
     const intervention = text(c.intervention_id)!;
     const envelope = record(c.input_envelope);
@@ -83,8 +87,14 @@ export function learningSnapshotFromSources(organizationId: string, src: Learnin
     const transitions = transitionsBy.get(intervention) ?? [];
     const moves = transitions.map((t) => `${t.command ?? ""} ${t.to_state ?? ""}`.toUpperCase());
     const firstEvent = transitions.map((t) => String(t.event_at)).sort()[0] ?? null;
-    const observed = record(result.observed_effect);
-    const expected = record(envelope.expected_effect);
+    // El efecto medido por F8 (intervention-effect) gana a lo que traiga el cierre.
+    const effect = effectBy.get(intervention);
+    const observed = effect?.observed_direction
+      ? { metric: effect.metric, direction: effect.observed_direction, material: effect.material }
+      : record(result.observed_effect);
+    const expected = effect
+      ? { metric: effect.metric, direction: effect.expected_direction }
+      : record(envelope.expected_effect);
     const recommendation = text(c.recommendation_id);
     return {
       id: String(c.id),
@@ -102,14 +112,16 @@ export function learningSnapshotFromSources(organizationId: string, src: Learnin
       incident: moves.some((m) => m.includes("INCIDENT")) || c.operational_outcome === "FAILED",
       expected_state: text(snapshot.expected),
       actual_state: text(snapshot.actual),
-      // Hoy F8 no mide el efecto de negocio: sin fuente, null (y F9 lo dice).
+      // Sin metrica objetivo declarada no hay efecto medido: null, y F9 lo dice.
       observed_effect: text(observed.metric) && direction(observed.direction)
         ? { metric: text(observed.metric)!, direction: direction(observed.direction)!, material: observed.material === true }
         : null,
       expected_effect: text(expected.metric) || direction(expected.direction)
         ? { metric: text(expected.metric), direction: direction(expected.direction) === "flat" ? null : (direction(expected.direction) as "up" | "down" | null) }
         : null,
-      sample_sufficient: typeof result.sample_sufficient === "boolean" ? result.sample_sufficient : null,
+      sample_sufficient: typeof effect?.sample_sufficient === "boolean" && effect.observed_direction
+        ? effect.sample_sufficient
+        : typeof result.sample_sufficient === "boolean" ? result.sample_sufficient : null,
       human: { approved: null, modified: false, rejected: false },
       unknowns: strings(c.unresolved_unknowns),
     };
@@ -187,10 +199,11 @@ async function loadSources(supabase: any, organizationId: string): Promise<Learn
     org("signals", "metric, direction, trajectory").gte("window_end", since(30)).limit(500),
     org("expected_outcome_runs", "id").gte("evaluated_at", since(90)).limit(1),
     org("continuous_learning_runs", "id, experience_id, classification, confidence, evaluated_at, result, input_envelope").eq("block_code", "9.12").eq("gate", true).order("evaluated_at", { ascending: false }).limit(200),
+    org("intervention_effects", "intervention_id, metric, expected_direction, observed_direction, material, sample_sufficient"),
   ]);
   const failed = results.findIndex((r: any) => r.error);
   if (failed >= 0) throw new Error(`continuous_learning_source_${failed}_failed: ${results[failed].error.message}`);
-  const [closures, plans, transitions, approvals, readiness, autonomy, prioritization, playbooks, dataQuality, contextEvents, contextFacts, signals, expected, prior] = results.map((r: any) => r.data ?? []);
+  const [closures, plans, transitions, approvals, readiness, autonomy, prioritization, playbooks, dataQuality, contextEvents, contextFacts, signals, expected, prior, effects] = results.map((r: any) => r.data ?? []);
   // Solo la ultima pasada de cada dominio de playbook.
   const latestPlaybook = new Map<string, Row>();
   for (const p of playbooks as Row[]) if (!latestPlaybook.has(String(p.domain))) latestPlaybook.set(String(p.domain), p);
@@ -201,6 +214,7 @@ async function loadSources(supabase: any, organizationId: string): Promise<Learn
     contextEvents, contextFacts, signals,
     expectedOutcomes: (expected as Row[]).length,
     priorLearnings: prior,
+    effects,
   };
 }
 

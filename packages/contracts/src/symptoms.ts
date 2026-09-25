@@ -461,7 +461,7 @@ export type SymptomTemplate = {
 };
 
 /**
- * La libreria de patrones de hoy: las dos metricas que D05 sabe emitir.
+ * La libreria de patrones de hoy: las cinco metricas que D05 sabe emitir.
  *
  * Deliberadamente corta. Una libreria con entradas para metricas que nadie
  * calcula todavia solo sirve para que parezca que el motor cubre mas de lo que
@@ -507,6 +507,69 @@ export const SYMPTOM_TEMPLATES: SymptomTemplate[] = [
     family: "conversion",
     valence: "positive",
     label: "Crecimiento del volumen de pedidos",
+    process_position: "midstream",
+    time_role: "coincident",
+  },
+  // Ticket medio: `contextual` en las dos direcciones. Baja con una promocion
+  // hecha a proposito y sube cuando desaparecen los pedidos pequenos: la
+  // direccion sola no dice si es bueno (guardrail 22).
+  {
+    canonical_type: "average_order_value_decline",
+    metric: "average_order_value",
+    direction: "down",
+    family: "offer",
+    valence: "contextual",
+    label: "Caida del ticket medio",
+    process_position: "midstream",
+    time_role: "coincident",
+  },
+  {
+    canonical_type: "average_order_value_growth",
+    metric: "average_order_value",
+    direction: "up",
+    family: "offer",
+    valence: "contextual",
+    label: "Subida del ticket medio",
+    process_position: "midstream",
+    time_role: "coincident",
+  },
+  {
+    canonical_type: "traffic_decline",
+    metric: "sessions",
+    direction: "down",
+    family: "acquisition",
+    valence: "negative",
+    label: "Caida del trafico",
+    process_position: "upstream",
+    time_role: "leading",
+  },
+  {
+    canonical_type: "traffic_growth",
+    metric: "sessions",
+    direction: "up",
+    family: "acquisition",
+    valence: "positive",
+    label: "Crecimiento del trafico",
+    process_position: "upstream",
+    time_role: "leading",
+  },
+  {
+    canonical_type: "conversion_rate_decline",
+    metric: "conversion_rate",
+    direction: "down",
+    family: "conversion",
+    valence: "negative",
+    label: "Caida de la conversion",
+    process_position: "midstream",
+    time_role: "coincident",
+  },
+  {
+    canonical_type: "conversion_rate_growth",
+    metric: "conversion_rate",
+    direction: "up",
+    family: "conversion",
+    valence: "positive",
+    label: "Mejora de la conversion",
     process_position: "midstream",
     time_role: "coincident",
   },

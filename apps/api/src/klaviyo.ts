@@ -10,6 +10,7 @@ import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
 import { sanitizeGeneratedEmailHtml } from "@ecomscaling/ai";
 import {
   requireOperationalOrganization,
+  requireOwnOrganizationAccess,
   isOperationalOrganizationError,
   type AuthContext,
 } from "./auth-context.js";
@@ -513,17 +514,41 @@ export async function handleKlaviyoOAuthCallback(
         message: "Klaviyo no ha devuelto todos los permisos solicitados.",
       };
     }
-    await saveKlaviyoTokens(env, pending.id, tokens);
     const api = createKlaviyoClient(tokens.access_token);
     const account = await api.getAccount();
     const accountAttributes = account.attributes ?? {};
     const now = new Date().toISOString();
+
+    // Cada "Conectar"/"Reautorizar" siembra una fila `pending` nueva
+    // (provider_account_id = `pending:<state>`, siempre distinto). Si la
+    // cuenta de Klaviyo autorizada ahora es la misma que ya tiene una
+    // conexion real en esta organizacion, escribir el id de cuenta en ESTA
+    // fila nueva chocaria con integration_connections_unique_provider
+    // (organization_id, provider, provider_account_id) -- la fila vieja ya
+    // lo tiene. Una reautorizacion tiene que terminar en la fila que ya
+    // existe, no crear una segunda que nace muerta.
+    const { data: existing, error: existingLookupError } = await supabase
+      .from("integration_connections")
+      .select("id")
+      .eq("organization_id", pending.organization_id)
+      .eq("provider", "klaviyo")
+      .eq("provider_account_id", account.id)
+      .neq("id", pending.id)
+      .maybeSingle();
+    if (existingLookupError)
+      throw new Error(
+        `klaviyo_existing_connection_lookup_failed:${existingLookupError.message}`,
+      );
+    const isReauthorization = Boolean(existing);
+    const targetId = existing?.id ?? pending.id;
+
+    await saveKlaviyoTokens(env, targetId, tokens);
     const { error: accountError } = await supabase
       .from("klaviyo_accounts")
       .upsert(
         {
           organization_id: pending.organization_id,
-          connection_id: pending.id,
+          connection_id: targetId,
           external_account_id: account.id,
           name:
             typeof accountAttributes.name === "string"
@@ -557,18 +582,28 @@ export async function handleKlaviyoOAuthCallback(
         connected_at: now,
         metadata: { source: "oauth_callback", api_revision: "2026-07-15" },
       })
-      .eq("id", pending.id);
+      .eq("id", targetId);
     if (connectionError)
       throw new Error(
         `klaviyo_connection_update_failed:${connectionError.message}`,
       );
 
+    // La fila `pending` solo era el sitio donde esperar el `state`/`verifier`
+    // del OAuth. Si la reautorizacion escribio sobre la fila vieja, esta
+    // queda huerfana y sin datos -- se borra, no se deja en `error` (no fue
+    // un fallo, fue el sitio de paso).
+    if (isReauthorization) {
+      await supabase.from("integration_connections").delete().eq("id", pending.id);
+    }
+
     await recordAuditLog(supabase, {
       organizationId: pending.organization_id,
       actorUserId: null,
-      action: "klaviyo.oauth_connected",
+      action: isReauthorization
+        ? "klaviyo.oauth_reauthorized"
+        : "klaviyo.oauth_connected",
       entityType: "integration_connection",
-      entityId: pending.id,
+      entityId: targetId,
       newData: {
         provider: "klaviyo",
         provider_account_id: account.id,
@@ -576,8 +611,12 @@ export async function handleKlaviyoOAuthCallback(
       },
     });
 
-    void runKlaviyoSync(env, pending.id, "initial").catch((error: unknown) =>
-      markKlaviyoSyncFailure(env, pending.id, error, "oauth_initial_sync"),
+    void runKlaviyoSync(
+      env,
+      targetId,
+      isReauthorization ? "incremental" : "initial",
+    ).catch((error: unknown) =>
+      markKlaviyoSyncFailure(env, targetId, error, "oauth_initial_sync"),
     );
     return {
       ok: true,
@@ -624,10 +663,14 @@ export async function listKlaviyoConversionMetrics(
     metrics: KlaviyoMetricOption[];
   }>
 > {
-  if (
-    !context.memberships.some((item) => item.organization_id === organizationId)
-  ) {
-    return { ok: false, statusCode: 403, error: "organization_access_denied" };
+  const access = requireOwnOrganizationAccess(context, organizationId);
+  if (isOperationalOrganizationError(access)) {
+    return {
+      ok: false,
+      statusCode: access.statusCode,
+      error: access.error,
+      ...(access.message ? { message: access.message } : {}),
+    };
   }
   const supabase = serviceClient(env);
   const { data: account, error: accountError } = await supabase

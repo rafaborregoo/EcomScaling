@@ -14,6 +14,7 @@ import {
   healthReferenceInputSchema,
   maturityDeclarationSchema,
   severityThresholdsSchema,
+  interventionEffectTargetSchema,
   healthResponseSchema,
   readinessResponseSchema,
 } from "@ecomscaling/contracts";
@@ -23,6 +24,7 @@ import {
   redactSensitiveText,
 } from "@ecomscaling/observability";
 import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+import { getAdminModelPrices, runAdminModelPriceSync } from "./ai-model-pricing.js";
 import { apiMetrics } from "./metrics.js";
 import {
   createConsultantDecisionContextDeclaration,
@@ -164,10 +166,13 @@ import {
   updateOrganization,
   getSeverityThresholds,
   setSeverityThresholds,
+  listInterventionEffects,
+  declareInterventionEffect,
   decideDiagnosticRevision,
 } from "./consultant.js";
 import { runMaturityEngine } from "./maturity-engine.js";
 import { runSeverityEngine } from "./severity-engine.js";
+import { runInterventionEffectEngine } from "./intervention-effect-engine.js";
 import { ingestPixelEvent, isPixelStoreId } from "./shopify-pixel.js";
 import {
   declareChangeEvent,
@@ -187,6 +192,8 @@ import {
 } from "./consultant-messages.js";
 import {
   isAuthContextError,
+  isOperationalOrganizationError,
+  requireOwnOrganizationAccess,
   resolveAuthContext,
   type AuthContextError,
 } from "./auth-context.js";
@@ -3656,6 +3663,50 @@ export async function buildApp(): Promise<FastifyInstance> {
     return result.data;
   });
 
+  // F8: metrica objetivo y efecto medido de cada intervencion cerrada.
+  app.get("/v1/consultant/intervention-effects", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const { organizationId } = request.query as { organizationId?: string };
+    if (!organizationId) return reply.code(400).send({ error: "organization_id_required" });
+    const result = await listInterventionEffects(env, authorization, auth.context, organizationId);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.put<{ Params: { interventionId: string } }>(
+    "/v1/consultant/intervention-effects/:interventionId",
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+      const authorization = request.headers.authorization;
+      if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      if (typeof body.organization_id !== "string") {
+        return reply.code(400).send({ error: "organization_id_required" });
+      }
+      const parsed = interventionEffectTargetSchema.safeParse(body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_intervention_effect", detail: parsed.error.issues[0]?.message });
+      }
+      const storeId = typeof body.store_id === "string" && body.store_id ? body.store_id : null;
+      const result = await declareInterventionEffect(
+        env,
+        authorization,
+        auth.context,
+        body.organization_id,
+        request.params.interventionId,
+        { ...parsed.data, store_id: storeId },
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      // Se mide ya: el consultor declara para ver el efecto, no para esperar a la noche.
+      await runInterventionEffectEngine(env, body.organization_id).catch(() => undefined);
+      return result.data;
+    },
+  );
+
   app.get("/v1/consultant/severity", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 
@@ -4047,6 +4098,25 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Tarifa de modelos de IA: la ve el panel y el boton la actualiza desde LiteLLM.
+  app.get("/v1/admin/ai-model-prices", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await getAdminModelPrices(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.post("/v1/admin/ai-model-prices/sync", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+    const result = await runAdminModelPriceSync(env, auth.context);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
   app.get("/v1/admin/observability", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
@@ -4384,12 +4454,14 @@ export async function buildApp(): Promise<FastifyInstance> {
           .code(400)
           .send({ error: "invalid_klaviyo_reporting_request" });
       }
-      if (
-        !auth.context.memberships.some(
-          (item) => item.organization_id === request.params.organizationId,
-        )
-      ) {
-        return reply.code(403).send({ error: "organization_access_denied" });
+      const access = requireOwnOrganizationAccess(
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isOperationalOrganizationError(access)) {
+        return reply
+          .code(access.statusCode)
+          .send({ error: access.error, message: access.message });
       }
       try {
         const result = await runKlaviyoReport(
@@ -4424,12 +4496,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     async (request, reply) => {
       const auth = await resolveAuthContext(env, request.headers.authorization);
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
-      if (
-        !auth.context.memberships.some(
-          (item) => item.organization_id === request.params.organizationId,
-        )
-      ) {
-        return reply.code(403).send({ error: "organization_access_denied" });
+      const access = requireOwnOrganizationAccess(
+        auth.context,
+        request.params.organizationId,
+      );
+      if (isOperationalOrganizationError(access)) {
+        return reply
+          .code(access.statusCode)
+          .send({ error: access.error, message: access.message });
       }
       if (!request.query.connectionId) {
         return reply.code(400).send({ error: "missing_klaviyo_connection_id" });

@@ -50,3 +50,14 @@ test("solo cuentan los hechos de contexto vigentes y las aprobaciones con decisi
   assert.deepEqual(s.current_context, { main_channel: "paid_social" });
   assert.equal(s.approvals.length, 1);
 });
+
+test("el efecto medido por F8 llega a la experiencia con su metrica objetivo", () => {
+  const effects = [{ intervention_id: "int-1", metric: "conversion_rate", expected_direction: "up", observed_direction: "up", material: true, sample_sufficient: true }];
+  const s = learningSnapshotFromSources("org-1", { ...empty, closures: [closure()], effects }, AS_OF);
+  assert.deepEqual(s.experiences[0]!.observed_effect, { metric: "conversion_rate", direction: "up", material: true });
+  assert.deepEqual(s.experiences[0]!.expected_effect, { metric: "conversion_rate", direction: "up" });
+  assert.equal(s.experiences[0]!.sample_sufficient, true);
+  // Declarada pero aun sin medir: no hay efecto que inventar.
+  const pending = learningSnapshotFromSources("org-1", { ...empty, closures: [closure()], effects: [{ ...effects[0], observed_direction: null }] }, AS_OF);
+  assert.equal(pending.experiences[0]!.observed_effect, null);
+});

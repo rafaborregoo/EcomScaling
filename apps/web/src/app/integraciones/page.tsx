@@ -538,7 +538,6 @@ const INTEGRATION_ATTENTION = [
 ];
 
 function ConsultantIntegrationsView() {
-  const { setOrganizationId } = useActiveOrganization();
   const integrationsQuery = useCachedQuery<ConsultantIntegrationsData>(
     "/v1/consultant/integrations",
   );
@@ -606,8 +605,7 @@ function ConsultantIntegrationsView() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[36rem] border-collapse text-sm">
               <caption className="sr-only">
-                Estado de cada integración por cliente. Activa el nombre del
-                cliente para pasar a su vista.
+                Estado de cada integración por cliente.
               </caption>
               <thead>
                 <tr className="border-b border-separator text-left">
@@ -631,18 +629,13 @@ function ConsultantIntegrationsView() {
                     key={row.organization_id}
                     className="border-b border-separator"
                   >
-                    {/* La fila entera era un onClick sobre el <tr>: con teclado
-                        no habia forma de abrir un cliente, y el lector de
-                        pantalla no anunciaba que fuera pulsable. El disparador
-                        es el nombre, que ademas es la cabecera de la fila. */}
+                    {/* Antes el nombre llevaba a la vista de integraciones de
+                        ese cliente (setOrganizationId + IntegrationsHub). Las
+                        integraciones son del cliente, no de la cartera --
+                        aqui solo se ve el estado agregado, sin entrar a sus
+                        cuentas ni conexiones reales. */}
                     <th scope="row" className="py-3 pr-4 text-left font-medium">
-                      <button
-                        type="button"
-                        className="rounded-sm text-left underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
-                        onClick={() => setOrganizationId(row.organization_id)}
-                      >
-                        {row.display_name}
-                      </button>
+                      {row.display_name}
                     </th>
                     {data.providers.map((provider) => {
                       const cell = row.providers[provider];

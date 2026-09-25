@@ -7,6 +7,7 @@ import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { useCachedQuery } from "@/lib/use-cached-query";
 import { displayValue } from "@/lib/display-labels";
+import { useUrlSection } from "@/lib/use-url-section";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import { ModuleSummary } from "@/components/module-summary";
 import { ClientRules } from "./client-rules";
@@ -29,6 +30,13 @@ import {
   Textarea,
   toast,
 } from "@/components/ui";
+
+const KNOWLEDGE_SECTIONS = [
+  "cuestionario",
+  "reglas",
+  "documentos",
+  "ia",
+] as const;
 
 type KnowledgeDocument = {
   id: string;
@@ -102,7 +110,11 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isAddDocOpen, setIsAddDocOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("cuestionario");
+  const [activeTab, setActiveTab] = useUrlSection(
+    "section",
+    KNOWLEDGE_SECTIONS,
+    "cuestionario",
+  );
 
   const [searchQuery, setSearchQuery] = useState("");
   const [matches, setMatches] = useState<KnowledgeMatch[] | null>(null);
@@ -305,7 +317,10 @@ function KnowledgeContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           SIEMPRE delante; documentos, lo que usa si la conversación lo pide. */}
       <Tabs
         value={activeTab}
-        onChange={setActiveTab}
+        onChange={(value) =>
+          setActiveTab(value as (typeof KNOWLEDGE_SECTIONS)[number])
+        }
+        hideNavigation
         items={[
           { value: "cuestionario", label: "Cuéntanos tu tienda" },
           { value: "reglas", label: "Reglas" },

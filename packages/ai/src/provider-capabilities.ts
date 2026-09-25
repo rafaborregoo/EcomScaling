@@ -78,8 +78,10 @@ const MANAGED_INFERENCE_BASE = {
  */
 export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapabilities>> = {
   "claude-opus-4-8": anthropicModel(),
+  "claude-opus-5": anthropicModel(),
   "claude-sonnet-5": anthropicModel(),
   "claude-haiku-4-5": anthropicModel(),
+  "gpt-5.5": openaiModel(),
   "gpt-4.1": openaiModel(),
   "gpt-4.1-mini": openaiModel(),
   "gpt-4.1-nano": openaiModel(),
@@ -155,7 +157,7 @@ export function getModelCapabilities(
  *
  * Formato: fecha ISO del ultimo cambio de una tarifa.
  */
-export const PRICING_VERSION = "2026-09-09";
+export const PRICING_VERSION = "2026-09-25";
 
 export type ModelPricing = {
   inputPerMTok: number;
@@ -163,19 +165,19 @@ export type ModelPricing = {
 };
 
 /**
- * USD por millon de tokens. Unica fuente de precios del sistema: no debe
- * aparecer ningun literal de tarifa en ningun otro fichero.
- *
- * Al anadir un modelo hay que anadirlo aqui Y en MODEL_CAPABILITIES, o su coste
- * quedara como `unknown` (que es el comportamiento seguro, pero visible como
- * incidente en el panel).
+ * USD por millon de tokens: el RESPALDO. La tarifa vigente vive en la tabla
+ * `ai_model_prices`, que el job `ai-pricing-sync` actualiza a diario desde
+ * LiteLLM y el runtime carga con `setLiveModelPricing`. Esto solo cuenta si la
+ * tabla no ha respondido todavia o no tiene el modelo. Verificado contra
+ * platform.claude.com/docs/en/about-claude/pricing y la ficha de gpt-5.5 el
+ * 2026-09-25.
  */
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
-  "claude-sonnet-5": { inputPerMTok: 3, outputPerMTok: 15 },
+  "claude-opus-5": { inputPerMTok: 5, outputPerMTok: 25 },
+  "claude-sonnet-5": { inputPerMTok: 2, outputPerMTok: 10 },
   "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
-  // R-020: fallback OpenAI. Verificar contra https://openai.com/api/pricing
-  // antes de confiar en estimated_cost_usd para presupuesto real.
+  "gpt-5.5": { inputPerMTok: 5, outputPerMTok: 30 },
   "gpt-4.1": { inputPerMTok: 2, outputPerMTok: 8 },
   "gpt-4.1-mini": { inputPerMTok: 0.4, outputPerMTok: 1.6 },
   "gpt-4.1-nano": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
@@ -184,8 +186,33 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
 /** Por que el coste de una ejecucion vale lo que vale. */
 export type CostBasis = "priced" | "unknown_model";
 
+let livePricing: { prices: Record<string, ModelPricing>; version: string } | null = null;
+
+/** Sustituye la tarifa en memoria por la de `ai_model_prices`. */
+export function setLiveModelPricing(prices: Record<string, ModelPricing>, version: string) {
+  livePricing = { prices, version };
+}
+
+/** Version de la tarifa con la que se calcula ahora mismo. */
+export function getPricingVersion(): string {
+  return livePricing?.version ?? PRICING_VERSION;
+}
+
+/** El id fechado (`claude-haiku-4-5-20251001`, `gpt-5.5-2026-04-23`) cae en su alias. */
+function modelAlias(model: string): string {
+  return model.replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, "");
+}
+
+export function pricingFor(model: string): ModelPricing | undefined {
+  for (const id of [model, modelAlias(model)]) {
+    const price = livePricing?.prices[id] ?? MODEL_PRICING[id];
+    if (price) return price;
+  }
+  return undefined;
+}
+
 export function isModelPriced(model: string): boolean {
-  return MODEL_PRICING[model] !== undefined;
+  return pricingFor(model) !== undefined;
 }
 
 /**
@@ -202,7 +229,7 @@ export function estimateCostUsd(
   inputTokens: number,
   outputTokens: number,
 ): number | null {
-  const pricing = MODEL_PRICING[model];
+  const pricing = pricingFor(model);
 
   if (!pricing) {
     return null;
