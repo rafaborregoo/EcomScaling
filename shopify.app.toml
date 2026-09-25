@@ -1,8 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 #
 # App "e-nora scale" creada en la organizacion de Partners E-NORA (2026-09-25),
-# sustituye a la vieja ligada a dashboard.ecomscaling.es. Client secret nuevo
-# pendiente de copiar a deploy/.env.production (SHOPIFY_API_SECRET).
+# sustituye a la vieja ligada a dashboard.ecomscaling.es.
 
 client_id = "3e6944aee89eac806b5d68e2075b5a1e"
 application_url = "https://ecom.noraapp.es"
@@ -11,9 +10,10 @@ name = "e-nora scale"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-# read_all_orders necesita "Access request" aprobada en el Partner Dashboard
-# (historico > 60 dias) antes de instalar en tiendas de merchants reales.
-scopes = "read_products,read_inventory,read_locations,read_orders,read_all_orders,read_returns,read_customers,read_reports,write_pixels,read_customer_events"
+# read_all_orders fuera por ahora: Shopify rechaza el deploy sin "Access
+# request" aprobada en el Partner Dashboard (historico > 60 dias). Pendiente
+# solicitarla y volver a anadirlo aqui cuando este aprobada.
+scopes = "read_products,read_inventory,read_locations,read_orders,read_returns,read_customers,read_reports,write_pixels,read_customer_events"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 
