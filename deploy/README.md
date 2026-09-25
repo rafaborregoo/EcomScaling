@@ -2,7 +2,8 @@
 
 - **web (Next.js)** -> Vercel. Push a `main` = deploy a produccion. Cada rama/PR = preview URL.
 - **api + worker + redis** -> VPS IONOS (`194.164.161.151`) con Docker Compose. Detras de Caddy
-  (`https://api.ecomscaling.es`, TLS automatico). Alias SSH: `ssh ecom` (usuario `deploy`).
+  (`https://api.ecom.noraapp.es`, TLS automatico; `dashboard.ecomscaling.es`/`api.ecomscaling.es`
+  se retiran). Alias SSH: `ssh ecom` (usuario `deploy`).
 - **DB** -> Supabase (proyecto remoto).
 
 **No hay GitHub Actions.** Los workflows se borraron en `2b2ab70` (la cuenta tenia los pagos
@@ -172,7 +173,7 @@ Instala Docker, crea `/opt/ecomscaling` y abre 80/443. Las variables reales van 
 ## Vercel (web)
 
 - Root Directory: `apps/web`. Build: `npm run build -w web`. Install: `npm ci`.
-- Env vars (Production + Preview): `NEXT_PUBLIC_API_URL=https://api.ecomscaling.es`,
+- Env vars (Production + Preview): `NEXT_PUBLIC_API_URL=https://api.ecom.noraapp.es`,
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 - `main` -> produccion. Ramas -> preview automatica.
 
@@ -200,5 +201,5 @@ con `git checkout <sha>` en local y `bash ops/vps/deploy.sh` (que reconstruye de
 ## Staging (cuando haga falta, no ahora)
 
 Segundo stack en el mismo VPS: `docker-compose.staging.yml` con otro `name:`, otro
-`.env.production` y Caddy sirviendo `staging-api.ecomscaling.es`. No se monta hasta que un deploy
+`.env.production` y Caddy sirviendo `staging-api.ecom.noraapp.es`. No se monta hasta que un deploy
 malo lo justifique.

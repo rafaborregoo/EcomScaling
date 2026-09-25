@@ -50,11 +50,8 @@ export default function KlaviyoTestInstructionsPage() {
       <Card title="1. Instalar la app (flujo OAuth)">
         <ol className="list-decimal space-y-2 pl-5">
           <li>
-            Entra en{" "}
-            <Link className="underline" href="https://dashboard.ecomscaling.es">
-              dashboard.ecomscaling.es
-            </Link>{" "}
-            con el usuario de prueba.
+            Entra en la app con el usuario de prueba (te pasamos la URL por
+            separado).
           </li>
           <li>
             Ve a <span className="font-medium">Integraciones → Klaviyo</span>.

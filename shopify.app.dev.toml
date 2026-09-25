@@ -1,11 +1,16 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 #
 # App de DESARROLLO (dev stores). La app de produccion es shopify.app.toml
-# ("EcomScaling - Custom", ADR-0011). Comandos del CLI siempre con --config dev.
+# ("e-nora scale", ADR-0011). Comandos del CLI siempre con --config dev.
+#
+# Usa temporalmente el mismo client_id que produccion (app "e-nora scale",
+# org Partners E-NORA) para no bloquear el plazo de 2 semanas. Si hace falta
+# separar dev/produccion mas adelante, crear una segunda app en el Partner
+# Dashboard y poner aqui su client_id.
 
-client_id = "8968c90101f158299545fa3d13e4dafa"
-name = "EcomScaling Dev"
-application_url = "https://dashboard.ecomscaling.es"
+client_id = "3e6944aee89eac806b5d68e2075b5a1e"
+name = "e-nora scale"
+application_url = "https://ecom.noraapp.es"
 embedded = true
 
 [access_scopes]
@@ -26,7 +31,7 @@ use_legacy_install_flow = false
 [auth]
 redirect_urls = [
   "http://localhost:4000/v1/shopify/oauth/callback",
-  "https://api.ecomscaling.es/v1/shopify/oauth/callback"
+  "https://api.ecom.noraapp.es/v1/shopify/oauth/callback"
 ]
 
 [webhooks]
@@ -34,7 +39,7 @@ api_version = "2026-07"
 
 [[webhooks.subscriptions]]
 compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
-uri = "https://api.ecomscaling.es/v1/shopify/webhooks"
+uri = "https://api.ecom.noraapp.es/v1/shopify/webhooks"
 
 [build]
 # false a proposito: `shopify app dev` reescribiria application_url y

@@ -6,6 +6,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { KlaviyoInsightsSections } from "./insights-sections";
+import { KlaviyoEmailPanel } from "@/components/klaviyo-email-panel";
 import { AiDiagnosticSection } from "@/components/ai-diagnostic-section";
 import {
   Badge,
@@ -123,6 +124,14 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <Link href="/integraciones">Integraciones</Link>.
         </Banner>
       ) : null}
+
+      {/* Informe de rendimiento completo. El Dashboard solo muestra sus cuatro
+          señales decisivas; campañas, flujos, asuntos y entregabilidad viven
+          aquí, en la zona de Analítica. */}
+      <KlaviyoEmailPanel
+        organizationId={organizationId}
+        variant={isConsultant ? "consultant" : "client"}
+      />
 
       <KlaviyoInsightsSections
         organizationId={organizationId}

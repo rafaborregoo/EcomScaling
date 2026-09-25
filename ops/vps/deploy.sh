@@ -111,5 +111,5 @@ ssh "$host" "docker compose $compose up -d && docker compose $compose ps"
 
 echo
 echo "Desplegado $sha. Comprobar:"
-echo "  curl -s https://api.ecomscaling.es/health"
+echo "  curl -s https://\$API_DOMAIN/health  (ver deploy/.env.production en el VPS)"
 echo "  ssh $host '$remote/run-worker-job.sh readiness; echo status=\$?'"

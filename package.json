@@ -40,7 +40,7 @@
     "supabase:reset": "supabase db reset",
     "conocimiento:ingest": "dotenv -e .env.local -- node scripts/ingest-conocimiento.mjs",
     "conocimiento:archiva": "dotenv -e .env.local -- node scripts/archiva-conocimiento-global.mjs",
-    "conocimiento:ingest:prod": "dotenv -e .env.production.local -v API_URL=https://api.ecomscaling.es -- node scripts/ingest-conocimiento.mjs",
+    "conocimiento:ingest:prod": "dotenv -e .env.production.local -v API_URL=https://api.ecom.noraapp.es -- node scripts/ingest-conocimiento.mjs",
     "conocimiento:archiva:prod": "dotenv -e .env.production.local -- node scripts/archiva-conocimiento-global.mjs",
     "api:contra-produccion": "dotenv -e .env.production.local -- tsx apps/api/src/server.ts",
     "seed:cartera-local": "dotenv -e .env.local -- tsx scripts/seed-cartera-local.ts",

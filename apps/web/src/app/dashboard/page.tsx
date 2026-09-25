@@ -47,11 +47,9 @@ import {
   Metric,
   MetricInsights,
   Modal,
-  ProviderIcon,
   RangeCalendar,
   MultiSparkline,
   Table,
-  Tabs,
   type AccordionItem,
   type TableColumnDef,
   type Tone,
@@ -79,7 +77,6 @@ import {
 import { useUrlSection } from "@/lib/use-url-section";
 
 const DASHBOARD_TABS = ["todo", "shopify", "meta", "klaviyo"] as const;
-type DashboardTab = (typeof DASHBOARD_TABS)[number];
 
 type ShopifyConnection = {
   id: string;
@@ -2620,30 +2617,6 @@ function DashboardContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page space-y-6 sm:space-y-8">
-      <Tabs
-        value={activeTab}
-        onChange={(value) => setActiveTab(value as DashboardTab)}
-        hideNavigation
-        items={[
-          { value: "todo", label: "Prioridades" },
-          {
-            value: "shopify",
-            label: "Shopify",
-            icon: <ProviderIcon provider="shopify" />,
-          },
-          {
-            value: "meta",
-            label: "Meta Ads",
-            icon: <ProviderIcon provider="meta_ads" />,
-          },
-          {
-            value: "klaviyo",
-            label: "Klaviyo",
-            icon: <ProviderIcon provider="klaviyo" />,
-          },
-        ]}
-      />
-
       {/* La foto del negocio en seis cifras, antes de bajar a cada módulo.
           Es también lo que ve el Consultor IA como "vista actual" cuando se
           le pregunta desde aquí. */}

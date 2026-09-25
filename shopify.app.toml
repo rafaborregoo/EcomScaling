@@ -1,9 +1,13 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+#
+# App "e-nora scale" creada en la organizacion de Partners E-NORA (2026-09-25),
+# sustituye a la vieja ligada a dashboard.ecomscaling.es. Client secret nuevo
+# pendiente de copiar a deploy/.env.production (SHOPIFY_API_SECRET).
 
-client_id = "d0387a1ecd87f03ba38ed92cecd12e86"
-application_url = "https://dashboard.ecomscaling.es"
+client_id = "3e6944aee89eac806b5d68e2075b5a1e"
+application_url = "https://ecom.noraapp.es"
 embedded = true
-name = "EcomScaling - Custom"
+name = "e-nora scale"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
@@ -16,7 +20,7 @@ use_legacy_install_flow = false
 [auth]
 redirect_urls = [
   "http://localhost:4000/v1/shopify/oauth/callback",
-  "https://api.ecomscaling.es/v1/shopify/oauth/callback"
+  "https://api.ecom.noraapp.es/v1/shopify/oauth/callback"
 ]
 
 [webhooks]
@@ -24,4 +28,4 @@ api_version = "2026-07"
 
 [[webhooks.subscriptions]]
 compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
-uri = "https://api.ecomscaling.es/v1/shopify/webhooks"
+uri = "https://api.ecom.noraapp.es/v1/shopify/webhooks"

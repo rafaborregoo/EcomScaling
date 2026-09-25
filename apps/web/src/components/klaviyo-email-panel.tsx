@@ -158,11 +158,14 @@ function healthTone(
 export function KlaviyoEmailPanel({
   organizationId,
   variant,
+  compact = false,
 }: {
   organizationId: string;
   variant: "client" | "consultant";
+  /** El dashboard muestra una lectura de decisión; el informe completo vive en Analítica. */
+  compact?: boolean;
 }) {
-  const [period, setPeriod] = useState<Period>("90");
+  const [period, setPeriod] = useState<Period>(compact ? "30" : "90");
   const [data, setData] = useState<EmailReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -219,6 +222,23 @@ export function KlaviyoEmailPanel({
   const revenueSeries = trend.map(
     (row) => row.campaign_revenue + row.flow_revenue,
   );
+
+  if (compact) {
+    return (
+      <Card
+        title="Klaviyo"
+        description={`Lo esencial de email · últimos ${data.period.days} días.`}
+        actions={<ButtonLink href="/klaviyo" variant="secondary">Ver analítica</ButtonLink>}
+      >
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric card label="Ingresos atribuidos" value={money(totals.revenue)} trend={revenueSeries} />
+          <Metric card label="Apertura" value={pct(totals.open_rate)} />
+          <Metric card label="Clic" value={pct(totals.click_rate)} />
+          <Metric card label="Conversiones" value={totals.conversions.toLocaleString("es-ES")} />
+        </div>
+      </Card>
+    );
+  }
 
   const subjectColumns: TableColumnDef<Entity & { id: string }>[] = [
     {

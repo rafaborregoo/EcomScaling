@@ -42,6 +42,7 @@ import { useActiveConnection } from "@/components/active-connection";
 import { CampaignThread } from "./campaign-thread";
 import { DraftCampaignLink } from "./draft-campaign-link";
 import { PerformanceTab } from "./performance-tab";
+import { WeeklyMailingPlanner } from "./weekly-mailing-planner";
 import { fmtDate, fmtDateTime, fmtSchedule, toDatetimeLocal } from "./format";
 import { TemplateBuilder } from "./template-builder";
 import {
@@ -1582,6 +1583,13 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
              escribir la pieza. */
           plan: (
             <div className="space-y-6">
+              <WeeklyMailingPlanner
+                organizationId={organizationId}
+                onGenerated={async () => {
+                  await Promise.all([loadDrafts(), reloadCampaignItems()]);
+                  setTab("contenido");
+                }}
+              />
               {/* Primero lo que ya esta decidido, despues la propuesta nueva:
                   la pestaña abria vacia aunque el calendario tuviera campañas
                   dentro, porque solo sabia enseñar la ultima propuesta. */}

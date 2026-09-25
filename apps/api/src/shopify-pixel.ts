@@ -131,7 +131,7 @@ export async function ensureShopifyWebPixel(env: ApiEnv, connectionId: string) {
 
   const settings = JSON.stringify({
     accountID: store.id,
-    endpoint: `${(env.API_BASE_URL ?? "https://api.ecomscaling.es").replace(/\/$/, "")}/v1/pixel/events`,
+    endpoint: `${(env.API_BASE_URL ?? "https://api.ecom.noraapp.es").replace(/\/$/, "")}/v1/pixel/events`,
   });
 
   try {

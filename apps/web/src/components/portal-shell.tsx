@@ -819,7 +819,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               <span
                 aria-disabled="true"
                 title="Se activa en cuanto tengas un consultor asignado"
-                className="flex cursor-not-allowed items-center rounded-md px-2.5 py-2 text-[0.8125rem] text-muted opacity-50"
+                className="flex min-h-10 cursor-not-allowed items-center rounded-lg px-3 py-2.5 text-[0.9375rem] text-muted opacity-50"
               >
                 <span className="flex-1">{item.label}</span>
               </span>
@@ -828,7 +828,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={[
-                  "group flex min-h-9 items-center rounded-md px-2.5 py-2 text-[0.8125rem] no-underline transition-[background-color,color,transform] duration-200 hover:bg-surface hover:no-underline active:translate-y-px",
+                  "group flex min-h-10 items-center rounded-lg px-3 py-2.5 text-[0.9375rem] no-underline transition-[background-color,color,transform] duration-200 hover:bg-surface hover:no-underline active:translate-y-px",
                   active
                     ? "bg-surface font-medium text-foreground"
                     : "text-muted hover:text-foreground",
@@ -1161,10 +1161,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               isCopilotOpen
                 ? primaryNavMode === "expanded"
                   ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)_26rem]"
-                  : "lg:grid-cols-[4.25rem_15.5rem_minmax(0,1fr)_26rem]"
+                  : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)_26rem]"
                 : primaryNavMode === "expanded"
                   ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)]"
-                  : "lg:grid-cols-[4.25rem_15.5rem_minmax(0,1fr)]",
+                  : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)]",
             ].join(" ")}
           >
             <aside
@@ -1176,7 +1176,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               }}
               className={[
                 "sticky top-0 z-40 hidden h-dvh shrink-0 flex-col overflow-hidden border-r border-separator bg-white py-2 text-foreground transition-[width] duration-200 ease-out lg:flex",
-                isPrimaryNavExpanded ? "w-[13rem] items-stretch" : "w-[4.25rem] items-center",
+                isPrimaryNavExpanded ? "w-[13rem] items-stretch" : "w-[4.75rem] items-center",
               ].join(" ")}
             >
               <Link
@@ -1184,16 +1184,18 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 aria-label="EcomScaling"
                 className={[
                   "mb-3 flex h-11 shrink-0 items-center rounded-md no-underline hover:bg-surface hover:no-underline",
-                  isPrimaryNavExpanded ? "mx-3 gap-3 px-2" : "size-11 justify-center",
+                  isPrimaryNavExpanded ? "mx-3 gap-3 px-2" : "size-12 justify-center",
                 ].join(" ")}
               >
-                <span className="flex size-7 items-center justify-center rounded-md bg-accent text-[0.65rem] font-semibold tracking-[-0.02em] text-white shadow-sm">
+                <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-[0.7rem] font-semibold tracking-[-0.02em] text-white shadow-sm">
                   ES
                 </span>
                 <span
                   className={[
                     "truncate text-sm font-semibold transition-opacity duration-150",
-                    isPrimaryNavExpanded ? "opacity-100" : "opacity-0",
+                    isPrimaryNavExpanded
+                      ? "opacity-100"
+                      : "hidden",
                   ].join(" ")}
                 >
                   EcomScaling
@@ -1203,7 +1205,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               <nav
                 aria-label="Módulos"
                 className={[
-                  "flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-2",
+                  "flex min-h-0 w-full flex-1 flex-col gap-1.5 overflow-y-auto px-2",
                   isPrimaryNavExpanded ? "items-stretch" : "items-center",
                 ].join(" ")}
               >
@@ -1224,16 +1226,16 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         aria-current={active ? "page" : undefined}
                         onClick={() => handleModuleNavigation(module.items[0].href)}
                         className={[
-                          "relative flex h-10 shrink-0 items-center rounded-md no-underline transition-[background-color,color,transform] duration-200 hover:bg-surface hover:no-underline active:translate-y-px",
+                          "relative flex h-11 shrink-0 items-center rounded-lg no-underline transition-[background-color,color,transform] duration-200 hover:bg-surface hover:no-underline active:translate-y-px",
                           isPrimaryNavExpanded
                             ? "w-full gap-3 px-3"
-                            : "size-10 justify-center",
+                            : "size-11 justify-center",
                           active
-                            ? "bg-surface text-foreground ring-1 ring-inset ring-separator"
+                            ? "bg-surface text-foreground"
                             : "text-muted hover:text-foreground",
                         ].join(" ")}
                       >
-                        <Icon className="size-[1.15rem]" aria-hidden />
+                        <Icon className="size-5" aria-hidden />
                         {badge > 0 ? (
                           <span
                             aria-label={`${badge} sin leer`}
@@ -1242,8 +1244,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         ) : null}
                         <span
                           className={[
-                            "min-w-0 truncate text-[0.8125rem] font-medium transition-opacity duration-150",
-                            isPrimaryNavExpanded ? "opacity-100" : "opacity-0",
+                            "min-w-0 truncate text-sm font-medium transition-opacity duration-150",
+                            isPrimaryNavExpanded
+                              ? "opacity-100"
+                              : "hidden",
                           ].join(" ")}
                         >
                           {module.label}
@@ -1266,7 +1270,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
               <div
                 className={[
-                  "mt-2 flex w-full shrink-0 flex-col gap-1 border-t border-separator px-2 pt-2",
+                  "mt-2 flex w-full shrink-0 flex-col gap-1.5 border-t border-separator px-2 pt-2",
                   isPrimaryNavExpanded ? "items-stretch" : "items-center",
                 ].join(" ")}
               >
@@ -1283,20 +1287,22 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         aria-current={active ? "page" : undefined}
                         onClick={() => handleModuleNavigation(module.items[0].href)}
                         className={[
-                          "flex h-10 items-center rounded-md no-underline transition-colors hover:bg-surface hover:no-underline",
+                          "flex h-11 items-center rounded-lg no-underline transition-colors hover:bg-surface hover:no-underline",
                           isPrimaryNavExpanded
                             ? "w-full gap-3 px-3"
-                            : "size-10 justify-center",
+                            : "size-11 justify-center",
                           active
                             ? "bg-surface text-foreground"
                             : "text-muted hover:text-foreground",
                         ].join(" ")}
                       >
-                        <Icon className="size-[1.1rem]" aria-hidden />
+                        <Icon className="size-5" aria-hidden />
                         <span
                           className={[
-                            "truncate text-[0.8125rem] font-medium transition-opacity duration-150",
-                            isPrimaryNavExpanded ? "opacity-100" : "opacity-0",
+                            "truncate text-sm font-medium transition-opacity duration-150",
+                            isPrimaryNavExpanded
+                              ? "opacity-100"
+                              : "hidden",
                           ].join(" ")}
                         >
                           {module.label}
@@ -1323,17 +1329,19 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       title="Control de navegación"
                       aria-label="Control de navegación lateral"
                       className={[
-                        "flex h-10 items-center rounded-md text-muted transition-colors hover:bg-surface hover:text-foreground",
+                        "flex h-11 items-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-foreground",
                         isPrimaryNavExpanded
                           ? "w-full gap-3 px-3"
-                          : "size-10 justify-center",
+                          : "size-11 justify-center",
                       ].join(" ")}
                     >
-                      <PanelLeftIcon className="size-[1.1rem]" aria-hidden />
+                      <PanelLeftIcon className="size-5" aria-hidden />
                       <span
                         className={[
-                          "truncate text-[0.8125rem] font-medium transition-opacity duration-150",
-                          isPrimaryNavExpanded ? "opacity-100" : "opacity-0",
+                          "truncate text-sm font-medium transition-opacity duration-150",
+                          isPrimaryNavExpanded
+                            ? "opacity-100"
+                            : "hidden",
                         ].join(" ")}
                       >
                         Navegación
