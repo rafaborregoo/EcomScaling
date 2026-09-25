@@ -30,6 +30,7 @@ import {
   PanelLeftIcon,
   Popover,
   Select,
+  Tooltip,
 } from "@/components/ui";
 import {
   ACTIVE_ORGANIZATION_STORAGE_KEY,
@@ -346,8 +347,12 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     return isConsultantRole ? "" : (validIds[0] ?? "");
   });
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  // Por defecto "hover": pasar el raton por el rail lo expande. "collapsed"
+  // (solo iconos, sin expandirse nunca) dejaba el rail mudo hasta que alguien
+  // entrara al Control de navegacion y lo cambiara a mano -- eso es lo que
+  // parecia roto.
   const [primaryNavMode, setPrimaryNavMode] = useState<PrimaryNavMode>(
-    "collapsed",
+    "hover",
   );
   const [isPrimaryNavHovered, setIsPrimaryNavHovered] = useState(false);
   const [isPrimaryNavControlOpen, setIsPrimaryNavControlOpen] = useState(false);
@@ -355,7 +360,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
 
   useEffect(() => {
     const savedMode = window.localStorage.getItem(PRIMARY_NAV_MODE_STORAGE_KEY);
-    if (savedMode !== "expanded" && savedMode !== "hover") return;
+    if (savedMode !== "expanded" && savedMode !== "collapsed" && savedMode !== "hover") return;
 
     const restorePrimaryNavMode = window.setTimeout(() => {
       setPrimaryNavMode(savedMode);
@@ -1211,7 +1216,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       (total, item) => total + (navBadges[navItemPath(item)] ?? 0),
                       0,
                     );
-                    return (
+                    const link = (
                       <Link
                         key={module.id}
                         href={module.items[0].href}
@@ -1245,6 +1250,17 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         </span>
                       </Link>
                     );
+                    // Colapsado el rail es solo iconos: sin tooltip no hay forma
+                    // de saber que es cada uno sin pulsarlo.
+                    if (isPrimaryNavExpanded) return link;
+                    return (
+                      <Tooltip key={module.id} delay={300}>
+                        {link}
+                        <Tooltip.Content placement="right">
+                          <p>{module.label}</p>
+                        </Tooltip.Content>
+                      </Tooltip>
+                    );
                   })}
               </nav>
 
@@ -1259,7 +1275,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                   .map((module) => {
                     const Icon = module.icon;
                     const active = module.id === activeModule.id;
-                    return (
+                    const link = (
                       <Link
                         key={module.id}
                         href={module.items[0].href}
@@ -1286,6 +1302,15 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                           {module.label}
                         </span>
                       </Link>
+                    );
+                    if (isPrimaryNavExpanded) return link;
+                    return (
+                      <Tooltip key={module.id} delay={300}>
+                        {link}
+                        <Tooltip.Content placement="right">
+                          <p>{module.label}</p>
+                        </Tooltip.Content>
+                      </Tooltip>
                     );
                   })}
                 <Popover
