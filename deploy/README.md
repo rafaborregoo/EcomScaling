@@ -111,6 +111,10 @@ observabilidad atribuye el comportamiento de produccion a un commit que no es.
 `deploy.sh` lo escribe con el SHA de `HEAD` en cada despliegue y aborta si el arbol esta sucio
 (`ECOM_ALLOW_DIRTY=1` lo fuerza y etiqueta `<sha>-dirty`).
 
+Comprobacion rapida de que version corre la API, sin SSH: `curl -s https://api.ecomscaling.es/health`
+devuelve `"version"` con ese `GIT_SHA`. Si no coincide con el commit que esperabas, falta
+`deploy.sh`: un push a `main` despliega la web (Vercel) pero **no** el VPS.
+
 No conviene dejarlo apuntando a una etiqueta que **si** exista en GHCR: cualquier `compose` que se
 invoque sin el override bajaria esa imagen y correria codigo viejo en silencio, que es exactamente
 como el cron estuvo desactualizado sin que se notara.

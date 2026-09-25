@@ -12,6 +12,7 @@ process.env.SHOPIFY_SCOPES = "read_products";
 process.env.SHOPIFY_REDIRECT_URI =
   "https://api.example.com/v1/shopify/callback";
 process.env.INTERNAL_API_SECRET = "metrics-test-secret";
+process.env.GIT_SHA = "46d988d73fad175923b15219970815fced41a761";
 
 const { buildApp } = await import("./server.js");
 const app = await buildApp();
@@ -44,6 +45,17 @@ test("protege las métricas internas y devuelve contadores Prometheus", async ()
   assert.match(String(authorized.headers["content-type"] ?? ""), /text\/plain/);
   assert.match(authorized.body, /http_requests_total/);
   assert.match(authorized.body, /route="\/health\/live"/);
+});
+
+test("/health expone el commit desplegado para verificar el deploy sin SSH", async () => {
+  for (const url of ["/health", "/health/live"]) {
+    const response = await app.inject({ method: "GET", url });
+    assert.equal(response.statusCode, 200);
+    assert.equal(
+      response.json().version,
+      "46d988d73fad175923b15219970815fced41a761",
+    );
+  }
 });
 
 test("x-request-id es legible por el navegador cross-origin", async () => {

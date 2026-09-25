@@ -4,6 +4,9 @@ export const healthResponseSchema = z.object({
   status: z.literal("ok"),
   service: z.string().min(1),
   timestamp: z.string().datetime(),
+  // Commit desplegado (GIT_SHA, que deploy.sh escribe desde HEAD). null fuera
+  // del VPS. Permite comprobar desde fuera que version corre sin entrar por SSH.
+  version: z.string().min(1).nullable(),
 });
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;

@@ -886,21 +886,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   // responder HTTP, reiniciarlo no arreglaria nada. Se mantiene sin cambios
   // de comportamiento porque el HEALTHCHECK de apps/api/Dockerfile ya
   // apunta aqui.
-  app.get("/health", async () =>
+  const liveness = () =>
     healthResponseSchema.parse({
       status: "ok",
       service: "api",
       timestamp: new Date().toISOString(),
-    }),
-  );
+      version: env.GIT_SHA ?? null,
+    });
 
-  app.get("/health/live", async () =>
-    healthResponseSchema.parse({
-      status: "ok",
-      service: "api",
-      timestamp: new Date().toISOString(),
-    }),
-  );
+  app.get("/health", async () => liveness());
+
+  app.get("/health/live", async () => liveness());
 
   app.get("/health/metrics", async (request, reply) => {
     if (!env.INTERNAL_API_SECRET) {

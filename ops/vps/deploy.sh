@@ -111,5 +111,5 @@ ssh "$host" "docker compose $compose up -d && docker compose $compose ps"
 
 echo
 echo "Desplegado $sha. Comprobar:"
-echo "  curl -s https://api.ecomscaling.es/health"
+echo "  curl -s https://api.ecomscaling.es/health   # \"version\" debe ser $sha"
 echo "  ssh $host '$remote/run-worker-job.sh readiness; echo status=\$?'"
