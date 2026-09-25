@@ -14,7 +14,7 @@ process.env.SHOPIFY_REDIRECT_URI =
 process.env.INTERNAL_API_SECRET = "metrics-test-secret";
 process.env.GIT_SHA = "46d988d73fad175923b15219970815fced41a761";
 
-const { buildApp } = await import("./server.js");
+const { buildApp, isAllowedWebOrigin } = await import("./server.js");
 const app = await buildApp();
 
 before(async () => {
@@ -88,4 +88,32 @@ test("expone SLO HTTP protegido y no lo mezcla con las métricas públicas", asy
   const body = response.json() as { status: string; violations: string[] };
   assert.ok(["ok", "degraded", "critical", "no_traffic"].includes(body.status));
   assert.ok(Array.isArray(body.violations));
+});
+
+test("CORS admite la web y solo las previews de Vercel del propio equipo", () => {
+  const env = {
+    WEB_ORIGIN: "https://dashboard.ecomscaling.es",
+    WEB_PREVIEW_ORIGIN_SUFFIX: "-mi-equipo-projects.vercel.app",
+  };
+  assert.equal(isAllowedWebOrigin("https://dashboard.ecomscaling.es", env), true);
+  assert.equal(isAllowedWebOrigin(undefined, env), true);
+  assert.equal(
+    isAllowedWebOrigin("https://ecom-scaling-abc123-mi-equipo-projects.vercel.app", env),
+    true,
+  );
+  for (const origin of [
+    "https://otro-equipo-projects.vercel.app",
+    "http://ecom-scaling-abc123-mi-equipo-projects.vercel.app",
+    "https://x-mi-equipo-projects.vercel.app.evil.com",
+    "https://evil.com/-mi-equipo-projects.vercel.app",
+    "null",
+  ]) {
+    assert.equal(isAllowedWebOrigin(origin, env), false, origin);
+  }
+  assert.equal(
+    isAllowedWebOrigin("https://ecom-scaling-abc123-mi-equipo-projects.vercel.app", {
+      WEB_ORIGIN: env.WEB_ORIGIN,
+    }),
+    false,
+  );
 });

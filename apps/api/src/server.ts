@@ -620,6 +620,29 @@ export function sendServiceFailure(
   return reply.code(failure.statusCode).send(failure);
 }
 
+// CORS: la web de produccion (WEB_ORIGIN) y, si se configura, las previews de
+// Vercel del propio equipo, para probar cambios de UI contra la API real sin
+// desplegar a produccion. Sin origen (curl, servidor a servidor) no hay CORS
+// que decidir.
+export function isAllowedWebOrigin(
+  origin: string | undefined,
+  env: { WEB_ORIGIN: string; WEB_PREVIEW_ORIGIN_SUFFIX?: string },
+): boolean {
+  if (!origin) return true;
+  if (origin === env.WEB_ORIGIN) return true;
+  if (!env.WEB_PREVIEW_ORIGIN_SUFFIX) return false;
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === "https:" &&
+      url.origin === origin &&
+      url.hostname.endsWith(env.WEB_PREVIEW_ORIGIN_SUFFIX)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const env = loadApiEnv(process.env);
   // Test y produccion separados (Shopify, datos protegidos Nivel 2). Avisa
@@ -659,7 +682,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(cors, {
-    origin: env.WEB_ORIGIN,
+    origin: (origin, callback) =>
+      callback(null, isAllowedWebOrigin(origin, env)),
     credentials: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
     // SQO-02: sin exponerla, el navegador no puede leer `x-request-id` en una

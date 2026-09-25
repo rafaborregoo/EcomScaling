@@ -15,6 +15,10 @@ const apiEnvSchema = z.object({
   API_HOST: z.string().default("0.0.0.0"),
   API_PORT: z.coerce.number().int().positive().default(4000),
   WEB_ORIGIN: z.string().url().default("http://localhost:3001"),
+  // Sufijo de host de las previews de Vercel (p. ej.
+  // "-mi-equipo-projects.vercel.app"). Solo el equipo dueno puede publicar
+  // bajo su sufijo, asi que abrir CORS a el no abre la API a cualquier .vercel.app.
+  WEB_PREVIEW_ORIGIN_SUFFIX: z.string().regex(/^-[a-z0-9-]+\.vercel\.app$/).optional(),
   SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   SUPABASE_PUBLISHABLE_KEY: z.string().min(1).optional(),
@@ -168,6 +172,7 @@ export type LoadedApiEnv = {
   API_HOST: string;
   API_PORT: number;
   WEB_ORIGIN: string;
+  WEB_PREVIEW_ORIGIN_SUFFIX?: string;
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -371,6 +376,9 @@ export function loadApiEnv(
     API_HOST: env.API_HOST,
     API_PORT: env.API_PORT,
     WEB_ORIGIN: env.WEB_ORIGIN,
+    ...(env.WEB_PREVIEW_ORIGIN_SUFFIX
+      ? { WEB_PREVIEW_ORIGIN_SUFFIX: env.WEB_PREVIEW_ORIGIN_SUFFIX }
+      : {}),
     SUPABASE_URL: supabaseUrl,
     SUPABASE_PUBLISHABLE_KEY: supabasePublishableKey,
     ...(env.SUPABASE_SERVICE_ROLE_KEY
