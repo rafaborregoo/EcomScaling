@@ -8,7 +8,7 @@ import { createTask } from "./operations.js";
 import {
   campaignPlanOutputSchema,
   type CampaignPlanOutput,
-} from "@ecomscaling/ai";
+} from "@e-nora/ai";
 
 type ApiEnv = {
   SUPABASE_URL: string;

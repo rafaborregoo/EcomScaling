@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { purgeExpiredDeletions } from "@ecomscaling/api/consultant";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { purgeExpiredDeletions } from "@e-nora/api/consultant";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("purge-expired-deletions-cron");

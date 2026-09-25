@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type Stripe from "stripe";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import type { AuthContext } from "./auth-context.js";
 import {
   createStripeClient,

@@ -8,9 +8,9 @@
  *
  * Va detras de D04 y D08, y delante de D11.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runRootCauseEngineForAllOrganizations } from "@ecomscaling/api/root-cause-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runRootCauseEngineForAllOrganizations } from "@e-nora/api/root-cause-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("root-cause-cron");

@@ -63,7 +63,7 @@ repositorio**, es configuración del proyecto en el panel de Supabase
 (Authentication → Sign In / Providers → Password). Por eso hay que revisarla ahí
 y no basta con leer el código.
 
-Estado medido el 2026-09-10 en el proyecto de producción (`SaaS-EcomScaling`):
+Estado medido el 2026-09-10 en el proyecto de producción (`SaaS-E-NORA`):
 
 | Ajuste | Estado | Objetivo |
 |---|---|---|
@@ -77,7 +77,7 @@ Los tres últimos se cambian en
 y no dependen del plan.
 
 El primero sí: **Supabase solo ofrece la protección de contraseñas filtradas a
-partir del plan Pro**, y la organización `EcomScaling` está en free (comprobado
+partir del plan Pro**, y la organización `E-NORA` está en free (comprobado
 el 2026-09-10). Es decir, este punto no se cierra escribiendo nada ni tocando
 ajustes: o se sube de plan, o se declara ante Shopify que se cubre por longitud y
 complejidad de contraseña. **Mientras tanto, el requisito no se cumple del todo**,

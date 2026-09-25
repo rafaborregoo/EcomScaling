@@ -47,7 +47,7 @@
   real, no solo un caso sintetico de aislamiento.
 - **Cerrado 2026-07-23 (correccion 2026-07-27: esta seccion no se habia actualizado cuando cerro, deriva
   documental real, ver R-022)**: dataset de `recall@k` corrido contra Voyage real
-  (`apps/api/src/eval-ai04-rag-retrieval.ts`, `npm run eval:ai04 -w @ecomscaling/api`) -- 6 documentos de
+  (`apps/api/src/eval-ai04-rag-retrieval.ts`, `npm run eval:ai04 -w @e-nora/api`) -- 6 documentos de
   metodologia con consultas parafraseadas (nunca coincidencia lexica exacta), recall@8 y recall@3 ambos
   6/6 (100%). Cubre el caso principal del gap; no cubre corpus grande/estructurado ni terminologia exacta
   (busqueda hibrida).

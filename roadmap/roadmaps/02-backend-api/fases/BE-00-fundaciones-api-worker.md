@@ -54,7 +54,7 @@
   inexistente + Redis inalcanzable, ambos checks devuelven `error` en ~230ms, dentro del timeout). El
   `HEALTHCHECK` de `apps/api/Dockerfile` sigue apuntando a `/health` sin cambios -- es exactamente la
   semantica de liveness que un healthcheck de Docker necesita. Contrato tipado en
-  `@ecomscaling/contracts` (`readinessResponseSchema`).
+  `@e-nora/contracts` (`readinessResponseSchema`).
 - **Resuelto parcialmente 2026-07-23 (shutdown graceful)**: encontrado un bug real escribiendo el test de
   BE-01 de organizacion manipulada (`be-01-cross-tenant-route-manipulation.test.ts`) -- `app.close()` se
   colgaba indefinidamente porque el cliente Redis que `server.ts` le pasa a `@fastify/rate-limit` nunca se

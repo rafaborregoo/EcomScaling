@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runPlaybookFrameworkEngineForAllOrganizations } from "@ecomscaling/api/playbook-engine";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { runPlaybookFrameworkEngineForAllOrganizations } from "@e-nora/api/playbook-engine";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("playbook-worker");
 

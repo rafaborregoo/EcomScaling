@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateHitlApproval, fingerprintPlaybookInput, type HitlApprovalInput, type HitlApprovalResult, type HitlApprovalState, type HitlAutonomyLevel, type HitlApprovalRequirement } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { evaluateHitlApproval, fingerprintPlaybookInput, type HitlApprovalInput, type HitlApprovalResult, type HitlApprovalState, type HitlAutonomyLevel, type HitlApprovalRequirement } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const SOURCE = "f8-p02.v1";
 const DEFAULT_POLICY: HitlApprovalInput["policy"] = {

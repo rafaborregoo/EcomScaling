@@ -2,7 +2,7 @@
 
 **Ámbito:** España/Europa, con comparables globales cuando el mercado es transfronterizo  
 **Fecha de corte y consulta:** 24 de septiembre de 2026  
-**Objetivo:** aportar referencias externas para una valoración de EcomScaling. Este documento **no es por sí solo una tasación del repositorio**; debe combinarse con la auditoría técnica, el estado comercial y la titularidad jurídica de los activos.
+**Objetivo:** aportar referencias externas para una valoración de E-NORA. Este documento **no es por sí solo una tasación del repositorio**; debe combinarse con la auditoría técnica, el estado comercial y la titularidad jurídica de los activos.
 
 ## Resumen ejecutivo
 

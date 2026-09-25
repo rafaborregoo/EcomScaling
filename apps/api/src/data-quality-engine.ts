@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D01 — El motor de calidad de datos, conectado a la ingesta real.
  *
- * `assessSource` (en `@ecomscaling/contracts`) es puro: entran hechos de
+ * `assessSource` (en `@e-nora/contracts`) es puro: entran hechos de
  * ingesta y sale una evaluacion con sus issues. Este fichero es su unica parte
  * sucia -- leer Supabase, escribir `data_quality_assessments` y
  * `data_quality_issues` -- igual que `signal-engine.ts` lo es de `detectSignals`.
@@ -30,9 +30,9 @@
  * issue ABIERTO por tipo y fuente. Reejecutar el motor corrige, no acumula.
  */
 import { createClient } from "@supabase/supabase-js";
-import { assessSource, type IngestionFacts } from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { assessSource, type IngestionFacts } from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("data-quality-engine");
 

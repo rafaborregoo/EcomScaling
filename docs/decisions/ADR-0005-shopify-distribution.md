@@ -1,4 +1,4 @@
-# ADR-0005 - Distribucion Shopify para EcomScaling IA
+# ADR-0005 - Distribucion Shopify para E-NORA IA
 
 ## Estado
 
@@ -6,7 +6,7 @@ Aprobada.
 
 ## Decision
 
-EcomScaling IA usara una app Shopify con `Public distribution` para conectar tiendas de clientes distintos. `Custom distribution` quedara solo para pruebas internas, dev stores o escenarios limitados a una misma organizacion Shopify Plus.
+E-NORA IA usara una app Shopify con `Public distribution` para conectar tiendas de clientes distintos. `Custom distribution` quedara solo para pruebas internas, dev stores o escenarios limitados a una misma organizacion Shopify Plus.
 
 ## Motivo
 

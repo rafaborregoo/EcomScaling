@@ -1,7 +1,7 @@
 /**
  * Lectura de los permisos de Shopify: que falta, y como se dice.
  *
- * El catalogo (`SHOPIFY_SCOPES_USED`) vive en @ecomscaling/contracts porque la
+ * El catalogo (`SHOPIFY_SCOPES_USED`) vive en @e-nora/contracts porque la
  * interfaz tambien lo necesita. Aqui esta la parte que solo usa el servidor.
  *
  * Igual que en Klaviyo: el mensaje crudo de Shopify ("Access denied for orders
@@ -13,7 +13,7 @@ import {
   SHOPIFY_SCOPES_USED,
   shopifyScopeInfo,
   type ShopifyScopeInfo,
-} from "@ecomscaling/contracts";
+} from "@e-nora/contracts";
 
 export { SHOPIFY_SCOPES_USED, shopifyScopeInfo, type ShopifyScopeInfo };
 

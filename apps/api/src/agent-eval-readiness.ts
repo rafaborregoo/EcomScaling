@@ -3,8 +3,8 @@ import WebSocket from "ws";
 import {
   ACTIVE_AGENT_CODES,
   AGENT_EVAL_DATASET_VERSION,
-} from "@ecomscaling/ai";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/ai";
+import type { LoadedApiEnv } from "@e-nora/config";
 
 export type AgentEvalReadinessResponse = {
   coveredAgents: number;

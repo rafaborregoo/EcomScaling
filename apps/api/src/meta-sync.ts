@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
-import { createLogger } from "@ecomscaling/observability";
+import type { LoadedApiEnv } from "@e-nora/config";
+import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
+import { createLogger } from "@e-nora/observability";
 import { metaGraphGet, metaGraphGetAll } from "./meta-client.js";
 import { getValidMetaAccessToken } from "./meta.js";
 import {

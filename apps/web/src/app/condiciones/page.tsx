@@ -7,9 +7,9 @@ import { BrandLogo, Card, Heading, Link } from "@/components/ui";
 // enlazada desde fuera.
 
 export const metadata: Metadata = {
-  title: "Condiciones del servicio — EcomScaling IA",
+  title: "Condiciones del servicio — E-NORA IA",
   description:
-    "Condiciones del servicio de EcomScaling IA: qué incluye la plataforma, qué responsabilidades asume cada parte y cómo se contrata o cancela.",
+    "Condiciones del servicio de E-NORA IA: qué incluye la plataforma, qué responsabilidades asume cada parte y cómo se contrata o cancela.",
 };
 
 const LAST_UPDATED = "14 de septiembre de 2026";
@@ -26,9 +26,16 @@ export default function TermsOfServicePage() {
         <p className="text-sm text-muted">Última actualización: {LAST_UPDATED}</p>
       </header>
 
+      <Card title="Titular">
+        <p>
+          E-NORA es una marca comercial de Rafael Manuel Borrego Reyes (DNI
+          49832956Y), con domicilio en Calle Argentea, 8, 29010 Málaga, España.
+        </p>
+      </Card>
+
       <Card title="Objeto">
         <p>
-          EcomScaling IA es una plataforma de consultoría para tiendas de
+          E-NORA IA es una plataforma de consultoría para tiendas de
           e-commerce. Centraliza en un mismo sitio los datos de las plataformas
           que el cliente conecta —Shopify, Meta Ads y Klaviyo—, calcula métricas
           sobre ellos y genera diagnósticos, recomendaciones y tareas de
@@ -135,7 +142,7 @@ export default function TermsOfServicePage() {
       <Card title="Propiedad">
         <p>
           El software, la interfaz y la lógica de la plataforma son propiedad de
-          EcomScaling. Los datos de negocio del cliente y el contenido que sube
+          E-NORA. Los datos de negocio del cliente y el contenido que sube
           siguen siendo suyos: no adquirimos derechos sobre ellos más allá de lo
           necesario para prestar el servicio, y no los usamos para entrenar
           modelos propios ni de terceros.

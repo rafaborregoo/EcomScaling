@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateExpectedOutcome, fingerprintPlaybookInput, type ExpectedOutcomeInput, type ExpectedOutcomeResult, type PlaybookTemplate } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { evaluateExpectedOutcome, fingerprintPlaybookInput, type ExpectedOutcomeInput, type ExpectedOutcomeResult, type PlaybookTemplate } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { parseActivePlaybookTemplates } from "./playbook-engine.js";
 
 const SOURCE = "f7-p15.v1";

@@ -50,7 +50,7 @@ Las cifras anteriores de esta fase son historicas.
 en produccion` para el secret de GitHub Actions/Vercel, ver AI-07 -- ese es un gap de despliegue, ya no
   de validacion).
 - **Resuelto 2026-07-23 (retrieval real, primera vez)**: `apps/api/src/eval-ai04-rag-retrieval.ts` (`npm
-run eval:ai04 -w @ecomscaling/api`) ingesta 6 documentos de metodologia (uno por tema: punto de reorden,
+run eval:ai04 -w @e-nora/api`) ingesta 6 documentos de metodologia (uno por tema: punto de reorden,
   ROAS break-even, devoluciones por daño, fatiga publicitaria, cohortes LTV, aprobacion de resumenes de
   llamada) via `createKnowledgeDocument` (chunking + embeddings reales de Voyage `voyage-3.5`) y lanza 6
   consultas **parafraseadas** (ningun solapamiento lexico con el documento esperado) contra

@@ -14,7 +14,7 @@
 
 - **Responsable del tratamiento:** el merchant (la tienda que conecta su cuenta).
   Decide qué datos conecta y para qué.
-- **Encargado del tratamiento:** EcomScaling IA (Rafael Borrego,
+- **Encargado del tratamiento:** E-NORA IA (Rafael Borrego,
   rafael@noraapp.es), que trata esos datos únicamente siguiendo las instrucciones
   del merchant.
 
@@ -87,7 +87,7 @@ confidencialidad y se revisa al alta, a la baja y trimestralmente.
 
 ## 7. Derechos de los interesados
 
-El merchant es quien responde ante sus clientes. EcomScaling IA le asiste:
+El merchant es quien responde ante sus clientes. E-NORA IA le asiste:
 
 - `customers/data_request`, `customers/redact` y `shop/redact` de Shopify se
   atienden por el flujo de webhooks obligatorios.

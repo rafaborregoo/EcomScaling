@@ -4,8 +4,8 @@ import {
   paybackFromCurve,
   type LifetimeMilestone,
   type Payback,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 import { recordProtectedDataAccess } from "./protected-data-access.js";

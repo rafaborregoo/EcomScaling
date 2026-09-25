@@ -60,7 +60,7 @@ const PERMISSION_TONE: Record<ToolRow["permission"], Tone> = {
 };
 
 const CONNECTOR_LABEL: Record<string, string> = {
-  core: "EcomScaling",
+  core: "E-NORA",
   shopify: "Shopify",
   meta: "Meta",
   klaviyo: "Klaviyo",

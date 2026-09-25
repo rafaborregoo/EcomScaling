@@ -1,5 +1,5 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { refreshLifecycleViewsForAllOrganizations } from "@ecomscaling/api/execution-lifecycle-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { refreshLifecycleViewsForAllOrganizations } from "@e-nora/api/execution-lifecycle-engine";
 
 const summary = await refreshLifecycleViewsForAllOrganizations(loadApiEnv(process.env));
 console.log(JSON.stringify({ worker: "f8-p10-execution-lifecycle", ...summary }));

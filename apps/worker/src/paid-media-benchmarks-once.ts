@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runPaidMediaBenchmarksPlaybookEngineForAllOrganizations } from "@ecomscaling/api/paid-media-benchmarks-engine";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { runPaidMediaBenchmarksPlaybookEngineForAllOrganizations } from "@e-nora/api/paid-media-benchmarks-engine";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("paid-media-benchmarks-worker");
 

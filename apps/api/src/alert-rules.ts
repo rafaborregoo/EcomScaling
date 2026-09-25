@@ -10,7 +10,7 @@
 // la RLS de la tabla solo concede lectura a quien accede a la organizacion.
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import {
   requireOperationalOrganization,
   isOperationalOrganizationError,

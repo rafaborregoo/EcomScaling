@@ -6,8 +6,8 @@ import {
   type LifecycleContext,
   type LifecycleState,
   type LifecycleTransition,
-} from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 /**
  * F8.10 runtime. Holds the authoritative lifecycle state of each intervention

@@ -25,6 +25,31 @@ type BankImage = {
   analysis: { suggested_use?: string } | null;
 };
 
+type WeeklyMailingPlan = {
+  plan_name: string;
+  diagnosis: string;
+  sequence_rationale: string;
+  emails: Array<{
+    sequence_number: number;
+    title: string;
+    objective: string;
+    audience: string;
+    angle: string;
+    subject_direction: string;
+    preheader_direction: string;
+    cta: string;
+    copy_brief: string;
+  }>;
+  confidence: "low" | "medium" | "high";
+  warnings: string[];
+};
+
+type MailingTemplate = {
+  id: string;
+  name: string;
+  design: Record<string, unknown>;
+};
+
 const WEEK_DAYS = [
   { value: 1, label: "L" },
   { value: 2, label: "M" },
@@ -65,9 +90,11 @@ function scheduleDates(
 export function WeeklyMailingPlanner({
   organizationId,
   onGenerated,
+  templates,
 }: {
   organizationId: string;
   onGenerated: () => Promise<void> | void;
+  templates: MailingTemplate[];
 }) {
   const [campaignName, setCampaignName] = useState("");
   const [objective, setObjective] = useState("conversion");
@@ -78,6 +105,7 @@ export function WeeklyMailingPlanner({
   const [durationDays, setDurationDays] = useState("7");
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 3, 5]);
   const [numberOfEmails, setNumberOfEmails] = useState("3");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [images, setImages] = useState<BankImage[]>([]);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [isLoadingImages, setIsLoadingImages] = useState(true);
@@ -108,6 +136,8 @@ export function WeeklyMailingPlanner({
     [durationDays, numberOfEmails, selectedDays, startDate],
   );
   const readyImages = images.filter((image) => image.status === "analyzed");
+  const selectedTemplate =
+    templates.find((template) => template.id === selectedTemplateId) ?? null;
 
   function toggleDay(day: number) {
     setSelectedDays((current) =>
@@ -139,7 +169,50 @@ export function WeeklyMailingPlanner({
     setError(null);
     const created: string[] = [];
     try {
+      // A27 decide el arco completo usando el historial y los especialistas.
+      // A11 redacta despues cada pieza con este contexto, no como prompts
+      // aislados que puedan repetirse o contradecirse.
+      const planResponse = await apiFetch(
+        `/v1/organizations/${organizationId}/marketing/weekly-mailing-plan`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            campaign_name: campaignName.trim(),
+            objective,
+            audience: audience.trim(),
+            offer: offer.trim(),
+            instructions: instructions.trim(),
+            scheduled_dates: plannedDates.map(isoDate),
+            ...(selectedTemplate
+              ? {
+                  selected_template: {
+                    id: selectedTemplate.id,
+                    name: selectedTemplate.name,
+                    design: selectedTemplate.design,
+                  },
+                }
+              : {}),
+          }),
+        },
+        180_000,
+      );
+      if (!planResponse.ok) throw new Error(await readApiError(planResponse));
+      const planPayload = (await planResponse.json()) as {
+        output?: WeeklyMailingPlan;
+      };
+      const weeklyPlan = planPayload.output;
+      if (!weeklyPlan || weeklyPlan.emails.length !== plannedDates.length) {
+        throw new Error("El planificador no devolvio una secuencia completa. No se ha creado ningun borrador.");
+      }
+
       for (const [index, scheduledFor] of plannedDates.entries()) {
+        const emailPlan = weeklyPlan.emails.find(
+          (email) => email.sequence_number === index + 1,
+        );
+        if (!emailPlan) {
+          throw new Error("Falta un paso en la secuencia de mailing. No se ha creado el resto de borradores.");
+        }
         const imageUrl = selectedImages.length
           ? selectedImages[index % selectedImages.length]
           : undefined;
@@ -151,6 +224,13 @@ export function WeeklyMailingPlanner({
           tone: "brand",
           cta: "",
           instructions: [
+            "PLAN ESTRATEGICO A27: usa lo siguiente como restricciones de trabajo basadas en el historial de esta organizacion.",
+            `Diagnostico: ${weeklyPlan.diagnosis}`,
+            `Arco de secuencia: ${weeklyPlan.sequence_rationale}`,
+            `Este es el email ${index + 1} de ${plannedDates.length}: ${emailPlan.title}.`,
+            `Angulo: ${emailPlan.angle}. Objetivo: ${emailPlan.objective}. Audiencia: ${emailPlan.audience}.`,
+            `Direccion de asunto: ${emailPlan.subject_direction}. Direccion de preheader: ${emailPlan.preheader_direction}. CTA: ${emailPlan.cta}.`,
+            `Brief de copy obligatorio: ${emailPlan.copy_brief}`,
             `CAMPAÑA DE MAILING: ${campaignName.trim()}.`,
             `Este es el email ${index + 1} de ${plannedDates.length}; debe aportar un ángulo distinto y no repetir el anterior.`,
             `Fecha prevista de envío: ${isoDate(scheduledFor)} a las 09:00.`,
@@ -168,6 +248,9 @@ export function WeeklyMailingPlanner({
               content_type: "campaign",
               channel: "email_klaviyo",
               brief,
+              ...(selectedTemplate
+                ? { base_design: selectedTemplate.design }
+                : {}),
               ...(imageUrl ? { content_image_urls: [imageUrl] } : {}),
             }),
           },
@@ -254,6 +337,30 @@ export function WeeklyMailingPlanner({
         <Field label="Indicaciones para la IA">
           <Textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Producto a priorizar, límites de tono, prueba social disponible o cualquier contexto de esta campaña." />
         </Field>
+      </div>
+
+      <div className="mt-5">
+        <Field label="Sistema de diseño">
+          <Select
+            value={selectedTemplateId}
+            onChange={setSelectedTemplateId}
+            options={[
+              { value: "", label: "Dejar que la IA proponga el diseño" },
+              ...templates.map((template) => ({
+                value: template.id,
+                label: template.name,
+              })),
+            ]}
+          />
+        </Field>
+        <p className="mt-2 text-xs text-muted">
+          Opcional. Una plantilla mantiene la estructura visual de toda la secuencia y A11 adapta sus bloques al plan de A27.
+        </p>
+        {templates.length === 0 ? (
+          <p className="mt-2 text-xs text-muted">
+            Guarda o importa una plantilla desde Crear para reutilizarla en la secuencia.
+          </p>
+        ) : null}
       </div>
 
       <div className="mt-5">

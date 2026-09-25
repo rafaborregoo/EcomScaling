@@ -51,11 +51,8 @@ const marketingItems: PortalNavItem[] = [
     defaultForPath: true,
   },
   { href: "/marketing?section=contenido", label: "Contenido" },
-  {
-    href: "/marketing?section=crear",
-    label: "Crear",
-    matchPrefixes: ["/marketing/imagenes"],
-  },
+  { href: "/marketing?section=crear", label: "Crear" },
+  { href: "/marketing/imagenes", label: "Banco de imÃ¡genes" },
   { href: "/marketing?section=rendimiento", label: "Rendimiento" },
 ];
 

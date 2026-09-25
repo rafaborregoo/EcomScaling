@@ -18,7 +18,7 @@
 // la conversión propia (pedidos/sesiones) se calcula igual en SQL; (c) se
 // loguean las columnas realmente devueltas la primera vez.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createLogger } from "@ecomscaling/observability";
+import { createLogger } from "@e-nora/observability";
 import { shopifyGraphql } from "./shopify-client.js";
 
 const logger = createLogger("shopify-sessions");

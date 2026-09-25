@@ -1,5 +1,5 @@
-import { validateUnitEconomicsBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { validateUnitEconomicsBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { buildPlaybookContext, parseActivePlaybookTemplates, runPlaybookFrameworkEngine, runPlaybookFrameworkEngineForAllOrganizations } from "./playbook-engine.js";
 const UNKNOWN: PlaybookTriState = "UNKNOWN"; const SOURCE = "f6-p08.v1"; const present = (v: unknown) => v !== null && v !== undefined; const obs = (a: boolean | null | undefined, v: boolean) => a === true && v ? "TRUE" : a === false ? "FALSE" : UNKNOWN;
 export type UnitEconomicsBenchmarksEvidence = { sales?: { available: boolean; gross_sales?: number | null; discounts?: number | null; refunds?: number | null; net_sales?: number | null; orders_count?: number | null } | null; margin?: { available: boolean; items_with_cost?: number | null; items_without_cost?: number | null; gross_margin?: number | null } | null; financial?: { available: boolean; cogs?: number | null; payment_fees?: number | null; shipping_costs?: number | null; fixed_costs?: number | null; net_profit?: number | null; contribution_per_order?: number | null; cac_blended?: number | null } | null; history?: { available: boolean; days?: number | null } | null };

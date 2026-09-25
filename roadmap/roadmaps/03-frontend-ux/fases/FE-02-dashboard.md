@@ -19,7 +19,7 @@ permanente ni summaries de una selección anterior; typecheck web y el gate de e
   tienda activa o agregada** (titulo cambia a "Resumen de la tienda seleccionada" cuando hay una tienda
   activa via el selector global).
 - **Resuelto 2026-07-22**: `IntegrationAction` (renombrado `AccountAction`) ya es un catalogo cerrado
-  (`@ecomscaling/contracts`, `ACCOUNT_ACTION_TYPES = ["integration_error", "shopify_reauthorization_required"]`),
+  (`@e-nora/contracts`, `ACCOUNT_ACTION_TYPES = ["integration_error", "shopify_reauthorization_required"]`),
   compartido entre `apps/api/src/actions.ts` y `apps/web/src/lib/bootstrap.ts` -- antes `type: string` podia
   desincronizarse entre backend y frontend sin que TypeScript lo detectara. De paso, `severity` (que ya
   existia pero no se usaba) ahora si cambia el estilo visual de la banda de avisos (`portal-shell.tsx`):

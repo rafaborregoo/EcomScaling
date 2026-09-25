@@ -8,9 +8,9 @@
  * Va detras de D05 y D06 --sin senales no hay nada que recorrer-- y delante de
  * D11, que es quien lee si alguna causa quedo en pie.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runCausalEngineForAllOrganizations } from "@ecomscaling/api/causal-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runCausalEngineForAllOrganizations } from "@e-nora/api/causal-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("causal-cron");

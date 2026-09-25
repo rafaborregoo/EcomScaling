@@ -6,9 +6,9 @@
  * senales de hoy todavia no existen, asi que la lectura sale mas vacia de lo que
  * corresponde.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runHealthEngineForAllOrganizations } from "@ecomscaling/api/health-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runHealthEngineForAllOrganizations } from "@e-nora/api/health-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("health-cron");

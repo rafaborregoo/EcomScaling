@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isAgentAutorunEnabled } from "./ai-runtime.js";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 
 const env = (value?: "true" | "false") =>
   ({ ...(value ? { AI_AUTORUN_ENABLED: value } : {}) }) as LoadedApiEnv;

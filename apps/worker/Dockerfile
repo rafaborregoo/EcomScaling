@@ -31,8 +31,8 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 COPY apps/worker ./apps/worker
 
-RUN npm run build -w @ecomscaling/api
-RUN npm run build -w @ecomscaling/worker
+RUN npm run build -w @e-nora/api
+RUN npm run build -w @e-nora/worker
 RUN npm prune --omit=dev
 
 FROM node:24-alpine AS runtime

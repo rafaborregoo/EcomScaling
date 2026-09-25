@@ -8,8 +8,8 @@ import {
 } from "./password-policy";
 
 test("matches the production Supabase password policy", () => {
-  assert.equal(isPasswordValid("EcomScaling-2026!"), true);
-  assert.equal(isPasswordValid("EcomScaling2026"), false);
+  assert.equal(isPasswordValid("Enora-2026!"), true);
+  assert.equal(isPasswordValid("Enora2026"), false);
   assert.deepEqual(getPasswordRequirements("solo-minuscula1!"), {
     minLength: true,
     lowercase: true,
@@ -43,13 +43,13 @@ test("explains the provider reason when a locally valid password is rejected", (
 });
 
 test("validates the confirmation field explicitly", () => {
-  assert.equal(passwordConfirmationState("EcomScaling-2026!", ""), "empty");
+  assert.equal(passwordConfirmationState("Enora-2026!", ""), "empty");
   assert.equal(
-    passwordConfirmationState("EcomScaling-2026!", "EcomScaling-2026!"),
+    passwordConfirmationState("Enora-2026!", "Enora-2026!"),
     "match",
   );
   assert.equal(
-    passwordConfirmationState("EcomScaling-2026!", "EcomScaling-2026?"),
+    passwordConfirmationState("Enora-2026!", "Enora-2026?"),
     "mismatch",
   );
 });

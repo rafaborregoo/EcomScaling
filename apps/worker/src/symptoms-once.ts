@@ -8,9 +8,9 @@
  * contexto produce sintomas sin revisar -- que no es un error, pero es peor
  * informacion de la disponible.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runSymptomEngineForAllOrganizations } from "@ecomscaling/api/symptom-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runSymptomEngineForAllOrganizations } from "@e-nora/api/symptom-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("symptoms-cron");

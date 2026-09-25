@@ -30,12 +30,12 @@
  *     persona correcta en vez de colapsar a un unico "cliente" generico.
  *
  * Cuesta llamadas reales al proveedor de IA configurado (dinero) -- no correr
- * en cada PR. Ejecutar manualmente con `npm run eval:a01 -w @ecomscaling/api`.
+ * en cada PR. Ejecutar manualmente con `npm run eval:a01 -w @e-nora/api`.
  */
 import { createClient } from "@supabase/supabase-js";
 import { evaluateCostGate } from "./eval-cost-gate.js";
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { runCallAnalyst } from "./ai-runtime.js";
 import type { AuthContext } from "./auth-context.js";
 

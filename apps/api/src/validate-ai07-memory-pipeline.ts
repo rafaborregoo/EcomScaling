@@ -8,11 +8,11 @@
  * directamente, nunca el camino real desde una fuente humana.
  *
  * Cuesta una llamada real a Voyage (dinero, minimo) -- no correr en cada PR.
- * Ejecutar manualmente con `npm run validate:ai07 -w @ecomscaling/api`.
+ * Ejecutar manualmente con `npm run validate:ai07 -w @e-nora/api`.
  */
 import { createClient } from "@supabase/supabase-js";
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { enqueueMemoryIngestion, processMemoryIngestionQueue } from "./memory-ingestion.js";
 
 const env = loadApiEnv(process.env);

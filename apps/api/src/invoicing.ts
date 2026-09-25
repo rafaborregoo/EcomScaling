@@ -403,7 +403,7 @@ export function stripeInvoiceLine(
     text(firstLine?.description) ??
     text(plan?.title) ??
     text(product?.title) ??
-    "Suscripción EcomScaling";
+    "Suscripción E-NORA";
   return {
     description: label,
     quantity: 1,
@@ -756,7 +756,7 @@ export async function createInvoiceForStripePayment(
     tax_amount: vat.tax,
     total: paidTotal,
     tax_regime_code: settings.vat_regime_code,
-    operation_description: "Suscripción de software EcomScaling",
+    operation_description: "Suscripción de software E-NORA",
     payment_method: "stripe",
     external_payment_id: normalized.id,
     external_subscription_id: normalized.subscription_id,
@@ -1229,7 +1229,7 @@ export async function createRectifyingInvoiceForStripeRefund(
     total: -grossRefund,
     tax_regime_code: settings.vat_regime_code,
     operation_description:
-      "Rectificación por reembolso de suscripción EcomScaling",
+      "Rectificación por reembolso de suscripción E-NORA",
     payment_method: "stripe_refund",
     external_payment_id: null,
     external_subscription_id: original.external_subscription_id,

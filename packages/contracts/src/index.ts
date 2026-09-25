@@ -193,7 +193,7 @@ export const SHOPIFY_SCOPES_USED: readonly ShopifyScopeInfo[] = [
   },
   {
     scope: "write_pixels",
-    label: "Pixel de EcomScaling",
+    label: "Pixel de E-NORA",
     required: false,
     note: "Permite activar el pixel propio que cuenta las vistas de producto. Sin él, ese paso del embudo queda sin dato.",
   },

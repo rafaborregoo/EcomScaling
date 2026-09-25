@@ -6,7 +6,7 @@ Ejecutado vía Supabase MCP contra el único proyecto accesible.
 
 | Campo | Valor |
 |---|---|
-| Nombre | SaaS-EcomScaling |
+| Nombre | SaaS-E-NORA |
 | Project ref | `cthjwpeygpzwdmjkxeqa` |
 | URL | https://cthjwpeygpzwdmjkxeqa.supabase.co |
 | Organización | `arlxaqgixdkkathwszso` |
@@ -236,7 +236,7 @@ profiles_is_active_idx; service_subscriptions_status_idx; notifications_status_i
 
 ## 6. Pasos 4 y 6 — NO ejecutados (decisión del usuario: "solo migraciones a prod")
 
-- **Paso 4 — `npm run test:remote -w @ecomscaling/api`**: no ejecutado. `scripts/run-remote-tests.mjs` rechaza correr si `SUPABASE_TEST_PROJECT_REF === SUPABASE_PRODUCTION_PROJECT_REF`, y sólo existe el proyecto de producción. La suite hace mutaciones (inserta/borra) — correrla exigiría un proyecto de staging distinto.
+- **Paso 4 — `npm run test:remote -w @e-nora/api`**: no ejecutado. `scripts/run-remote-tests.mjs` rechaza correr si `SUPABASE_TEST_PROJECT_REF === SUPABASE_PRODUCTION_PROJECT_REF`, y sólo existe el proyecto de producción. La suite hace mutaciones (inserta/borra) — correrla exigiría un proyecto de staging distinto.
 - **Paso 6 — prueba concurrente de redención de invitaciones (200 vs 409)**: no ejecutada, por el mismo motivo (escribe/borra `client_invites` y `organization_members`).
 
 Para cerrarlos hace falta un proyecto/rama de staging separado. Con una rama de Supabase (~$0.0134/h mientras exista) se puede cablear `SUPABASE_TEST_PROJECT_REF` = ref de la rama y ejecutar ambos.

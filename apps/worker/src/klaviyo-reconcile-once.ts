@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { reconcileAllKlaviyoConnections } from "@ecomscaling/api/klaviyo-sync";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { reconcileAllKlaviyoConnections } from "@e-nora/api/klaviyo-sync";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("klaviyo-reconcile-cron");

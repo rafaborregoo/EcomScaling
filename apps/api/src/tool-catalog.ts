@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { TOOL_REGISTRY, type ToolDefinition } from "@ecomscaling/ai";
+import { TOOL_REGISTRY, type ToolDefinition } from "@e-nora/ai";
 import { type AuthContext } from "./auth-context.js";
 
 /**

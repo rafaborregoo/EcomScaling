@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D10 — El motor de severidad, conectado a datos reales.
  *
- * `assessSeverity` (en `@ecomscaling/contracts`) es puro. Este fichero es su
+ * `assessSeverity` (en `@e-nora/contracts`) es puro. Este fichero es su
  * unica parte sucia, como los de `D01` a `D06`.
  *
  * LO QUE HACE Y LO QUE NO. No pone ni una severidad: las cinco columnas salen
@@ -36,9 +36,9 @@ import {
   type CaseForSeverity,
   type DenominatorReading,
   type SignalForSeverity,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("severity-engine");
 

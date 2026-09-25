@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runUnitEconomicsPlaybookEngineForAllOrganizations } from "@ecomscaling/api/unit-economics-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runUnitEconomicsPlaybookEngineForAllOrganizations } from "@e-nora/api/unit-economics-engine";
 
 const logger = createLogger("unit-economics-worker");
 

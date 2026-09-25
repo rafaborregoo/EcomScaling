@@ -1,7 +1,7 @@
 /** F3/D12. Ejecuta una revisión adversarial para todas las organizaciones. */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runAdversarialEngineForAllOrganizations } from "@ecomscaling/api/adversarial-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runAdversarialEngineForAllOrganizations } from "@e-nora/api/adversarial-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("adversarial-cron");

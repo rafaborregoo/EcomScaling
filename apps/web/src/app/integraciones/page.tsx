@@ -25,7 +25,7 @@ import {
   ProviderIcon,
   toast,
 } from "@/components/ui";
-import { classifyAuthorizationAttempt } from "@ecomscaling/contracts";
+import { classifyAuthorizationAttempt } from "@e-nora/contracts";
 import {
   ClientDataQualityNotice,
   DataQualityPanel,

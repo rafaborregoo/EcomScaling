@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runRetentionCrmPlaybookEngineForAllOrganizations } from "@ecomscaling/api/retention-crm-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runRetentionCrmPlaybookEngineForAllOrganizations } from "@e-nora/api/retention-crm-engine";
 
 const logger = createLogger("retention-crm-worker");
 

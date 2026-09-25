@@ -130,7 +130,7 @@ test("las tools nuevas de embudo, margen y gasto estan registradas y declaradas"
 // `planned` se concede al agente y luego no existe en el runtime -- fallo mudo
 // que casi se cuela con estas tres.
 test("las tools nuevas estan en estado implemented_partial, no planned", async () => {
-  const { getToolDefinition } = await import("@ecomscaling/ai");
+  const { getToolDefinition } = await import("@e-nora/ai");
   for (const tool of ["shopify_funnel_health", "shopify_margin_health", "meta_spend_detail"]) {
     assert.equal(getToolDefinition(tool)?.status, "implemented_partial", tool);
   }

@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateClosureHandoff, fingerprintPlaybookInput, type ClosureHandoffInput, type ClosureHandoffResult } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { evaluateClosureHandoff, fingerprintPlaybookInput, type ClosureHandoffInput, type ClosureHandoffResult } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const SOURCE = "f8-p16.v1";
 type Row = Record<string, unknown>;

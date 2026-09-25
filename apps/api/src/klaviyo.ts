@@ -5,9 +5,9 @@ import {
 } from "./klaviyo-subject-patterns.js";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
-import { sanitizeGeneratedEmailHtml } from "@ecomscaling/ai";
+import type { LoadedApiEnv } from "@e-nora/config";
+import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
+import { sanitizeGeneratedEmailHtml } from "@e-nora/ai";
 import {
   requireOperationalOrganization,
   requireOwnOrganizationAccess,
@@ -1513,7 +1513,7 @@ export async function pushDraftToKlaviyoTemplate(
   const name = (
     (typeof draft.template_name === "string" && draft.template_name.trim()) ||
     (typeof draft.subject === "string" && draft.subject.trim()) ||
-    "Plantilla de EcomScaling"
+    "Plantilla de E-NORA"
   ).slice(0, 160);
   const text =
     typeof draft.plain_text === "string" && draft.plain_text.trim()

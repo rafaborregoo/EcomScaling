@@ -1,4 +1,4 @@
-# AI Infrastructure Audit — EcomScaling / NORA
+# AI Infrastructure Audit — E-NORA / NORA
 
 **Fecha:** 2026-09-09 · **Commit base:** `3f5f32d` · **Fase:** 0 (inspección, sin cambios de código)
 
@@ -317,7 +317,7 @@ pendiente relevante.
 - **CURRENT_IMPLEMENTATION:** Hay 26 scripts en `scripts/` y comandos npm, pero ninguno
   ejecuta agentes. Lo que sí existe como entrada headless son los `*-once.ts` del worker,
   que llaman **exactamente al mismo código de producción** (`apps/worker/src/agent-evals-once.ts`
-  → `@ecomscaling/api`). Hay además un `createReplayToolExecutor` para reejecutar un turno con
+  → `@e-nora/api`). Hay además un `createReplayToolExecutor` para reejecutar un turno con
   las tool calls congeladas de un run real (`packages/ai/src/index.ts:109`).
 - **EVIDENCE:** `scripts/`, `apps/worker/src/agent-evals-once.ts`,
   `packages/ai/src/index.ts:78-146` (`createToolReplayFixture`, `createReplayToolExecutor`),
@@ -340,7 +340,7 @@ pendiente relevante.
   `VOYAGE_API_KEY`, `LANGSMITH_API_KEY`). Las credenciales de integraciones de cliente
   (Shopify/Meta/Klaviyo) están en el esquema `private`, fuera del alcance de RLS de
   `authenticated`. La redacción antes de log es central: `redactSensitive` +
-  `redactSensitiveText` en `@ecomscaling/observability`, con regex de claves sensibles. CI
+  `redactSensitiveText` en `@e-nora/observability`, con regex de claves sensibles. CI
   ejecuta Gitleaks y un audit de dependencias.
 - **EVIDENCE:**
   - `packages/config/src/index.ts:56-83`
@@ -594,7 +594,7 @@ table` posteriores).
 - **STATUS:** IMPLEMENTED
 - **CURRENT_IMPLEMENTATION:** Los agentes ya corren sin UI por tres vías, y **las tres usan el
   mismo código de producción**: (1) endpoints HTTP `/v1/organizations/:id/ai/*`,
-  (2) el worker (`apps/worker/src/*-once.ts`, que importan de `@ecomscaling/api`),
+  (2) el worker (`apps/worker/src/*-once.ts`, que importan de `@e-nora/api`),
   (3) el endpoint interno `/v1/internal/ai/diagnostics/tick` que dispara el orquestador.
   Entrada y salida están estructuradas y validadas (`AgentInput` Zod → `AgentOutput` Zod).
   La semántica de error es un discriminated union `{ ok: true, data } | { ok: false,

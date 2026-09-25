@@ -61,7 +61,7 @@ export type IntegrationConnection = {
   connected_at: string | null;
   // Cuando se sembro la fila y la ultima vez que se toco. Distinguen una
   // autorizacion en marcha de un intento que nadie termino nunca
-  // (classifyAuthorizationAttempt, en @ecomscaling/contracts).
+  // (classifyAuthorizationAttempt, en @e-nora/contracts).
   created_at?: string | null;
   updated_at?: string | null;
   last_sync_at: string | null;
@@ -268,7 +268,7 @@ export function readOAuthNotice(): {
     const tienda = params.get("tienda");
     return {
       tone: "danger",
-      text: `${tienda ?? "Esa tienda"} ya está conectada en otra cuenta de EcomScaling, y una tienda solo puede estar en una. Hemos registrado el intento: escribe a soporte para liberarla.`,
+      text: `${tienda ?? "Esa tienda"} ya está conectada en otra cuenta de E-NORA, y una tienda solo puede estar en una. Hemos registrado el intento: escribe a soporte para liberarla.`,
     };
   }
   if (result === "denied")

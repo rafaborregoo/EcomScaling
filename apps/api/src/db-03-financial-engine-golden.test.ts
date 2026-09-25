@@ -57,12 +57,12 @@
  * faltaban: 160 de IVA que nunca fue tuyo y 100 de publicidad que si pagaste.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY.
- * Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
+ * Ejecutar con `npm run test:remote -w @e-nora/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { loadApiEnv } from "@ecomscaling/config";
+import { loadApiEnv } from "@e-nora/config";
 
 const env = loadApiEnv(process.env);
 

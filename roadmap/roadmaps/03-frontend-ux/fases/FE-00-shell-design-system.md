@@ -82,7 +82,7 @@
     `field.tsx`/`input.tsx`/`select.tsx`/`textarea.tsx`, `loading-block.tsx`/`error-block.tsx`/
     `empty-state.tsx`, `sync-state-badge.tsx`, `tabs.tsx`, `pagination.tsx`, `combobox.tsx`, `cn.ts`,
     `tone.ts`). `index.tsx` es ahora un barrel que reexporta todo -- **el import publico
-    `@ecomscaling/ui` no cambio**, verificado con `npm run typecheck` en todo el monorepo (10 workspaces)
+    `@e-nora/ui` no cambio**, verificado con `npm run typecheck` en todo el monorepo (10 workspaces)
     sin ningun cambio en los consumidores.
   - **Dos violaciones reales de la filosofia ya declarada, cerradas**: `Combobox` tenia una sombra dura
     (`shadow-[4px_4px_0_0_rgba(0,0,0,1)]`) en el panel desplegado, sobrevivio a la auditoria de 28 usos de
@@ -182,7 +182,7 @@ sin apps ni paletas separadas — la separacion es de capacidades (ver ADR-0009)
 
 `apps/web/src/components/portal-shell.tsx` — layout unico para los tres roles: mini barra de contexto
 (cliente/tienda activos, con URL como fuente primaria, ver ADR-0010), navegacion condicionada por rol
-(ADR-0009), banda superior de avisos (`AccountAction`, catalogo cerrado en `@ecomscaling/contracts`),
+(ADR-0009), banda superior de avisos (`AccountAction`, catalogo cerrado en `@e-nora/contracts`),
 cache de bootstrap en memoria, panel del copiloto (A09) como boton flotante global.
 
 ## Catalogo de componentes (`apps/web/src/components/ui/`, HeroUI v3 desde 2026-07-23)

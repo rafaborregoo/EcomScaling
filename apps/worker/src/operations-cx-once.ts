@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runOperationsCxPlaybookEngineForAllOrganizations } from "@ecomscaling/api/operations-cx-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runOperationsCxPlaybookEngineForAllOrganizations } from "@e-nora/api/operations-cx-engine";
 
 const logger = createLogger("operations-cx-worker");
 

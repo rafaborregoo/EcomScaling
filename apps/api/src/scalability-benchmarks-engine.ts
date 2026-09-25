@@ -1,5 +1,5 @@
-import { validateScalabilityBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { validateScalabilityBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { buildPlaybookContext, parseActivePlaybookTemplates, runPlaybookFrameworkEngine, runPlaybookFrameworkEngineForAllOrganizations } from "./playbook-engine.js";
 const SOURCE = "f6-p11.v1"; const UNKNOWN: PlaybookTriState = "UNKNOWN"; const present = (value: unknown) => value !== null && value !== undefined;
 function observed(available: boolean | null | undefined, value: unknown): PlaybookTriState { return available === true && present(value) ? "TRUE" : available === false ? "FALSE" : UNKNOWN; }

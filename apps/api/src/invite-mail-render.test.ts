@@ -10,7 +10,7 @@ import { renderInviteHtml, renderInviteText } from "./invite-mailer.js";
 
 const base = {
   to: "cliente@example.com",
-  title: "Invitación a Acme en EcomScaling",
+  title: "Invitación a Acme en E-NORA",
   intro: "Tu consultor ha creado la organización Acme.",
   actionLabel: "Revisar invitación",
   actionUrl: "https://app.ecomscaling.es/acceso?code=ABC123",
@@ -31,14 +31,14 @@ test("quien invita sale en el cuerpo y en el preheader", () => {
   const out = renderInviteHtml({ ...base, senderName: "Noemí Parada" });
 
   assert.ok(out.includes("<strong>Noemí Parada</strong> te ha invitado"));
-  assert.ok(out.includes("Noemí Parada te ha invitado a EcomScaling."));
+  assert.ok(out.includes("Noemí Parada te ha invitado a E-NORA."));
 });
 
 test("sin quien invita no se cuela una linea vacia ni un 'undefined'", () => {
   const out = renderInviteHtml(base);
 
   assert.ok(!out.includes("undefined"));
-  assert.ok(!out.includes("te ha invitado a EcomScaling"));
+  assert.ok(!out.includes("te ha invitado a E-NORA"));
 });
 
 test("la caducidad se escribe en castellano y solo si la hay", () => {

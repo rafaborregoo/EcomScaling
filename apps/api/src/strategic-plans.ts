@@ -11,7 +11,7 @@ import { getMetaMetrics } from "./meta-metrics.js";
 import {
   caminoPlanOutputSchema,
   type CaminoPlanOutput,
-} from "@ecomscaling/ai";
+} from "@e-nora/ai";
 import { parseStrategicPlanMarkdown } from "./strategic-plan-markdown.js";
 
 type ApiEnv = {

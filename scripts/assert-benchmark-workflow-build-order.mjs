@@ -40,9 +40,9 @@ const workflows = [
   { file: "benchmark-confidence-p13.yml", start: "start:benchmark-confidence" },
 ];
 
-const contractBuild = "npm run build --workspace=@ecomscaling/contracts";
-const apiBuild = "npm run build --workspace=@ecomscaling/api";
-const workerBuild = "npm run build --workspace=@ecomscaling/worker";
+const contractBuild = "npm run build --workspace=@e-nora/contracts";
+const apiBuild = "npm run build --workspace=@e-nora/api";
+const workerBuild = "npm run build --workspace=@e-nora/worker";
 const violations = [];
 
 for (const workflow of workflows) {

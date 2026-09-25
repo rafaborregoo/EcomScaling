@@ -1,5 +1,5 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runConstraintRecommendationEngineForAllOrganizations } from "@ecomscaling/api/constraint-recommendations-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { runConstraintRecommendationEngineForAllOrganizations } from "@e-nora/api/constraint-recommendations-engine";
 
 const summary = await runConstraintRecommendationEngineForAllOrganizations(loadApiEnv(process.env));
 console.log(JSON.stringify({ worker: "f7-p11-constraint-recommendations", ...summary }));

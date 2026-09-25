@@ -1,5 +1,5 @@
-import { LIFECYCLE_COMMANDS, type LifecycleCommand } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { LIFECYCLE_COMMANDS, type LifecycleCommand } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { applyLifecycleCommand } from "./execution-lifecycle-engine.js";
 

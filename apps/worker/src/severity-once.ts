@@ -8,9 +8,9 @@
  * No pone severidades: las cinco salen `unknown` y la evaluacion dice por que.
  * Lo que produce es la cuenta -- cuanto, sobre que base y con que supuestos.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runSeverityEngineForAllOrganizations } from "@ecomscaling/api/severity-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runSeverityEngineForAllOrganizations } from "@e-nora/api/severity-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("severity-cron");

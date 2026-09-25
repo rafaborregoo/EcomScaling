@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AgentEvalEvidencePayload } from "@ecomscaling/ai";
+import type { AgentEvalEvidencePayload } from "@e-nora/ai";
 
 /** Persists AI-26 evidence through the private atomic RPC (service role only). */
 export async function persistAgentEvalEvidence(

@@ -1,5 +1,5 @@
-import { validateProductInventoryBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { validateProductInventoryBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { buildPlaybookContext, parseActivePlaybookTemplates, runPlaybookFrameworkEngine, runPlaybookFrameworkEngineForAllOrganizations } from "./playbook-engine.js";
 
 const SOURCE = "f6-p10.v1";

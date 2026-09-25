@@ -7,9 +7,9 @@
  *
  * Va detras de D07 y delante de D09.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runHypothesisEngineForAllOrganizations } from "@ecomscaling/api/hypothesis-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runHypothesisEngineForAllOrganizations } from "@e-nora/api/hypothesis-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("hypothesis-cron");

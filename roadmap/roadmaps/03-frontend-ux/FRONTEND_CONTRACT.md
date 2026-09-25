@@ -9,7 +9,7 @@
 ## Estado actual honesto
 
 Nada de esto es un contrato ejecutable todavia (no hay tipos compartidos de capacidades ni de metricas en
-`@ecomscaling/contracts` mas alla de `AccountAction`). Este documento fija la regla; migrar pantallas
+`@e-nora/contracts` mas alla de `AccountAction`). Este documento fija la regla; migrar pantallas
 existentes a cumplirla es trabajo aparte.
 
 ## 1. Modelo de acceso: capacidades, no roles
@@ -57,7 +57,7 @@ el mismo cambio — nunca queda solo en el codigo de un endpoint.
 
 ## 2. Contratos compartidos frontend-backend
 
-Todo lo de esta lista vive en `@ecomscaling/contracts` (como ya existe `AccountAction`), nunca duplicado
+Todo lo de esta lista vive en `@e-nora/contracts` (como ya existe `AccountAction`), nunca duplicado
 como `string` libre en un lado y un enum en el otro: roles, capacidades, estados de organizacion/
 suscripcion/conexion/sync/tarea/llamada/resumen/output IA, prioridades, categorias, tipos de alerta,
 codigos de error, monedas, periodos, DTO de paginacion/freshness/calidad de dato.
@@ -67,7 +67,7 @@ codigos de error, monedas, periodos, DTO de paginacion/freshness/calidad de dato
 ```ts
 type ApiErrorResponse = {
   error: {
-    code: ApiErrorCode; // enum cerrado en @ecomscaling/contracts
+    code: ApiErrorCode; // enum cerrado en @e-nora/contracts
     message: string;
     requestId: string;
     fieldErrors?: Record<string, string[]>;

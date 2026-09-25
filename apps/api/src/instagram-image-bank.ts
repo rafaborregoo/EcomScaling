@@ -15,8 +15,8 @@ import {
   chunkText,
   instagramImageAnalysisToMarkdown,
   createRagEmbeddingProvider,
-} from "@ecomscaling/ai";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/ai";
+import type { LoadedApiEnv } from "@e-nora/config";
 import {
   requireOperationalOrganization,
   isOperationalOrganizationError,

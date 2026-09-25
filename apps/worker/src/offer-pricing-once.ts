@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runOfferPricingPlaybookEngineForAllOrganizations } from "@ecomscaling/api/offer-pricing-engine";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { runOfferPricingPlaybookEngineForAllOrganizations } from "@e-nora/api/offer-pricing-engine";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("offer-pricing-worker");
 

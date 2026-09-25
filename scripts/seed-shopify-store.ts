@@ -1,7 +1,7 @@
 /**
  * Puebla una tienda Shopify de desarrollo con datos de prueba realistas
  * (productos, clientes y pedidos) para poder desarrollar y demostrar
- * EcomScaling sin depender de una tienda real.
+ * E-NORA sin depender de una tienda real.
  *
  * Requiere un token de una "custom app" creada DENTRO de la tienda de
  * desarrollo (Admin -> Configuracion -> Apps y canales de venta ->
@@ -340,7 +340,7 @@ async function main() {
     `Listo: ${env.SEED_PRODUCT_COUNT} productos, ${env.SEED_CUSTOMER_COUNT} clientes y ${env.SEED_ORDER_COUNT} pedidos.`,
   );
   console.log(
-    "Ahora conecta la tienda desde /integraciones (o pulsa 'Sincronizar ahora' en /shopify) para volcar los datos a EcomScaling.",
+    "Ahora conecta la tienda desde /integraciones (o pulsa 'Sincronizar ahora' en /shopify) para volcar los datos a E-NORA.",
   );
 }
 

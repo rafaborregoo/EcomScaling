@@ -1,4 +1,4 @@
-# Auditoría de estado real — piloto EcomScaling
+# Auditoría de estado real — piloto E-NORA
 
 > Actualización 2026-08-20: el dashboard incorpora `AdaptiveFocus`, una primera composición
 > determinista basada en operaciones reales, tareas, alertas y estado de conectores. El typegen oficial
@@ -204,7 +204,7 @@ la UI. La migracion `20260802110000_ai_13_shadow_execution_mode.sql` añade
 persiste y las trazas/listados lo exponen. `live` queda reservado para una
 activacion futura explicita.
 
-EcomScaling tiene una base funcional para operar con Shopify y un runtime IA con ejecución en shadow/revisión humana. Meta Ads, Klaviyo e Instagram cuentan con contratos, catálogo de capacidades y superficies de estado, pero no deben presentarse como conectados sin credenciales reales. El Tool Layer ya tiene un registro ejecutable inicial y bloquea las tools futuras sin executor.
+E-NORA tiene una base funcional para operar con Shopify y un runtime IA con ejecución en shadow/revisión humana. Meta Ads, Klaviyo e Instagram cuentan con contratos, catálogo de capacidades y superficies de estado, pero no deben presentarse como conectados sin credenciales reales. El Tool Layer ya tiene un registro ejecutable inicial y bloquea las tools futuras sin executor.
 
 > **Estado canónico Shopify actualizado 2026-08-02:** la lectura de producción confirma una tienda
 > real conectada, datos persistidos y sincronizaciones incrementales `succeeded` sin fallos. Shopify
@@ -330,7 +330,7 @@ Correccion A11Y 2026-08-21: `LoadingBlock` anuncia estados de carga mediante `ro
 estructural para foco visible, skip link, reduced motion y estados live; la validacion manual con
 teclado, lector de pantalla y zoom sigue siendo una actividad de piloto.
 
-Correccion AI-10 2026-08-21: `AGENT_CATALOG` en `@ecomscaling/contracts` separa nombres de producto
+Correccion AI-10 2026-08-21: `AGENT_CATALOG` en `@e-nora/contracts` separa nombres de producto
 de codigos internos. La traza del panel IA muestra el nombre humano y conserva el codigo tecnico;
 A03/A05/A07 aparecen como preparados, no como agentes operativos.
 

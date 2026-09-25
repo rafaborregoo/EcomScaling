@@ -264,7 +264,7 @@ const definition = (
   connector: connectorForTool(name),
   description:
     (TOOL_DESCRIPTIONS as Record<string, string | undefined>)[name] ??
-    `EcomScaling tool ${name}`,
+    `E-NORA tool ${name}`,
   estimated_cost: {
     tokens: permission === "read" ? 500 : 900,
     latency_ms: 1500,

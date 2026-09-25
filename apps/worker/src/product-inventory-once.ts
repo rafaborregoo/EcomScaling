@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runProductInventoryPlaybookEngineForAllOrganizations } from "@ecomscaling/api/product-inventory-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runProductInventoryPlaybookEngineForAllOrganizations } from "@e-nora/api/product-inventory-engine";
 
 const logger = createLogger("product-inventory-worker");
 

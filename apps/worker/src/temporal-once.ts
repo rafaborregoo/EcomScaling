@@ -1,7 +1,7 @@
 /** F3/D13. Ejecuta la película temporal para todas las organizaciones. */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runTemporalEngineForAllOrganizations } from "@ecomscaling/api/temporal-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runTemporalEngineForAllOrganizations } from "@e-nora/api/temporal-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 const logger = createLogger("temporal-cron");
 const jobContext = createWorkerJobContext("temporal-cron");

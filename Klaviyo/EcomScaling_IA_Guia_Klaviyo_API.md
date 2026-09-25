@@ -1,12 +1,12 @@
-# EcomScaling IA
+# E-NORA IA
 
 > **Alineación de producto (2026-08-02):** además de sincronizar reporting cuando
-> exista OAuth, EcomScaling preparará generación de emails y plantillas con IA como
+> exista OAuth, E-NORA preparará generación de emails y plantillas con IA como
 > borradores auditables. La IA no envía ni publica sin aprobación humana y conexión
 > Klaviyo saludable. El contrato transversal está en
 > [`../roadmap/roadmaps/04-integraciones/CONTRATO_PREPARACION_CONECTORES.md`](../roadmap/roadmaps/04-integraciones/CONTRATO_PREPARACION_CONECTORES.md).
 
-## Aplicación en EcomScaling
+## Aplicación en E-NORA
 
 Esta guía debe leerse junto con el [objetivo global del SaaS y sus criterios de terminado](../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md):
 Klaviyo debe quedar preparado mediante contratos, adaptadores, feature flags y estados honestos para que la
@@ -21,7 +21,7 @@ OAuth, arquitectura JSON:API, flows, campañas, formularios, reporting, métrica
 
 13 de julio de 2026 · Documento técnico para desarrollo · Confidencial
 
-| Objetivo: validar qué datos puede obtener EcomScaling IA desde Klaviyo, cómo deben sincronizarse y qué cambios necesita el modelo de Supabase antes de cerrar la arquitectura. |
+| Objetivo: validar qué datos puede obtener E-NORA IA desde Klaviyo, cómo deben sincronizarse y qué cambios necesita el modelo de Supabase antes de cerrar la arquitectura. |
 |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 
 # Contenido
@@ -58,7 +58,7 @@ OAuth, arquitectura JSON:API, flows, campañas, formularios, reporting, métrica
 
 - 16\. Scopes mínimos
 
-- 17\. Mapeo funcional con EcomScaling IA
+- 17\. Mapeo funcional con E-NORA IA
 
 - 18\. Consecuencias para la base de datos
 
@@ -70,13 +70,13 @@ OAuth, arquitectura JSON:API, flows, campañas, formularios, reporting, métrica
 
 # 1. Conclusiones ejecutivas
 
-- Para EcomScaling IA debe utilizarse OAuth, no pedir a cada cliente que copie una Private API Key. OAuth permite que cada cuenta autorice la aplicación, entregue scopes concretos y pueda revocar el acceso.
+- Para E-NORA IA debe utilizarse OAuth, no pedir a cada cliente que copie una Private API Key. OAuth permite que cada cuenta autorice la aplicación, entregue scopes concretos y pueda revocar el acceso.
 
 - La API estable vigente en la fecha de esta auditoría utiliza la revisión 2026-04-15. La nueva Campaigns API multicanal está documentada como beta con el header 2026-04-15.pre y su disponibilidad general está prevista para el 15 de julio de 2026; no debe convertirse todavía en dependencia de producción.
 
 - Klaviyo separa metadatos operativos de rendimiento: Campaigns API, Flows API y Forms API describen los objetos; Reporting API devuelve las estadísticas que coinciden con la interfaz de Klaviyo.
 
-- Para comparar EcomScaling IA con el panel de Klaviyo debe usarse Reporting API. Query Metric Aggregates agrupa por la fecha del evento y puede producir cifras diferentes a las mostradas por Klaviyo, que calcula el rendimiento de campañas y flows por fecha de envío.
+- Para comparar E-NORA IA con el panel de Klaviyo debe usarse Reporting API. Query Metric Aggregates agrupa por la fecha del evento y puede producir cifras diferentes a las mostradas por Klaviyo, que calcula el rendimiento de campañas y flows por fecha de envío.
 
 - Un flow no es una única fila simple: contiene acciones, y determinadas acciones contienen mensajes. Debemos guardar flows, acciones y mensajes para localizar exactamente qué email o SMS ha dejado de enviar.
 
@@ -99,9 +99,9 @@ revision: 2026-04-15
 accept: application/vnd.api+json
 ```
 
-Las operaciones principales que utiliza EcomScaling IA son de lectura. El backend consulta objetos de Klaviyo, los normaliza en Supabase y genera snapshots o estadísticas agregadas. El navegador del cliente no debe llamar directamente a endpoints privados de Klaviyo.
+Las operaciones principales que utiliza E-NORA IA son de lectura. El backend consulta objetos de Klaviyo, los normaliza en Supabase y genera snapshots o estadísticas agregadas. El navegador del cliente no debe llamar directamente a endpoints privados de Klaviyo.
 
-| **Concepto**      | **Aplicación en EcomScaling IA**                                                                |
+| **Concepto**      | **Aplicación en E-NORA IA**                                                                |
 |-------------------|-------------------------------------------------------------------------------------------------|
 | Resource          | Cuenta, flow, campaña, formulario, lista, segmento, métrica o evento.                           |
 | Attributes        | Nombre, estado, fechas, canal, trigger, opt-in y otros campos del recurso.                      |
@@ -128,7 +128,7 @@ Klaviyo versiona su API mediante el header revision. En esta auditoría se toma 
 
 # 4. Autenticación OAuth para una aplicación multi-tenant
 
-EcomScaling IA es una aplicación que conectará cuentas pertenecientes a clientes diferentes. La opción correcta es crear una aplicación OAuth de Klaviyo. Cada cliente inicia la instalación, autoriza scopes concretos y Klaviyo devuelve un authorization code que el backend intercambia por access token y refresh token.
+E-NORA IA es una aplicación que conectará cuentas pertenecientes a clientes diferentes. La opción correcta es crear una aplicación OAuth de Klaviyo. Cada cliente inicia la instalación, autoriza scopes concretos y Klaviyo devuelve un authorization code que el backend intercambia por access token y refresh token.
 
 GET https://www.klaviyo.com/oauth/authorize  
 ?response_type=code  
@@ -192,7 +192,7 @@ La sincronización se divide en cuatro procesos:
 
 # 6. Cuenta de Klaviyo
 
-El endpoint Accounts devuelve la cuenta vinculada al token, incluyendo identificador, timezone, currency, información de contacto y Public API key/site ID. Para EcomScaling IA solo se almacenarán los datos técnicos necesarios.
+El endpoint Accounts devuelve la cuenta vinculada al token, incluyendo identificador, timezone, currency, información de contacto y Public API key/site ID. Para E-NORA IA solo se almacenarán los datos técnicos necesarios.
 
 | **Endpoint**                            | **Uso**                                                                      |
 |-----------------------------------------|------------------------------------------------------------------------------|
@@ -254,7 +254,7 @@ klaviyo_flows
 └── klaviyo_flow_actions  
 └── klaviyo_flow_messages
 
-| **Endpoint**                             | **Uso en EcomScaling IA**                                         |
+| **Endpoint**                             | **Uso en E-NORA IA**                                         |
 |------------------------------------------|-------------------------------------------------------------------|
 | GET /api/flows                           | Sincronizar flows, estado, trigger, fechas y tags.                |
 | GET /api/flows/{id}                      | Reconciliar un flow concreto.                                     |
@@ -282,7 +282,7 @@ klaviyo_campaigns
 | GET /api/campaigns/{id}/campaign-messages | Mensajes relacionados.                                                          |
 | GET /api/campaign-messages/{id}           | Canal, contenido y metadatos de un mensaje.                                     |
 | GET template relationship                 | Vincular mensaje con plantilla cuando proceda.                                  |
-| Recipient estimation/send jobs            | Fuera del MVP analítico; necesarios si EcomScaling envía campañas desde la app. |
+| Recipient estimation/send jobs            | Fuera del MVP analítico; necesarios si E-NORA envía campañas desde la app. |
 
 | La nueva Campaigns API 2026-04-15.pre introduce campaign → audience → message → variation y varios canales dentro de una campaña. La base propuesta se deja preparada, pero el código productivo debe usar el contrato estable hasta revalidar la GA. |
 |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -352,7 +352,7 @@ Klaviyo distingue Flow webhooks y System webhooks. Los Flow webhooks son accione
 
 | **Mecanismo**        | **Uso recomendado**                                                                     |
 |----------------------|-----------------------------------------------------------------------------------------|
-| System webhooks      | Complemento si EcomScaling obtiene acceso como app partner; no dependencia obligatoria. |
+| System webhooks      | Complemento si E-NORA obtiene acceso como app partner; no dependencia obligatoria. |
 | Flow webhooks        | Solo para casos diseñados explícitamente; no sustituyen la sincronización general.      |
 | Polling incremental  | Mecanismo base para flows, campañas, forms, listas y segmentos.                         |
 | Reporting programado | Mecanismo base para rendimiento y alertas.                                              |
@@ -404,7 +404,7 @@ Para un MVP de lectura y análisis deben solicitarse scopes mínimos. Pedir perm
 | webhooks:read/write | Solo si la cuenta/app tiene acceso a System webhooks.                            |
 | profiles:read       | No solicitar en MVP salvo necesidad funcional aprobada.                          |
 
-# 17. Mapeo funcional con EcomScaling IA
+# 17. Mapeo funcional con E-NORA IA
 
 | **Funcionalidad del briefing** | **Fuente Klaviyo**                          | **Cálculo/observación**                                                    |
 |--------------------------------|---------------------------------------------|----------------------------------------------------------------------------|
@@ -442,7 +442,7 @@ El esquema previo debe cambiar en los siguientes puntos:
 
 - Añadir klaviyo_report_runs y klaviyo_report_values con statistic_name flexible.
 
-- Redefinir klaviyo_daily_account_metrics como tabla derivada calculada por EcomScaling, no como respuesta cruda de Klaviyo.
+- Redefinir klaviyo_daily_account_metrics como tabla derivada calculada por E-NORA, no como respuesta cruda de Klaviyo.
 
 - No añadir klaviyo_profiles ni klaviyo_events en el MVP.
 
@@ -499,7 +499,7 @@ El esquema previo debe cambiar en los siguientes puntos:
 
 - Definir frecuencia de actualización: campañas/flows, reporting y formularios.
 
-- Decidir si EcomScaling IA será solo lectura o permitirá pausar flows y crear/enviar campañas en fases futuras.
+- Decidir si E-NORA IA será solo lectura o permitirá pausar flows y crear/enviar campañas en fases futuras.
 
 - Reauditar Campaigns API después del 15 de julio de 2026 antes de implementar el conector.
 

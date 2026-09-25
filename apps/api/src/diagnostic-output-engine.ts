@@ -1,9 +1,9 @@
 /** F3/D14: empaquetado, validación y versionado de la salida diagnóstica. */
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { finalizeDiagnosticOutput, type DiagnosticOutputEvidenceInput } from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { finalizeDiagnosticOutput, type DiagnosticOutputEvidenceInput } from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("diagnostic-output-engine");
 function createServiceClient(env: LoadedApiEnv) { return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", { auth: { persistSession: false, autoRefreshToken: false } }) as any; }

@@ -3,8 +3,8 @@ import {
   MODEL_PRICING,
   setLiveModelPricing,
   type ModelPricing,
-} from "@ecomscaling/ai";
-import { createLogger } from "@ecomscaling/observability";
+} from "@e-nora/ai";
+import { createLogger } from "@e-nora/observability";
 import { type AuthContext } from "./auth-context.js";
 import { COPILOT_MODELS } from "./copilot-tokens.js";
 

@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateTemporalUrgency, type TemporalUrgencyInputLike, type TemporalUrgencyResult } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import { evaluateTemporalUrgency, type TemporalUrgencyInputLike, type TemporalUrgencyResult } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("temporal-urgency-engine");
 function service(env: LoadedApiEnv) { return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", { auth: { persistSession: false, autoRefreshToken: false } }) as any; }

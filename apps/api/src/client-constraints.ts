@@ -15,7 +15,7 @@
 // la RLS de la tabla solo concede `select` a authenticated.
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import { createUserScopedClient, type AuthContext } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
 import { requireKnowledgeManager } from "./knowledge.js";

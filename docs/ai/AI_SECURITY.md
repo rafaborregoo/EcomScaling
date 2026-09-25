@@ -1,4 +1,4 @@
-# AI Security — EcomScaling / NORA
+# AI Security — E-NORA / NORA
 
 **Estado:** implementado lo que se describe aquí, salvo lo marcado como pendiente.
 Ver [AI_INFRASTRUCTURE_AUDIT.md](AI_INFRASTRUCTURE_AUDIT.md) (fichas 08, 26, 27) y

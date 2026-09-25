@@ -16,7 +16,7 @@ export function createStripeClient(env: StripeClientEnv) {
   return new Stripe(env.STRIPE_SECRET_KEY, {
     apiVersion: (env.STRIPE_API_VERSION ??
       STRIPE_API_VERSION) as Stripe.LatestApiVersion,
-    appInfo: { name: "EcomScaling", version: "0.1.0" },
+    appInfo: { name: "E-NORA", version: "0.1.0" },
   });
 }
 

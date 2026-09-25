@@ -12,7 +12,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { caminoPlanOutputSchema, CAMINO_HORIZON_MONTHS } from "@ecomscaling/ai";
+import { caminoPlanOutputSchema, CAMINO_HORIZON_MONTHS } from "@e-nora/ai";
 import { caminoProposalToPlanInput } from "./strategic-plans.js";
 
 const proposal = {

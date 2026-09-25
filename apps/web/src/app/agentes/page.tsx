@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch, type BootstrapResponse } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
-import { getAgentCatalogEntry } from "@ecomscaling/contracts";
+import { getAgentCatalogEntry } from "@e-nora/contracts";
 import {
   AsyncState,
   AgentEvalReadinessPanel,

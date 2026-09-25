@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { createLogger } from "@ecomscaling/observability";
+import { createLogger } from "@e-nora/observability";
 import { recordAuditLog } from "./audit-log.js";
 import type { AuthContext } from "./auth-context.js";
 import { assignPartnersToOrganization } from "./consultant-partners.js";

@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runBenchmarkGuardrailsPlaybookEngineForAllOrganizations } from "@ecomscaling/api/benchmark-guardrails-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runBenchmarkGuardrailsPlaybookEngineForAllOrganizations } from "@e-nora/api/benchmark-guardrails-engine";
 
 const logger = createLogger("benchmark-guardrails-worker");
 runBenchmarkGuardrailsPlaybookEngineForAllOrganizations(loadApiEnv(process.env))

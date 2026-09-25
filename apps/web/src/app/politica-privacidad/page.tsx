@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { BrandLogo, Card, Heading, Link } from "@/components/ui";
 
 export const metadata: Metadata = {
-  title: "Política de privacidad — EcomScaling IA",
-  description: "Política de privacidad de EcomScaling IA: qué datos tratamos, con qué finalidad y cómo ejercer tus derechos.",
+  title: "Política de privacidad — E-NORA IA",
+  description: "Política de privacidad de E-NORA IA: qué datos tratamos, con qué finalidad y cómo ejercer tus derechos.",
 };
 
 const LAST_UPDATED = "10 de septiembre de 2026";
@@ -18,9 +18,16 @@ export default function PrivacyPolicyPage() {
         <p className="text-sm text-muted">Última actualización: {LAST_UPDATED}</p>
       </header>
 
+      <Card title="Responsable del tratamiento">
+        <p>
+          E-NORA es una marca comercial de Rafael Manuel Borrego Reyes (DNI
+          49832956Y), con domicilio en Calle Argentea, 8, 29010 Málaga, España.
+        </p>
+      </Card>
+
       <Card title="Quiénes somos">
         <p>
-          EcomScaling IA es una plataforma de consultoría para tiendas de e-commerce que centraliza
+          E-NORA IA es una plataforma de consultoría para tiendas de e-commerce que centraliza
           métricas y automatiza tareas operativas para sus clientes, integrando datos de plataformas
           como Shopify, Meta (Facebook/Instagram) Ads y Klaviyo. Esta política describe qué datos personales
           tratamos, con qué finalidad, y cómo puedes ejercer tus derechos sobre ellos.

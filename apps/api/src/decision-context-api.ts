@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   contextInputSchema,
   fingerprintDecisionContextInput,
-} from "@ecomscaling/contracts";
+} from "@e-nora/contracts";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 
 type ApiEnv = {

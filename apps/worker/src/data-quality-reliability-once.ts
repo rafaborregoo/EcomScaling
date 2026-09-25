@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runDataQualityReliabilityPlaybookEngineForAllOrganizations } from "@ecomscaling/api/data-quality-reliability-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runDataQualityReliabilityPlaybookEngineForAllOrganizations } from "@e-nora/api/data-quality-reliability-engine";
 
 const logger = createLogger("data-quality-reliability-worker");
 runDataQualityReliabilityPlaybookEngineForAllOrganizations(loadApiEnv(process.env))

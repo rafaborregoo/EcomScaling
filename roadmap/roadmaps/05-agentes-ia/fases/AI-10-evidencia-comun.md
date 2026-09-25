@@ -230,7 +230,7 @@ El mapeo vive aqui como referencia; implementarlo es anadir un campo `displayNam
 
 ## Criterios de cierre
 
-- [x] `AgentOutputEnvelope` implementado como tipo compartido en `@ecomscaling/contracts`, usado por al
+- [x] `AgentOutputEnvelope` implementado como tipo compartido en `@e-nora/contracts`, usado por al
       menos dos agentes (uno con `content: AgentOutput`, uno con `content: ChatOutput`) — cumplido: A02/A04/
       A06/A08 (`AgentOutput`) + A09 (`ChatOutput`), verificado 2026-07-23.
 - [x] `AgentSourceReference` sustituye a `agentSourceSchema` en al menos un agente sin romper los ya

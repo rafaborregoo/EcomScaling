@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import {
   DEFAULT_AGENT_RESILIENCE_POLICY,
   withAgentResilience,
-} from "@ecomscaling/ai";
+} from "@e-nora/ai";
 
 export type ShopifyOAuthEnv = {
   SHOPIFY_API_KEY: string;

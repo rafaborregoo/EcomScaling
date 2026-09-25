@@ -3,8 +3,8 @@ import {
   describeEnvironmentTargetRisk,
   loadWorkerEnv,
   shouldBlockOnEnvironmentRisk,
-} from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+} from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import {
   SHOPIFY_RECONCILE_CRON,
   SHOPIFY_RECONCILE_TZ,

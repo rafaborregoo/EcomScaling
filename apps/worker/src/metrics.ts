@@ -1,4 +1,4 @@
-import { createMetricsRegistry } from "@ecomscaling/observability";
+import { createMetricsRegistry } from "@e-nora/observability";
 
 /**
  * Process-local worker counters. They are deliberately low-cardinality and

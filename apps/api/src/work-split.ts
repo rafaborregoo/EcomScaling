@@ -6,7 +6,7 @@
 // parte le toca a cada uno, y a que tienda o a toda la cartera se aplica.
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import type { AuthContext } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
 

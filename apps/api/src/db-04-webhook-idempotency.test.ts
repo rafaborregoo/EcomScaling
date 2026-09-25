@@ -16,13 +16,13 @@
  * conexion -> insert con fingerprint -> despacho), no un handler concreto.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SHOPIFY_API_SECRET. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
+ * SHOPIFY_API_SECRET. Ejecutar con `npm run test:remote -w @e-nora/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { loadApiEnv } from "@ecomscaling/config";
+import { loadApiEnv } from "@e-nora/config";
 import { handleShopifyWebhookRequest } from "./shopify-webhook-handler.js";
 
 const env = loadApiEnv(process.env);

@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D06 — El motor de sintomas, conectado a datos reales.
  *
- * `buildSymptoms` (en `@ecomscaling/contracts`) es puro. Este fichero es su
+ * `buildSymptoms` (en `@e-nora/contracts`) es puro. Este fichero es su
  * unica parte sucia, igual que `data-quality-engine.ts` lo es de `assessSource`,
  * `signal-engine.ts` de `detectSignals` y `context-engine.ts` de `assessContext`.
  *
@@ -35,9 +35,9 @@ import {
   type ContextReading,
   type MetricDependency,
   type SignalForSymptom,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("symptom-engine");
 

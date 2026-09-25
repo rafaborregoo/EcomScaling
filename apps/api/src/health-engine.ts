@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D04 — El motor de salud, conectado a datos reales.
  *
- * `assessHealth` (en `@ecomscaling/contracts`) es puro. Este fichero es su unica
+ * `assessHealth` (en `@e-nora/contracts`) es puro. Este fichero es su unica
  * parte sucia, como los de `D01`, `D02`, `D03`, `D05` y `D06`.
  *
  * QUE CIERRA. El paso 29 del runtime de D05 dejo el lazo
@@ -36,9 +36,9 @@ import {
   type HealthReferenceRow,
   type SignalForHealth,
   type SymptomForHealth,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("health-engine");
 

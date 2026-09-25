@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { reconcileAllMetaConnections } from "@ecomscaling/api/meta-sync";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { reconcileAllMetaConnections } from "@e-nora/api/meta-sync";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("meta-reconcile-cron");

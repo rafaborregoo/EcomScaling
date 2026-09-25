@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { reconcileAllShopifyConnections } from "@ecomscaling/api/shopify-reconcile";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { reconcileAllShopifyConnections } from "@e-nora/api/shopify-reconcile";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("shopify-reconcile-cron");

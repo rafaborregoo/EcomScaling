@@ -33,9 +33,9 @@ import {
   observeMaturity,
   type MaturityDeclaration, DEFAULT_SEVERITY_THRESHOLDS, type SeverityThresholds,
   type InterventionEffectMetric,
-} from "@ecomscaling/contracts";
+} from "@e-nora/contracts";
 import { leerHechos } from "./maturity-engine.js";
-import { createLogger } from "@ecomscaling/observability";
+import { createLogger } from "@e-nora/observability";
 import { sendInviteMail } from "./invite-mailer.js";
 
 const logger = createLogger("consultant");
@@ -4959,7 +4959,7 @@ export async function provisionConsultantAccount(
   const sent = await sendInviteMail(env, {
     to: email,
     recipientName: fullName,
-    title: "Tu invitación a EcomScaling",
+    title: "Tu invitación a E-NORA",
     intro: input.intro,
     actionLabel: "Aceptar invitación",
     actionUrl: inviteUrl,
@@ -5299,7 +5299,7 @@ export async function resendConsultantInvite(
   const sent = await sendInviteMail(env, {
     to: email,
     recipientName: profile.full_name,
-    title: "Tu acceso a EcomScaling",
+    title: "Tu acceso a E-NORA",
     intro:
       "Aquí tienes un nuevo enlace para activar o recuperar tu acceso como consultor.",
     actionLabel: "Continuar onboarding",
@@ -5720,9 +5720,9 @@ export async function generateClientInviteCode(
     const sent = await sendInviteMail(env, {
       to: email,
       recipientName: null,
-      title: "Invitación a EcomScaling",
+      title: "Invitación a E-NORA",
       intro:
-        "Tu consultor te ha invitado a EcomScaling. Verifica el código y crea tu cuenta.",
+        "Tu consultor te ha invitado a E-NORA. Verifica el código y crea tu cuenta.",
       actionLabel: "Crear mi cuenta",
       actionUrl: clientAccessUrl,
       senderName: context.profile.full_name,
@@ -7250,7 +7250,7 @@ export async function inviteClientMember(
   const sent = await sendInviteMail(env, {
     to: email,
     recipientName: fullName,
-    title: `Invitación a ${inviteOrganization.display_name} en EcomScaling`,
+    title: `Invitación a ${inviteOrganization.display_name} en E-NORA`,
     intro: `Te han invitado a unirte a la organización ${inviteOrganization.display_name}. Revisa y confirma la invitación antes de obtener acceso.`,
     actionLabel: "Revisar invitación",
     actionUrl: memberAccessUrl,

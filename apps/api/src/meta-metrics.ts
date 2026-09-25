@@ -1,5 +1,5 @@
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
-import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { getOrgMetaBackfillStatus } from "./meta-sync.js";
 
 type ApiEnv = {

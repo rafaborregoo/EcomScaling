@@ -1,4 +1,4 @@
-import type { AccountAction } from "@ecomscaling/contracts";
+import type { AccountAction } from "@e-nora/contracts";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import {
   freshnessMessage,

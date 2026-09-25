@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { processMemoryIngestionQueue } from "@ecomscaling/api/memory-ingestion";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { processMemoryIngestionQueue } from "@e-nora/api/memory-ingestion";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("memory-ingestion-cron");

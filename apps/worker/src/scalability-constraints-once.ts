@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runScalabilityPlaybookEngineForAllOrganizations } from "@ecomscaling/api/scalability-constraints-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runScalabilityPlaybookEngineForAllOrganizations } from "@e-nora/api/scalability-constraints-engine";
 
 const logger = createLogger("scalability-constraints-worker");
 runScalabilityPlaybookEngineForAllOrganizations(loadApiEnv(process.env))

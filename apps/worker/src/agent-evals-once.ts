@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runAndPersistOfflineAgentEvalsForEnv } from "@ecomscaling/api/agent-eval-runner";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runAndPersistOfflineAgentEvalsForEnv } from "@e-nora/api/agent-eval-runner";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("agent-evals-cron");

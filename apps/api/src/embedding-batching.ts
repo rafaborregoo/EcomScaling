@@ -1,4 +1,4 @@
-import type { EmbeddingProvider } from "@ecomscaling/ai";
+import type { EmbeddingProvider } from "@e-nora/ai";
 import { mapWithConcurrency } from "./async-concurrency.js";
 
 /**

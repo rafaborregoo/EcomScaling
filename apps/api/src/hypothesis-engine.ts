@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D08 -- El motor de hipotesis, conectado a datos reales.
  *
- * `generateHypotheses` (en `@ecomscaling/contracts`) es puro. Este fichero es su
+ * `generateHypotheses` (en `@e-nora/contracts`) es puro. Este fichero es su
  * unica parte sucia, como los de D01 a D07, D10 y D11.
  *
  * QUE HACE, en una frase: convierte cada ruta candidata de D07 en una hipotesis
@@ -30,9 +30,9 @@ import {
   generateHypotheses,
   type HypothesisEngineInput,
   type PathForHypothesis,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 import { METRICAS_VIGILADAS } from "./signal-engine.js";
 

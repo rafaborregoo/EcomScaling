@@ -3,8 +3,8 @@ import {
   type PlaybookTriState,
   type PlaybookFrameworkInputLike,
   type PlaybookTemplate,
-} from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import {
   buildPlaybookContext,
   parseActivePlaybookTemplates,

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createLogger } from "@ecomscaling/observability";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("audit-log");
 

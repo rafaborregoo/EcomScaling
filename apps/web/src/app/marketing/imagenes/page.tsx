@@ -394,7 +394,7 @@ function ImageBankContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <div>
         <div className="flex flex-wrap items-center gap-3">
           <Heading size="lg">Banco de imágenes</Heading>
-          <Link href="/marketing" className="text-sm">
+          <Link href="/marketing?section=crear" className="text-sm">
             ← Volver a Marketing
           </Link>
         </div>

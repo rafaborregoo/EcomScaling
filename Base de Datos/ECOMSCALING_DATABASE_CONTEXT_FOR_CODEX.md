@@ -1,4 +1,4 @@
-# EcomScaling IA — Contexto maestro de base de datos para Codex
+# E-NORA IA — Contexto maestro de base de datos para Codex
 
 > **Archivo obligatorio de lectura antes de generar o modificar SQL**
 >
@@ -100,7 +100,7 @@ Codex debe avisar si detecta divergencias.
 
 ### 4.1 Multi-tenant
 
-- Cada cliente de EcomScaling se representa mediante `public.organizations`.
+- Cada cliente de E-NORA se representa mediante `public.organizations`.
 - Toda tabla de negocio perteneciente a una tienda debe incluir `organization_id`.
 - Los usuarios pertenecen a organizaciones mediante `organization_members`.
 - Los consultores acceden mediante `consultant_assignments`.
@@ -165,7 +165,7 @@ Las futuras diferencias de contenido deben modelarse como capacidades configurab
 
 ### 4.6 GoHighLevel
 
-GoHighLevel será el CRM comercial de EcomScaling y Supabase el núcleo operativo de EcomScaling IA.
+GoHighLevel será el CRM comercial de E-NORA y Supabase el núcleo operativo de E-NORA IA.
 
 Todavía no existe un mapeo validado de GoHighLevel. Por tanto:
 
@@ -196,7 +196,7 @@ El modelo v0.2 no incorpora aún HighLevel como proveedor congelado. Cualquier c
 | Llamadas y resúmenes | Supabase |
 | Base de conocimiento y agentes | Supabase |
 | Credenciales externas | `private` |
-| Métricas derivadas | Motores deterministas de EcomScaling IA |
+| Métricas derivadas | Motores deterministas de E-NORA IA |
 
 ---
 
@@ -1107,7 +1107,7 @@ Table public.organizations {
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 
-  Note: 'Cada organización representa una tienda o cliente de EcomScaling.'
+  Note: 'Cada organización representa una tienda o cliente de E-NORA.'
 }
 
 Table public.organization_members {
@@ -2404,7 +2404,7 @@ Table public.meta_calculated_metrics_daily {
     ) [unique]
   }
 
-  Note: 'KPIs calculados por EcomScaling: hook_rate, hold_rate, canonical_roas, cac o creative_fatigue.'
+  Note: 'KPIs calculados por E-NORA: hook_rate, hold_rate, canonical_roas, cac o creative_fatigue.'
 }
 
 Table public.meta_insight_report_runs {
@@ -3161,7 +3161,7 @@ Table public.klaviyo_daily_account_metrics {
     ) [unique]
   }
 
-  Note: 'Tabla derivada por EcomScaling IA a partir de Reporting API y revenue de Shopify.'
+  Note: 'Tabla derivada por E-NORA IA a partir de Reporting API y revenue de Shopify.'
 }
 
 
@@ -4307,7 +4307,7 @@ Ref: public.audit_logs.actor_user_id > public.profiles.id
 
 ```text
 Producto:
-EcomScaling IA, plataforma multi-tenant para consultoría eCommerce.
+E-NORA IA, plataforma multi-tenant para consultoría eCommerce.
 
 Base:
 Supabase/PostgreSQL.

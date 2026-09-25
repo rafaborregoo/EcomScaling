@@ -1,4 +1,4 @@
-# EcomScaling IA
+# E-NORA IA
 
 ## Documento Maestro de Agentes y Automatizaciones
 
@@ -15,7 +15,7 @@ _Propósito: diseñar, probar, conectar y optimizar cada agente antes de su desp
 | 0.1         | 14/07/2026 | Base inicial                   | Catálogo de agentes, fases, runtime común, contexto, herramientas, conexión con base de datos y criterios de calidad. |
 | 0.2         | 14/07/2026 | Revisión alineada con briefing | Contexto adaptativo y amplio, SQL analítico de solo lectura, monitorización 24/7 y política de generación de tareas.  |
 
-Este archivo será la referencia funcional y técnica de los agentes de EcomScaling IA. No se considera un documento cerrado: cada fase debe actualizar prompts, herramientas, permisos, esquemas de salida, pruebas y métricas de calidad.
+Este archivo será la referencia funcional y técnica de los agentes de E-NORA IA. No se considera un documento cerrado: cada fase debe actualizar prompts, herramientas, permisos, esquemas de salida, pruebas y métricas de calidad.
 
 # Índice
 
@@ -82,7 +82,7 @@ El objetivo de este documento es impedir que la inteligencia artificial se const
 
 Para enseñar al cliente un prototipo sencillo, el entorno más práctico es Langflow: permite construir flujos arrastrando nodos, conectar un modelo, añadir herramientas y ejecutar el flujo desde una interfaz visual. Dify es una alternativa adecuada cuando se quiere enseñar un chat, un flujo RAG y una aplicación funcional con menos código. LangSmith Studio se reservará para la implementación técnica y depuración del runtime de producción.
 
-| **Herramienta**  | **Uso recomendado en EcomScaling**                                            | **Decisión**                                                       |
+| **Herramienta**  | **Uso recomendado en E-NORA**                                            | **Decisión**                                                       |
 | ---------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | Langflow         | Demo visual de agentes, RAG y herramientas. Útil en reuniones con el cliente. | Recomendada para prototipo visual.                                 |
 | Dify             | Prototipo de chat y workflows publicables con rapidez.                        | Alternativa si se prioriza una demo funcional inmediata.           |
@@ -109,7 +109,7 @@ La decisión técnica completa y sus condiciones de reapertura están en
 `roadmap/roadmaps/05-agentes-ia/ADR_PROVEEDORES_ORQUESTACION_RAG_Y_FINE_TUNING.md`.
 
 La adopción ya está preparada de forma incremental: `@langchain/core` y `@langchain/langgraph`
-implementan el adaptador del primer grafo de diagnóstico no mutante en `@ecomscaling/ai`, mientras
+implementan el adaptador del primer grafo de diagnóstico no mutante en `@e-nora/ai`, mientras
 `langsmith` aporta tracing opt-in con redacción y sin payloads por defecto. El runtime propio,
 Supabase/RAG y los gates de seguridad siguen siendo la autoridad.
 
@@ -237,7 +237,7 @@ La aplicación debe generar tareas accionables, tal como exige el briefing. La a
 
 | **ID** | **Agente**                             | **Fase** | **Estado**  | **Usuario**         | **Función**                                                                       |
 | ------ | -------------------------------------- | -------- | ----------- | ------------------- | --------------------------------------------------------------------------------- |
-| A00    | Orquestador / Consultor EcomScaling IA | Fase 3   | Definido    | Cliente y consultor | Responde con contexto empresarial adaptativo, consulta datos y coordina acciones. |
+| A00    | Orquestador / Consultor E-NORA IA | Fase 3   | Definido    | Cliente y consultor | Responde con contexto empresarial adaptativo, consulta datos y coordina acciones. |
 | A01    | Analista de llamadas                   | Fase 1   | Prioridad 1 | Consultor           | Resumen, decisiones y tareas en borrador.                                         |
 | A02    | Monitor y diagnóstico del negocio      | Fase 1   | Definido    | Cliente y consultor | Monitoriza 24/7, detecta riesgos/oportunidades y genera tareas accionables.       |
 | A03    | Analista de Meta Ads                   | Fase 1/3 | Definido    | Cliente y consultor | Diagnóstico de inversión, ROAS y creatividades.                                   |
@@ -308,7 +308,7 @@ Transformar una transcripción en un resumen estructurado, decisiones, riesgos y
 
 - Tareas abiertas relacionadas.
 
-- Formato y metodología de resúmenes de EcomScaling.
+- Formato y metodología de resúmenes de E-NORA.
 
 ### Tablas de lectura
 
@@ -507,7 +507,7 @@ Analizar inversión, ROAS, CAC, frecuencia, retención de vídeo, creatividades 
 
 - Métricas calculadas y break-even.
 
-- Nomenclatura EcomScaling.
+- Nomenclatura E-NORA.
 
 ### Tablas de lectura
 
@@ -670,7 +670,7 @@ Convertir alertas y hallazgos de agentes en tareas concretas, deduplicarlas y or
 
 ### Objetivo de negocio
 
-Proponer campañas coherentes con el histórico, margen, stock, estacionalidad y metodología de EcomScaling.
+Proponer campañas coherentes con el histórico, margen, stock, estacionalidad y metodología de E-NORA.
 
 ### Disparadores
 
@@ -1118,7 +1118,7 @@ Ninguna escritura directa. Solo respuesta o propuesta.
 
 - Integrar calendario si se aprueba.
 
-## A00 — Orquestador / Consultor EcomScaling IA
+## A00 — Orquestador / Consultor E-NORA IA
 
 | **Fase**              | Fase 3                                                        |
 | --------------------- | ------------------------------------------------------------- |

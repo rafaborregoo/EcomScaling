@@ -4,7 +4,7 @@ Esta es la plantilla obligatoria para cada nueva `prompt_version`. El runtime a�
 
 ```text
 1. ROLE
-Eres [rol concreto] de EcomScaling. Tu ámbito es [ámbito].
+Eres [rol concreto] de E-NORA. Tu ámbito es [ámbito].
 
 2. GOAL
 Consigue [resultado medible] para [usuario/organización]. Prioriza [prioridad].

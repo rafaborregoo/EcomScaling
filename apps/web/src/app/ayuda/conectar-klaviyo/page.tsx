@@ -6,9 +6,9 @@ import { BrandLogo, Card, Heading, Link } from "@/components/ui";
 // para enlazarlo desde fuera, igual que /condiciones y /politica-privacidad.
 
 export const metadata: Metadata = {
-  title: "Conecta Klaviyo con EcomScaling — EcomScaling IA",
+  title: "Conecta Klaviyo con E-NORA — E-NORA IA",
   description:
-    "Cómo autorizar tu cuenta de Klaviyo desde EcomScaling para ver campañas, flujos e ingresos atribuidos junto al resto de tus canales.",
+    "Cómo autorizar tu cuenta de Klaviyo desde E-NORA para ver campañas, flujos e ingresos atribuidos junto al resto de tus canales.",
 };
 
 export default function ConnectKlaviyoArticlePage() {
@@ -17,10 +17,10 @@ export default function ConnectKlaviyoArticlePage() {
       <header className="flex flex-col gap-2">
         <BrandLogo />
         <Heading level={1} size="lg">
-          Conecta Klaviyo con EcomScaling
+          Conecta Klaviyo con E-NORA
         </Heading>
         <p className="text-sm text-muted">
-          Autoriza tu cuenta de Klaviyo desde el panel de EcomScaling y
+          Autoriza tu cuenta de Klaviyo desde el panel de E-NORA y
           empieza a ver campañas, flujos e ingresos atribuidos junto al resto
           de tus canales.
         </p>
@@ -28,7 +28,7 @@ export default function ConnectKlaviyoArticlePage() {
 
       <Card title="Qué hace la conexión">
         <p>
-          Una vez conectado, EcomScaling importa campañas, flujos, listas,
+          Una vez conectado, E-NORA importa campañas, flujos, listas,
           segmentos y métricas de tu cuenta de Klaviyo para generar informes
           de rendimiento de email y SMS junto a los datos de Shopify y Meta
           Ads. También puedes publicar en tu cuenta de Klaviyo, como
@@ -42,7 +42,7 @@ export default function ConnectKlaviyoArticlePage() {
           <li>
             Entra en{" "}
             <span className="font-medium">Integraciones → Klaviyo</span>{" "}
-            dentro de tu panel de EcomScaling.
+            dentro de tu panel de E-NORA.
           </li>
           <li>
             Pulsa <span className="font-medium">Conectar Klaviyo (OAuth)</span>.
@@ -54,7 +54,7 @@ export default function ConnectKlaviyoArticlePage() {
             Klaviyo.
           </li>
           <li>
-            Vuelves automáticamente a EcomScaling con la cuenta ya conectada;
+            Vuelves automáticamente a E-NORA con la cuenta ya conectada;
             la primera sincronización empieza sola.
           </li>
         </ol>
@@ -74,7 +74,7 @@ export default function ConnectKlaviyoArticlePage() {
         <p>
           Puedes desconectar Klaviyo cuando quieras desde{" "}
           <span className="font-medium">Integraciones → Klaviyo</span> en
-          EcomScaling, o revocando la autorización directamente en Klaviyo
+          E-NORA, o revocando la autorización directamente en Klaviyo
           (Settings → OAuth Clients). Más detalle sobre qué pasa con tus
           datos al desconectar en{" "}
           <Link className="underline" href="/eliminacion-de-datos">

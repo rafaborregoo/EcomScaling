@@ -13,7 +13,7 @@
 // observabilidad. Aqui se juntan para responder "que se ha roto hoy".
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import type { AuthContext } from "./auth-context.js";
 import { triggerKlaviyoSync } from "./klaviyo.js";
 import { triggerShopifySync } from "./shopify.js";

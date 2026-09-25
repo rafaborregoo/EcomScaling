@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { resendShopifyWebhookRegistrations } from "@ecomscaling/api/shopify-webhooks";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { resendShopifyWebhookRegistrations } from "@e-nora/api/shopify-webhooks";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("shopify-resend-webhooks-once");

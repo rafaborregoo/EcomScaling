@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import type { AuthContext } from "./auth-context.js";
 import { retryPlatformSyncError } from "./platform-logs.js";
 

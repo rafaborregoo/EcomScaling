@@ -1,5 +1,5 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runInterventionFeasibilityEngineForAllOrganizations } from "@ecomscaling/api/intervention-feasibility-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { runInterventionFeasibilityEngineForAllOrganizations } from "@e-nora/api/intervention-feasibility-engine";
 
 const summary = await runInterventionFeasibilityEngineForAllOrganizations(loadApiEnv(process.env));
 console.log(JSON.stringify({ worker: "f7-p05-intervention-feasibility", ...summary }));

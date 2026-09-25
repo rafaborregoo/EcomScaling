@@ -1,4 +1,4 @@
-# AI Observability — EcomScaling / NORA
+# AI Observability — E-NORA / NORA
 
 **Estado:** modelo de datos, captura y panel implementados. Ver
 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) para el plan de fases.

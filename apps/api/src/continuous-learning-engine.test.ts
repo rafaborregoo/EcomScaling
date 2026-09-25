@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { evaluateLearningBlocks } from "@ecomscaling/contracts";
+import { evaluateLearningBlocks } from "@e-nora/contracts";
 import { learningSnapshotFromSources, type LearningSources } from "./continuous-learning-engine.js";
 
 const AS_OF = "2026-09-25T10:00:00.000Z";

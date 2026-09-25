@@ -12,8 +12,8 @@ import {
   RAG_RERANK_PROFILE,
   VoyageRerankProvider,
   type RerankProvider,
-} from "@ecomscaling/ai";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/ai";
+import type { LoadedApiEnv } from "@e-nora/config";
 import {
   requireOperationalOrganization,
   isOperationalOrganizationError,
@@ -198,7 +198,7 @@ export function requireKnowledgeManager(
 /**
  * Ingesta un documento: chunking por parrafos, embeddings por lotes y
  * persistencia de documento + chunks. `organizationId` null = conocimiento
- * global (metodologia EcomScaling); la visibilidad queda fijada aqui y el
+ * global (metodologia E-NORA); la visibilidad queda fijada aqui y el
  * constraint de DB impide estados incoherentes (lo privado nunca pasa a
  * global de forma implicita, criterio AI-04).
  */
@@ -622,7 +622,7 @@ export async function listKnowledgeDocuments(
   // listarse aqui: este catalogo es el contexto DE ESTE CLIENTE. Antes se
   // mezclaba con un `.or(visibility.eq.global, ...)`, asi que el consultor --
   // y el cliente final, que abre la misma pantalla -- veian el playbook de
-  // EcomScaling entre sus propios documentos, sin poder tocarlo (el 403 de
+  // E-NORA entre sus propios documentos, sin poder tocarlo (el 403 de
   // `requireKnowledgeManager` ya existia). Se gestiona en /admin/conocimiento.
   //
   // Sigue alimentando al copiloto de todos los clientes: el corte es de

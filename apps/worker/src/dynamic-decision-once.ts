@@ -1,5 +1,5 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runDynamicDecisionEngineForAllOrganizations } from "@ecomscaling/api/dynamic-decision-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { runDynamicDecisionEngineForAllOrganizations } from "@e-nora/api/dynamic-decision-engine";
 
 const summary = await runDynamicDecisionEngineForAllOrganizations(loadApiEnv(process.env));
 console.log(JSON.stringify({ worker: "f7-p13-dynamic-decision", ...summary }));

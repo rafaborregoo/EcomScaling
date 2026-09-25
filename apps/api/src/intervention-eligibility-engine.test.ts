@@ -4,7 +4,7 @@ import {
   buildInterventionEligibilityContext,
   candidateInputFromTemplate,
 } from "./intervention-eligibility-engine.js";
-import type { PlaybookTemplate } from "@ecomscaling/contracts";
+import type { PlaybookTemplate } from "@e-nora/contracts";
 
 const template: PlaybookTemplate = {
   template_id: "template:checkout-fix",

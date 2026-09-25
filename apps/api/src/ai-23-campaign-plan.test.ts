@@ -15,7 +15,7 @@ import test from "node:test";
 import {
   campaignPlanOutputSchema,
   CAMPAIGN_PLAN_HORIZON_DAYS,
-} from "@ecomscaling/ai";
+} from "@e-nora/ai";
 import { campaignPlanToCalendarItems } from "./campaign-planning.js";
 
 const plan = {

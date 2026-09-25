@@ -80,12 +80,12 @@ export function renderInviteHtml(message: InviteMessage): string {
   const url = html(message.actionUrl);
   const expiry = formatExpiry(message.expiresAt);
   const preheader = message.senderName
-    ? `${message.senderName} te ha invitado a EcomScaling.`
+    ? `${message.senderName} te ha invitado a E-NORA.`
     : message.intro;
 
   const senderLine = message.senderName
     ? `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:${INK}">
-         <strong>${html(message.senderName)}</strong> te ha invitado a EcomScaling.
+         <strong>${html(message.senderName)}</strong> te ha invitado a E-NORA.
        </p>`
     : "";
 
@@ -103,7 +103,7 @@ export function renderInviteHtml(message: InviteMessage): string {
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid ${EDGE};border-radius:10px">
         <tr>
           <td style="padding:28px 32px 0">
-            <span style="font-size:17px;font-weight:700;letter-spacing:-0.01em;color:${BRAND}">EcomScaling</span>
+            <span style="font-size:17px;font-weight:700;letter-spacing:-0.01em;color:${BRAND}">E-NORA</span>
           </td>
         </tr>
         <tr>
@@ -153,7 +153,7 @@ export function renderInviteText(message: InviteMessage): string {
     message.recipientName ? `Hola ${message.recipientName},` : "Hola,",
     "",
     message.senderName
-      ? `${message.senderName} te ha invitado a EcomScaling.`
+      ? `${message.senderName} te ha invitado a E-NORA.`
       : null,
     message.intro,
     "",
@@ -165,7 +165,7 @@ export function renderInviteText(message: InviteMessage): string {
     "",
     "Si no esperabas este correo, puedes ignorarlo: sin abrir el enlace no se crea ningún acceso.",
     "",
-    "EcomScaling",
+    "E-NORA",
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -182,7 +182,7 @@ export async function sendInviteMail(
   const host = env.SMTP_HOST ?? "smtp-relay.brevo.com";
   const port = env.SMTP_PORT ?? 587;
   const fromEmail = env.SMTP_FROM_EMAIL ?? env.SMTP_USER!;
-  const fromName = env.SMTP_FROM_NAME ?? "EcomScaling";
+  const fromName = env.SMTP_FROM_NAME ?? "E-NORA";
 
   try {
     const transporter = nodemailer.createTransport({

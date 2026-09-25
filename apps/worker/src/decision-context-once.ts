@@ -1,7 +1,7 @@
 /** F4/P01. Construye snapshots del contexto usando .env.local en desarrollo. */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runDecisionContextEngineForAllOrganizations } from "@ecomscaling/api/decision-context-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runDecisionContextEngineForAllOrganizations } from "@e-nora/api/decision-context-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("decision-context-cron");

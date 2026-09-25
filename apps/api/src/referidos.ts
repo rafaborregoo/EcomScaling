@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { createLogger } from "@ecomscaling/observability";
+import { createLogger } from "@e-nora/observability";
 import type { AuthContext } from "./auth-context.js";
 import {
   createStripeClient,

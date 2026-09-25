@@ -4,7 +4,7 @@ import {
   insightBadgeCount,
   type MetricInsight,
 } from "../components/ui/metric-insights-task";
-import { copilotInsightHref } from "@ecomscaling/contracts";
+import { copilotInsightHref } from "@e-nora/contracts";
 
 export type CopilotUiAction = {
   kind: "open_insight";

@@ -5,9 +5,9 @@
  * capa por capa, cuanto se puede afirmar de cada cosa. Si corre antes que ellos,
  * califica un caso vacio: cierto en ese instante, pero inutil.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runConfidenceEngineForAllOrganizations } from "@ecomscaling/api/confidence-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runConfidenceEngineForAllOrganizations } from "@e-nora/api/confidence-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("confidence-cron");

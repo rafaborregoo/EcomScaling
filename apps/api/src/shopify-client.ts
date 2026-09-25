@@ -1,4 +1,4 @@
-import { IntegrationError } from "@ecomscaling/integrations";
+import { IntegrationError } from "@e-nora/integrations";
 
 type ShopifyGraphQLResponse<T> = {
   data?: T;

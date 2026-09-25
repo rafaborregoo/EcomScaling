@@ -9,7 +9,7 @@
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY/etc (las
  * mismas variables que necesita `server.ts` para arrancar).
- * Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
+ * Ejecutar con `npm run test:remote -w @e-nora/api` en un proyecto aislado.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

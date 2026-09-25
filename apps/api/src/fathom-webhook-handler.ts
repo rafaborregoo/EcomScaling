@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import type { FathomWebhookEventRow } from "@ecomscaling/db";
+import type { LoadedApiEnv } from "@e-nora/config";
+import type { FathomWebhookEventRow } from "@e-nora/db";
 import type { AuthContext } from "./auth-context.js";
 import { runCallAnalyst } from "./ai-runtime.js";
 import {

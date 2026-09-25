@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateActionEnvelope, fingerprintPlaybookInput, type ActionEnvelopeInput, type ActionEnvelopeResult } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { evaluateActionEnvelope, fingerprintPlaybookInput, type ActionEnvelopeInput, type ActionEnvelopeResult } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const SOURCE = "f8-p05.v1";
 type Row = Record<string, unknown>;

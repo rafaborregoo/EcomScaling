@@ -27,8 +27,8 @@ import {
   registerShopifyWebhooks,
   shopifyWebhookCallbackUrl,
 } from "./shopify-webhooks.js";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+import type { LoadedApiEnv } from "@e-nora/config";
+import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { recordAuditLog } from "./audit-log.js";
 import {
   describeShopifyMissingScopes,

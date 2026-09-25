@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import { META_GRAPH_VERSION, metaGraphGet } from "./meta-client.js";
 
 export type MetaOAuthEnv = {

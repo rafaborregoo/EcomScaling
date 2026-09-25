@@ -24,7 +24,7 @@ const envSchema = z.object({
     .default("40e2d772-02d3-4884-b8b6-755c22c0b561"),
   DEMO_FULL_NAME: z.string().default("Rafa Borrego"),
   DEMO_CLIENT_FULL_NAME: z.string().default("Cliente Demo"),
-  DEMO_ORG_NAME: z.string().default("EcomScaling Demo"),
+  DEMO_ORG_NAME: z.string().default("E-NORA Demo"),
   DEMO_ORG_SLUG: z.string().default("ecomscaling-demo"),
   DEMO_CLIENT_ORG_NAME: z.string().default("Cliente Demo Store"),
   DEMO_CLIENT_ORG_SLUG: z.string().default("cliente-demo-store"),

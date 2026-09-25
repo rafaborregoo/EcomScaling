@@ -1,4 +1,4 @@
-import { IntegrationError } from "@ecomscaling/integrations";
+import { IntegrationError } from "@e-nora/integrations";
 import crypto from "node:crypto";
 
 /** Single source of truth for every Graph API request in the Meta adapter. */

@@ -1,5 +1,5 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runRecommendationCommunicationEngineForAllOrganizations } from "@ecomscaling/api/recommendation-communication-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { runRecommendationCommunicationEngineForAllOrganizations } from "@e-nora/api/recommendation-communication-engine";
 
 const summary = await runRecommendationCommunicationEngineForAllOrganizations(loadApiEnv(process.env));
 console.log(JSON.stringify({ worker: "f7-p18-recommendation-communication", ...summary }));

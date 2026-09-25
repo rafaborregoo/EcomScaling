@@ -13,7 +13,7 @@ import {
   isIntegrationFeatureEnabled,
   type IntegrationHealth,
   type IntegrationActivationReadiness,
-} from "@ecomscaling/integrations";
+} from "@e-nora/integrations";
 
 type ApiEnv = {
   SUPABASE_URL: string;

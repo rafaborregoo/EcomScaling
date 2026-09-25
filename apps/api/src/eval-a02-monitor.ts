@@ -33,13 +33,13 @@
  *    esto.
  *
  * Cuesta llamadas reales a Anthropic (dinero) -- no correr en cada PR.
- * Ejecutar manualmente con `npm run eval:a02 -w @ecomscaling/api`.
+ * Ejecutar manualmente con `npm run eval:a02 -w @e-nora/api`.
  */
 import { randomUUID } from "node:crypto";
 import { evaluateCostGate } from "./eval-cost-gate.js";
 import { createClient } from "@supabase/supabase-js";
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { runMonitorAgent } from "./ai-runtime.js";
 import type { AuthContext } from "./auth-context.js";
 

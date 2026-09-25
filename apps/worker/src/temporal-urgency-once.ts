@@ -1,7 +1,7 @@
 /** F4/P03. Assessment temporal sin ranking; desarrollo/verificación usa .env.local. */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runTemporalUrgencyEngineForAllOrganizations } from "@ecomscaling/api/temporal-urgency-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runTemporalUrgencyEngineForAllOrganizations } from "@e-nora/api/temporal-urgency-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("temporal-urgency-cron");

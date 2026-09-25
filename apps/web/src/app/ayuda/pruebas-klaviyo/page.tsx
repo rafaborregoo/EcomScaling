@@ -9,7 +9,7 @@ import { BrandLogo, Card, Heading, Link } from "@/components/ui";
 export const metadata: Metadata = {
   title: "Instrucciones de prueba — Integración con Klaviyo",
   description:
-    "Cómo probar el flujo de instalación y la funcionalidad de la integración de EcomScaling con Klaviyo.",
+    "Cómo probar el flujo de instalación y la funcionalidad de la integración de E-NORA con Klaviyo.",
 };
 
 export default function KlaviyoTestInstructionsPage() {
@@ -22,7 +22,7 @@ export default function KlaviyoTestInstructionsPage() {
         </Heading>
         <p className="text-sm text-muted">
           Para el equipo de revisión de Klaviyo: cómo probar el flujo de
-          instalación (OAuth) y la funcionalidad de la app EcomScaling.
+          instalación (OAuth) y la funcionalidad de la app E-NORA.
         </p>
       </header>
 
@@ -32,7 +32,7 @@ export default function KlaviyoTestInstructionsPage() {
           en este documento público):
         </p>
         <ul className="list-disc space-y-1 pl-5">
-          <li>Un usuario de prueba de EcomScaling ya dado de alta.</li>
+          <li>Un usuario de prueba de E-NORA ya dado de alta.</li>
           <li>
             Una cuenta de Klaviyo (de prueba o sandbox) con la que autorizar
             la conexión.
@@ -68,7 +68,7 @@ export default function KlaviyoTestInstructionsPage() {
           </li>
           <li>Confirma la autorización.</li>
           <li>
-            Klaviyo te devuelve a EcomScaling. La conexión debe aparecer como{" "}
+            Klaviyo te devuelve a E-NORA. La conexión debe aparecer como{" "}
             <span className="font-medium">conectada</span>, con el nombre de
             la cuenta de Klaviyo autorizada.
           </li>
@@ -104,11 +104,11 @@ export default function KlaviyoTestInstructionsPage() {
           Esta función escribe en la cuenta de Klaviyo, así que solo se activa
           si la cuenta de prueba tiene contenido aprobado en{" "}
           <span className="font-medium">Marketing</span> dentro de
-          EcomScaling:
+          E-NORA:
         </p>
         <ol className="list-decimal space-y-2 pl-5">
           <li>
-            En EcomScaling, crea o abre una pieza de email en{" "}
+            En E-NORA, crea o abre una pieza de email en{" "}
             <span className="font-medium">Marketing</span> y apruébala.
           </li>
           <li>
@@ -125,16 +125,16 @@ export default function KlaviyoTestInstructionsPage() {
         <p>Dos formas de probar la desconexión:</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>
-            Desde EcomScaling: <span className="font-medium">Integraciones → Klaviyo</span>,
+            Desde E-NORA: <span className="font-medium">Integraciones → Klaviyo</span>,
             desconectar la cuenta.
           </li>
           <li>
             Desde Klaviyo: <span className="font-medium">Settings → OAuth Clients</span>,
-            revocar el acceso de EcomScaling.
+            revocar el acceso de E-NORA.
           </li>
         </ul>
         <p>
-          En ambos casos, EcomScaling deja de poder leer datos nuevos de esa
+          En ambos casos, E-NORA deja de poder leer datos nuevos de esa
           cuenta.
         </p>
       </Card>

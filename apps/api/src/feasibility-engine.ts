@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateFeasibility, type FeasibilityInputLike, type FeasibilityResult } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import { evaluateFeasibility, type FeasibilityInputLike, type FeasibilityResult } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 const logger = createLogger("feasibility-engine");
 function service(env: LoadedApiEnv) { return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", { auth: { persistSession: false, autoRefreshToken: false } }) as any; }
 export function buildFeasibilityInput(organizationId: string, candidateRef: string, sourceRef: string, now = new Date().toISOString()): FeasibilityInputLike { return { assessment_id: `p06:${organizationId}:${candidateRef}`, business_id: organizationId, candidate_ref: candidateRef, as_of: now, effort: { implementation_days: null, transition_days: null, operation_days: null, coordination_days: null, uncertainty: "UNKNOWN", assumptions: [] }, resources: [{ resource: "effective_capacity", required_capacity: null, available_capacity: null, effective_capacity: null, scarcity: "UNKNOWN", lead_time_days: null, substitutability: "UNKNOWN", owner: null, source_refs: [sourceRef] }], readiness: { status: "UNKNOWN", prerequisites: [], owner: null, decision_rights: null, source_refs: [sourceRef] }, feasibility: { current: "UNKNOWN", expanded: "UNKNOWN", theoretical: "UNKNOWN" }, success_capacity: null, effort_confidence: "UNKNOWN", feasibility_confidence: "UNKNOWN", evidence_refs: [sourceRef], source_refs: [sourceRef] }; }

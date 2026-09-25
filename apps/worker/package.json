@@ -1,5 +1,5 @@
 {
-  "name": "@ecomscaling/worker",
+  "name": "@e-nora/worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -181,10 +181,10 @@
     "test": "tsx --test src/repeatable-jobs.test.ts src/metrics.test.ts src/job-context.test.ts src/worker-http.test.ts src/nightly-chain.test.ts"
   },
   "dependencies": {
-    "@ecomscaling/api": "0.1.0",
-    "@ecomscaling/config": "0.1.0",
-    "@ecomscaling/contracts": "0.1.0",
-    "@ecomscaling/observability": "0.1.0",
+    "@e-nora/api": "0.1.0",
+    "@e-nora/config": "0.1.0",
+    "@e-nora/contracts": "0.1.0",
+    "@e-nora/observability": "0.1.0",
     "bullmq": "^5.65.1",
     "zod": "^4.1.13"
   },

@@ -211,15 +211,15 @@ export function renderInvoiceEmailHtml({ invoice, lines }: InvoiceEmailData) {
   const qr = invoice.verifactu_qr_url
     ? `<p style="font-size:12px;line-height:1.5;color:#6b7280">Consulta VERI*FACTU: <a href="${escapeHtml(invoice.verifactu_qr_url)}" style="color:#1d4ed8">verificar factura</a></p>`
     : "";
-  return `<!-- preheader --><div style="display:none;max-height:0;overflow:hidden;opacity:0">Factura ${escapeHtml(invoice.invoice_code)} de EcomScaling</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f8ff;padding:24px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif"><tr><td align="center"><table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:30px 32px"><div style="font-size:17px;font-weight:700;color:#1d4ed8">EcomScaling</div><h1 style="margin:24px 0 12px;font-size:22px;color:#111827">Tu factura ${escapeHtml(invoice.invoice_code)}</h1><p style="font-size:15px;line-height:1.6;color:#111827">Hola ${escapeHtml(invoiceRecipient(invoice))},</p><p style="font-size:15px;line-height:1.6;color:#111827">Adjuntamos la factura correspondiente a tu suscripcion de EcomScaling.</p><table width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;font-size:14px"><thead><tr><th align="left" style="padding-bottom:8px;color:#6b7280">Concepto</th><th align="right" style="padding-bottom:8px;color:#6b7280">Importe</th></tr></thead><tbody>${rows}</tbody></table><p style="margin:22px 0 0;text-align:right;font-size:17px;font-weight:700;color:#111827">Total: ${escapeHtml(money(invoice.total, invoice.currency_code))}</p>${qr}<p style="margin:26px 0 0;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;line-height:1.6;color:#6b7280">Este correo ha sido enviado automáticamente tras confirmar el pago. Si necesitas corregir tus datos fiscales, responde a este mensaje.</p></td></tr></table></td></tr></table>`;
+  return `<!-- preheader --><div style="display:none;max-height:0;overflow:hidden;opacity:0">Factura ${escapeHtml(invoice.invoice_code)} de E-NORA</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f8ff;padding:24px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif"><tr><td align="center"><table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:30px 32px"><div style="font-size:17px;font-weight:700;color:#1d4ed8">E-NORA</div><h1 style="margin:24px 0 12px;font-size:22px;color:#111827">Tu factura ${escapeHtml(invoice.invoice_code)}</h1><p style="font-size:15px;line-height:1.6;color:#111827">Hola ${escapeHtml(invoiceRecipient(invoice))},</p><p style="font-size:15px;line-height:1.6;color:#111827">Adjuntamos la factura correspondiente a tu suscripcion de E-NORA.</p><table width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;font-size:14px"><thead><tr><th align="left" style="padding-bottom:8px;color:#6b7280">Concepto</th><th align="right" style="padding-bottom:8px;color:#6b7280">Importe</th></tr></thead><tbody>${rows}</tbody></table><p style="margin:22px 0 0;text-align:right;font-size:17px;font-weight:700;color:#111827">Total: ${escapeHtml(money(invoice.total, invoice.currency_code))}</p>${qr}<p style="margin:26px 0 0;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;line-height:1.6;color:#6b7280">Este correo ha sido enviado automáticamente tras confirmar el pago. Si necesitas corregir tus datos fiscales, responde a este mensaje.</p></td></tr></table></td></tr></table>`;
 }
 
 export function renderInvoiceEmailText({ invoice, lines }: InvoiceEmailData) {
   return [
     `Hola ${invoiceRecipient(invoice)},`,
     "",
-    `Adjuntamos la factura ${invoice.invoice_code} de EcomScaling.`,
+    `Adjuntamos la factura ${invoice.invoice_code} de E-NORA.`,
     "",
     ...lines.map(
       (line) => `${line.description}: ${money(line.total_amount, invoice.currency_code)}`,
@@ -230,7 +230,7 @@ export function renderInvoiceEmailText({ invoice, lines }: InvoiceEmailData) {
       ? `Consulta VERI*FACTU: ${invoice.verifactu_qr_url}`
       : null,
     "",
-    "EcomScaling",
+    "E-NORA",
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");
@@ -254,7 +254,7 @@ export async function sendInvoiceMail(
   const host = env.SMTP_HOST ?? "smtp-relay.brevo.com";
   const port = env.SMTP_PORT ?? 587;
   const fromEmail = env.SMTP_FROM_EMAIL ?? env.SMTP_USER!;
-  const fromName = env.SMTP_FROM_NAME ?? "EcomScaling";
+  const fromName = env.SMTP_FROM_NAME ?? "E-NORA";
   try {
     const transporter = nodemailer.createTransport({
       host,
@@ -268,7 +268,7 @@ export async function sendInvoiceMail(
     const info = await transporter.sendMail({
       from: `"${fromName.replaceAll('"', "")}" <${fromEmail}>`,
       to: recipient,
-      subject: `Factura ${data.invoice.invoice_code} - EcomScaling`,
+      subject: `Factura ${data.invoice.invoice_code} - E-NORA`,
       text: renderInvoiceEmailText(data),
       html: renderInvoiceEmailHtml(data),
       attachments: [

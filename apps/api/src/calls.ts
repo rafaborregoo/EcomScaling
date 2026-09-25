@@ -7,7 +7,7 @@
 // via service role + chequeo manual de rol (patron ADR-0006).
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import {
   type AuthContext,
   createUserScopedClient,

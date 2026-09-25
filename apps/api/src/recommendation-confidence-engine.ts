@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateRecommendationConfidence, fingerprintPlaybookInput, type PlaybookTemplate, type RecommendationConfidenceInput, type RecommendationConfidenceResult } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { evaluateRecommendationConfidence, fingerprintPlaybookInput, type PlaybookTemplate, type RecommendationConfidenceInput, type RecommendationConfidenceResult } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { parseActivePlaybookTemplates } from "./playbook-engine.js";
 
 const SOURCE = "f7-p17.v1";

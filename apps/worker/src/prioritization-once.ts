@@ -1,7 +1,7 @@
 /** F4/P00. El contexto de ejecución es .env.local en desarrollo/verificación. */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runPrioritizationEngineForAllOrganizations } from "@ecomscaling/api/prioritization-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runPrioritizationEngineForAllOrganizations } from "@e-nora/api/prioritization-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("prioritization-cron");

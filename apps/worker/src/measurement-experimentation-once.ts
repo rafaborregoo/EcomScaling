@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runMeasurementExperimentationPlaybookEngineForAllOrganizations } from "@ecomscaling/api/measurement-experimentation-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runMeasurementExperimentationPlaybookEngineForAllOrganizations } from "@e-nora/api/measurement-experimentation-engine";
 
 const logger = createLogger("measurement-experimentation-worker");
 

@@ -1,6 +1,6 @@
 # Stripe, la pasarela de cobro
 
-> **Qué es esto.** Cómo se cobra en EcomScaling y qué hay que dejar
+> **Qué es esto.** Cómo se cobra en E-NORA y qué hay que dejar
 > configurado en Stripe para que funcione. Sustituye a `WHOP.md`, retirado el
 > 2026-09-16 (ver [el porqué](#por-qué-no-whop)).
 >

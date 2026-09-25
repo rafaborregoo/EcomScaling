@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import {
   decryptShopifyCredential,
   encryptShopifyCredential,

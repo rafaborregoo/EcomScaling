@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runInterventionEligibilityEngineForAllOrganizations } from "@ecomscaling/api/intervention-eligibility-engine";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { runInterventionEligibilityEngineForAllOrganizations } from "@e-nora/api/intervention-eligibility-engine";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("intervention-eligibility-worker");
 

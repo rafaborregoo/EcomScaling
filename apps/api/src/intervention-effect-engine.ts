@@ -3,9 +3,9 @@ import {
   EFFECT_WINDOW_DAYS,
   measureInterventionEffect,
   type InterventionEffectMetric,
-} from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+} from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { seriesPorMetrica } from "./signal-engine.js";
 
 /**

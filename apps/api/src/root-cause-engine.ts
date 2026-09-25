@@ -2,7 +2,7 @@
  * FASE 3 / D09 -- El motor de causa raiz y constraint, conectado a datos reales.
  *
  * `generateRootCauses` y `generateConstraintCandidates` (en
- * `@ecomscaling/contracts`) son puros. Este fichero es su unica parte sucia,
+ * `@e-nora/contracts`) son puros. Este fichero es su unica parte sucia,
  * como los de D01 a D08 y D10-D11.
  *
  * DOS PIPELINES INDEPENDIENTES, COMO EN EL CONTRATO. Causa raiz lee las
@@ -29,9 +29,9 @@ import {
   type ConstraintEngineInput,
   type RootCauseCandidateInput,
   type RootCauseEngineInput,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("root-cause-engine");
 

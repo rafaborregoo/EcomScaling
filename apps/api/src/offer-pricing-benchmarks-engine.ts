@@ -1,5 +1,5 @@
-import { validateOfferPricingBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { validateOfferPricingBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { buildPlaybookContext, parseActivePlaybookTemplates, runPlaybookFrameworkEngine, runPlaybookFrameworkEngineForAllOrganizations } from "./playbook-engine.js";
 
 const SOURCE_VERSION = "f6-p06.v1";

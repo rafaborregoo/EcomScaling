@@ -1,8 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
-import { createLogger } from "@ecomscaling/observability";
+import type { LoadedApiEnv } from "@e-nora/config";
+import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
+import { createLogger } from "@e-nora/observability";
 import {
   requireOperationalOrganization,
   isOperationalOrganizationError,
@@ -1206,7 +1206,7 @@ export async function handleMetaOAuthCallback(
 }
 
 /**
- * action_type de compra que EcomScaling propone por defecto. `omni_purchase`
+ * action_type de compra que E-NORA propone por defecto. `omni_purchase`
  * es la columna "Compras" que el anunciante ve en Ads Manager para ecommerce
  * (agrega web, app y offline); coincide con el default de la migracion
  * `20260803120000_int_02_canonical_purchase_action_type.sql`.

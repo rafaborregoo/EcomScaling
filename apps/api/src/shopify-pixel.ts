@@ -9,8 +9,8 @@
  */
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import type { LoadedApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { assertConnectionIngestible } from "./operational-organization.js";
 import { shopifyGraphql } from "./shopify-client.js";
 import { getValidShopifyAccessToken } from "./shopify-token-store.js";

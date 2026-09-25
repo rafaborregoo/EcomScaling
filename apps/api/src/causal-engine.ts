@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D07 -- El motor causal, conectado a datos reales.
  *
- * `exploreCausalPaths` (en `@ecomscaling/contracts`) es puro. Este fichero es su
+ * `exploreCausalPaths` (en `@e-nora/contracts`) es puro. Este fichero es su
  * unica parte sucia, como los de D01 a D06, D10 y D11.
  *
  * QUE HACE, en una frase: parte del target de un caso, recorre hacia atras el
@@ -30,9 +30,9 @@ import {
   type CausalGraphEdge,
   type CausalGraphNode,
   type SignalForCausal,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 import { METRICAS_VIGILADAS } from "./signal-engine.js";
 

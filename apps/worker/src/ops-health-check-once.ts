@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runOpsHealthCheck } from "@ecomscaling/api/ops-health-check";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runOpsHealthCheck } from "@e-nora/api/ops-health-check";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("ops-health-check-cron");

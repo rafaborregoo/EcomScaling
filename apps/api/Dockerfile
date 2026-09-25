@@ -1,7 +1,7 @@
 # BE-00: build desde la raiz del monorepo (contexto = raiz del repo, no este
 # directorio) porque los workspaces de npm necesitan ver todos los
 # package.json y lockfile a la vez para resolver dependencias internas
-# (@ecomscaling/ai, config, contracts, observability). Build:
+# (@e-nora/ai, config, contracts, observability). Build:
 #   docker build -f apps/api/Dockerfile -t ecomscaling-api .
 FROM node:24-alpine AS builder
 WORKDIR /app
@@ -32,7 +32,7 @@ COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY apps/api ./apps/api
 
-RUN npm run build -w @ecomscaling/api
+RUN npm run build -w @e-nora/api
 RUN npm prune --omit=dev
 
 FROM node:24-alpine AS runtime

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { SHOPIFY_SCOPES_USED } from "@ecomscaling/contracts";
+import { SHOPIFY_SCOPES_USED } from "@e-nora/contracts";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveConnection } from "@/components/active-connection";
 import { type BootstrapResponse } from "@/lib/bootstrap";

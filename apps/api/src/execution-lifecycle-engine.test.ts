@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateLifecycleCommand } from "@ecomscaling/contracts";
+import { evaluateLifecycleCommand } from "@e-nora/contracts";
 import { lifecycleContextFromSources } from "./execution-lifecycle-engine.js";
 
 const actor = { actorId: "rafa", actorAuthorized: true, planVersion: 0, eventAt: "2026-09-22T10:00:00.000Z" };

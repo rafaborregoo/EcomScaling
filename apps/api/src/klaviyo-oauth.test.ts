@@ -9,7 +9,7 @@ import {
   parseKlaviyoScopes,
   exchangeKlaviyoCodeForTokens,
 } from "./klaviyo-oauth.js";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 
 const env = {
   SUPABASE_URL: "https://example.supabase.co",

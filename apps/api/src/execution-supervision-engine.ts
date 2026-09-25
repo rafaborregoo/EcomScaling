@@ -2,7 +2,7 @@
  * F8: motor de supervision. Lee lo que los bloques hechos (8.02, 8.03, 8.04,
  * 8.05, 8.10, 8.16) dejaron escrito, mas el registro real de tools y las
  * conexiones activas, arma la foto de la intervencion y la pasa por los doce
- * evaluadores de @ecomscaling/contracts. Cada bloque se guarda con su propia
+ * evaluadores de @e-nora/contracts. Cada bloque se guarda con su propia
  * salida en `execution_supervision_runs`.
  *
  * `executionSnapshotFromSources` es pura a proposito: la traduccion de filas a
@@ -18,9 +18,9 @@ import {
   type SnapshotAction,
   type SnapshotCapability,
   type SupervisionBlockResult,
-} from "@ecomscaling/contracts";
-import { TOOL_REGISTRY, normalizeToolConnectorId } from "@ecomscaling/ai";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { TOOL_REGISTRY, normalizeToolConnectorId } from "@e-nora/ai";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 type Row = Record<string, unknown>;
 const record = (value: unknown): Row =>

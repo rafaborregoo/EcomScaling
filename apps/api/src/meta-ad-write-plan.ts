@@ -1,7 +1,7 @@
 import {
   buildMetaAdCreationPlan,
   type MetaAdCreationInput,
-} from "@ecomscaling/integrations";
+} from "@e-nora/integrations";
 import {
   isOperationalOrganizationError,
   requireOperationalOrganization,

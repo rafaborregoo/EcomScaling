@@ -7,9 +7,9 @@
  * que lleva cinco dias sin sincronizar no es una senal, es el sintoma de una
  * integracion rota.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runDataQualityEngineForAllOrganizations } from "@ecomscaling/api/data-quality-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runDataQualityEngineForAllOrganizations } from "@e-nora/api/data-quality-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("data-quality-cron");

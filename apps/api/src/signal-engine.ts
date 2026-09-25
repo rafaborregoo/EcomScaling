@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D05 — El motor de senales, conectado a datos reales.
  *
- * `detectSignals` (en `@ecomscaling/contracts`) es puro: entra una serie de
+ * `detectSignals` (en `@e-nora/contracts`) es puro: entra una serie de
  * numeros y salen senales candidatas. Este fichero es su unica parte sucia --
  * leer de Supabase, escribir en `signals` -- y por eso es deliberadamente
  * corto: toda la decision esta en el detector, que se prueba sin montar nada.
@@ -22,9 +22,9 @@
  * senales: se hace upsert sobre la misma huella.
  */
 import { createClient } from "@supabase/supabase-js";
-import { detectSignals, type InterventionEffectMetric, type SeriesPoint } from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { detectSignals, type InterventionEffectMetric, type SeriesPoint } from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("signal-engine");
 

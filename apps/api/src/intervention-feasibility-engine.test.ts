@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { PlaybookTemplate } from "@ecomscaling/contracts";
+import type { PlaybookTemplate } from "@e-nora/contracts";
 import { buildInterventionFeasibilityContext, candidateInputFromFeasibilitySources } from "./intervention-feasibility-engine.js";
 
 const template = { template_id: "fix@1.0.0", template_version: "1.0.0", lifecycle: "ACTIVE", schema_version: "v1", domain: "GENERAL", name: "Fix", purpose: "Fix", intent: "Fix", intervention_type: "test", problem_refs: [], activation_signals: [], preconditions: [], contraindications: [], steps: [{ step_id: "s", label: "s", stage: "CORRECT", adaptation_policy: "LOCKED" }], expected_effects: ["effect"], validation_requirements: ["validation"], success_criteria: ["success"], failure_criteria: ["failure"], stop_conditions: ["stop"], reassessment_conditions: [], resource_requirements: [], dependencies: [], intervention_risks: [], resource_profile: [], source_refs: ["template:1"], domain_extension: { feasibility: { resource_requirements: [{ resource: "developer", required_level: "MODERATE", availability: "AVAILABLE", capacity_status: "SUFFICIENT", capability_status: "FIT", owner_status: "ASSIGNED", duration: "short", bottleneck: false, source_refs: ["resource:team"] }], time_requirement: { implementation: "short", operational_readiness: "medium", confident_outcome: "unknown", deadline_fit: "FIT" }, success_capacity: { required_resources: [], moving_bottleneck: null, buffer_status: "PRESENT" } } } } as unknown as PlaybookTemplate;

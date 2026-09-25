@@ -111,7 +111,7 @@ cumplirse en silencio.
   anotada en `supabase_migrations.schema_migrations`. Identico a test.
 - 14 tests en verde. Se comprobo que fallan de verdad: al romper el umbral de
   evidencia minima fallo su test y solo el suyo.
-- Se anadio `@ecomscaling/contracts` a CI — **no corria sus tests**. Un test que
+- Se anadio `@e-nora/contracts` a CI — **no corria sus tests**. Un test que
   no se ejecuta no es un guardrail.
 
 ### Riesgo abierto
@@ -225,7 +225,7 @@ con D00: `bloqueo_respetado` (§36), `confianza_degradada` (§23, §35),
   test.
 - 22 tests nuevos (36 en el paquete). Mutacion comprobada: al romper el umbral
   de `bloqueo_respetado` fallo su test y solo el suyo.
-- CI ya ejecutaba `@ecomscaling/contracts` desde `D00`, asi que no hizo falta
+- CI ya ejecutaba `@e-nora/contracts` desde `D00`, asi que no hizo falta
   tocar el workflow.
 
 ### Riesgo abierto

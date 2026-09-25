@@ -1,6 +1,6 @@
 {
   "installCommand": "cd ../.. && npm install",
-  "buildCommand": "cd ../.. && npm run build -w @ecomscaling/api",
+  "buildCommand": "cd ../.. && npm run build -w @e-nora/api",
   "rewrites": [
     {
       "source": "/(.*)",

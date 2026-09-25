@@ -1,5 +1,5 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runInterventionMatchingEngineForAllOrganizations } from "@ecomscaling/api/intervention-matching-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { runInterventionMatchingEngineForAllOrganizations } from "@e-nora/api/intervention-matching-engine";
 
 const summary = await runInterventionMatchingEngineForAllOrganizations(loadApiEnv(process.env));
 console.log(JSON.stringify({ worker: "f7-p02-intervention-matching", ...summary }));

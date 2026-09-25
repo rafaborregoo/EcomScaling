@@ -53,7 +53,7 @@ export default function OnboardingPage() {
   const stepShown = selfSignup ? 1 : step;
 
   useEffect(() => {
-    document.title = "EcomScaling";
+    document.title = "E-NORA";
   }, []);
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateInterventionSequenceSet, fingerprintPlaybookInput, type InterventionSequencingInput, type InterventionSequencingRunResult, type PlaybookTemplate } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { evaluateInterventionSequenceSet, fingerprintPlaybookInput, type InterventionSequencingInput, type InterventionSequencingRunResult, type PlaybookTemplate } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { parseActivePlaybookTemplates } from "./playbook-engine.js";
 
 const SOURCE = "f7-p07.v1";

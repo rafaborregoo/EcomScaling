@@ -1,5 +1,5 @@
 import { getSupabaseClient } from "@/lib/supabase";
-import type { AccountAction } from "@ecomscaling/contracts";
+import type { AccountAction } from "@e-nora/contracts";
 import { fetchApiWithTimeout } from "@/lib/request-timeout";
 import { getViewAs } from "@/lib/view-as";
 

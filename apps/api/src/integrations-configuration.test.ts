@@ -5,7 +5,7 @@ import {
   deriveIntegrationConfiguration,
   hasRecoveredSync,
 } from "./integrations.js";
-import { INTEGRATION_CATALOG } from "@ecomscaling/integrations";
+import { INTEGRATION_CATALOG } from "@e-nora/integrations";
 
 const baseEnv = {
   SUPABASE_URL: "https://example.supabase.co",

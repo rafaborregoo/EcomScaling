@@ -24,12 +24,12 @@
  *     para el.
  *
  * Cuesta llamadas reales a Anthropic/OpenAI (dinero) -- no correr en cada PR.
- * Ejecutar manualmente con `npm run eval:a06 -w @ecomscaling/api`.
+ * Ejecutar manualmente con `npm run eval:a06 -w @e-nora/api`.
  */
 import { createClient } from "@supabase/supabase-js";
 import { evaluateCostGate } from "./eval-cost-gate.js";
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { runStockPlannerAgent } from "./ai-runtime.js";
 import type { AuthContext } from "./auth-context.js";
 

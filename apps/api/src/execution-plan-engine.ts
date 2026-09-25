@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { evaluateExecutionPlan, fingerprintPlaybookInput, type ExecutionPlanInput, type ExecutionPlanResult } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { evaluateExecutionPlan, fingerprintPlaybookInput, type ExecutionPlanInput, type ExecutionPlanResult } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const SOURCE = "f8-p03.v1";
 type Row = Record<string, unknown>;

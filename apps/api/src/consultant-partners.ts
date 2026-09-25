@@ -12,7 +12,7 @@
 // codigo de invitacion vincula la organizacion que crea un cliente nuevo.
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import type { AuthContext } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
 import { provisionConsultantAccount } from "./consultant.js";
@@ -317,7 +317,7 @@ export async function addConsultantPartner(
         email,
         fullName: null,
         intro:
-          "Te han invitado a EcomScaling para llevar tiendas junto a tu compañero. Crea tu contraseña y completa tu perfil.",
+          "Te han invitado a E-NORA para llevar tiendas junto a tu compañero. Crea tu contraseña y completa tu perfil.",
       },
     );
     if (created.ok === false) return created;
@@ -360,14 +360,14 @@ export async function addConsultantPartner(
   if (decision.kind === "refuse") {
     const MESSAGES: Record<string, string> = {
       profile_missing:
-        "Esa cuenta existe en el sistema de acceso pero no tiene perfil. Avisa a la dirección de EcomScaling con el correo.",
+        "Esa cuenta existe en el sistema de acceso pero no tiene perfil. Avisa a la dirección de E-NORA con el correo.",
       // No se ofrece convertirla desde aqui a proposito: esa cuenta es de otra
       // persona y el cambio de rol lo decide ella. El consultor se lo pide
       // fuera, y cuando esa persona sea consultora el emparejado funciona.
       not_a_consultant:
         "Esa cuenta existe, pero hoy entra como cliente. Habla con esa persona para que pase su cuenta a consultor; cuando lo haya hecho, vuelve aquí y os emparejáis.",
       consultant_inactive:
-        "Esa cuenta de consultor está desactivada y no puede llevar tiendas. Pide a la dirección de EcomScaling que la reactiven.",
+        "Esa cuenta de consultor está desactivada y no puede llevar tiendas. Pide a la dirección de E-NORA que la reactiven.",
     };
     return {
       ok: false as const,

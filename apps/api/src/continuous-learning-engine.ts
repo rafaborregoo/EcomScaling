@@ -18,8 +18,8 @@ import {
   type LearningExperience,
   type LearningSnapshot,
   type PriorLearning,
-} from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const SOURCE = "f9-learning-engine.v2";
 type Row = Record<string, unknown>;

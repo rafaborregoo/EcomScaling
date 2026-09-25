@@ -32,7 +32,7 @@
 > no se introduce una variante visual paralela.
 
 > Correccion SQO-01/INT-00 2026-08-02: CI ejecuta tambien las suites de
-> `@ecomscaling/integrations` y `@ecomscaling/observability`, que cubren los
+> `@e-nora/integrations` y `@e-nora/observability`, que cubren los
 > contratos/feature flags de conectores y la redaccion de secretos/métricas.
 > El workflow YAML queda verificado con Prettier.
 

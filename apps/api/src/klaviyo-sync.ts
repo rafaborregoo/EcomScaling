@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+import type { LoadedApiEnv } from "@e-nora/config";
+import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import {
   createKlaviyoClient,
   type KlaviyoReportRequest,
@@ -1525,7 +1525,7 @@ export async function listKlaviyoReports(
   };
 }
 
-// Meses completos de historico que EcomScaling quiere tener antes de poder
+// Meses completos de historico que E-NORA quiere tener antes de poder
 // hablar de tendencias de email. Reporting API admite como maximo un ano por
 // solicitud, asi que el backfill va mes a mes.
 export const KLAVIYO_BACKFILL_MONTHS = 12;

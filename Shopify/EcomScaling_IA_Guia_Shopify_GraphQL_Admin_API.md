@@ -1,6 +1,6 @@
-# EcomScaling IA
+# E-NORA IA
 
-## Aplicación en EcomScaling
+## Aplicación en E-NORA
 
 Esta guía debe leerse junto con el [objetivo global del SaaS y sus criterios de terminado](../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md):
 Shopify es la integración operativa del piloto y debe seguir siendo la referencia para validar conexión,
@@ -12,7 +12,7 @@ Qué es GraphQL, cómo funciona, cómo se autentica la aplicación, cómo se sin
 
 > **Alcance del documento**
 >
-> La guía cubre todas las superficies de Shopify relevantes para EcomScaling IA: tienda, productos, variantes, inventario, ubicaciones, pedidos, líneas, clientes pseudonimizados, reembolsos, fulfillment, analítica, operaciones masivas, webhooks, permisos, límites y versionado. No pretende enumerar módulos de Shopify ajenos al producto, como POS, B2B, themes o facturación de aplicaciones.
+> La guía cubre todas las superficies de Shopify relevantes para E-NORA IA: tienda, productos, variantes, inventario, ubicaciones, pedidos, líneas, clientes pseudonimizados, reembolsos, fulfillment, analítica, operaciones masivas, webhooks, permisos, límites y versionado. No pretende enumerar módulos de Shopify ajenos al producto, como POS, B2B, themes o facturación de aplicaciones.
 
 **Versión del análisis: Shopify Admin API 2026-07**
 
@@ -62,11 +62,11 @@ GraphQL es un lenguaje de consulta para APIs y, al mismo tiempo, un contrato tip
 POST https://{tienda}.myshopify.com/admin/api/2026-07/graphql.json
 ```
 
-Para EcomScaling IA esto permite consultar en una sola operación un producto, sus variantes, el InventoryItem asociado y los niveles de inventario de cada ubicación, seleccionando solo los campos necesarios.
+Para E-NORA IA esto permite consultar en una sola operación un producto, sus variantes, el InventoryItem asociado y los niveles de inventario de cada ubicación, seleccionando solo los campos necesarios.
 
 ## Conceptos básicos
 
-| **Concepto** | **Significado**                               | **Aplicación en EcomScaling IA**                                                        |
+| **Concepto** | **Significado**                               | **Aplicación en E-NORA IA**                                                        |
 |--------------|-----------------------------------------------|-----------------------------------------------------------------------------------------|
 | Schema       | Contrato tipado de la API.                    | Permite conocer objetos, campos, relaciones, argumentos y tipos antes de programar.     |
 | Query        | Operación de lectura.                         | Leer tienda, productos, pedidos, inventario, clientes o analítica.                      |
@@ -89,7 +89,7 @@ Para EcomScaling IA esto permite consultar en una sola operación un producto, s
 | Límites     | Frecuentemente por número de llamadas.    | Shopify calcula el coste de la query.        |
 | Evolución   | Cambios por endpoint/versiones.           | Schema tipado y versiones trimestrales.      |
 
-La REST Admin API de Shopify es una tecnología heredada para aplicaciones nuevas. La arquitectura de EcomScaling IA debe construirse sobre GraphQL Admin API, utilizando librerías oficiales cuando sea posible.
+La REST Admin API de Shopify es una tecnología heredada para aplicaciones nuevas. La arquitectura de E-NORA IA debe construirse sobre GraphQL Admin API, utilizando librerías oficiales cuando sea posible.
 
 # 3. Cómo se estructura una petición GraphQL
 
@@ -143,11 +143,11 @@ Mientras pageInfo.hasNextPage sea true, el backend repite la consulta enviando e
 ```
 # 4. Autenticación y conexión de una tienda
 
-Cada tienda debe autorizar expresamente a EcomScaling IA. El token nunca debe enviarse al navegador ni guardarse en texto plano en una tabla pública.
+Cada tienda debe autorizar expresamente a E-NORA IA. El token nunca debe enviarse al navegador ni guardarse en texto plano en una tabla pública.
 
 ## 4.1 Flujo de conexión
 
-1.  El cliente pulsa “Conectar Shopify” dentro de EcomScaling IA.
+1.  El cliente pulsa “Conectar Shopify” dentro de E-NORA IA.
 
 2.  El backend inicia la instalación/autorización de la aplicación de Shopify.
 
@@ -165,7 +165,7 @@ Cada tienda debe autorizar expresamente a EcomScaling IA. El token nunca debe en
 
 ## 4.2 Offline access token
 
-EcomScaling IA necesita ejecutar sincronizaciones y alertas aunque el usuario no tenga una sesión abierta. Por eso la integración debe utilizar acceso offline. Shopify admite tokens offline no expirables y, en arquitecturas recientes, tokens offline expirables con mecanismo de renovación. La base de datos debe contemplar access token, refresh token, fecha de expiración y versión de cifrado.
+E-NORA IA necesita ejecutar sincronizaciones y alertas aunque el usuario no tenga una sesión abierta. Por eso la integración debe utilizar acceso offline. Shopify admite tokens offline no expirables y, en arquitecturas recientes, tokens offline expirables con mecanismo de renovación. La base de datos debe contemplar access token, refresh token, fecha de expiración y versión de cifrado.
 
 ## 4.3 Scopes mínimos previstos
 
@@ -297,7 +297,7 @@ InventoryLevel expone varias cantidades, por ejemplo available, on_hand, incomin
 
 ## Coste unitario
 
-InventoryItem.unitCost puede proporcionar el coste unitario, pero puede estar vacío y requiere que el usuario de Shopify tenga permiso para ver costes. EcomScaling IA debe importarlo cuando exista y permitir un coste manual con histórico y prioridad explícita.
+InventoryItem.unitCost puede proporcionar el coste unitario, pero puede estar vacío y requiere que el usuario de Shopify tenga permiso para ver costes. E-NORA IA debe importarlo cuando exista y permitir un coste manual con histórico y prioridad explícita.
 
 # 9. Pedidos, clientes, privacidad y reembolsos
 

@@ -1,8 +1,8 @@
-import type { ChatOutput } from "@ecomscaling/ai";
+import type { ChatOutput } from "@e-nora/ai";
 import {
   COPILOT_INSIGHT_TARGET_SLUGS,
   isCopilotInsightTarget,
-} from "@ecomscaling/contracts";
+} from "@e-nora/contracts";
 
 export type ChatUiAction = NonNullable<ChatOutput["ui_actions"]>[number];
 

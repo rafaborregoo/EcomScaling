@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runRecoveryCrisisPlaybookEngineForAllOrganizations } from "@ecomscaling/api/recovery-crisis-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runRecoveryCrisisPlaybookEngineForAllOrganizations } from "@e-nora/api/recovery-crisis-engine";
 
 const logger = createLogger("recovery-crisis-worker");
 runRecoveryCrisisPlaybookEngineForAllOrganizations(loadApiEnv(process.env))

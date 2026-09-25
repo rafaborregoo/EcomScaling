@@ -1,4 +1,4 @@
-# Auditoria de seguridad EcomScaling
+# Auditoria de seguridad E-NORA
 
 Fecha: 2026-08-31. Alcance: API, web, worker, Supabase, agentes IA, RLS,
 permisos, secretos, CI/CD y dependencias.

@@ -38,7 +38,7 @@
   corrupta, titulos vacios); no es groundedness (que cada afirmacion importante este respaldada por una
   metrica/consulta/cita/documento concreto) — son cosas distintas y este archivo cubre solo la primera.
 - **Evidencia:** `checkOutputSanity` (`packages/ai/src/index.ts`), 50 tests en
-  `packages/ai/src/index.test.ts` (`npm run test -w @ecomscaling/ai`, en CI; conteo actualizado 2026-07-23
+  `packages/ai/src/index.test.ts` (`npm run test -w @e-nora/ai`, en CI; conteo actualizado 2026-07-23
   tras anadir deteccion de apertura incoherente, ver mas abajo -- antes 15).
 - **Lo que ya funciona**: la guarda corre justo despues de la validacion de schema en `runAgentTurn` y
   rechaza (`AgentOutputValidationError` -> `rejected_output`, nunca `pending_approval`) salidas con
@@ -48,7 +48,7 @@
   reales que motivaron su creacion (A02: answer vacio/texto corrupto; A06: answer/title vacios tras agotar
   tool calls). Rollback de prompt/version ya existe de facto via `agent_versions.is_active`.
 - **Dataset de A02 ampliado a 5 escenarios, 2026-07-22** (`apps/api/src/eval-a02-monitor.ts`, `npm run
-eval:a02 -w @ecomscaling/api`): los 3 originales (organizacion sin datos, tienda con ventas pero sin
+eval:a02 -w @e-nora/api`): los 3 originales (organizacion sin datos, tienda con ventas pero sin
   configuracion financiera, tienda sana) mas los 2 que pedia explicitamente este documento --
   **stock roto** (producto real con 40 unidades vendidas/30d y 2 disponibles, seedeado con el arbol
   Shopify completo: location/product/variant/inventory_item/inventory_current_state, no un mock) y
@@ -67,7 +67,7 @@ eval:a02 -w @ecomscaling/api`): los 3 originales (organizacion sin datos, tienda
   quedar en silencio dentro del ruido de checks individuales. Cierra el entregable "Presupuesto maximo de
   coste y latencia" de este mismo documento, que llevaba pendiente desde el diseño original.
 - **Dataset de A01 anadido, 2026-07-23** (`apps/api/src/eval-a01-call-analyst.ts`, `npm run eval:a01 -w
-@ecomscaling/api`): 3 escenarios, los que este mismo documento pedia explicitamente para A01 --
+@e-nora/api`): 3 escenarios, los que este mismo documento pedia explicitamente para A01 --
   **tareas claras** (transcripcion con 2 pendientes explicitos con dueño y plazo -- el agente debe
   proponer tareas con `owner` correcto), **sin tareas accionables** (checkin informativo sin problemas --
   el agente no deberia inventar tareas de la nada) y **tarea sin responsable claro** (problema real
@@ -79,7 +79,7 @@ eval:a02 -w @ecomscaling/api`): los 3 originales (organizacion sin datos, tienda
   ejecucion tecnica no), no una alucinacion real -- confirma el mismo patron que A02: los checks soft son
   ruidosos por diseño. Coste total: $0.084. No corre en CI (cuesta dinero real).
 - **Dataset de A06 anadido, 2026-07-23** (`apps/api/src/eval-a06-stock-planner.ts`, `npm run eval:a06 -w
-@ecomscaling/api` -- correccion de nombre: A06 es el planificador de stock, no el gestor de conocimiento,
+@e-nora/api` -- correccion de nombre: A06 es el planificador de stock, no el gestor de conocimiento,
   ese es A08, que sigue sin dataset): 3 escenarios, mismo patron que A02 -- **sin datos** (tienda conectada
   sin ningun producto/stock sembrado, el agente no deberia inventar cifras ni proponer una cantidad de
   reposicion inventada), **stock roto** (producto real con 40 unidades vendidas/30d y 2 disponibles,
@@ -93,7 +93,7 @@ eval:a02 -w @ecomscaling/api`): los 3 originales (organizacion sin datos, tienda
   cantidades de reposicion fabricadas. Segunda corrida real: **3/3 escenarios pasan, 0 fallos hard, 0/5
   fallos soft**. Coste total: $0.06.
 - **Dataset de A08 anadido, 2026-07-23** (`apps/api/src/eval-a08-knowledge-manager.ts`, `npm run eval:a08 -w
-@ecomscaling/api`): 2 escenarios -- **catalogo vacio** (organizacion sin ningun documento propio; el
+@e-nora/api`): 2 escenarios -- **catalogo vacio** (organizacion sin ningun documento propio; el
   catalogo global tampoco tenia filas activas al momento de escribir el eval, confirmado por SQL directa
   contra el proyecto real) y **duplicados obvios** (2 documentos organization-scoped sobre el mismo tema con
   contenido casi identico, mas 1 documento claramente distinto). Correccion real durante el desarrollo: el
@@ -142,7 +142,7 @@ eval:a02 -w @ecomscaling/api`): los 3 originales (organizacion sin datos, tienda
   corto (`"ok"`) ni saltos de linea legitimos tras puntuacion (parrafos). Descartado un primer diseño
   (longitud corta + pocas letras) por dar falso positivo real contra `"ok"` en la propia suite de tests --
   el chequeo final es mas preciso (apertura imposible, no solo "corto"). 30/30 tests de `packages/ai` pasan
-  (26 previos + 4 nuevos), `@ecomscaling/ai` reconstruido (`npm run build -w @ecomscaling/ai`) para que
+  (26 previos + 4 nuevos), `@e-nora/ai` reconstruido (`npm run build -w @e-nora/ai`) para que
   `apps/api` recoja el cambio, 105/105 tests de `apps/api` pasan, typecheck limpio en los 10 workspaces.
   - Sin metricas automaticas mas alla de sanity + los checks nuevos (`citation_precision`,
     `unsupported_claim_rate`, `task_duplicate_rate`, `false_positive_rate`, `cross_tenant_violation_rate`,
@@ -163,7 +163,7 @@ eval:a02 -w @ecomscaling/api`): los 3 originales (organizacion sin datos, tienda
   `${field}_con_texto_partido`. 4 tests nuevos en `packages/ai/src/index.test.ts` (el caso real de palabra
   partida a mitad de texto, mas 3 de no-regresion: parrafos multiples con punto de cierre, lista con
   guiones, y el caso de apertura original que ya cubria `hasIncoherentOpening`). 29/29 tests de
-  `packages/ai` pasan, `@ecomscaling/ai` reconstruido y typecheck de `apps/api` limpio (sin correr los
+  `packages/ai` pasan, `@e-nora/ai` reconstruido y typecheck de `apps/api` limpio (sin correr los
   tests de integracion de `apps/api` en esta sesion -- este entorno no tiene Supabase configurado, ver nota
   equivalente en FE-00).
 - **Siguiente accion:** todos los agentes de diagnostico (A01, A02, A06, A08) tienen ya un dataset propio,

@@ -12,7 +12,7 @@ import WebSocket from "ws";
 import {
   declaredChangeEventSchema,
   declaredContextFactSchema,
-} from "@ecomscaling/contracts";
+} from "@e-nora/contracts";
 import { type AuthContext, requireOperationalOrganization } from "./auth-context.js";
 
 type ApiEnv = {

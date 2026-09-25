@@ -1,4 +1,4 @@
-# EcomScaling IA
+# E-NORA IA
 
 > **Criterio de producto vigente:** este briefing se ejecuta conforme al [objetivo global del SaaS,
 > piloto y criterios de terminado](docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md). Shopify es la
@@ -10,12 +10,12 @@
 Julio 2026 · Confidencial
 
 # 1. Contexto del Producto
-### Qué es EcomScaling
-EcomScaling es una consultoría especializada en eCommerce B2C con producto físico. El fundador, Ricardo Morales, trabaja con tiendas que facturan entre 4.000€ y 30.000€/mes ayudándolas a escalar su beneficio neto — no solo su facturación.
+### Qué es E-NORA
+E-NORA es una consultoría especializada en eCommerce B2C con producto físico. El fundador, Ricardo Morales, trabaja con tiendas que facturan entre 4.000€ y 30.000€/mes ayudándolas a escalar su beneficio neto — no solo su facturación.
 
 El servicio actual consiste en: plan estratégico personalizado, llamada mensual 1:1, acceso a un grupo de WhatsApp para dudas, y auditorías periódicas en Loom donde Ricardo entra directamente en las herramientas del cliente (Ads Manager, Klaviyo) y graba feedback específico.
 
-### Qué problema resuelve EcomScaling IA
+### Qué problema resuelve E-NORA IA
 El mayor problema de una consultoría de este tipo es lo que pasa entre llamadas. El cliente recibe un plan estratégico en la llamada inicial y una revisión mensual, pero en los 29 días restantes:
 
 - No sabe qué priorizar
@@ -23,14 +23,14 @@ El mayor problema de una consultoría de este tipo es lo que pasa entre llamadas
 - Escribe al consultor por WhatsApp con preguntas que se repiten constantemente
 - No tiene visibilidad sobre su negocio en tiempo real — trabaja con sensaciones, no con datos
 
-> **EcomScaling IA es la capa tecnológica que trabaja entre llamadas.**
+> **E-NORA IA es la capa tecnológica que trabaja entre llamadas.**
 >
 > → Monitoriza el negocio del cliente 24/7, detecta problemas y oportunidades, genera tareas accionables, y responde las dudas frecuentes con el criterio del consultor.
 >
 > → No sustituye al consultor. Lo potencia. Las llamadas mensuales pasan de "¿qué está pasando?" a "aquí están los datos, decidamos qué hacer."
 
 ### A quién va dirigido
-Clientes activos de EcomScaling — los que ya están dentro del programa (Growth o Scale). El acceso a EcomScaling IA es exclusivo: solo pueden entrar si tienen una suscripción activa. No es un producto público ni se vende por separado.
+Clientes activos de E-NORA — los que ya están dentro del programa (Growth o Scale). El acceso a E-NORA IA es exclusivo: solo pueden entrar si tienen una suscripción activa. No es un producto público ni se vende por separado.
 
 ### Glosario de términos de eCommerce (para desarrollador sin contexto del sector)
 Este documento usa terminología específica de eCommerce. Aquí están los términos que aparecerán en las especificaciones:
@@ -60,7 +60,7 @@ La aplicación tiene dos tipos de usuario con vistas completamente distintas:
 
 | **Vista**           | **Usuario**                                        | **Qué ve y hace**                                                                                                                                                                                |
 |---------------------|----------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Portal del Cliente  | Fundador de la tienda (cliente de EcomScaling)     | Su dashboard de métricas, sus tareas pendientes, su plan estratégico, sus llamadas grabadas, sus alertas de stock y campañas, y el chat con el Consultor IA                                      |
+| Portal del Cliente  | Fundador de la tienda (cliente de E-NORA)     | Su dashboard de métricas, sus tareas pendientes, su plan estratégico, sus llamadas grabadas, sus alertas de stock y campañas, y el chat con el Consultor IA                                      |
 | Panel del Consultor | Ricardo Morales (y futuros consultores del equipo) | Panel con todos los clientes activos, estado de tareas por cliente, alertas activas por cuenta, gestión del plan estratégico de cada cliente, y acceso a crear/editar contenido del Consultor IA |
 
 ## Módulos de la aplicación
@@ -74,7 +74,7 @@ La app se organiza en 6 módulos principales dentro del portal del cliente, más
 | 4      | Mis Llamadas                     | Grabaciones, resúmenes automáticos y tareas extraídas de cada llamada                 |
 | 5      | Planificación (Stock y Campañas) | Alertas de reposición de stock y recordatorios de campañas mensuales                  |
 | 6      | Análisis de Contenido            | Rendimiento de posts/reels de Instagram y análisis de creativos de Meta Ads           |
-| —      | Consultor IA                     | Chat transversal disponible en toda la app con la base de conocimiento de EcomScaling |
+| —      | Consultor IA                     | Chat transversal disponible en toda la app con la base de conocimiento de E-NORA |
 | —      | Panel del Consultor              | Vista exclusiva de Ricardo para gestionar todos los clientes                          |
 
 ## Integraciones externas necesarias
@@ -91,7 +91,7 @@ La app se organiza en 6 módulos principales dentro del portal del cliente, más
 # 3. Especificación de Módulos
 ## Módulo 1 — Dashboard de Métricas
 ### Qué es
-La foto en tiempo real del negocio del cliente. Conecta datos de Shopify y Meta Ads para mostrar los indicadores clave con los que EcomScaling trabaja. No son métricas genéricas — son las que determinan si el negocio es rentable o no.
+La foto en tiempo real del negocio del cliente. Conecta datos de Shopify y Meta Ads para mostrar los indicadores clave con los que E-NORA trabaja. No son métricas genéricas — son las que determinan si el negocio es rentable o no.
 
 ### Datos que muestra (y de dónde vienen)
 | **KPI**                              | **Qué mide**                                                      | **Fuente de datos**                                 |
@@ -235,7 +235,7 @@ El sistema cruza el historial de ventas de Shopify (mismo período del año ante
 > → "La camiseta blanca lleva 3 días con stock 0. Ha recibido 47 visitas a su página de producto en los últimos 7 días. Estás perdiendo ventas activas."
 
 ### Parte B — Planificación de Campañas
-Dentro de EcomScaling, todos los clientes tienen que lanzar una campaña de email al mes. Este módulo asegura que eso ocurra y que esté planificado con suficiente antelación.
+Dentro de E-NORA, todos los clientes tienen que lanzar una campaña de email al mes. Este módulo asegura que eso ocurra y que esté planificado con suficiente antelación.
 
 ### Panel de campañas
 - Historial de campañas pasadas: fecha, motivo, oferta, resultado (revenue generado si el cliente lo introduce)
@@ -279,7 +279,7 @@ Dentro de EcomScaling, todos los clientes tienen que lanzar una campaña de emai
 - Patrones detectados por IA: qué formatos, temas o estructuras aparecen en los posts con mejor rendimiento
 
 ### Parte B — Meta Ads (análisis de creativos)
-Conecta con el Ads Manager del cliente vía Meta Marketing API. Usa la nomenclatura de nombres de anuncios que EcomScaling estandariza para todos sus clientes — eso permite identificar automáticamente el ángulo, formato y tipo de cada creativo sin análisis manual.
+Conecta con el Ads Manager del cliente vía Meta Marketing API. Usa la nomenclatura de nombres de anuncios que E-NORA estandariza para todos sus clientes — eso permite identificar automáticamente el ángulo, formato y tipo de cada creativo sin análisis manual.
 
 ### Lo que muestra
 - Ranking de creativos activos por ROAS (últimos 7/14/30 días)
@@ -288,20 +288,20 @@ Conecta con el Ads Manager del cliente vía Meta Marketing API. Usa la nomenclat
 - Creativos que llevan más de 7 días sin gastar — señal de que Meta los ha descartado
 - Ideas de nuevos creativos generadas por IA basadas en los ángulos ganadores de esa cuenta
 
-> **NOTA: La nomenclatura de anuncios que usa EcomScaling sigue un formato estructurado que permite identificar el ángulo y formato de cada creativo desde el nombre.**
+> **NOTA: La nomenclatura de anuncios que usa E-NORA sigue un formato estructurado que permite identificar el ángulo y formato de cada creativo desde el nombre.**
 >
 > El desarrollador recibirá el formato de nomenclatura exacto para que el parser lo implemente correctamente.
 
-## Módulo Transversal — Consultor EcomScaling IA
+## Módulo Transversal — Consultor E-NORA IA
 ### Qué es
-Un chat disponible en cualquier sección de la app que responde las dudas del cliente usando la metodología y el criterio de EcomScaling — y con acceso al contexto real de esa tienda concreta (sus métricas, su plan, su historial de llamadas).
+Un chat disponible en cualquier sección de la app que responde las dudas del cliente usando la metodología y el criterio de E-NORA — y con acceso al contexto real de esa tienda concreta (sus métricas, su plan, su historial de llamadas).
 
-No es un chatbot genérico de eCommerce. Conoce el Método Protocolo de EcomScaling, los criterios de decisión de Ricardo, los casos reales de clientes, y los datos actuales de la tienda del cliente que está preguntando.
+No es un chatbot genérico de eCommerce. Conoce el Método Protocolo de E-NORA, los criterios de decisión de Ricardo, los casos reales de clientes, y los datos actuales de la tienda del cliente que está preguntando.
 
 ### Cómo funciona técnicamente
 Se construye sobre Claude API (Anthropic) usando una arquitectura RAG (Retrieval-Augmented Generation):
 
-- Base de conocimiento indexada: documentos de metodología de EcomScaling, criterios de decisión, respuestas frecuentes, casos de clientes (anonimizados)
+- Base de conocimiento indexada: documentos de metodología de E-NORA, criterios de decisión, respuestas frecuentes, casos de clientes (anonimizados)
 - Contexto de la cuenta: en cada consulta, el sistema incluye automáticamente los datos actuales de esa tienda (KPIs, plan activo, tareas pendientes, historial de llamadas)
 - El LLM (Claude) combina la base de conocimiento con el contexto de la cuenta para dar una respuesta personalizada, no genérica
 
@@ -309,7 +309,7 @@ Se construye sobre Claude API (Anthropic) usando una arquitectura RAG (Retrieval
 | **Pregunta del cliente**                                                      | **Cómo responde el Consultor IA**                                                                                                                                                                                                                            |
 |-------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | ¿Debería subir el presupuesto de Meta esta semana?                            | Consulta el ROAS de los últimos 7 días de esa cuenta, lo compara con su ROAS de break-even, y responde con criterio: "Tu ROAS actual es 2.1x y tu break-even es 2.8x. No es el momento de subir presupuesto. Primero hay que mejorar los creativos activos." |
-| No sé qué motivo usar para la campaña de email de agosto                      | Consulta el historial de campañas de esa cuenta, el calendario estacional, y la metodología de EcomScaling para sugerir 3 opciones con motivo + tipo de oferta recomendada                                                                                   |
+| No sé qué motivo usar para la campaña de email de agosto                      | Consulta el historial de campañas de esa cuenta, el calendario estacional, y la metodología de E-NORA para sugerir 3 opciones con motivo + tipo de oferta recomendada                                                                                   |
 | ¿Cuándo tengo que hacer el pedido a mi proveedor para tener stock en Navidad? | Consulta el lead time del proveedor introducido por el cliente, el historial de ventas de Navidad del año anterior, y calcula la fecha límite de pedido                                                                                                      |
 | Mi hook rate está al 18%, ¿es bueno o malo?                                   | Responde con los benchmarks del sector y con la situación concreta de esa cuenta: "Para vídeos de más de 15 segundos, 18% está por debajo del 25% que buscamos. Pero es mejor que tu media de los últimos 30 días (14%). Va mejorando."                      |
 
@@ -340,7 +340,7 @@ Vista exclusiva para Ricardo (y futuros consultores del equipo). Desde aquí ges
 ## Fase 1 — MVP (Prioridad máxima)
 Lo mínimo que ya aporta valor diferencial:
 
-- Autenticación: login seguro para clientes de EcomScaling (acceso solo si están activos)
+- Autenticación: login seguro para clientes de E-NORA (acceso solo si están activos)
 - Conexión Shopify: dashboard con KPIs básicos (facturación, pedidos, ticket medio, recurrencia, stock)
 - Conexión Meta Ads: inversión, ROAS actual vs ROAS break-even
 - Sistema de alertas básico: 5-6 reglas fijas (ROAS bajo, pop-up bajo, stock 0, sin campaña del mes)
@@ -356,7 +356,7 @@ Lo mínimo que ya aporta valor diferencial:
 - Integración con Fathom para automatizar el flujo de llamadas (webhook → resumen automático)
 
 ## Fase 3 — Contenido e IA avanzada
-- Consultor EcomScaling IA (RAG sobre base de conocimiento de metodología)
+- Consultor E-NORA IA (RAG sobre base de conocimiento de metodología)
 - Conexión Instagram Graph API (métricas de posts y reels)
 - Análisis de creativos Meta Ads por nomenclatura
 - Generación de ideas de contenido y creativos basadas en ganadores
@@ -384,7 +384,7 @@ Esta sección es una recomendación, no una especificación cerrada. El desarrol
 
 ## Privacidad de datos de clientes del cliente
 - Los datos de Shopify contienen información personal de los compradores de la tienda (emails, direcciones). El sistema no debe almacenar más datos de los estrictamente necesarios para calcular los KPIs.
-- Cumplimiento con GDPR (los clientes de EcomScaling son principalmente empresas europeas).
+- Cumplimiento con GDPR (los clientes de E-NORA son principalmente empresas europeas).
 
 ## Limitaciones conocidas documentadas
 | **Limitación**                                                     | **Impacto**                                                                     | **Solución adoptada**                                                                                      |
@@ -406,4 +406,4 @@ Antes de estimar tiempos y costes, el desarrollador debería responder o tener e
 
 ---
 
-*EcomScaling IA · Briefing Técnico · Julio 2026 · Ricardo Morales · ecomscaling.es*
+*E-NORA IA · Briefing Técnico · Julio 2026 · Ricardo Morales · ecomscaling.es*

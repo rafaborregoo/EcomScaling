@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D02 — El motor de contextualizacion, conectado a datos reales.
  *
- * `assessContext` (en `@ecomscaling/contracts`) es puro. Este fichero es su
+ * `assessContext` (en `@e-nora/contracts`) es puro. Este fichero es su
  * unica parte sucia, igual que `data-quality-engine.ts` lo es de `assessSource`
  * y `signal-engine.ts` de `detectSignals`.
  *
@@ -35,9 +35,9 @@ import {
   observedMainChannel,
   selectBaseline,
   type SegmentObservation,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("context-engine");
 

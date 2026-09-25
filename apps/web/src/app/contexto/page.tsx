@@ -83,7 +83,7 @@ const DIMENSIONS: { value: string; label: string; placeholder: string }[] = [
 ];
 
 // Los tipos que un cliente reconoce. El catalogo completo vive en
-// CHANGE_EVENT_TYPES (@ecomscaling/contracts); aqui solo los que se declaran.
+// CHANGE_EVENT_TYPES (@e-nora/contracts); aqui solo los que se declaran.
 const EVENT_TYPES: { value: string; label: string }[] = [
   { value: "promotion", label: "Promoción o descuento" },
   { value: "sale_event", label: "Rebajas o evento de ventas" },

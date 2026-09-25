@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D11 — El motor de confianza, conectado a datos reales.
  *
- * `assessConfidence` (en `@ecomscaling/contracts`) es puro. Este fichero es su
+ * `assessConfidence` (en `@e-nora/contracts`) es puro. Este fichero es su
  * unica parte sucia, como los de `D01` a `D10`.
  *
  * QUE HACE, en una frase: recorre lo que los otros nueve motores han escrito
@@ -34,9 +34,9 @@ import {
   type SeverityForConfidence,
   type SignalForConfidence,
   type SymptomForConfidence,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("confidence-engine");
 

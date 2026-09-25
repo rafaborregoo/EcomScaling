@@ -22,7 +22,7 @@ const data: InvoiceEmailData = {
     subtotal: 82.64,
     tax_amount: 17.36,
     total: 100,
-    operation_description: "Suscripción de software EcomScaling",
+    operation_description: "Suscripción de software E-NORA",
     verifactu_status: "accepted",
     verifactu_qr_url: "https://www2.agenciatributaria.gob.es/qr",
   },

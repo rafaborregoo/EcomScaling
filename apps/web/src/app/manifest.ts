@@ -6,10 +6,10 @@ import type { MetadataRoute } from "next";
 // el apple-touch-icon / captura de pantalla).
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "EcomScaling IA",
-    short_name: "EcomScaling",
+    name: "E-NORA IA",
+    short_name: "E-NORA",
     description:
-      "Portal operativo para clientes y consultores de EcomScaling.",
+      "Portal operativo para clientes y consultores de E-NORA.",
     start_url: "/dashboard",
     scope: "/",
     display: "standalone",

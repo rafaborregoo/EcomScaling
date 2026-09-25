@@ -406,12 +406,12 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   }, [pathname, searchParamsKey]);
 
   // WCAG 2.4.2 (Page Titled): antes todas las paginas compartian el mismo
-  // <title>"EcomScaling IA" del layout raiz (los componentes de pagina son
+  // <title>"E-NORA IA" del layout raiz (los componentes de pagina son
   // client components, no pueden exportar `metadata` de Next.js) -- se
   // reutiliza el `title` que cada pagina ya le pasa a PortalShell para el
   // encabezado movil/sidebar, sin introducir una API nueva.
   useEffect(() => {
-    document.title = `${title} · EcomScaling IA`;
+    document.title = `${title} · E-NORA IA`;
   }, [title]);
 
   // Numerito de mensajes sin leer en el nav. Se refresca al navegar (abrir
@@ -1181,7 +1181,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             >
               <Link
                 href="/dashboard"
-                aria-label="EcomScaling"
+                aria-label="E-NORA"
                 className={[
                   "mb-3 flex h-11 shrink-0 items-center rounded-md no-underline hover:bg-surface hover:no-underline",
                   isPrimaryNavExpanded ? "mx-3 gap-3 px-2" : "size-12 justify-center",
@@ -1198,7 +1198,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       : "hidden",
                   ].join(" ")}
                 >
-                  EcomScaling
+                  E-NORA
                 </span>
               </Link>
 
@@ -1633,7 +1633,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
  */
 export function PortalShell(props: PortalShellProps) {
   return (
-    <Suspense fallback={<LoadingBlock label="Cargando EcomScaling..." />}>
+    <Suspense fallback={<LoadingBlock label="Cargando E-NORA..." />}>
       <PortalShellContent {...props} />
     </Suspense>
   );

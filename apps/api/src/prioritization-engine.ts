@@ -9,9 +9,9 @@ import {
   evaluatePrioritizationRun,
   type PrioritizationInputLike,
   type PrioritizationResult,
-} from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+} from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("prioritization-engine");
 function createServiceClient(env: LoadedApiEnv) {

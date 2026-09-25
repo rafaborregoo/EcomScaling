@@ -50,7 +50,7 @@ purga pendiente y backlog de webhooks. La ejecucion conserva errores por fuente 
 > y el backend de metricas compartido quedan pendientes.
 
 > **Ampliacion vigente 2026-08-24:** el worker ahora reutiliza
-> `@ecomscaling/observability` para contar `worker_jobs_total` por nombre/estado
+> `@e-nora/observability` para contar `worker_jobs_total` por nombre/estado
 > (`started`, `completed`, `failed`) y conserva `job_id`/`correlation_id` en logs.
 > La suite del worker pasa 14/14 incluyendo el contrato de estos contadores.
 > Sigue siendo process-local: no se presenta como agregacion multi-instancia ni
@@ -195,6 +195,6 @@ configuracion financiera, health score determinista (reutilizando la formula ya 
 ## Corrección 2026-08-01 — métricas agregables mínimas
 
 El API registra `http_requests_total` por método, ruta y código de estado mediante el registro común de
-`@ecomscaling/observability`. `/health/metrics` está protegido por `INTERNAL_API_SECRET` y devuelve formato
+`@e-nora/observability`. `/health/metrics` está protegido por `INTERNAL_API_SECRET` y devuelve formato
 Prometheus; no incluye identificadores de organización/usuario. El registro es process-local y no sustituye
 un backend de métricas compartido para varias instancias.

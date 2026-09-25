@@ -278,7 +278,7 @@ AI-23-META-PAGINATION-FIX 2026-08-26: Corregida la aplicación del cursor en las
 los executors usan `range(offset, offset + limit)` solicitando una fila adicional para detectar
 truncamiento y evitar repetir la primera página. Typecheck API pasa.
 
-AI-23-PACKAGE-ARTIFACT 2026-08-26: Regenerado directamente el `dist` de `@ecomscaling/ai`, que
+AI-23-PACKAGE-ARTIFACT 2026-08-26: Regenerado directamente el `dist` de `@e-nora/ai`, que
 es el artefacto publicado por el paquete y consumido por API. Typecheck API y la suite específica
 de tools preparadas pasan 3/3.
 
@@ -716,7 +716,7 @@ Referencia de autoría: `docs/ai/PROMPT_TEMPLATE_CANONICO.md`. Las prompts hist�
 > El primer piloto será no mutante y deberá demostrar paridad con el runtime actual antes de activar
 > escrituras o automatizaciones.
 
-> AI stack implementado: `@ecomscaling/ai` ya incluye el adaptador LangGraph de diagnóstico de solo
+> AI stack implementado: `@e-nora/ai` ya incluye el adaptador LangGraph de diagnóstico de solo
 > lectura y el wrapper LangSmith opt-in; `apps/api/src/ai-runtime.ts` lo aplica a los turnos reales.
 > 3 tests directos cubren orden del grafo y configuración segura del tracing.
 

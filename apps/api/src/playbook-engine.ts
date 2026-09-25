@@ -5,9 +5,9 @@ import {
   type PlaybookFrameworkInputLike,
   type PlaybookFrameworkResult,
   type PlaybookTemplate,
-} from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+} from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("playbook-engine");
 

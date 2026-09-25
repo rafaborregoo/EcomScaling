@@ -1,4 +1,4 @@
-# Objetivo global de EcomScaling
+# Objetivo global de E-NORA
 
 > **Estado ejecutivo vigente 2026-08-26:** el núcleo del piloto está implementado. Shopify es el
 > conector operativo; Meta Ads, Klaviyo e Instagram están preparados para activarse sin rediseñar la
@@ -63,7 +63,7 @@
 
 ## Objetivo
 
-Convertir EcomScaling en una aplicación SaaS funcional y preparada para un piloto real, partiendo del
+Convertir E-NORA en una aplicación SaaS funcional y preparada para un piloto real, partiendo del
 estado actual del repositorio.
 
 Shopify es la única integración operativa actualmente. Meta Ads, Klaviyo e Instagram deben quedar

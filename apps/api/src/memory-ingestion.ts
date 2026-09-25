@@ -7,8 +7,8 @@ import WebSocket from "ws";
 import {
   chunkText,
   createRagEmbeddingProvider,
-} from "@ecomscaling/ai";
-import { createLogger } from "@ecomscaling/observability";
+} from "@e-nora/ai";
+import { createLogger } from "@e-nora/observability";
 import { embedChunksInOrder, EMBEDDING_BATCH_CONCURRENCY, EMBEDDING_BATCH_SIZE } from "./embedding-batching.js";
 
 // Tipo estructural minimo (no LoadedApiEnv completo): cada punto de entrada

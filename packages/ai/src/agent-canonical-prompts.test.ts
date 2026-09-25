@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 // AI-30: la raiz se calcula desde este fichero, no desde `process.cwd()`.
 //
 // Con `cwd` el test solo pasaba si se lanzaba desde la raiz del monorepo, y
-// `npm run test -w @ecomscaling/ai` lanza desde `packages/ai`. Por eso esta
+// `npm run test -w @e-nora/ai` lanza desde `packages/ai`. Por eso esta
 // suite estaba fuera del script `test` del paquete: no se arreglo, se dejo de
 // ejecutar.
 const REPO_ROOT = path.resolve(

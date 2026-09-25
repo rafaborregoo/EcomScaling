@@ -6,9 +6,9 @@ import {
   type CapabilityTimeProfile,
   type TemporalLagInput,
   type TemporalObservation,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("temporal-engine");
 function createServiceClient(env: LoadedApiEnv) {

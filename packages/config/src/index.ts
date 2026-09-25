@@ -117,7 +117,7 @@ const apiEnvSchema = z.object({
   // AI-14: direct por defecto; langgraph solo se activa explícitamente en un
   // entorno de shadow/piloto tras validar paridad.
   // Observabilidad opcional de agentes. Nunca se activa solo por tener una
-  // API key: exige LANGSMITH_TRACING=true y pasa por el adaptador de @ecomscaling/ai.
+  // API key: exige LANGSMITH_TRACING=true y pasa por el adaptador de @e-nora/ai.
   LANGSMITH_TRACING: z.enum(["true", "false"]).optional(),
   LANGSMITH_API_KEY: z.string().min(1).optional(),
   LANGSMITH_PROJECT: z.string().min(1).optional(),

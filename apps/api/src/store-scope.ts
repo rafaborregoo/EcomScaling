@@ -10,7 +10,7 @@
 // el que queda en clientes con varias tiendas, donde adivinar seria peor que no
 // saber. Los consumidores tratan NULL como "no atribuible a una tienda".
 import { createClient } from "@supabase/supabase-js";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+import type { LoadedApiEnv } from "@e-nora/config";
 import {
   requireOperationalOrganization,
   isOperationalOrganizationError,

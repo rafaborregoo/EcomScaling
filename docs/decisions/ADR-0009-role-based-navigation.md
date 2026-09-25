@@ -5,7 +5,7 @@
 
 ## Contexto
 
-EcomScaling sirve a dos audiencias con el mismo shell: clientes que operan su propia organizacion, y
+E-NORA sirve a dos audiencias con el mismo shell: clientes que operan su propia organizacion, y
 consultores/platform_admin que gestionan multiples organizaciones de clientes distintos. La navegacion
 original trataba a ambos igual, obligando al consultor a un selector de cliente adicional superpuesto a
 una navegacion pensada para un solo usuario/una sola organizacion.

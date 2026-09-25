@@ -6,7 +6,7 @@ Aceptada para el piloto — 2026-08-24.
 
 ## Decisión
 
-EcomScaling combinará:
+E-NORA combinará:
 
 1. **Prompt estructurado** como contrato: `ROLE`, `GOAL`, `CONTEXT`, `INPUT`, `RULES / CONSTRAINTS`, `TOOLS`, `OUTPUT`, `FAILURE BEHAVIOUR` y `EXAMPLES` opcional.
 2. **RAG** para conocimiento cambiante, privado o específico de cada organización: métricas Shopify, futuros datos Meta/Klaviyo/Instagram, playbooks, transcripciones y documentos.

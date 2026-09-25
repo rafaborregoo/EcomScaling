@@ -1,7 +1,7 @@
 /** F3/D14. Finaliza y valida salidas diagnósticas de todas las organizaciones. */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runDiagnosticOutputEngineForAllOrganizations } from "@ecomscaling/api/diagnostic-output-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runDiagnosticOutputEngineForAllOrganizations } from "@e-nora/api/diagnostic-output-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 const logger = createLogger("diagnostic-output-cron");
 const jobContext = createWorkerJobContext("diagnostic-output-cron");

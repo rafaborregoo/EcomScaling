@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { runConversionPlaybookEngineForAllOrganizations } from "@ecomscaling/api/conversion-engine";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { runConversionPlaybookEngineForAllOrganizations } from "@e-nora/api/conversion-engine";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("conversion-cro-worker");
 

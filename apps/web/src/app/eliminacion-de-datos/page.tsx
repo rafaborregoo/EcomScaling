@@ -7,9 +7,9 @@ import { BrandLogo, Card, Heading, Link } from "@/components/ui";
 // menu: existe para ser enlazada desde fuera.
 
 export const metadata: Metadata = {
-  title: "Eliminación de datos — EcomScaling IA",
+  title: "Eliminación de datos — E-NORA IA",
   description:
-    "Cómo solicitar la eliminación de tus datos en EcomScaling IA: qué se borra, en cuánto tiempo y cómo pedirlo.",
+    "Cómo solicitar la eliminación de tus datos en E-NORA IA: qué se borra, en cuánto tiempo y cómo pedirlo.",
 };
 
 const LAST_UPDATED = "14 de septiembre de 2026";
@@ -29,7 +29,7 @@ export default function DataDeletionPage() {
       <Card title="Qué puedes pedir">
         <p>
           Puedes pedir en cualquier momento que eliminemos los datos asociados a
-          tu cuenta de EcomScaling IA y a las plataformas que hayas conectado
+          tu cuenta de E-NORA IA y a las plataformas que hayas conectado
           (Shopify, Meta Ads y Klaviyo). No hace falta justificar el motivo y no
           tiene coste.
         </p>
@@ -113,7 +113,7 @@ export default function DataDeletionPage() {
             Configuración y privacidad → Configuración → Aplicaciones y sitios
             web
           </span>
-          , eliminando «EcomScaling IA». A partir de ese momento dejamos de
+          , eliminando «E-NORA IA». A partir de ese momento dejamos de
           poder leer datos de tu cuenta publicitaria.
         </p>
         <p>

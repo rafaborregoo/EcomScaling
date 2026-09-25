@@ -107,7 +107,7 @@ quiere que se vea.
 
 ## Pixel de vistas de producto
 
-Shopify no da las vistas de producto por API, así que EcomScaling tiene su propio
+Shopify no da las vistas de producto por API, así que E-NORA tiene su propio
 Web Pixel en [extensions/ecomscaling-pixel](../extensions/ecomscaling-pixel/shopify.extension.toml). Envía
 cada `product_viewed` a `POST /v1/pixel/events?s=<store_id>` y la API lo guarda en
 `shopify_pixel_events` (con el client_id ya resumido). La función

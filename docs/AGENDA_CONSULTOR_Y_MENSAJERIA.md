@@ -221,7 +221,7 @@ UTC. El `dayKey` del lib nuevo es local-time (correcto para la rejilla) y solo l
 
 ### 1.3 Verificación Fase 1
 
-- `npm run typecheck -w @ecomscaling/api` y `npm run typecheck -w web`.
+- `npm run typecheck -w @e-nora/api` y `npm run typecheck -w web`.
 - `npm run dev`; login como consultor; `/dashboard` en vista general → la agenda renderiza; cambiar
   vista (día/semana/mes) y alcance (consultor / todas / un cliente); toggle "Hitos de Mi Camino".
 - `/agenda` carga standalone y respeta la preferencia guardada.

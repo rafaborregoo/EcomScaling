@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import { createLogger } from "@ecomscaling/observability";
+import { createLogger } from "@e-nora/observability";
 
 const logger = createLogger("api:redis-cache");
 

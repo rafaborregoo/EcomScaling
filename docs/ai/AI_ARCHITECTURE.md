@@ -1,4 +1,4 @@
-# AI Architecture — EcomScaling / NORA
+# AI Architecture — E-NORA / NORA
 
 **Estado:** fases 0 a 10 cerradas (la 5 por decisión). Documento vivo.
 **Diagnóstico de partida:** [AI_INFRASTRUCTURE_AUDIT.md](AI_INFRASTRUCTURE_AUDIT.md)
@@ -251,7 +251,7 @@ ninguna tabla nueva.
    fila o no llega a ninguna.
 6. **[`eval-cost-gate.ts`](../../apps/api/src/eval-cost-gate.ts)** — un escenario cuyo coste
    no se puede medir ya no pasa el gate de coste.
-7. **Tests** — 78 en `@ecomscaling/ai`, 255 en `@ecomscaling/api`, en verde.
+7. **Tests** — 78 en `@e-nora/ai`, 255 en `@e-nora/api`, en verde.
 
 ### Cambio de especificación deliberado
 

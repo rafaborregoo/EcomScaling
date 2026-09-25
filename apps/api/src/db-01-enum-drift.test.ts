@@ -12,12 +12,12 @@
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY apuntando
  * al proyecto remoto, y la migracion db-01-enum-labels-helper aplicada.
- * Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
+ * Ejecutar con `npm run test:remote -w @e-nora/api` en un proyecto aislado.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
-import { loadApiEnv } from "@ecomscaling/config";
+import { loadApiEnv } from "@e-nora/config";
 
 const env = loadApiEnv(process.env);
 

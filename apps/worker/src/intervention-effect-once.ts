@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runInterventionEffectEngineForAllOrganizations } from "@ecomscaling/api/intervention-effect-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runInterventionEffectEngineForAllOrganizations } from "@e-nora/api/intervention-effect-engine";
 
 // F8: efecto de negocio de las intervenciones con metrica objetivo declarada.
 async function main() {

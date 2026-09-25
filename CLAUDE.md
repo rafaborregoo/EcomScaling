@@ -1,4 +1,4 @@
-# EcomScaling
+# E-NORA
 
 Monorepo: `apps/api` (Fastify), `apps/web` (Next.js, ver `apps/web/CLAUDE.md`), `apps/worker` (BullMQ), `packages/*` (config, db, contracts, integrations, ui, ai, observability, domain), `supabase/migrations`.
 

@@ -30,7 +30,7 @@ cuanto navega fuera de la página, que es exactamente el problema que Rafa repor
 componente exportado (`Button`, `Card`, `Stat`, `Badge`, `Banner`, `Field`/`Input`/`Select`/`Textarea`,
 `LoadingBlock`/`ErrorBlock`/`EmptyState`, `SyncStateBadge`, `Tabs`, `Pagination`, `Combobox`), más
 `cn.ts` para el helper de clases. `index.tsx` queda como barrel (`export * from "./components/..."`) —
-**el import público no cambia** (`@ecomscaling/ui` sigue exponiendo lo mismo), así que no rompe ningún
+**el import público no cambia** (`@e-nora/ui` sigue exponiendo lo mismo), así que no rompe ningún
 consumidor existente. Objetivo: que cada componente se pueda leer, tocar y probar de forma aislada, sin
 desplazarse por un archivo de 600 líneas para editar uno solo.
 
@@ -110,7 +110,7 @@ medir).
 
 ## Consecuencias
 
-- Los imports públicos de `@ecomscaling/ui` no cambian — este refactor es interno al paquete.
+- Los imports públicos de `@e-nora/ui` no cambian — este refactor es interno al paquete.
 - Páginas que ya usan `usePaginated` (`tareas/page.tsx`, `shopify/diagnostico/page.tsx`) migran a
   `usePaginatedUrl` como parte de esta misma decisión (no queda como deuda pendiente).
 - Páginas nuevas que necesiten paginación deben usar `usePaginatedUrl` por defecto; usar la variante en

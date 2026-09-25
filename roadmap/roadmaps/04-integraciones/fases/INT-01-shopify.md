@@ -143,7 +143,7 @@ el repo (no versionado todavia, pendiente de que Rafa decida si se comitea).
 **Resuelto 2026-07-22**: reenviado el registro a la tienda piloto ya conectada
 (`padelespana.myshopify.com`). Nueva funcion `resendShopifyWebhookRegistrations`
 (`apps/api/src/shopify-webhooks.ts`, script `apps/worker/src/shopify-resend-webhooks-once.ts`,
-`npm run dev:shopify-resend-webhooks -w @ecomscaling/worker`) reutiliza `registerShopifyWebhooks` sobre
+`npm run dev:shopify-resend-webhooks -w @e-nora/worker`) reutiliza `registerShopifyWebhooks` sobre
 todas las conexiones Shopify existentes -- idempotente: los 5 topics ya registrados devuelven "Address for
 this topic has already been taken" (no fatal), y `app/uninstalled` se registro de nuevo
 (`gid://shopify/WebhookSubscription/2052274389370`). Requiere pasar `SHOPIFY_REDIRECT_URI` de produccion
@@ -173,9 +173,9 @@ desinstalada, bulk fallido, throttling.
 
 **Reconciliacion de conteos ejecutada 2026-07-22** contra la tienda piloto real (`padelespana.myshopify.com`,
 363 pedidos): nuevo modulo `apps/api/src/shopify-count-reconcile.ts`
-(`reconcileShopifyCounts`, expuesto via `@ecomscaling/api/shopify-count-reconcile`) + script
+(`reconcileShopifyCounts`, expuesto via `@e-nora/api/shopify-count-reconcile`) + script
 `apps/worker/src/shopify-reconcile-counts-once.ts`
-(`npm run dev:shopify-reconcile-counts -w @ecomscaling/worker -- <connection_id>`), compara conteos locales
+(`npm run dev:shopify-reconcile-counts -w @e-nora/worker -- <connection_id>`), compara conteos locales
 contra `productsCount`/`ordersCount`/`customersCount` de la Admin GraphQL API (`precision: EXACT` o
 `AT_LEAST` segun el campo, se reporta tal cual, no se asume exactitud).
 

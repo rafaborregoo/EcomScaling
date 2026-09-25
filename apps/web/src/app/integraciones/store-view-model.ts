@@ -13,7 +13,7 @@
 import {
   classifyAuthorizationAttempt,
   type AuthorizationAttemptState,
-} from "@ecomscaling/contracts";
+} from "@e-nora/contracts";
 import type {
   IntegrationConnection,
   IntegrationProvider,
@@ -96,7 +96,7 @@ const BY_REASON: Record<string, Explanation> = {
   authorization_revoked: {
     label: "Hay que reconectar",
     detail:
-      "Se retiró el permiso a EcomScaling, así que dejamos de recibir datos. Reconéctala y vuelven solos.",
+      "Se retiró el permiso a E-NORA, así que dejamos de recibir datos. Reconéctala y vuelven solos.",
     fix: "reconnect",
   },
   authorization_pending: {

@@ -8,8 +8,8 @@ import {
   type IntegrationSyncAdapter,
   type IntegrationSyncInput,
   type IntegrationSyncResult,
-} from "@ecomscaling/integrations";
-import type { LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/integrations";
+import type { LoadedApiEnv } from "@e-nora/config";
 import {
   buildMetaAuthUrl,
   exchangeMetaCodeForLongLivedToken,

@@ -86,7 +86,7 @@ migración lo rompe **a propósito**: se actualiza el escenario dorado con los t
 (IVA, envío cobrado, ads) y los valores recalculados a mano en la cabecera del test. Si el test
 no se actualiza conscientemente, la migración no se cierra.
 
-`npm run test:remote -w @ecomscaling/api` contra el proyecto de test.
+`npm run test:remote -w @e-nora/api` contra el proyecto de test.
 
 ---
 

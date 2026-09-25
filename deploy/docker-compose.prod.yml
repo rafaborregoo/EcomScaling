@@ -56,7 +56,7 @@ services:
       REDIS_URL: redis://redis:6379
       GIT_SHA: ${IMAGE_TAG:-latest}
       # El worker llama a la API por la red interna. Sin esto el schema de
-      # @ecomscaling/config cae al default http://localhost:4000, que dentro
+      # @e-nora/config cae al default http://localhost:4000, que dentro
       # del contenedor no es la API -> todos los jobs fallan con fetch failed.
       API_URL: http://api:4000
     depends_on:

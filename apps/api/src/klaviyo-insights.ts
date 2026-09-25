@@ -1,4 +1,4 @@
-import { createLogger } from "@ecomscaling/observability";
+import { createLogger } from "@e-nora/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 

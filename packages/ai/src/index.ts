@@ -1,4 +1,4 @@
-// AI-00: contratos y runtime base de agentes EcomScaling.
+// AI-00: contratos y runtime base de agentes E-NORA.
 // Principios no negociables (documento maestro v0.2):
 // - organization_id lo resuelve el backend; el modelo nunca elige tenant.
 // - Toda salida se valida contra schema antes de persistirse.
@@ -714,6 +714,111 @@ export const campaignPlanJsonSchema = {
       description:
         "Que falta para que el plan sea fiable: canal sin conectar, sin historico, sin margen configurado.",
     },
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Contrato de salida A27 - planificador de mailing semanal
+//
+// A05 decide el mix de campanas y A11 redacta una pieza. A27 cubre el hueco
+// entre ambos: convierte el aprendizaje reciente de email en una SECUENCIA
+// coherente antes de pedir que se escriba cada email por separado.
+// ---------------------------------------------------------------------------
+
+export const weeklyMailingEmailSchema = z.object({
+  sequence_number: z.number().int().min(1),
+  title: z.string(),
+  objective: z.string(),
+  audience: z.string(),
+  angle: z.string(),
+  subject_direction: z.string(),
+  preheader_direction: z.string(),
+  cta: z.string(),
+  copy_brief: z.string(),
+  evidence: z.array(agentEvidenceItemSchema).default([]),
+});
+
+export const weeklyMailingPlanOutputSchema = z.object({
+  plan_name: z.string(),
+  diagnosis: z.string(),
+  sequence_rationale: z.string(),
+  emails: z.array(weeklyMailingEmailSchema).min(1).max(7),
+  sources: z.array(agentSourceSchema),
+  confidence: z.enum(["low", "medium", "high"]),
+  warnings: z.array(z.string()),
+});
+
+export type WeeklyMailingPlanOutput = z.infer<
+  typeof weeklyMailingPlanOutputSchema
+>;
+
+export const weeklyMailingPlanJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "plan_name",
+    "diagnosis",
+    "sequence_rationale",
+    "emails",
+    "sources",
+    "confidence",
+    "warnings",
+  ],
+  properties: {
+    plan_name: { type: "string" },
+    diagnosis: { type: "string" },
+    sequence_rationale: { type: "string" },
+    emails: {
+      type: "array",
+      minItems: 1,
+      maxItems: 7,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "sequence_number",
+          "title",
+          "objective",
+          "audience",
+          "angle",
+          "subject_direction",
+          "preheader_direction",
+          "cta",
+          "copy_brief",
+          "evidence",
+        ],
+        properties: {
+          sequence_number: { type: "integer", minimum: 1 },
+          title: { type: "string" },
+          objective: { type: "string" },
+          audience: { type: "string" },
+          angle: { type: "string" },
+          subject_direction: { type: "string" },
+          preheader_direction: { type: "string" },
+          cta: { type: "string" },
+          copy_brief: { type: "string" },
+          evidence: caminoEvidenceJsonSchema,
+        },
+      },
+    },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "reference", "period"],
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["metric", "table", "tool", "document"],
+          },
+          reference: { type: "string" },
+          period: { type: ["string", "null"] },
+        },
+      },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    warnings: { type: "array", items: { type: "string" } },
   },
 } as const;
 
@@ -1613,7 +1718,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: "search_knowledge",
     description:
-      "RAG (AI-04): busqueda semantica sobre la metodologia EcomScaling (global) y el conocimiento privado de la organizacion activa.",
+      "RAG (AI-04): busqueda semantica sobre la metodologia E-NORA (global) y el conocimiento privado de la organizacion activa.",
     readOnly: true,
   },
 ];

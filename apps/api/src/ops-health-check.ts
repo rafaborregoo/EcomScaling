@@ -14,7 +14,7 @@ import {
   redactSensitive,
   redactSensitiveText,
   type HttpSloReport,
-} from "@ecomscaling/observability";
+} from "@e-nora/observability";
 
 type ApiEnv = {
   SUPABASE_URL: string;

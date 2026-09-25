@@ -7,7 +7,7 @@
 
 ## Contexto
 
-ADR-0005 fijo `Public distribution` como la unica opcion viable para produccion (EcomScaling conecta
+ADR-0005 fijo `Public distribution` como la unica opcion viable para produccion (E-NORA conecta
 tiendas de clientes distintos, no relacionados entre si). Shopify aun no ha aprobado esa app publica.
 Mientras tanto, la tienda piloto real (`padelespana.myshopify.com`) necesitaba quedar operativa para poder
 avanzar el resto del roadmap (INT-01, DB-05, BE-03) sin bloquear todo detras de la revision de Shopify.

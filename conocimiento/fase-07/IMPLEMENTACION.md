@@ -43,8 +43,8 @@ que este priorizada, seleccionada, autorizada ni ejecutada.
   candidatos.
 - Tests de contexto/feed/pixel: 11 casos enfocados; el contexto F7.01 aparece
   como quinto bloque y la card conserva el ancla del `InsightsMenu`.
-- `npm run typecheck --workspace=@ecomscaling/api`, `npm run typecheck
-  --workspace=@ecomscaling/worker` y `npm run typecheck --workspace=web` pasan.
+- `npm run typecheck --workspace=@e-nora/api`, `npm run typecheck
+  --workspace=@e-nora/worker` y `npm run typecheck --workspace=web` pasan.
 - `npm run db:push` aplico la migracion en el proyecto de desarrollo cargado
   por `.env.local`; `npm run db:push:dry` devuelve `Sin migraciones pendientes`.
 - Smoke real con `.env.local`: se sembro temporalmente un candidato activo en
@@ -142,7 +142,7 @@ filtro de elegibilidad y los bloques decisionales posteriores.
 - Tests de contrato: 5 casos de dominancia, trade-off, veto de guardrail, unknowns y ausencia de candidatos priorizables.
 - Tests de runtime: 2 casos de contexto tenant-bound y mapeo de metadata cualitativa desde el catalogo.
 - Tests de Copiloto/feed/pixel: bloque F7.03, feed de validacion, ancla exacta y view-model del panel.
-- `npm run build --workspace=@ecomscaling/api`, typechecks de API, worker y web, y tests enfocados de contracts/API/web pasan.
+- `npm run build --workspace=@e-nora/api`, typechecks de API, worker y web, y tests enfocados de contracts/API/web pasan.
 - `npm run db:push` aplico `20261030300000_f7_p03_intervention_prioritization.sql` usando `.env.local`; el proyecto de desarrollo queda sin migraciones pendientes.
 - Smoke real con `.env.local`: se sembraron temporalmente un template de prioridad y runs upstream `MATCHED`/`ELIGIBLE_NOW` en la organizacion `19449030-0696-40eb-bade-e561cbff4010`. El motor persistio `PRIORITY_AVAILABLE`, devolvio una unica `primary_priority_candidate_id`, confirmo `tenant_match: true` y `execution_authorized: false`. Templates y runs se borraron despues: cleanup a cero.
 

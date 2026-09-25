@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import { DEFAULT_KLAVIYO_SCOPES, type LoadedApiEnv } from "@ecomscaling/config";
+import { DEFAULT_KLAVIYO_SCOPES, type LoadedApiEnv } from "@e-nora/config";
 import {
   DEFAULT_AGENT_RESILIENCE_POLICY,
   withAgentResilience,
-} from "@ecomscaling/ai";
+} from "@e-nora/ai";
 
 /** Pin the API contract instead of silently following Klaviyo's latest revision. */
 export const KLAVIYO_API_REVISION = "2026-07-15";

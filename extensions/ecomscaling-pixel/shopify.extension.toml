@@ -1,4 +1,4 @@
-# Pixel propio de EcomScaling. Manda cada vista de producto a la API
+# Pixel propio de E-NORA. Manda cada vista de producto a la API
 # (POST /v1/pixel/events) para medir el paso "vio el producto" del embudo, que
 # Shopify no expone por API. La API lo activa en cada tienda con webPixelCreate
 # durante la reconciliacion nocturna (apps/api/src/shopify-pixel.ts); aqui solo
@@ -20,7 +20,7 @@ sale_of_data = "disabled"
 type = "object"
 
 [settings.fields.accountID]
-name = "ID de tienda en EcomScaling"
+name = "ID de tienda en E-NORA"
 description = "Lo rellena la API al activar el pixel."
 type = "single_line_text_field"
 validations = [{ name = "min", value = "1" }]

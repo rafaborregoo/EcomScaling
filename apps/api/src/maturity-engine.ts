@@ -1,7 +1,7 @@
 /**
  * FASE 3 / D03 — El motor de madurez, conectado a datos reales.
  *
- * `observeMaturity` (en `@ecomscaling/contracts`) es puro. Este fichero es su
+ * `observeMaturity` (en `@e-nora/contracts`) es puro. Este fichero es su
  * unica parte sucia, como los de `D01`, `D02`, `D05` y `D06`.
  *
  * LO QUE APORTA, en una frase: convierte "no conozco a este cliente" en **"el
@@ -32,9 +32,9 @@ import {
   type MaturityDeclaration,
   type BusinessFacts,
   type CapabilityMaturity,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("maturity-engine");
 

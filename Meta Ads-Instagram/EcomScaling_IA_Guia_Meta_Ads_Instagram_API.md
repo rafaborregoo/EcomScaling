@@ -1,12 +1,12 @@
-# EcomScaling IA
+# E-NORA IA
 
 > **Alineación con el producto (2026-08-02):** esta guía describe la API de referencia;
-> el estado implementado y el criterio de activación de EcomScaling están en
+> el estado implementado y el criterio de activación de E-NORA están en
 > [`../roadmap/roadmaps/04-integraciones/CONTRATO_PREPARACION_CONECTORES.md`](../roadmap/roadmaps/04-integraciones/CONTRATO_PREPARACION_CONECTORES.md).
 > Shopify sigue siendo la única integración operativa. Meta Ads e Instagram no deben
 > fabricar activos o métricas mientras falten credenciales, permisos o App Review.
 
-## Aplicación en EcomScaling
+## Aplicación en E-NORA
 
 Esta guía debe leerse junto con el [objetivo global del SaaS y sus criterios de terminado](../docs/OBJETIVO_SAAS_PILOTO_Y_CRITERIOS_DE_TERMINADO.md):
 Shopify es la integración operativa actual y Meta Ads/Instagram se preparan para activarse con credenciales
@@ -19,7 +19,7 @@ Arquitectura, endpoints, métricas, sincronización y ajustes de base de datos
 
 *Documento técnico para desarrollo · Julio 2026*
 
-> **Alcance de la auditoría Se han revisado las superficies de API necesarias para EcomScaling IA: lectura de cuentas publicitarias, campañas, conjuntos, anuncios, creatividades, Ads Insights, contenido orgánico de Instagram, Insights de cuenta y medios, webhooks, autenticación, límites y sincronización. No se auditan funcionalidades que el producto no necesita en su MVP, como creación automática de campañas, mensajes directos, comentarios, catálogos o publicación de contenido.**
+> **Alcance de la auditoría Se han revisado las superficies de API necesarias para E-NORA IA: lectura de cuentas publicitarias, campañas, conjuntos, anuncios, creatividades, Ads Insights, contenido orgánico de Instagram, Insights de cuenta y medios, webhooks, autenticación, límites y sincronización. No se auditan funcionalidades que el producto no necesita en su MVP, como creación automática de campañas, mensajes directos, comentarios, catálogos o publicación de contenido.**
 
 # 1. Conclusiones ejecutivas
 
@@ -39,13 +39,13 @@ Arquitectura, endpoints, métricas, sincronización y ajustes de base de datos
 
 - Los Insights deben sincronizarse periódicamente y reconsultar días recientes porque las conversiones atribuidas pueden llegar o revisarse con retraso.
 
-> **Decisión recomendada Para EcomScaling IA se recomienda una única autorización Meta mediante Facebook Login for Business, desde la que el usuario seleccione cuentas publicitarias, Páginas y cuentas profesionales de Instagram. Las métricas pagadas y orgánicas deben mantenerse separadas para evitar duplicidades.**
+> **Decisión recomendada Para E-NORA IA se recomienda una única autorización Meta mediante Facebook Login for Business, desde la que el usuario seleccione cuentas publicitarias, Páginas y cuentas profesionales de Instagram. Las métricas pagadas y orgánicas deben mantenerse separadas para evitar duplicidades.**
 
-# 2. Cómo encaja Meta en EcomScaling IA
+# 2. Cómo encaja Meta en E-NORA IA
 
 Meta no expone una única API monolítica. La integración se compone de varias superficies conectadas por Graph API:
 
-| **Superficie**         | **Finalidad en EcomScaling IA**                                                   | **Se usa en MVP** |
+| **Superficie**         | **Finalidad en E-NORA IA**                                                   | **Se usa en MVP** |
 |------------------------|-----------------------------------------------------------------------------------|-------------------|
 | Graph API              | Modelo común de nodos, edges, campos, tokens, paginación y versionado.            | Sí                |
 | Marketing API          | Leer cuentas publicitarias, campañas, conjuntos, anuncios y creatividades.        | Sí                |
@@ -79,7 +79,7 @@ El cliente no introduce manualmente IDs de campañas o publicaciones. Autoriza l
 
 4.  La aplicación consulta cuentas publicitarias, Páginas y cuentas profesionales de Instagram disponibles.
 
-5.  El usuario selecciona qué activos pertenecen a la organización de EcomScaling.
+5.  El usuario selecciona qué activos pertenecen a la organización de E-NORA.
 
 6.  Se ejecuta la importación inicial y después sincronizaciones incrementales.
 
@@ -108,7 +108,7 @@ Meta Business / usuario autorizado
 
 ## 5.1 Cuenta publicitaria
 
-La cuenta agrupa campañas, moneda, zona horaria, estado, límites y configuración. EcomScaling puede gestionar varias cuentas por organización.
+La cuenta agrupa campañas, moneda, zona horaria, estado, límites y configuración. E-NORA puede gestionar varias cuentas por organización.
 
 ## 5.2 Campaña
 
@@ -128,7 +128,7 @@ La creatividad contiene los elementos necesarios para representar el anuncio. Un
 
 # 6. Endpoints relevantes de Marketing API
 
-Las siguientes rutas cubren la lectura necesaria para EcomScaling IA. No se incluyen endpoints de creación o modificación porque el producto se plantea inicialmente como sistema de análisis y recomendaciones.
+Las siguientes rutas cubren la lectura necesaria para E-NORA IA. No se incluyen endpoints de creación o modificación porque el producto se plantea inicialmente como sistema de análisis y recomendaciones.
 
 | **Ruta**                              | **Qué devuelve**                                                       | **Uso**             |
 |---------------------------------------|------------------------------------------------------------------------|---------------------|
@@ -205,7 +205,7 @@ Una compra puede atribuirse días después del clic o impresión. Por ello, la f
 
 - Hacer upsert por cuenta, nivel, entidad, fecha, breakdown y configuración de atribución.
 
-- Diferenciar métricas observadas de métricas calculadas por EcomScaling.
+- Diferenciar métricas observadas de métricas calculadas por E-NORA.
 
 ## 7.4 Informes asíncronos, paginación y límites
 
@@ -243,9 +243,9 @@ Ad
 
 # 9. Hook rate y hold rate
 
-El briefing usa hook rate y hold rate como KPIs de creatividad. Meta ofrece conteos de reproducción y visualización, pero la fórmula comercial debe definirse en EcomScaling.
+El briefing usa hook rate y hold rate como KPIs de creatividad. Meta ofrece conteos de reproducción y visualización, pero la fórmula comercial debe definirse en E-NORA.
 
-| **Métrica EcomScaling** | **Ejemplo de fórmula**                                                | **Observación**                           |
+| **Métrica E-NORA** | **Ejemplo de fórmula**                                                | **Observación**                           |
 |-------------------------|-----------------------------------------------------------------------|-------------------------------------------|
 | Hook rate               | reproducciones de 3 segundos / impresiones o reproducciones iniciadas | La elección del denominador debe fijarse. |
 | Hold rate               | ThruPlay o reproducciones de 15 s / reproducciones de 3 s             | Debe adaptarse a la duración del vídeo.   |
@@ -282,7 +282,7 @@ Instagram Platform permite acceder a datos de cuentas profesionales —Business 
 
 ## 11.1 Dos modelos de autenticación
 
-| **Modelo**                        | **Ventajas**                                                                                       | **Limitaciones para EcomScaling**                                    |
+| **Modelo**                        | **Ventajas**                                                                                       | **Limitaciones para E-NORA**                                    |
 |-----------------------------------|----------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
 | Instagram API con Facebook Login  | Permite descubrir la Página vinculada, la cuenta profesional y convivir con activos publicitarios. | Requiere Página vinculada y permisos de Facebook.                    |
 | Instagram API con Instagram Login | Inicio directo con Instagram y no siempre requiere Página.                                         | No permite acceder a Ads ni tagging en la configuración documentada. |
@@ -390,7 +390,7 @@ Sincronización periódica + relectura de días recientes
 ↓
 Webhooks y reconciliación
 ↓
-Cálculo de KPIs EcomScaling
+Cálculo de KPIs E-NORA
 ↓
 Alertas y tareas
 ```
@@ -405,7 +405,7 @@ Alertas y tareas
 | Instagram account insights | Diario                                        | Crecimiento y salud de cuenta.           |
 | Permisos/tokens            | Diario y ante errores                         | Evitar conexiones silenciosamente rotas. |
 
-# 15. Métricas calculadas por EcomScaling
+# 15. Métricas calculadas por E-NORA
 
 | **KPI**                  | **Fuente**                                 | **Cálculo**                            |
 |--------------------------|--------------------------------------------|----------------------------------------|
@@ -413,7 +413,7 @@ Alertas y tareas
 | CAC                      | spend + compras/clientes atribuidos        | spend / conversiones válidas.          |
 | Hook rate                | impresiones/reproducciones y video 3s      | Fórmula versionada.                    |
 | Hold rate                | video 3s, 15s, ThruPlay o porcentaje visto | Fórmula adaptada al vídeo.             |
-| Creative fatigue         | frequency + evolución CTR/CPA/ROAS         | Regla EcomScaling, no campo universal. |
+| Creative fatigue         | frequency + evolución CTR/CPA/ROAS         | Regla E-NORA, no campo universal. |
 | Engagement rate orgánico | interacciones + reach/views                | Definir denominador por tipo de medio. |
 
 # 16. Riesgos y límites que deben explicarse al cliente

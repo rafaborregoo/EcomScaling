@@ -40,7 +40,7 @@
   audiencia — ya corregido: `knowledge_search` exige `audience_allowed` sin default, y `buildAgentTools` lo
   fija a `['client_visible']` para todo agente automatico.
 - **Validacion end-to-end real 2026-07-22** (`apps/api/src/validate-ai07-memory-pipeline.ts`, `npm run
-  validate:ai07 -w @ecomscaling/api`): `VOYAGE_API_KEY` si esta disponible en este entorno, asi que se probo
+  validate:ai07 -w @e-nora/api`): `VOYAGE_API_KEY` si esta disponible en este entorno, asi que se probo
   el pipeline completo contra Supabase real -- no datos sembrados a mano. 9/9 checks pasan: encolar crea el
   documento en `pending_indexing`, `processMemoryIngestionQueue` lo deja `active` con sus chunks, una nota
   `consultant_only` real (no un chunk sembrado) queda invisible con `audience_allowed=['client_visible']` y

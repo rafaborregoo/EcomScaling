@@ -20,7 +20,7 @@
 El proyecto no tiene staging separado de produccion (R-015, `RIESGOS.md`, cerrado explícitamente el
 2026-07-22: Vercel preview + cron cubren la necesidad real hoy). Todas las migraciones de
 `supabase/migrations/` se han aplicado hasta ahora directamente contra el único proyecto Supabase real
-(`SaaS-EcomScaling`), a mano, durante el desarrollo — sin política escrita de quién puede aplicar, cómo, ni
+(`SaaS-E-NORA`), a mano, durante el desarrollo — sin política escrita de quién puede aplicar, cómo, ni
 qué hacer cuando algo sale mal. Esa falta de política ya produjo un incidente real y no solo teórico: 10 de
 46 migraciones tienen hoy un timestamp de archivo local distinto a la versión que Supabase tiene registrada
 como aplicada, por haberse renombrado localmente después de aplicar (ver RB-005 para el detalle completo y

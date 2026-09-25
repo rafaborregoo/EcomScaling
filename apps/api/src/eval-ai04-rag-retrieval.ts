@@ -7,7 +7,7 @@
  * `search_knowledge` corre contra embeddings reales (Voyage `voyage-3.5`) en
  * vez de quedar bloqueado por falta de la key.
  *
- * Metodologia: se ingestan 6 documentos de metodologia EcomScaling
+ * Metodologia: se ingestan 6 documentos de metodologia E-NORA
  * (organization-scoped, un tema claramente distinto cada uno) via
  * `createKnowledgeDocument` (chunking + embeddings reales), y se lanza 1
  * consulta parafraseada por documento -- nunca coincidencia exacta de
@@ -20,11 +20,11 @@
  * nada" con confianza).
  *
  * Cuesta llamadas reales a la API de Voyage (dinero, minimo) -- no correr en
- * cada PR. Ejecutar manualmente con `npm run eval:ai04 -w @ecomscaling/api`.
+ * cada PR. Ejecutar manualmente con `npm run eval:ai04 -w @e-nora/api`.
  */
 import { createClient } from "@supabase/supabase-js";
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { createKnowledgeDocument, searchKnowledge } from "./knowledge.js";
 import type { AuthContext } from "./auth-context.js";
 

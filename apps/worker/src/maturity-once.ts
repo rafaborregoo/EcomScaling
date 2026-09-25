@@ -5,9 +5,9 @@
  * capaz el negocio, no que se ha movido esta semana. Puede correr el primero o
  * el ultimo de la cadena; da igual.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runMaturityEngineForAllOrganizations } from "@ecomscaling/api/maturity-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runMaturityEngineForAllOrganizations } from "@e-nora/api/maturity-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("maturity-cron");

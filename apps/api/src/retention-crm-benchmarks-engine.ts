@@ -1,5 +1,5 @@
-import { validateRetentionCrmBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@ecomscaling/contracts";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+import { validateRetentionCrmBenchmarksPlaybookTemplate, type PlaybookFrameworkInputLike, type PlaybookTemplate, type PlaybookTriState } from "@e-nora/contracts";
+import { type LoadedApiEnv } from "@e-nora/config";
 import { buildPlaybookContext, parseActivePlaybookTemplates, runPlaybookFrameworkEngine, runPlaybookFrameworkEngineForAllOrganizations } from "./playbook-engine.js";
 const SOURCE_VERSION = "f6-p07.v1"; const UNKNOWN: PlaybookTriState = "UNKNOWN";
 export type RetentionCrmBenchmarksEvidence = { customers?: { available: boolean; customer_count?: number | null; repeat_customers?: number | null; stateful_customers?: number | null } | null; sales?: { available: boolean; orders_count?: number | null; refunds?: number | null } | null; margin?: { available: boolean; items_with_cost?: number | null; gross_margin?: number | null; contribution?: number | null } | null; crm?: { available: boolean; account_count?: number | null; flows_count?: number | null; campaigns_count?: number | null } | null; consent?: { available: boolean; consent_events?: number | null } | null; history?: { available: boolean; days?: number | null } | null };

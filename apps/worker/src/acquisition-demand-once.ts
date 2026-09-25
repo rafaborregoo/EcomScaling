@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runAcquisitionDemandPlaybookEngineForAllOrganizations } from "@ecomscaling/api/acquisition-demand-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runAcquisitionDemandPlaybookEngineForAllOrganizations } from "@e-nora/api/acquisition-demand-engine";
 
 const logger = createLogger("acquisition-demand-worker");
 runAcquisitionDemandPlaybookEngineForAllOrganizations(loadApiEnv(process.env))

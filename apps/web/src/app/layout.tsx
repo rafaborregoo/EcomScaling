@@ -14,14 +14,14 @@ const plexSans = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "EcomScaling IA",
-  description: "Portal operativo para clientes y consultores de EcomScaling.",
+  title: "E-NORA IA",
+  description: "Portal operativo para clientes y consultores de E-NORA.",
   // El portal se usa como app instalada en el móvil (Añadir a pantalla de
   // inicio): sin barra de navegador, arranque a pantalla completa.
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "EcomScaling",
+    title: "E-NORA",
   },
 };
 

@@ -87,7 +87,7 @@
 ## Criterios de cierre
 
 - CI bloquea lint, tipos, tests y build — **cumplido 2026-07-22** (`ci.yml`: typecheck, lint, tests de
-  `@ecomscaling/ai`/`@ecomscaling/api`, build de web).
+  `@e-nora/ai`/`@e-nora/api`, build de web).
 - Cada fase tiene pruebas proporcionales al riesgo.
 
 ## Actualizacion 2026-08-01

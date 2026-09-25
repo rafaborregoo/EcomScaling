@@ -27,13 +27,13 @@
  * (miembros, asignaciones, acceso) siguen siendo exclusivas de platform_admin.
  *
  * Requiere .env.local con SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/
- * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @ecomscaling/api` en un proyecto aislado.
+ * SUPABASE_PUBLISHABLE_KEY. Ejecutar con `npm run test:remote -w @e-nora/api` en un proyecto aislado.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { FastifyInstance } from "fastify";
-import { loadApiEnv } from "@ecomscaling/config";
+import { loadApiEnv } from "@e-nora/config";
 import { buildApp } from "./server.js";
 
 const env = loadApiEnv(process.env);

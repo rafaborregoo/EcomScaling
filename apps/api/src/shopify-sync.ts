@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import type { LoadedApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { ShopifyGraphError, shopifyGraphql } from "./shopify-client.js";
 import {
   fetchBulkResult,

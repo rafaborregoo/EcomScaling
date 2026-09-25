@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { syncModelPrices } from "@ecomscaling/api/ai-model-pricing";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { syncModelPrices } from "@e-nora/api/ai-model-pricing";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 // Tarifa de modelos de IA desde LiteLLM a `ai_model_prices`, y coste para las

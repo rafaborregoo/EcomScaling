@@ -1,7 +1,7 @@
 /**
  * F3/D12 — adaptador persistente de la revisión adversarial.
  *
- * La lógica de decisión vive en `@ecomscaling/contracts`. Este fichero solo
+ * La lógica de decisión vive en `@e-nora/contracts`. Este fichero solo
  * traduce las tablas que ya existen a la entrada del motor puro y persiste la
  * revisión append-only. No usa el LLM: el red team de D12 es deliberadamente
  * determinista y acotado por evidencia observable.
@@ -18,9 +18,9 @@ import {
   type AdversarialRuntimeBreak,
   type AdversarialRuntimeMixSegment,
   type DiagnosticConfounder,
-} from "@ecomscaling/contracts";
-import { createLogger } from "@ecomscaling/observability";
-import { type LoadedApiEnv } from "@ecomscaling/config";
+} from "@e-nora/contracts";
+import { createLogger } from "@e-nora/observability";
+import { type LoadedApiEnv } from "@e-nora/config";
 
 const logger = createLogger("adversarial-engine");
 

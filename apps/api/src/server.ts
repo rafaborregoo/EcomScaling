@@ -8,7 +8,7 @@ import {
   describeEnvironmentTargetRisk,
   loadApiEnv,
   shouldBlockOnEnvironmentRisk,
-} from "@ecomscaling/config";
+} from "@e-nora/config";
 import {
   causalEdgeInputSchema,
   healthReferenceInputSchema,
@@ -17,13 +17,13 @@ import {
   interventionEffectTargetSchema,
   healthResponseSchema,
   readinessResponseSchema,
-} from "@ecomscaling/contracts";
+} from "@e-nora/contracts";
 import {
   createLogger,
   evaluateHttpSlo,
   redactSensitiveText,
-} from "@ecomscaling/observability";
-import { isIntegrationFeatureEnabled } from "@ecomscaling/integrations";
+} from "@e-nora/observability";
+import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { getAdminModelPrices, runAdminModelPriceSync } from "./ai-model-pricing.js";
 import { apiMetrics } from "./metrics.js";
 import {
@@ -375,6 +375,7 @@ import {
   updateMarketingContentDraft,
   decideMarketingContentDraft,
   runMarketingContentDraft,
+  runWeeklyMailingPlanner,
   saveManualMarketingDraft,
   submitMarketingContentDraft,
   uploadMarketingAsset,
@@ -7633,6 +7634,31 @@ export async function buildApp(): Promise<FastifyInstance> {
       if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
 
       const result = await runMarketingContentDraft(
+        env,
+        auth.context,
+        request.params.organizationId,
+        request.body ?? {},
+      );
+      if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+      return reply.code(201).send(result.data);
+    },
+  );
+
+  // A27 decide el arco de una secuencia de email con el historial de la
+  // tienda. Esta ruta solo crea un output de plan pendiente de aprobacion; el
+  // cliente sigue usando A11 para transformar cada paso en un borrador y no
+  // existe ningun envio ni publicacion desde aqui.
+  app.post<{
+    Params: { organizationId: string };
+    Body: Record<string, unknown>;
+  }>(
+    "/v1/organizations/:organizationId/marketing/weekly-mailing-plan",
+    aiEndpointRateLimit,
+    async (request, reply) => {
+      const auth = await resolveAuthContext(env, request.headers.authorization);
+      if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+
+      const result = await runWeeklyMailingPlanner(
         env,
         auth.context,
         request.params.organizationId,

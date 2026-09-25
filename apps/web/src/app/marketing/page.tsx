@@ -73,7 +73,6 @@ import {
   Badge,
   Banner,
   Button,
-  ButtonLink,
   Card,
   EmptyState,
   ErrorBlock,
@@ -1493,9 +1492,9 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           abajo el atajo es la pestaña, asi que sobran. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Heading size="lg">Marketing</Heading>
-        <ButtonLink href="/marketing/imagenes" variant="secondary">
+        <span className="sr-only">
           Banco de imágenes
-        </ButtonLink>
+        </span>
       </div>
 
       {/* Estado real del canal antes de generar nada más: qué espera decisión,
@@ -1585,6 +1584,20 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <div className="space-y-6">
               <WeeklyMailingPlanner
                 organizationId={organizationId}
+                templates={savedTemplates.flatMap((draft) =>
+                  draft.request?.design
+                    ? [
+                        {
+                          id: draft.id,
+                          name:
+                            draft.template_name ||
+                            draft.subject ||
+                            "Plantilla sin nombre",
+                          design: draft.request.design,
+                        },
+                      ]
+                    : [],
+                )}
                 onGenerated={async () => {
                   await Promise.all([loadDrafts(), reloadCampaignItems()]);
                   setTab("contenido");

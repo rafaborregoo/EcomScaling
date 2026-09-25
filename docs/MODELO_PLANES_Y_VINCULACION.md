@@ -1,4 +1,4 @@
-# EcomScaling IA — Modelo de planes, organizaciones consultoras y seguridad de códigos
+# E-NORA IA — Modelo de planes, organizaciones consultoras y seguridad de códigos
 
 > **Estado:** decidido por Rafa (2026-09-16). Es el modelo comercial con el que se
 > construyen los planes. Sustituye las cifras de
@@ -14,7 +14,7 @@
 
 ## 1. Objetivo del documento
 
-Este documento define la lógica funcional y de seguridad asociada al modelo comercial de EcomScaling IA para:
+Este documento define la lógica funcional y de seguridad asociada al modelo comercial de E-NORA IA para:
 
 - clientes finales;
 - organizaciones consultoras;
@@ -401,7 +401,7 @@ Ha superado su fecha de validez.
 
 ## REVOKED
 
-La organización o EcomScaling lo ha invalidado manualmente.
+La organización o E-NORA lo ha invalidado manualmente.
 
 ## CANCELLED
 
@@ -1526,7 +1526,7 @@ conversion_rate_codes
 monthly_mrr_generated
 ```
 
-Para EcomScaling:
+Para E-NORA:
 
 ```text
 MRR consultores
@@ -1662,4 +1662,4 @@ El HTML comercial debe comunicar únicamente:
 
 La infraestructura interna debe convertir el código de consultor en un **token de vinculación de un solo uso**, limitado por la capacidad contratada de la organización y protegido por controles transaccionales, antifraude, multi-tenant y de auditoría.
 
-Ese sistema permite que EcomScaling IA escale a organizaciones con múltiples consultores y cientos de clientes sin convertir el descuento en un cupón compartible o explotable.
+Ese sistema permite que E-NORA IA escale a organizaciones con múltiples consultores y cientos de clientes sin convertir el descuento en un cupón compartible o explotable.

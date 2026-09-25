@@ -6,9 +6,9 @@
  * se movio fue el rendimiento o solo la composicion. Lanzarlo antes que los
  * otros dos produce lecturas mas limpias de lo que el dato permite.
  */
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runContextEngineForAllOrganizations } from "@ecomscaling/api/context-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runContextEngineForAllOrganizations } from "@e-nora/api/context-engine";
 import { createWorkerJobContext, workerJobMeta } from "./job-context.js";
 
 const logger = createLogger("context-cron");

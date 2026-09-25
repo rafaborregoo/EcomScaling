@@ -1,6 +1,6 @@
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
-import { runCohortContextPlaybookEngineForAllOrganizations } from "@ecomscaling/api/cohort-context-engine";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
+import { runCohortContextPlaybookEngineForAllOrganizations } from "@e-nora/api/cohort-context-engine";
 
 const logger = createLogger("cohort-context-worker");
 runCohortContextPlaybookEngineForAllOrganizations(loadApiEnv(process.env))

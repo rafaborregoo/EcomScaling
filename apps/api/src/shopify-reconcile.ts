@@ -1,8 +1,8 @@
 import { ensureShopifyWebPixel } from "./shopify-pixel.js";
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import type { LoadedApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import type { LoadedApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { STALE_SYNCING_MS } from "./shopify.js";
 import { runShopifyInitialSync } from "./shopify-sync.js";
 import { backfillOrderJourneys } from "./shopify-order-journey.js";

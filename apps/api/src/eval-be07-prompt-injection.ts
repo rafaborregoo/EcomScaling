@@ -21,11 +21,11 @@
  *
  * Cuesta una llamada real a Voyage (embeddings) y al menos una llamada real al
  * LLM configurado (Anthropic u OpenAI, lo que este activo). No correr en cada
- * PR. Ejecutar manualmente con `npm run eval:be07 -w @ecomscaling/api`.
+ * PR. Ejecutar manualmente con `npm run eval:be07 -w @e-nora/api`.
  */
 import { createClient } from "@supabase/supabase-js";
-import { loadApiEnv } from "@ecomscaling/config";
-import { createLogger } from "@ecomscaling/observability";
+import { loadApiEnv } from "@e-nora/config";
+import { createLogger } from "@e-nora/observability";
 import { createKnowledgeDocument } from "./knowledge.js";
 import { runConsultantChatTurn } from "./ai-runtime.js";
 import type { AuthContext } from "./auth-context.js";
