@@ -40,8 +40,8 @@ export default function KlaviyoTestInstructionsPage() {
         </ul>
         <p>
           Si no las tienes, escríbenos a{" "}
-          <Link className="underline" href="mailto:ricardo@ecomscaling.es">
-            ricardo@ecomscaling.es
+          <Link className="underline" href="mailto:rafael@noraapp.es">
+            rafael@noraapp.es
           </Link>
           .
         </p>
@@ -142,8 +142,8 @@ export default function KlaviyoTestInstructionsPage() {
       <Card title="Contacto">
         <p>
           Cualquier duda durante la revisión, escríbenos a{" "}
-          <Link className="underline" href="mailto:ricardo@ecomscaling.es">
-            ricardo@ecomscaling.es
+          <Link className="underline" href="mailto:rafael@noraapp.es">
+            rafael@noraapp.es
           </Link>
           .
         </p>

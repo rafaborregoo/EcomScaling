@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 const LAST_UPDATED = "14 de septiembre de 2026";
-const CONTACT_EMAIL = "ricardo@ecomscaling.es";
+const CONTACT_EMAIL = "rafael@noraapp.es";
 
 export default function TermsOfServicePage() {
   return (
