@@ -1,5 +1,9 @@
 import {
+  CHURN_DAYS,
+  longestMaturedMilestone,
+  parseLifetimeRows,
   validateRetentionCrmPlaybookTemplate,
+  type LifetimeMilestone,
   type PlaybookFrameworkInputLike,
   type PlaybookTemplate,
   type PlaybookTriState,
@@ -34,6 +38,8 @@ export type RetentionCrmEvidence = {
     emails_without_click_tracking?: number | null;
     last_sync_status?: string | null;
   } | null;
+  /** Curva de `shopify_customer_lifetime`: LTV sobre margen por hito. */
+  lifetime?: LifetimeMilestone[] | null;
 };
 
 export function buildRetentionCrmPlaybookContext(
@@ -85,7 +91,17 @@ function observed(value: number | null | undefined): PlaybookTriState {
   return value === null || value === undefined ? UNKNOWN : value > 0 ? "TRUE" : "FALSE";
 }
 
-/** Declara cobertura real de datos; no deriva churn, LTV ni causalidad. */
+/**
+ * LTV observado = hay una cohorte madura y su margen de contribucion se puede
+ * calcular. Con cohorte pero sin coste de producto no se observa: un LTV sobre
+ * ingreso no es el LTV decidido (margen, 2026-09-24).
+ */
+function ltvObserved(lifetime: RetentionCrmEvidence["lifetime"]): PlaybookTriState {
+  const ltv = lifetime ? longestMaturedMilestone(lifetime) : null;
+  return ltv && ltv.avg_contribution !== null ? "TRUE" : UNKNOWN;
+}
+
+/** Declara cobertura real de datos; no deriva churn ni causalidad. */
 export function applyRetentionCrmEvidence(
   context: PlaybookFrameworkInputLike["context"],
   evidence: RetentionCrmEvidence,
@@ -104,8 +120,9 @@ export function applyRetentionCrmEvidence(
     "retention.crm.capabilities.available": observed(evidence.crm?.account_count),
     "retention.consent.observed": observed(evidence.consent?.consent_events),
     "retention.experience.refunds_available": evidence.sales ? "TRUE" : UNKNOWN,
-    "retention.ltv.observed": UNKNOWN,
-    "retention.churn.threshold_defined": UNKNOWN,
+    "retention.ltv.observed": ltvObserved(evidence.lifetime),
+    // Umbral fijado por decision de producto: sin comprar en CHURN_DAYS dias.
+    "retention.churn.threshold_defined": CHURN_DAYS > 0 ? "TRUE" : UNKNOWN,
     "retention.subscription.observed": UNKNOWN,
     "retention.incrementality.supported": UNKNOWN,
     "retention.customer_quality.available": UNKNOWN,
@@ -135,7 +152,7 @@ async function enrichRetentionCrmContext(
     period_end: periodEnd.toISOString(),
     target_store_id: null,
   };
-  const [customersResult, repeatResult, stateResult, salesResult, marginResult, accountResult, flowsResult, campaignsResult, consentResult, klaviyoHealthResult, klaviyoReportResult] = await Promise.all([
+  const [customersResult, repeatResult, stateResult, salesResult, marginResult, accountResult, flowsResult, campaignsResult, consentResult, klaviyoHealthResult, klaviyoReportResult, lifetimeResult] = await Promise.all([
     supabase.from("shopify_customers").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("is_active", true),
     supabase.from("shopify_customers").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("is_active", true).gt("number_of_orders", 1),
     supabase.from("shopify_customers").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("is_active", true).not("state", "is", null),
@@ -152,6 +169,7 @@ async function enrichRetentionCrmContext(
       period_end: period.lte.slice(0, 10),
       target_store_id: null,
     }),
+    supabase.rpc("shopify_customer_lifetime", { target_organization_id: organizationId, target_store_id: null, as_of: context.as_of }),
   ]);
   const health = klaviyoHealthResult.error ? null : first(klaviyoHealthResult);
   // Destinatarios sumados entre filas del informe: es volumen enviado, un
@@ -182,6 +200,7 @@ async function enrichRetentionCrmContext(
             last_sync_status: health?.ultimo_sync_estado ?? null,
           }
         : null,
+      lifetime: lifetimeResult.error ? null : parseLifetimeRows(lifetimeResult.data),
     },
     [
       !customersResult.error && !repeatResult.error && !stateResult.error ? `shopify_customers:${organizationId}:${context.as_of.slice(0, 10)}` : "",
@@ -191,6 +210,7 @@ async function enrichRetentionCrmContext(
       !consentResult.error ? `klaviyo_tracking_consents:${organizationId}:${context.as_of.slice(0, 10)}` : "",
       health ? `klaviyo_measurement_health:${organizationId}:${context.as_of.slice(0, 10)}` : "",
       recipients !== null ? `klaviyo_email_report:${organizationId}:${context.as_of.slice(0, 10)}` : "",
+      !lifetimeResult.error ? `shopify_customer_lifetime:${organizationId}:${context.as_of.slice(0, 10)}` : "",
     ].filter(Boolean),
   );
 }

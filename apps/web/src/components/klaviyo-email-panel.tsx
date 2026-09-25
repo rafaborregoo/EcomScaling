@@ -78,6 +78,30 @@ type EmailReport = {
   }>;
   campaigns: Entity[];
   flows: Entity[];
+  subject_traits?: SubjectTrait[] | null;
+  top_links?: LinkClicks[] | null;
+};
+
+type SubjectTrait = {
+  trait: string;
+  label: string;
+  with_emails: number;
+  without_emails: number;
+  with_open_rate: number | null;
+  without_open_rate: number | null;
+  better: "con" | "sin" | null;
+};
+
+type LinkClicks = { url: string; clicks: number; personas: number; mensajes: number };
+
+// El enlace entero no cabe en una celda: dominio + ruta, sin la query de UTMs.
+const linkLabel = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname.replace(/^www\./, "")}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+  } catch {
+    return url;
+  }
 };
 
 const PERIODS = ["7", "30", "90", "all"] as const;
@@ -272,6 +296,57 @@ export function KlaviyoEmailPanel({
     },
   ];
 
+  const traitColumns: TableColumnDef<SubjectTrait & { id: string }>[] = [
+    { key: "label", label: "Rasgo del asunto", render: (row) => row.label },
+    {
+      key: "with_open_rate",
+      label: "Apertura con",
+      render: (row) => (
+        <span className={`tabular-nums ${row.better === "con" ? "font-medium" : ""}`}>
+          {pct(row.with_open_rate)}
+          <span className="text-muted"> · {row.with_emails}</span>
+        </span>
+      ),
+    },
+    {
+      key: "without_open_rate",
+      label: "Apertura sin",
+      render: (row) => (
+        <span className={`tabular-nums ${row.better === "sin" ? "font-medium" : ""}`}>
+          {pct(row.without_open_rate)}
+          <span className="text-muted"> · {row.without_emails}</span>
+        </span>
+      ),
+    },
+    {
+      key: "better",
+      label: "Lectura",
+      render: (row) =>
+        row.better === null ? (
+          <span className="text-muted">pocos envíos para comparar</span>
+        ) : row.better === "con" ? (
+          "abre más"
+        ) : (
+          "abre menos"
+        ),
+    },
+  ];
+
+  const linkColumns: TableColumnDef<LinkClicks & { id: string }>[] = [
+    {
+      key: "url",
+      label: "Enlace",
+      render: (row) => (
+        <span className="block max-w-[22rem] truncate" title={row.url}>
+          {linkLabel(row.url)}
+        </span>
+      ),
+    },
+    { key: "clicks", label: "Clics", render: (row) => <span className="tabular-nums">{row.clicks.toLocaleString("es-ES")}</span> },
+    { key: "personas", label: "Personas", render: (row) => <span className="tabular-nums">{row.personas.toLocaleString("es-ES")}</span> },
+    { key: "mensajes", label: "Emails", render: (row) => <span className="tabular-nums">{row.mensajes.toLocaleString("es-ES")}</span> },
+  ];
+
   const subjectsToReview = campaigns
     .filter((row) => row.recipients > 0 && row.open_rate != null)
     .sort((a, b) => (a.open_rate ?? 0) - (b.open_rate ?? 0))
@@ -427,6 +502,30 @@ export function KlaviyoEmailPanel({
           emptyLabel="Aún no hay campañas con datos en este periodo."
         />
       </div>
+
+      {data.subject_traits?.some((t) => t.with_emails + t.without_emails > 0) ? (
+        <div className="mt-6">
+          <p className={EYEBROW}>Qué funciona en el asunto · apertura con y sin cada rasgo</p>
+          <Table
+            className="mt-2"
+            ariaLabel="Apertura según rasgos del asunto"
+            columns={traitColumns}
+            rows={data.subject_traits.map((t) => ({ ...t, id: t.trait }))}
+          />
+        </div>
+      ) : null}
+
+      {data.top_links?.length ? (
+        <div className="mt-6">
+          <p className={EYEBROW}>Enlaces más pulsados</p>
+          <Table
+            className="mt-2"
+            ariaLabel="Enlaces de email más pulsados"
+            columns={linkColumns}
+            rows={data.top_links.map((l) => ({ ...l, id: l.url }))}
+          />
+        </div>
+      ) : null}
 
       {isConsultant ? (
         <>

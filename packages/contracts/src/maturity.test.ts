@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 
 import {
   applyMaturityDeclarations,
+  findingForGap,
   capabilityMaturityFields,
   capabilityMaturitySchema,
   checkMaturityInvariants,
@@ -725,4 +726,27 @@ test("ninguna declaracion alcanza optimized: exige optimizacion, que no se obser
 test("sin declaracion la capacidad sale igual", () => {
   const c = applyMaturityDeclarations([definida], [])[0]!;
   assert.deepEqual(c, definida);
+});
+
+test("la brecha sale de lo que el consultor dice que el negocio necesita", () => {
+  assert.equal(findingForGap("ad_hoc", "defined").finding, "critically_behind");
+  assert.equal(findingForGap("repeatable", "defined").finding, "structural_weakness");
+  assert.equal(findingForGap("defined", "defined").finding, "appropriate");
+  // Un peldano de holgura no es sobreingenieria (guardrail 25).
+  assert.equal(findingForGap("measured", "defined").finding, "appropriate");
+  assert.equal(findingForGap("optimized", "repeatable").finding, "overengineering");
+});
+
+test("declarar el nivel requerido deja un hallazgo que cumple los guardrails 9, 10 y 25", () => {
+  const c = applyMaturityDeclarations([definida], [
+    { capability: "finance", influences_decisions: false, has_ownership: false, required_level: "measured" },
+  ])[0]!;
+  assert.equal(c.required_level, "measured");
+  assert.equal(c.finding, "structural_weakness");
+  assert.ok(c.gap_interpretation);
+  const perfil = { capabilities: [c] } as unknown as Parameters<typeof checkMaturityInvariants>[0]["profile"];
+  const violaciones = checkMaturityInvariants({ profile: perfil }).filter((v) =>
+    ["simplicidad_no_se_penaliza", "complejidad_no_se_premia"].includes(v.rule),
+  );
+  assert.deepEqual(violaciones, []);
 });

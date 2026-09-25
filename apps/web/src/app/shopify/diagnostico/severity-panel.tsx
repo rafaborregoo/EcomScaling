@@ -215,7 +215,7 @@ export function SeverityPanel() {
   return (
     <Card
       title="Cuánto daño hay"
-      description="Cuánto se movió, sobre qué base y con qué supuestos. Ninguna cifra dice cuán grave es, y el orden de la lista no es un orden de ataque: eso se decide con el esfuerzo y el momento delante, que aquí no están."
+      description="Cuánto se movió, sobre qué base y con qué supuestos. La gravedad aguda sale de los umbrales de arriba; el orden de la lista no es un orden de ataque: eso se decide con el esfuerzo y el momento delante, que aquí no están."
     >
       {ordenadas.length === 0 ? (
         <EmptyState

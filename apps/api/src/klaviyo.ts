@@ -1,3 +1,8 @@
+import {
+  summariseSubjectTraits,
+  type KlaviyoSubjectRow,
+  type SubjectTraitComparison,
+} from "./klaviyo-subject-patterns.js";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@ecomscaling/config";
@@ -851,7 +856,19 @@ type KlaviyoEmailReport = {
   trend: ReturnType<typeof summariseKlaviyoEmailRows>["trend"];
   campaigns: ReturnType<typeof summariseKlaviyoEmailRows>["campaigns"];
   flows: ReturnType<typeof summariseKlaviyoEmailRows>["flows"];
+  // null cuando su funcion falla: el resto del panel no depende de ellos.
+  subject_traits: SubjectTraitComparison[] | null;
+  top_links: KlaviyoLinkClicks[] | null;
 };
+
+export type KlaviyoLinkClicks = {
+  url: string;
+  clicks: number;
+  personas: number;
+  mensajes: number;
+};
+
+const KLAVIYO_TOP_LINKS = 8;
 
 const KLAVIYO_EMAIL_DEFAULT_DAYS = 90;
 const KLAVIYO_EMAIL_MAX_DAYS = 365;
@@ -944,11 +961,13 @@ export async function getKlaviyoEmailReport(
         trend: [],
         campaigns: [],
         flows: [],
+        subject_traits: null,
+        top_links: null,
       },
     };
   }
 
-  const [currentResult, previousResult] = await Promise.all([
+  const [currentResult, previousResult, subjectsResult, linksResult] = await Promise.all([
     supabase.rpc("klaviyo_email_report", {
       target_organization_id: organizationId,
       period_start: toDate(periodStart),
@@ -959,6 +978,21 @@ export async function getKlaviyoEmailReport(
       target_organization_id: organizationId,
       period_start: toDate(previousStart),
       period_end: toDate(periodStart),
+      target_store_id: storeId,
+    }),
+    // Que rasgos del asunto se asocian con mas apertura en esta cuenta.
+    supabase.rpc("klaviyo_subject_performance", {
+      target_organization_id: organizationId,
+      period_start: toDate(periodStart),
+      period_end: toDate(periodEnd),
+      target_store_id: storeId,
+    }),
+    // Que enlace se pulsa: responde "que CTA funciona", que el rendimiento por
+    // envio no puede responder.
+    supabase.rpc("klaviyo_link_clicks", {
+      target_organization_id: organizationId,
+      period_start: periodStart.toISOString(),
+      period_end: periodEnd.toISOString(),
       target_store_id: storeId,
     }),
   ]);
@@ -993,6 +1027,21 @@ export async function getKlaviyoEmailReport(
       trend: current.trend,
       campaigns: current.campaigns,
       flows: current.flows,
+      subject_traits:
+        subjectsResult.error || !Array.isArray(subjectsResult.data)
+          ? null
+          : summariseSubjectTraits(subjectsResult.data as KlaviyoSubjectRow[]),
+      top_links:
+        linksResult.error || !Array.isArray(linksResult.data)
+          ? null
+          : (linksResult.data as Array<Record<string, unknown>>)
+              .slice(0, KLAVIYO_TOP_LINKS)
+              .map((row) => ({
+                url: String(row.url),
+                clicks: Number(row.clicks ?? 0),
+                personas: Number(row.personas ?? 0),
+                mensajes: Number(row.mensajes ?? 0),
+              })),
     },
   };
 }

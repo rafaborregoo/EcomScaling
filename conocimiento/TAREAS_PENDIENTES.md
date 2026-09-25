@@ -69,11 +69,11 @@ auditoría.
       `credential_expired` / `blocked`, asi que mientras no se reconecte
       **ninguna senal de esa tienda sostiene un diagnostico** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â que es el
       comportamiento correcto, pero deja la tienda a ciegas.
-- [ ] **Decidir que pasa con las cuatro conexiones de Meta Ads en `pending`.**
+- [ ] **Decidir que pasa con las cuatro conexiones de Meta Ads en `pending`.** *(2026-09-25: decidido borrarlas. Estan en produccion y el borrado lo tiene que lanzar Rafa; ver el resumen de la sesion)*
       Nunca han sincronizado. El motor no las marca como rotas a proposito
       (`pending` es "recien creada", no "averiada"), asi que se quedan
       invisibles: ni dan dato ni dan aviso. O se completan o se descartan.
-- [ ] **Activar los `schedule` de los workflows de motores**, si procede.
+- [x] **Activar los `schedule` de los workflows de motores**, si procede. *(Hecho 2026-09-24: `nightly-chain` en el crontab del VPS a la 1:00 UTC, F3 -> F7 en orden y en serie)*
       **Actualizacion 2026-09-24: los workflows de GitHub Actions se borraron (commit `2b2ab70`), asi que hoy NINGUN motor de F3–F9 corre solo, ni siquiera a mano desde Actions: solo con los `*-once.ts` del worker. Si se quieren programar, el sitio es el worker (BullMQ), como ya hacen la reconciliacion de Shopify y el tick de IA.**
       `Data Quality Engine`, `Signal Engine`, `Context Engine`, `Symptom
       Engine` y `Maturity Engine` estan sin
@@ -83,14 +83,14 @@ auditoría.
       la cadena importa: calidad (06:07), senales (06:17), contexto (06:27) y
       sintomas (06:37). El de madurez va aparte (05:47) porque no depende de
       ellos: mide de que es capaz el negocio, no que se ha movido.
-- [ ] **Desplegar la API y el worker al VPS.** El arreglo de la atribucion
+- [x] **Desplegar la API y el worker al VPS.** El arreglo de la atribucion *(Hecho 2026-09-24: desplegado b8a0243 con ops/vps/deploy.sh (git archive cuando no hay rsync))*
       vive en `shopify-order-journey.ts` y corre dentro de la reconciliacion,
       que ya esta programada en el worker. Hasta que se despliegue, la cola de
       419 pedidos sigue parada: el esquema esta puesto en produccion, el codigo
       no.
-- [ ] **Commits.** Hay ficheros sin commitear y la instruccion es no hacer
+- [x] **Commits.** Hay ficheros sin commitear y la instruccion es no hacer *(Hecho 2026-09-24: cb2578d, a64da72 y b8a0243 en main)*
       commits ni push. Cuando quieras, dime y los preparo.
-- [ ] **Destilar el bloque que sigue sin capas** (`8.12`) *(el motor de 8.12 ya existe desde el 2026-09-24, implementado desde el corpus maestro; falta la destilacion en capas, que es trabajo de contenido)*: `7.15`, `7.17` y
+- [x] **Destilar el bloque que sigue sin capas** (`8.12`) *(el motor de 8.12 ya existe desde el 2026-09-24, implementado desde el corpus maestro; falta la destilacion en capas, que es trabajo de contenido)*: `7.15`, `7.17` y *(Hecho 2026-09-25: capas 01-06 y manifest 99)*
       `7.18` ya están implementados end-to-end y documentados; `8.12` queda
       fuera de F7.
 
@@ -120,7 +120,7 @@ gasto por campana y productos top: justo lo que un consultor pregunta.
       Las descripciones avisan de lo que el modelo no puede deducir solo:
       sessions a 0 es falta de permiso, no conversion baja; items_without_cost
       alto infla el margen; las compras de Meta son atribuidas y no se suman.
-- [ ] **Decidir sobre 4 funciones muertas**: `klaviyo_link_clicks`,
+- [ ] **Decidir sobre 4 funciones muertas**: `klaviyo_link_clicks`, *(2026-09-25: klaviyo_link_clicks y klaviyo_subject_performance conectadas al panel de Klaviyo (enlaces mas pulsados y rasgos del asunto). meta_attribution_window_rank y copilot_bank_organization siguen sin uso)*
       `klaviyo_subject_performance`, `meta_attribution_window_rank` y
       `copilot_bank_organization`. No las llama ni la UI ni un agente —
       comprobado a mano, solo aparecen en los tipos generados. O se conectan o
@@ -170,7 +170,7 @@ hecho falso, que es peor.
 - [x] **Meter el auditor en CI.** Mientras se ejecute a mano, el proximo cambio
       de firma vuelve a colarse. Es lo unico que cierra esta clase de bug.
       **Hecho 2026-09-24: `npm run verify` lo ejecuta junto a las demas guardas (ya no hay CI de GitHub). Se arreglo su emparejamiento posicional, que escondia un desajuste real: `retention-crm-benchmarks` leia `shopify_margin_summary.contribution`, inexistente.**
-- [ ] **`conversion_cro.product_views`**: el hecho esta declarado y ninguna
+- [x] **`conversion_cro.product_views`**: el hecho esta declarado y ninguna *(Hecho 2026-09-25: pixel propio extensions/ecomscaling-pixel -> shopify_pixel_events -> shopify_product_views -> motor 6.05. Falta `shopify app deploy` y reautorizar con write_pixels/read_customer_events)*
       funcion lo puede llenar — `shopify_funnel_summary` no trae vistas de
       producto. Hoy es UNKNOWN, que es honesto. Decidir si se trae el dato o se
       retira el hecho.
@@ -251,7 +251,7 @@ Tareas, de mas barata a menos:
       migracion y tocar a sus lectores (`meta-insights.ts`), asi que decidir si
       compensa o basta con la etiqueta en pantalla y en la tool.
       **Hecho 2026-09-24 sin migracion: en pantalla se llama "CPA atribuido (Meta)" y al agente le llega como `cpa_atribuido_meta`.**
-- [ ] **LTV, payback, churn, CPM y CPC**. *(CPM y CPC hechos el 2026-09-24 en /meta y en el contexto del agente; quedan LTV, payback y churn, que son decision de producto.)* Los unicos que de verdad no existen.
+- [x] **LTV, payback, churn, CPM y CPC**. *(CPM y CPC hechos el 2026-09-24 en /meta y en el contexto del agente; quedan LTV, payback y churn, que son decision de producto.)* Los unicos que de verdad no existen. *(Hecho 2026-09-25: LTV sobre margen 365 d (curva 30-365), payback contra CAC de cohorte, churn 180 d; en /shopify, motores 5.05/5.06 y agente)*
       CPM y CPC son aritmetica sobre columnas que ya volvemos. LTV y payback
       necesitan decidir horizonte y si se calculan sobre margen o ingreso, que
       es decision de producto, no de codigo.
@@ -309,7 +309,7 @@ siendo buena idea dejarla.
 - [ ] **Dimensiones `device`, `market` y `product` en el mix.**
       *Por que se dejo:* `shopify_order_facts` no las sostiene. No se simulan:
       el motor las declara en `missing_context`.
-- [ ] **Calibrar `DOMINANCIA_MINIMA`** (0.75). Es el umbral a partir del cual se
+- [x] **Calibrar `DOMINANCIA_MINIMA`** (0.75). Es el umbral a partir del cual se *(Decidido 2026-09-24: se mantiene 0.75 hasta tener casos reales)*
       dice que el cambio fue de rendimiento o de composicion, y **el numero es
       nuestro, no del artefacto**. Con casos reales delante se vera si es el
       correcto.
@@ -320,12 +320,12 @@ siendo buena idea dejarla.
       entradas: las dos metricas que `D05` sabe emitir, en sus dos direcciones.
       *Por que se dejo:* una libreria con entradas para metricas que nadie
       calcula solo sirve para aparentar cobertura. Crece con `D05`.
-- [ ] **Declarar mas relaciones entre metricas** en `metric_dependencies`. Hoy
+- [ ] **Declarar mas relaciones entre metricas** en `metric_dependencies`. Hoy *(2026-09-25: propuesta en conocimiento/fase-03/PROPUESTA_GRAFOS_D03_D06.md pendiente de validar)*
       solo esta la aritmetica de ventas y pedidos, asi que la unica jerarquia
       posible es esa. Cada relacion nueva --embudo, economica, operacional--
       amplia lo que el motor puede relacionar **sin tocar codigo**, que es el
       punto del diseno.
-- [ ] **Evidencia cualitativa** (paso 18): resenas, tickets, llamadas. El
+- [ ] **Evidencia cualitativa** (paso 18): resenas, tickets, llamadas. El *(Aplazada por decision del 2026-09-24)*
       esquema y el guardrail de representatividad estan desde el primer dia;
       falta ingerir la materia prima.
 - [ ] **Composicion de sintomas superiores** (paso 16). *Por que se dejo:*
@@ -337,14 +337,14 @@ siendo buena idea dejarla.
 
 ### De `D03` (madurez por capacidad)
 
-- [ ] **Decidir `required_level` por capacidad.** Es el recorte mas grande del
+- [x] **Decidir `required_level` por capacidad.** Es el recorte mas grande del *(Hecho 2026-09-25: lo fija el consultor por tienda en el panel de madurez; el motor calcula la brecha)*
       bloque y **no es codigo**: el apartado 19 del artefacto dice que el
       algoritmo, los umbrales y las ponderaciones no estan definidos, asi que
       el motor no los inventa y la pantalla escribe "nadie ha dicho que necesita
       este negocio". Sin esto no hay brecha, y sin brecha no hay pasos 5 a 14
       del runtime (asimetrias, cuellos de botella, regresion, riesgo latente,
       growth-system fit, sobreingenieria).
-- [ ] **Escribir el resto del grafo de capacidades.** Van 7 aristas, que son
+- [ ] **Escribir el resto del grafo de capacidades.** Van 7 aristas, que son *(2026-09-25: propuesta de 17 aristas en conocimiento/fase-03/PROPUESTA_GRAFOS_D03_D06.md pendiente de validar)*
       literalmente las que el artefacto escribe. Las demas son conocimiento de
       ecommerce por escribir, y ponerlas a ojo seria lo mismo que inventar los
       umbrales.
@@ -369,7 +369,7 @@ siendo buena idea dejarla.
       adquisicion pase de `not_assessable` a `bad` con el motivo escrito.
       Queda: el alcance por tienda (hoy se declara por organizacion) y los
       umbrales de severidad de `D10`, que son otra pregunta.
-- [ ] **Los umbrales de severidad de `D10` siguen sin sitio.** Con el guardrail
+- [x] **Los umbrales de severidad de `D10` siguen sin sitio.** Con el guardrail *(Hecho 2026-09-25: por defecto 1/3/7/15 % y ajustables por tienda (panel Cuando es grave); fijan la severidad aguda)*
       economico declarado, `D04` ya dice si una capacidad esta mal. `D10` sigue
       sacando las cinco severidades en `unknown` porque nadie ha dicho **a partir
       de que cuota esto es grave** -- y eso es otra pregunta, con otra respuesta
@@ -424,7 +424,7 @@ bitÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡cora, pero no representan trabajo a
       entorno equivocado. No reutilizar una clave entre proyectos ni apuntar a
       producciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n.
       **Hecho 2026-09-24: `test:remote` usa `.env.local`. El fichero `.env.tests` sigue en disco (es tuyo); ya no lo usa nada y se puede borrar.**
-- [ ] **D12: decidir el presupuesto de recursiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n y su efecto en D11.** El motor
+- [x] **D12: decidir el presupuesto de recursiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n y su efecto en D11.** El motor *(Hecho 2026-09-25: maximo 2 reaperturas por caso, propuestas por D12 y confirmadas por el consultor; agotado el presupuesto el caso queda no concluyente y D11 no pasa de bajo mientras la revision este abierta)*
       deja la reapertura explÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­cita (`revision_triggered`, `reopened_blocks`),
       pero no reabre ni consume presupuesto automÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ticamente hasta que esa
       polÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­tica estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© decidida.

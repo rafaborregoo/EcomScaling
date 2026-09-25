@@ -19,7 +19,7 @@ embedded = true
 #   read_reports -> ShopifyQL, bloque `sessions`
 # read_all_orders (historico >60 dias) NO esta: necesita Access request aprobada en
 # el Partner Dashboard; sin ella el deploy falla con "scopes: read_all_orders".
-scopes = "read_products,read_inventory,read_locations,read_orders,read_customers,read_discounts,read_marketing_events,read_reports"
+scopes = "read_products,read_inventory,read_locations,read_orders,read_customers,read_discounts,read_marketing_events,read_reports,write_pixels,read_customer_events"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 

@@ -174,7 +174,7 @@ export function severityAbsenceReason(assessment: SeverityView): string | null {
   ].every((s) => s === "unknown");
 
   if (!todasDesconocidas) return null;
-  return "La gravedad no se puntúa: nadie ha definido a partir de qué cuota esto es grave en esta tienda, y un umbral inventado se leería como si lo estuviera.";
+  return "La gravedad no se puntúa: no hay una cuota sobre la base elegida que comparar con los umbrales de gravedad de esta tienda.";
 }
 
 /**

@@ -46,3 +46,10 @@ test("P06 conserva UNKNOWN cuando faltan costes comparables y segmentacion", () 
   assert.equal(enriched.facts?.["unit_economics.scenarios.observed"], "UNKNOWN");
   assert.equal(enriched.facts?.["unit_economics.data_quality.comparable"], "UNKNOWN");
 });
+
+test("P06 observa el payback desde la curva de LTV sobre margen, no desde el breakeven", () => {
+  const context = buildUnitEconomicsPlaybookContext("org-1", [], null, "2026-09-17T10:00:00.000Z");
+  const hito = { milestone_days: 90, cohort_customers: 12, avg_revenue: 80, avg_contribution: 25, items_without_cost: 0, cohort_cac: 20 };
+  assert.equal(applyUnitEconomicsEvidence(context, { lifetime: [hito] }).facts?.["unit_economics.payback.observed"], "TRUE");
+  assert.equal(applyUnitEconomicsEvidence(context, { lifetime: [{ ...hito, cohort_cac: null }] }).facts?.["unit_economics.payback.observed"], "UNKNOWN");
+});

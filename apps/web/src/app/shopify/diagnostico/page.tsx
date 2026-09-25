@@ -75,6 +75,7 @@ import { ContinuousLearningPanel } from "./continuous-learning";
 import { HealthReferencesPanel } from "./health-references";
 import { MaturityPanel } from "./maturity-panel";
 import { SeverityPanel } from "./severity-panel";
+import { SeverityThresholdsPanel } from "./severity-thresholds-panel";
 import { SignalListPanel } from "./signal-list";
 import { SymptomMapPanel } from "./symptom-map";
 import { type BootstrapResponse } from "@/lib/bootstrap";
@@ -552,6 +553,7 @@ function ShopifyDiagnosticoView({
               arreglarlo es una queja, no una herramienta. */}
           <HealthReferencesPanel />
           <CapabilityHealthPanel />
+          <SeverityThresholdsPanel organizationId={selectedOrganizationId} />
           <SeverityPanel />
           {/* D07 va detras de la severidad y delante de la confianza: primero
               cuanto duele, luego por donde puede ir la cosa, y al final de

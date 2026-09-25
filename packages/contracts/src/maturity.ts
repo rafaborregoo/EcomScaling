@@ -915,7 +915,58 @@ export const maturityDeclarationSchema = z.object({
   has_ownership: z.boolean(),
   owner_role: z.string().trim().min(1).max(60).nullable().optional(),
   note: z.string().trim().max(500).nullable().optional(),
+  /**
+   * Lo que ESTE negocio necesita de la capacidad. Lo fija el consultor por
+   * tienda (decision 2026-09-24): el apartado 19 del artefacto no define
+   * algoritmo para derivarlo, asi que es juicio humano declarado, no calculo.
+   */
+  required_level: z.enum(MATURITY_LEVELS).nullable().optional(),
 });
+
+const NIVEL_ES: Record<MaturityLevel, string> = {
+  absent: "inexistente",
+  ad_hoc: "a ratos",
+  repeatable: "siempre igual",
+  defined: "con metodo y medida",
+  measured: "medido y decidiendo",
+  optimized: "optimizado",
+  adaptive: "adaptativo",
+};
+
+/**
+ * El hallazgo que sale de la distancia entre lo que hay y lo que el negocio
+ * necesita. Un peldano por encima es holgura sana, no sobreingenieria: solo a
+ * partir de dos se llama complejidad que el negocio no pide (guardrail 25).
+ */
+export function findingForGap(
+  current: MaturityLevel,
+  required: MaturityLevel,
+): { finding: MaturityFinding; gap_interpretation: string } {
+  const d = maturityRank(current) - maturityRank(required);
+  const par = `${NIVEL_ES[current]} frente a ${NIVEL_ES[required]}`;
+  if (d <= -2) {
+    return {
+      finding: "critically_behind",
+      gap_interpretation: `Le faltan ${-d} peldanos para lo que necesita este negocio (${par}).`,
+    };
+  }
+  if (d === -1) {
+    return {
+      finding: "structural_weakness",
+      gap_interpretation: `Le falta un peldano para lo que necesita este negocio (${par}).`,
+    };
+  }
+  if (d >= 2) {
+    return {
+      finding: "overengineering",
+      gap_interpretation: `Va ${d} peldanos por encima de lo que necesita: complejidad que el negocio no pide (${par}).`,
+    };
+  }
+  return {
+    finding: "appropriate",
+    gap_interpretation: `Cubre lo que necesita este negocio (${par}).`,
+  };
+}
 
 export type MaturityDeclaration = z.infer<typeof maturityDeclarationSchema>;
 
@@ -929,9 +980,14 @@ export function applyMaturityDeclarations(
     if (!declared) return c;
     const raises =
       c.current_level === TECHO_OBSERVABLE && c.has_measurement && declared.influences_decisions;
+    const level: MaturityLevel = raises ? "measured" : c.current_level;
+    const gap = declared.required_level ? findingForGap(level, declared.required_level) : null;
     return capabilityMaturitySchema.parse({
       ...c,
-      current_level: raises ? "measured" : c.current_level,
+      current_level: level,
+      required_level: declared.required_level ?? c.required_level ?? null,
+      finding: gap?.finding ?? c.finding ?? null,
+      gap_interpretation: gap?.gap_interpretation ?? c.gap_interpretation ?? null,
       influences_decisions: declared.influences_decisions,
       has_ownership: declared.has_ownership,
       owner_role: declared.owner_role ?? c.owner_role ?? null,

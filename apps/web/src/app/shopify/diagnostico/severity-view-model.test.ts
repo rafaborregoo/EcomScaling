@@ -176,9 +176,8 @@ test("una estimación se dice estimación", () => {
 
 test("la severidad desconocida se explica, no se deja como hueco", () => {
   // Sin esta frase, `unknown` se lee como "el sistema no sabe hacer su trabajo"
-  // cuando lo que dice es "nadie ha definido a partir de que cuota esto es
-  // grave".
-  assert.match(severityAbsenceReason(evaluacion()) ?? "", /nadie ha definido/);
+  // cuando lo que dice es que no hay cuota que comparar con los umbrales.
+  assert.match(severityAbsenceReason(evaluacion()) ?? "", /umbrales de gravedad/);
 
   // Y cuando alguien si la ponga, la frase desaparece sola.
   assert.equal(severityAbsenceReason(evaluacion({ overall_severity: "high" })), null);

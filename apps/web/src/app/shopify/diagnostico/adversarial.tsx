@@ -5,10 +5,12 @@ import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import {
   Badge,
+  Button,
   Card,
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  toast,
 } from "@/components/ui";
 import {
   checkStatusLabel,
@@ -19,6 +21,73 @@ import {
   survivalStatusLabel,
   type AdversarialReviewView,
 } from "./adversarial-view-model";
+
+/**
+ * Presupuesto de revision (decision 2026-09-24): D12 propone reabrir, el
+ * consultor confirma o descarta, y como mucho hay dos reaperturas por caso.
+ */
+function RevisionBlock({ review }: { review: AdversarialReviewView }) {
+  const [decided, setDecided] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const abierta = review.revisions?.find((r) => r.status === "proposed");
+  const usadas = review.revision_budget_used ?? 0;
+
+  async function decide(requestId: string, decision: "confirm" | "decline") {
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/v1/consultant/diagnostic-revisions/${requestId}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      if (!response.ok) {
+        toast.danger(`No se pudo guardar: ${await readApiError(response)}`);
+        return;
+      }
+      setDecided(decision);
+      toast.success(decision === "confirm" ? "Reapertura confirmada: se revisa en la próxima pasada nocturna." : "Reapertura descartada.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (review.revision_state === "budget_exhausted") {
+    return (
+      <p className="text-danger text-sm">
+        Presupuesto de revisión agotado ({usadas} de 2 reaperturas): el caso queda como no concluyente.
+      </p>
+    );
+  }
+  if (abierta && !decided) {
+    return (
+      <div className="rounded-md border border-default-200 p-3 text-sm">
+        <p>
+          D12 propone reabrir {abierta.reopened_blocks.join(", ") || "los bloques previos"} (reapertura {abierta.attempt} de 2).
+          Hasta que se revise, la confianza del caso no pasa de baja.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => void decide(abierta.id, "confirm")} disabled={busy}>
+            Confirmar reapertura
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void decide(abierta.id, "decline")} disabled={busy}>
+            Descartar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  if (review.revision_state === "confirmed" || decided === "confirm") {
+    return <p className="text-muted text-sm">Reapertura confirmada ({Math.max(usadas, 1)} de 2): se revisa en la próxima pasada nocturna.</p>;
+  }
+  if (review.revision_triggered) {
+    return (
+      <p className="text-danger text-sm">
+        Reabre: {review.reopened_blocks.join(", ") || "bloques previos"}.
+      </p>
+    );
+  }
+  return null;
+}
 
 function Review({ review }: { review: AdversarialReviewView }) {
   const status = survivalStatusLabel(review.survival_status);
@@ -59,11 +128,7 @@ function Review({ review }: { review: AdversarialReviewView }) {
       {review.confidence_adjustment ? (
         <p className="text-muted text-sm">{review.confidence_adjustment}</p>
       ) : null}
-      {review.revision_triggered ? (
-        <p className="text-danger text-sm">
-          Reabre: {review.reopened_blocks.join(", ") || "bloques previos"}.
-        </p>
-      ) : null}
+      <RevisionBlock review={review} />
       {review.remaining_limitations ? (
         <p className="text-muted text-sm">
           Límites restantes: {review.remaining_limitations}

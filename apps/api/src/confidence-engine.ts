@@ -65,7 +65,10 @@ export async function runConfidenceEngine(env: LoadedApiEnv, organizationId: str
     .from("data_quality_assessments")
     .select("reliability, coverage")
     .eq("organization_id", organizationId)
-    .eq("role", "primary")
+    // Antes filtraba por `role` (columna de diagnostic_case_data_quality): la
+    // consulta fallaba y D11 decia siempre que D01 no habia evaluado la fuente.
+    .eq("source", "shopify")
+    .eq("dataset", "orders")
     .order("assessed_at", { ascending: false })
     .limit(1);
 
@@ -237,7 +240,23 @@ export async function runConfidenceEngine(env: LoadedApiEnv, organizationId: str
       },
     };
 
-    const salida = assessConfidence(entrada);
+    // D12 corre antes en la cadena nocturna: su ultima revision pone techo.
+    const { data: robustez } = await supabase
+      .from("diagnostic_robustness")
+      .select("survival_status, revision_state")
+      .eq("case_id", caso.id as string)
+      .eq("review_status", "current")
+      .maybeSingle();
+
+    const salida = assessConfidence({
+      ...entrada,
+      robustness: robustez
+        ? {
+            survival_status: robustez.survival_status as string,
+            revision_state: (robustez.revision_state as string | null) ?? null,
+          }
+        : null,
+    });
 
     // Fuera la lectura anterior. El `on delete cascade` se lleva con ella sus
     // dimensiones, sus techos y sus incertidumbres, que es justo lo que se

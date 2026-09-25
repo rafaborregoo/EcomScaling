@@ -115,6 +115,18 @@ export async function leerHechos(
 }
 
 /** Pasa el motor sobre una organizacion. Devuelve lo que quedo escrito. */
+/** Lo que sale de una declaracion del consultor, no del dato. */
+function camposDeclarados(c: CapabilityMaturity) {
+  return {
+    required_level: c.required_level ?? null,
+    finding: c.finding ?? null,
+    gap_interpretation: c.gap_interpretation ?? null,
+    influences_decisions: c.influences_decisions,
+    has_ownership: c.has_ownership,
+    owner_role: c.owner_role ?? null,
+  };
+}
+
 export async function runMaturityEngine(env: LoadedApiEnv, organizationId: string) {
   const supabase = createServiceClient(env);
   const ahora = new Date().toISOString();
@@ -128,7 +140,7 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
 
   const { data: filasDeclaradas, error: errorDeclaraciones } = await supabase
     .from("capability_maturity_declarations")
-    .select("capability, influences_decisions, has_ownership, owner_role, note")
+    .select("capability, influences_decisions, has_ownership, owner_role, note, required_level")
     .eq("organization_id", organizationId);
   if (errorDeclaraciones) {
     throw new Error(`maturity_declarations_load_failed: ${errorDeclaraciones.message}`);
@@ -180,6 +192,18 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
     if (!cambio) {
       // Nada se movio. No se escribe un perfil nuevo para repetir lo de ayer:
       // eso convertiria el historico en ruido y la supersesion en una mentira.
+      // Lo declarado (nivel requerido, brecha, responsable) si se refresca en
+      // el perfil vigente: cambiar lo que el negocio necesita no es que el
+      // negocio haya cambiado.
+      if (vigente) {
+        for (const c of observadas) {
+          await supabase
+            .from("capability_maturity")
+            .update(camposDeclarados(c))
+            .eq("profile_id", vigente.id as string)
+            .eq("capability", c.capability);
+        }
+      }
       resumen.unchanged += 1;
       continue;
     }
@@ -236,16 +260,14 @@ export async function runMaturityEngine(env: LoadedApiEnv, organizationId: strin
           profile_id: perfil.id as string,
           capability: c.capability,
           current_level: c.current_level,
-          // `required_level`, `expectation_band`, `finding` y
-          // `gap_interpretation` se quedan nulos a proposito: son el juicio que
-          // el artefacto no define y que el motor no inventa.
+          // `expectation_band` se queda nulo: el artefacto no lo define.
+          // `required_level` y la brecha solo existen si un consultor declaro
+          // lo que este negocio necesita (camposDeclarados).
+          ...camposDeclarados(c),
           has_existence: c.has_existence,
           has_consistency: c.has_consistency,
           has_repeatability: c.has_repeatability,
           has_measurement: c.has_measurement,
-          influences_decisions: c.influences_decisions,
-          has_ownership: c.has_ownership,
-          owner_role: c.owner_role ?? null,
           confidence: c.confidence,
         })
         .select("id")

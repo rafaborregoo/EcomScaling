@@ -25,6 +25,7 @@ de [shopify.app.toml](../shopify.app.toml); los dos tienen que decir lo mismo.
 | `read_all_orders` | Histórico de más de 60 días | No — requiere **Access request aprobada** en el Partner Dashboard. Sin él, la tienda se ve desde hace 60 días |
 | `read_returns` | Devoluciones | No — sin él, las devoluciones no restan en los márgenes |
 | `read_reports` | Sesiones y analítica | No — sin él no hay tasa de conversión; el bloque de sesiones se salta solo |
+| `write_pixels` + `read_customer_events` | Pixel propio de vistas de producto (`extensions/ecomscaling-pixel`) | No — sin ellos la reconciliación no puede activar el pixel y las vistas de producto quedan sin dato |
 
 ## Qué pasa al instalar
 
@@ -103,3 +104,24 @@ instalación. Al añadir un scope hay que reinstalar tienda por tienda; hasta
 entonces sus conexiones se quedan con los scopes viejos y, si el nuevo era
 obligatorio, aparecerán como incompletas en la interfaz — que es justo lo que se
 quiere que se vea.
+
+## Pixel de vistas de producto
+
+Shopify no da las vistas de producto por API, así que EcomScaling tiene su propio
+Web Pixel en [extensions/ecomscaling-pixel](../extensions/ecomscaling-pixel/shopify.extension.toml). Envía
+cada `product_viewed` a `POST /v1/pixel/events?s=<store_id>` y la API lo guarda en
+`shopify_pixel_events` (con el client_id ya resumido). La función
+`shopify_product_views` alimenta `conversion_cro.product_views`.
+
+Para que funcione en una tienda:
+
+1. `shopify app deploy` publica la extensión (una vez por versión de la app).
+2. La tienda tiene que haber concedido `write_pixels` y `read_customer_events`
+   (reinstalar si se conectó antes del 2026-09-25).
+3. La reconciliación nocturna llama a `webPixelCreate` con el id de la tienda y la
+   URL de la API. Es idempotente; si faltan los permisos lo registra como
+   `web_pixel_activation_failed` y sigue.
+
+El pixel solo corre con consentimiento de analítica del comprador
+(`customer_privacy.analytics = true`). Antes de la primera vista registrada,
+`first_event_at` es null y el dato es desconocido, no cero.

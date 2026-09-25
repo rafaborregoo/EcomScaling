@@ -1,0 +1,31 @@
+# Pixel propio de EcomScaling. Manda cada vista de producto a la API
+# (POST /v1/pixel/events) para medir el paso "vio el producto" del embudo, que
+# Shopify no expone por API. La API lo activa en cada tienda con webPixelCreate
+# durante la reconciliacion nocturna (apps/api/src/shopify-pixel.ts); aqui solo
+# se declara. Se publica con `shopify app deploy`.
+type = "web_pixel_extension"
+name = "ecomscaling-pixel"
+runtime_context = "strict"
+
+# Solo analitica: sin consentimiento de analitica del comprador, Shopify no
+# ejecuta el pixel.
+[customer_privacy]
+analytics = true
+marketing = false
+preferences = false
+sale_of_data = "disabled"
+
+[settings]
+type = "object"
+
+[settings.fields.accountID]
+name = "ID de tienda en EcomScaling"
+description = "Lo rellena la API al activar el pixel."
+type = "single_line_text_field"
+validations = [{ name = "min", value = "1" }]
+
+[settings.fields.endpoint]
+name = "URL de eventos"
+description = "Lo rellena la API al activar el pixel."
+type = "single_line_text_field"
+validations = [{ name = "min", value = "1" }]

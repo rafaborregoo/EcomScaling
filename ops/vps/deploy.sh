@@ -23,7 +23,10 @@ compose="-f $remote/docker-compose.prod.yml -f $remote/docker-compose.build.yml"
 cd "$(git rev-parse --show-toplevel)"
 
 sha="$(git rev-parse HEAD)"
-if ! git diff-index --quiet HEAD --; then
+# Sin rsync se sube HEAD con git archive (paso 2): lo que llega al VPS es el
+# commit exacto aunque el arbol tenga cambios ajenos sin commitear, asi que
+# GIT_SHA dice la verdad y no hace falta exigir arbol limpio.
+if command -v rsync >/dev/null 2>&1 && ! git diff-index --quiet HEAD --; then
   if [ "${ECOM_ALLOW_DIRTY:-0}" != "1" ]; then
     echo "ABORTADO: hay cambios sin commitear." >&2
     echo "El VPS debe correr codigo que exista en un commit, o GIT_SHA miente." >&2
@@ -72,12 +75,11 @@ if command -v rsync >/dev/null 2>&1; then
     --exclude '*.bundle' \
     ./ "$host:$remote/src/"
 else
-  # Git Bash en Windows no trae rsync. git archive sube exactamente HEAD, asi
-  # que con el arbol sucio no puede cumplir lo que promete ECOM_ALLOW_DIRTY.
-  case "$sha" in *-dirty)
-    echo "ABORTADO: sin rsync solo se puede desplegar un commit; commitea o instala rsync." >&2
-    exit 1 ;;
-  esac
+  # Git Bash en Windows no trae rsync. git archive sube exactamente HEAD: lo
+  # que no este commiteado no viaja.
+  if ! git diff-index --quiet HEAD --; then
+    echo "AVISO: hay cambios sin commitear; no se suben (se despliega HEAD $sha)."
+  fi
   git archive --format=tar HEAD -- . \
     ':(exclude)conocimiento' ':(exclude)docs' ':(exclude)roadmap' \
     ':(exclude)Agentes IA' ':(exclude)Base de Datos' \

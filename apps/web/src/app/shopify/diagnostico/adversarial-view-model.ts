@@ -34,6 +34,9 @@ export type AdversarialReviewView = {
   red_team_effect: string | null;
   revision_triggered: boolean;
   reopened_blocks: string[];
+  revision_state?: string | null;
+  revision_budget_used?: number;
+  revisions?: Array<{ id: string; status: string; attempt: number; reopened_blocks: string[]; decided_at: string | null }>;
   remaining_limitations: string | null;
   confounders: AdversarialConfounderView[];
   gates: Array<Record<string, string | null>>;

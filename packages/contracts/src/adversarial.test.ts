@@ -28,6 +28,8 @@ import {
   getDiagnosticRobustness,
   runRedTeam,
   type AdversarialRuntimeInput,
+  REVISION_BUDGET,
+  revisionDecision,
 } from "./adversarial.js";
 import { confounderSchema } from "./context.js";
 
@@ -580,4 +582,15 @@ test("la familia retention deja trazado el check de cohortes cuando no hay madur
   assert.equal(check?.status, "not_possible");
   assert.match(check?.reason ?? "", /madurez|cohort/i);
   assert.ok(result.robustness.remaining_limitations);
+});
+
+test("D12: la revision se propone, se confirma y tiene presupuesto", () => {
+  assert.deepEqual(revisionDecision({ revision_triggered: true, confirmed_count: 0, open_proposal: false }), { state: "proposed", propose: true, budget_used: 0 });
+  // Con una propuesta esperando no se apila otra.
+  assert.equal(revisionDecision({ revision_triggered: true, confirmed_count: 0, open_proposal: true }).propose, false);
+  // Agotado el presupuesto no se reabre mas.
+  assert.deepEqual(revisionDecision({ revision_triggered: true, confirmed_count: REVISION_BUDGET, open_proposal: false }), { state: "budget_exhausted", propose: false, budget_used: REVISION_BUDGET });
+  // Una confirmacion que aun no tiene revision posterior sigue en curso.
+  assert.equal(revisionDecision({ revision_triggered: true, confirmed_count: 1, open_proposal: false, confirmation_pending_review: true }).state, "confirmed");
+  assert.equal(revisionDecision({ revision_triggered: false, confirmed_count: 1, open_proposal: false }).state, "none");
 });

@@ -119,9 +119,10 @@ const RESULT_PROPS = new Set(["data", "error", "available", "days"]);
 
 // Lecturas de un campo que ninguna funcion devuelve, a sabiendas, con su motivo.
 const ACEPTADOS = new Map([
-  // Hecho declarado sin fuente: queda UNKNOWN, que es honesto
-  // (conocimiento/TAREAS_PENDIENTES.md, "conversion_cro.product_views").
-  ["conversion-cro-benchmarks-engine.ts:shopify_funnel_summary.product_views", "sin fuente"],
+  // `evidence.funnel.product_views` se rellena desde shopify_product_views (pixel
+  // propio), no desde shopify_funnel_summary: el auditor ve la variable `funnel`
+  // y la ata a la funcion equivocada.
+  ["conversion-cro-benchmarks-engine.ts:shopify_funnel_summary.product_views", "viene de shopify_product_views"],
 ]);
 
 const dir = "apps/api/src";

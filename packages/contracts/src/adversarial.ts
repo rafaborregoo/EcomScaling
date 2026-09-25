@@ -1229,3 +1229,36 @@ function buildConfounderTests(
       });
     });
 }
+
+// ---------------------------------------------------------------------------
+// Presupuesto de revision (apartado 11). Decision de producto del 2026-09-24:
+// como mucho REVISION_BUDGET reaperturas por caso; el sistema las PROPONE y el
+// consultor las confirma. Agotado el presupuesto, el caso no se reabre mas y
+// queda como no concluyente: reabrir sin fin es la forma de no cerrar nunca.
+// ---------------------------------------------------------------------------
+
+export const REVISION_BUDGET = 2;
+
+export const REVISION_STATES = ["none", "proposed", "confirmed", "budget_exhausted"] as const;
+export type RevisionState = (typeof REVISION_STATES)[number];
+
+export function revisionDecision(input: {
+  revision_triggered: boolean;
+  /** Reaperturas ya confirmadas por el consultor para este caso. */
+  confirmed_count: number;
+  /** Hay una propuesta esperando respuesta. */
+  open_proposal: boolean;
+  /** La ultima confirmacion todavia no tiene una revision posterior. */
+  confirmation_pending_review?: boolean;
+}): { state: RevisionState; propose: boolean; budget_used: number } {
+  const used = Math.max(0, input.confirmed_count);
+  if (input.confirmation_pending_review) return { state: "confirmed", propose: false, budget_used: used };
+  if (!input.revision_triggered) {
+    return { state: input.open_proposal ? "proposed" : "none", propose: false, budget_used: used };
+  }
+  if (used >= REVISION_BUDGET) return { state: "budget_exhausted", propose: false, budget_used: used };
+  return { state: "proposed", propose: !input.open_proposal, budget_used: used };
+}
+
+export const REVISION_BUDGET_EXHAUSTED_NOTE =
+  `Presupuesto de revision agotado (${REVISION_BUDGET} reaperturas): el diagnostico no se reabre mas y queda como no concluyente hasta que cambie la evidencia.`;

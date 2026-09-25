@@ -10,6 +10,8 @@ import { createClient } from "@supabase/supabase-js";
 import {
   DIAGNOSTIC_FAMILIES,
   getDiagnosticRobustness,
+  REVISION_BUDGET_EXHAUSTED_NOTE,
+  revisionDecision,
   type AdversarialRuntimeInput,
   type AdversarialRuntimeSignal,
   type AdversarialRuntimeEvent,
@@ -219,6 +221,31 @@ async function loadCaseInput(supabase: any, organizationId: string, row: CaseRow
 async function persistReview(supabase: any, organizationId: string, input: AdversarialRuntimeInput) {
   const review = getDiagnosticRobustness(input);
 
+  // Presupuesto de revision: cuantas reaperturas ya confirmo el consultor y si
+  // hay una propuesta esperando. Una confirmacion posterior a la ultima
+  // revision todavia no ha sido revisada, asi que el caso sigue "confirmado".
+  const { data: peticiones, error: peticionesError } = await supabase
+    .from("diagnostic_revision_requests")
+    .select("id, status, decided_at")
+    .eq("case_id", input.caseId);
+  if (peticionesError) throw new Error(`adversarial_revisions_load_failed: ${peticionesError.message}`);
+  const { data: previa } = await supabase
+    .from("diagnostic_robustness")
+    .select("reviewed_at")
+    .eq("case_id", input.caseId)
+    .eq("review_status", "current")
+    .maybeSingle();
+  const confirmadas = (peticiones ?? []).filter((p: any) => p.status === "confirmed");
+  const pendienteDeRevisar = confirmadas.some(
+    (p: any) => p.decided_at && previa?.reviewed_at && p.decided_at > previa.reviewed_at,
+  );
+  const revision = revisionDecision({
+    revision_triggered: review.robustness.revision_triggered,
+    confirmed_count: confirmadas.length,
+    open_proposal: (peticiones ?? []).some((p: any) => p.status === "proposed"),
+    confirmation_pending_review: pendienteDeRevisar,
+  });
+
   const { error: checksDeleteError } = await supabase.from("mandatory_confounder_checks").delete().eq("case_id", input.caseId);
   if (checksDeleteError) throw new Error(`adversarial_checks_delete_failed: ${checksDeleteError.message}`);
   const { error: gateDeleteError } = await supabase.from("metric_comparability_gates").delete().eq("case_id", input.caseId);
@@ -246,10 +273,36 @@ async function persistReview(supabase: any, organizationId: string, input: Adver
     red_team_effect: review.robustness.red_team_effect ?? null,
     revision_triggered: review.robustness.revision_triggered,
     reopened_blocks: review.robustness.reopened_blocks,
-    revision_budget_used: 0,
-    remaining_limitations: review.robustness.remaining_limitations ?? null,
+    revision_budget_used: revision.budget_used,
+    revision_state: revision.state,
+    remaining_limitations:
+      revision.state === "budget_exhausted"
+        ? [review.robustness.remaining_limitations, REVISION_BUDGET_EXHAUSTED_NOTE].filter(Boolean).join(" ")
+        : (review.robustness.remaining_limitations ?? null),
   }).select("id").single();
   if (robustnessError || !robustness) throw new Error(`adversarial_robustness_write_failed: ${robustnessError?.message ?? "no row"}`);
+
+  if (revision.state === "budget_exhausted") {
+    // Sin mas reaperturas, el caso deja de investigarse: queda no concluyente
+    // hasta que entre evidencia nueva y alguien lo vuelva a abrir.
+    await supabase
+      .from("diagnostic_cases")
+      .update({ status: "inconclusive" })
+      .eq("id", input.caseId)
+      .in("status", ["open", "investigating"]);
+  }
+
+  if (revision.propose) {
+    const { error: proposalError } = await supabase.from("diagnostic_revision_requests").insert({
+      organization_id: organizationId,
+      case_id: input.caseId,
+      robustness_id: robustness.id,
+      reopened_blocks: review.robustness.reopened_blocks,
+      attempt: revision.budget_used + 1,
+      status: "proposed",
+    });
+    if (proposalError) throw new Error(`adversarial_revision_proposal_failed: ${proposalError.message}`);
+  }
 
   const confounderIds = new Map<string, string>();
   for (const confounder of review.confounders) {

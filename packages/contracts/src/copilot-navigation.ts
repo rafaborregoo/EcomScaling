@@ -70,6 +70,10 @@ export const COPILOT_INSIGHT_TARGET_SLUGS = [
   "hitl-approval",
   "closure-handoff",
   "continuous-learning",
+  "f9-evidence",
+  "f9-domains",
+  "f9-knowledge",
+  "f9-governance",
 ] as const;
 
 export type CopilotInsightTarget = (typeof COPILOT_INSIGHT_TARGET_SLUGS)[number];

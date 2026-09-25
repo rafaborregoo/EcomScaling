@@ -1,14 +1,112 @@
 "use client";
+
+/**
+ * F9 — aprendizaje continuo. Cuatro secciones con su ancla (para InsightsMenu
+ * y el Copiloto) y, en cada bloque, su decision, su motivo y lo que falta.
+ * Solo consultor. Nada de esto promociona conocimiento ni cambia autonomia.
+ */
+
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { Badge, Card, ErrorBlock, LoadingBlock } from "@/components/ui";
-import { continuousLearningTone, continuousLearningViewModel, type ContinuousLearningRun } from "./continuous-learning-view-model";
-const list = (items: string[]) => items.length ? items.join(" · ") : "No declarado";
+import {
+  continuousLearningTone,
+  continuousLearningViewModel,
+  type ContinuousLearningRun,
+  type LearningBlockView,
+} from "./continuous-learning-view-model";
+
+function BlockRow({ item }: { item: LearningBlockView }) {
+  return (
+    <li className="border-t border-default-200 py-3 first:border-t-0 first:pt-0">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-medium">
+          {item.block}
+          {item.title ? ` · ${item.title}` : ""}
+        </span>
+        <Badge tone={continuousLearningTone(item.status)}>{item.decision}</Badge>
+      </div>
+      <p className="mt-1 max-w-prose text-sm leading-6">{item.why}</p>
+      {item.failedChecks.length ? (
+        <ul className="text-muted mt-1 space-y-0.5 text-xs">
+          {item.failedChecks.map((c) => (
+            <li key={c.id}>{c.detail}</li>
+          ))}
+        </ul>
+      ) : null}
+      {item.next.length ? <p className="text-muted mt-1 text-xs">Falta: {item.next.join(" · ")}</p> : null}
+    </li>
+  );
+}
+
 export function ContinuousLearningPanel({ organizationId }: { organizationId?: string }) {
-  const [runs, setRuns] = useState<ContinuousLearningRun[] | null>(null); const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (!organizationId) { setRuns([]); setError(null); return; } let cancelled = false; apiFetch(`/v1/consultant/continuous-learning?organizationId=${encodeURIComponent(organizationId)}`).then(async (response) => { if (!response.ok) throw new Error(await readApiError(response)); return response.json() as Promise<{ assessments: ContinuousLearningRun[] }>; }).then((payload) => { if (!cancelled) setRuns(payload.assessments); }).catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "No se pudo cargar F9."); }); return () => { cancelled = true; }; }, [organizationId]);
-  if (error) return <ErrorBlock>{error}</ErrorBlock>; if (!runs) return <LoadingBlock label="Cargando aprendizaje continuo F9..." />;
+  const [runs, setRuns] = useState<ContinuousLearningRun[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!organizationId) {
+      setRuns([]);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    apiFetch(`/v1/consultant/continuous-learning?organizationId=${encodeURIComponent(organizationId)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await readApiError(response));
+        return response.json() as Promise<{ assessments: ContinuousLearningRun[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setRuns(payload.assessments);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "No se pudo cargar F9.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
+  if (error) return <ErrorBlock>{error}</ErrorBlock>;
+  if (!runs) return <LoadingBlock label="Cargando aprendizaje continuo..." />;
   const model = continuousLearningViewModel(runs);
-  return <Card id="insight-continuous-learning" title="Aprendizaje continuo" description="La IA conserva la experiencia, separa outcome operacional de aprendizaje causal y muestra qué evidencia falta antes de reutilizar un patrón."><div className="space-y-4"><div className="grid gap-3 md:grid-cols-4"><div><p className="text-xs text-muted">Bloques evaluados</p><p className="text-lg font-semibold">{model.items.length}/40</p></div><div><p className="text-xs text-muted">Listos</p><p className="text-lg font-semibold">{model.ready}</p></div><div><p className="text-xs text-muted">En espera</p><p className="text-lg font-semibold">{model.waiting}</p></div><div><p className="text-xs text-muted">Revisión / bloqueados</p><p className="text-lg font-semibold">{model.review} / {model.blocked}</p></div></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b border-default-200 text-xs uppercase tracking-wide text-muted"><th className="py-2 pr-3">Bloque</th><th className="py-2 pr-3">Estado</th><th className="py-2 pr-3">Outcome</th><th className="py-2">Confianza</th></tr></thead><tbody>{model.items.map((item) => <tr key={item.block_code} className="border-b border-default-100"><td className="py-2 pr-3 font-medium">{item.block_code}</td><td className="py-2 pr-3"><Badge tone={continuousLearningTone(item.status ?? "")}>{item.status ?? "UNKNOWN"}</Badge></td><td className="py-2 pr-3">{item.classification ?? "INCONCLUSIVE"}</td><td className="py-2">{item.confidence ?? "LOW"}</td></tr>)}</tbody></table></div>{model.rationale.length ? <p className="text-xs text-muted">Rationale: {list(model.rationale)}</p> : null}{model.nextEvidence.length ? <p className="text-xs text-muted">Siguiente evidencia: {list(model.nextEvidence)}</p> : null}<p className="text-xs text-muted">El panel es consultivo y tenant-scoped; no autoriza ejecución ni promociona conocimiento automáticamente.</p></div></Card>;
+
+  return (
+    <Card
+      id="insight-continuous-learning"
+      title="Aprendizaje continuo"
+      description="Qué se puede aprender de lo ejecutado, con qué evidencia y qué falta. Propone; no promociona conocimiento ni cambia la autonomía."
+    >
+      <div className="grid gap-3 sm:grid-cols-4">
+        <div>
+          <p className="text-muted text-xs">Evaluados</p>
+          <p className="text-lg font-semibold">{model.evaluated}/40</p>
+        </div>
+        <div>
+          <p className="text-muted text-xs">Listos</p>
+          <p className="text-lg font-semibold">{model.ready}</p>
+        </div>
+        <div>
+          <p className="text-muted text-xs">Esperan evidencia</p>
+          <p className="text-lg font-semibold">{model.waiting}</p>
+        </div>
+        <div>
+          <p className="text-muted text-xs">Revisión / bloqueados</p>
+          <p className="text-lg font-semibold">
+            {model.review} / {model.blocked}
+          </p>
+        </div>
+      </div>
+      {model.sections.map((section) => (
+        <section key={section.id} id={section.anchor} className="mt-6">
+          <p className="text-xs uppercase tracking-wide">{section.title}</p>
+          <ul className="mt-2">
+            {section.items.map((item) => (
+              <BlockRow key={item.block} item={item} />
+            ))}
+          </ul>
+        </section>
+      ))}
+    </Card>
+  );
 }

@@ -51,8 +51,19 @@ export type MaturityDeclarationView = {
   has_ownership: boolean;
   owner_role: string | null;
   note: string | null;
+  required_level?: string | null;
   declared_at: string;
 };
+
+/** Lo que puede necesitar un negocio de una capacidad, en el orden de la escalera. */
+export const REQUIRED_LEVEL_OPTIONS = [
+  { value: "ad_hoc", label: "A ratos basta" },
+  { value: "repeatable", label: "Siempre igual" },
+  { value: "defined", label: "Con método y medida" },
+  { value: "measured", label: "Medido y decidiendo con ello" },
+  { value: "optimized", label: "Optimizado" },
+  { value: "adaptive", label: "Adaptativo" },
+];
 
 export type MaturityProfileView = {
   id: string;
@@ -120,6 +131,16 @@ export function levelLabel(level: string): { label: string; detail: string; tone
         detail: "Hay una forma de hacerlo y hay datos con los que seguirla.",
         tone: "success",
       };
+    case "measured":
+      return {
+        label: "Medido y decide",
+        detail: "Se mide y la medida cambia decisiones: lo ha declarado el consultor.",
+        tone: "success",
+      };
+    case "optimized":
+      return { label: "Optimizado", detail: "", tone: "success" };
+    case "adaptive":
+      return { label: "Adaptativo", detail: "", tone: "success" };
     case "absent":
       return { label: "No existe", detail: "", tone: "danger" };
     default:
@@ -181,7 +202,9 @@ export function gapLabel(c: CapabilityView): { label: string; tone: MaturityTone
   if (c.finding == null) {
     return { label: `Necesita ${levelLabel(c.required_level).label.toLowerCase()}`, tone: "warn" };
   }
-  return { label: c.gap_interpretation ?? c.finding, tone: "warn" };
+  const tone: MaturityTone =
+    c.finding === "appropriate" ? "success" : c.finding === "critically_behind" ? "danger" : "warn";
+  return { label: c.gap_interpretation ?? c.finding, tone };
 }
 
 /**

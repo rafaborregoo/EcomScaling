@@ -33,8 +33,8 @@ export const NIGHTLY_CHAIN = [
   "hypothesis", // D08
   "root-cause", // D09, detras de D04 y D08
   "severity", // D10
+  "adversarial", // D12, antes que D11: su revision le pone techo
   "confidence", // D11, el ultimo que califica
-  "adversarial", // D12
   "temporal", // D13
   "diagnostic-output", // D14
   // F4 priorizacion y decision

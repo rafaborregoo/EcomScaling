@@ -191,6 +191,18 @@ export const SHOPIFY_SCOPES_USED: readonly ShopifyScopeInfo[] = [
     required: false,
     note: "Sin él no hay tasa de conversión: el sync de sesiones se salta solo.",
   },
+  {
+    scope: "write_pixels",
+    label: "Pixel de EcomScaling",
+    required: false,
+    note: "Permite activar el pixel propio que cuenta las vistas de producto. Sin él, ese paso del embudo queda sin dato.",
+  },
+  {
+    scope: "read_customer_events",
+    label: "Eventos del comprador",
+    required: false,
+    note: "Lo pide Shopify junto a write_pixels para que el pixel reciba las vistas de producto.",
+  },
 ];
 
 export function shopifyScopeInfo(scope: string): ShopifyScopeInfo | null {
@@ -208,6 +220,7 @@ export * from "./context.js";
 
 // FASE 3 / D03: madurez por capacidad y sus invariantes estructurales.
 export * from "./maturity.js";
+export * from "./customer-lifetime.js";
 
 // FASE 3 / D04: salud por capacidad, separada de la madurez de D03.
 export * from "./health.js";
@@ -350,4 +363,9 @@ export * from "./execution-reporting.js";
 
 // FASE 9: experience, outcome classification y learning gates.
 export * from "./continuous-learning.js";
+export * from "./learning-snapshot.js";
+export * from "./learning-blocks-evidence.js";
+export * from "./learning-blocks-domain.js";
+export * from "./learning-blocks-knowledge.js";
+export * from "./learning-blocks-governance.js";
 export * from "./copilot-navigation.js";

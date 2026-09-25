@@ -111,6 +111,13 @@ const shopifyScopeCatalog: ShopifyScopeCatalogItem[] = [
     enables: ["ShopifyQL", "reporting agregado", "comparativas por periodo"],
   },
   {
+    scope: "write_pixels",
+    area: "Embudo",
+    status: "active_ingestion",
+    fields: ["webPixel.settings", "product_viewed"],
+    enables: ["Vistas de producto", "paso producto → carrito del embudo"],
+  },
+  {
     scope: "read_discounts",
     area: "Descuentos",
     status: "active_ingestion",

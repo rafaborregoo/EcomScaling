@@ -92,8 +92,117 @@ export type ShopifyInsights = {
     orders_with_multiple_codes: number;
     discount_share: number | null;
   }>;
+  lifetime?: {
+    curve: LifetimeMilestone[];
+    ltv: LifetimeMilestone | null;
+    payback:
+      | { status: "PAID_BACK"; days: number }
+      | { status: "NOT_WITHIN_HORIZON" }
+      | { status: "UNKNOWN"; reason: string };
+  } | null;
+  churn?: {
+    churn_days: number;
+    base_customers: number;
+    churned_customers: number;
+    churn_rate: number | string | null;
+  } | null;
   unavailable: string[];
 };
+
+type LifetimeMilestone = {
+  milestone_days: number;
+  cohort_customers: number;
+  avg_revenue: number | null;
+  avg_contribution: number | null;
+  items_without_cost: number;
+  cohort_cac: number | null;
+};
+
+const PAYBACK_UNKNOWN: Record<string, string> = {
+  sin_cohorte: "sin clientes con historia suficiente",
+  cohorte_inmadura: "aún sin un año de historia",
+  sin_coste: "falta el coste de producto",
+  sin_cac: "sin gasto publicitario en la ventana",
+};
+
+/**
+ * LTV sobre margen de contribucion a 365 dias, o el hito mas largo que ya
+ * tenga cohorte madura. Si falta el coste de alguna linea, se dice: nunca se
+ * cambia el margen por el ingreso sin avisar.
+ */
+function LifetimeMetrics({
+  insights,
+  currency,
+}: {
+  insights: ShopifyInsights;
+  currency: string;
+}) {
+  const lifetime = insights.lifetime;
+  const churn = insights.churn;
+  if (!lifetime && !churn) return null;
+  const ltv = lifetime?.ltv ?? null;
+  const horizon = ltv ? `a ${ltv.milestone_days} días` : "";
+  const payback = lifetime?.payback;
+  const churnRate = churn?.churn_rate == null ? null : Number(churn.churn_rate);
+
+  return (
+    <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <Metric
+        card
+        label={`LTV (margen) ${horizon}`.trim()}
+        value={
+          ltv?.avg_contribution == null
+            ? "—"
+            : formatMoney(ltv.avg_contribution, currency)
+        }
+        hint={
+          !ltv
+            ? "sin clientes con historia suficiente"
+            : ltv.avg_contribution == null
+              ? `sin coste en ${count(ltv.items_without_cost)} líneas`
+              : `${count(ltv.cohort_customers)} clientes en la cohorte`
+        }
+      />
+      <Metric
+        card
+        label={`Ingreso por cliente ${horizon}`.trim()}
+        value={
+          ltv?.avg_revenue == null ? "—" : formatMoney(ltv.avg_revenue, currency)
+        }
+        hint="sin impuestos ni devoluciones"
+      />
+      <Metric
+        card
+        label="Payback del CAC"
+        value={
+          payback?.status === "PAID_BACK"
+            ? `${payback.days} días`
+            : payback?.status === "NOT_WITHIN_HORIZON"
+              ? "> 1 año"
+              : "—"
+        }
+        tone={payback?.status === "NOT_WITHIN_HORIZON" ? "warn" : "default"}
+        hint={
+          payback?.status === "UNKNOWN"
+            ? PAYBACK_UNKNOWN[payback.reason]
+            : payback?.status === "NOT_WITHIN_HORIZON"
+              ? "el margen de un año no cubre lo que costó captarlos"
+              : undefined
+        }
+      />
+      <Metric
+        card
+        label={`Churn a ${churn?.churn_days ?? 180} días`}
+        value={percent(churnRate)}
+        hint={
+          churn && churn.base_customers > 0
+            ? `${count(Number(churn.churned_customers))} de ${count(Number(churn.base_customers))} no han vuelto`
+            : "sin clientes en la base"
+        }
+      />
+    </div>
+  );
+}
 
 // Las cohortes mas alla del medio año hacen la tabla ilegible en pantalla y
 // nadie decide nada con ellas: el dato sigue en la funcion SQL para quien lo
@@ -272,6 +381,8 @@ function CustomersSection({
           />
         </div>
       ) : null}
+
+      <LifetimeMetrics insights={insights} currency={currency} />
 
       {/* El valor por cliente no se recorta al periodo: un LTV de 30 dias es
           un numero mas pequeño que no significa nada. */}

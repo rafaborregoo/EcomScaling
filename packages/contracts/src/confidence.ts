@@ -97,6 +97,7 @@ export const CAP_SOURCES = [
   "data_quality", "insufficient_coverage", "weak_temporal_fit", "scope_mismatch",
   "external_cause_unobserved", "inadequate_horizon", "broad_structural_claim",
   "measurement_change", "sample_too_small", "dependent_evidence", "stale_knowledge",
+  "adversarial_review",
 ] as const;
 
 /** Apartado 7. */
@@ -643,7 +644,14 @@ export type SeverityForConfidence = {
   has_measurement: boolean;
 };
 
+/** Lo que D12 dijo del caso en su ultima revision. */
+export type RobustnessForConfidence = {
+  survival_status: string;
+  revision_state: string | null;
+};
+
 export type ConfidenceEngineInput = {
+  robustness?: RobustnessForConfidence | null;
   caseId: string;
   targetMetric: string;
   targetQuestion: string;
@@ -998,7 +1006,68 @@ function buildCausalClaims(
  * pueden decir "no se sabe": esas son las que impiden que el caso se lea como
  * cerrado.
  */
+/**
+ * El techo que pone D12. Si la revision adversarial invalida el diagnostico,
+ * nada de lo que explica se sostiene; si pide revisarlo (propuesta, reapertura
+ * confirmada o presupuesto agotado), nada pasa de bajo hasta que se revise.
+ * La capa de medicion no se toca: D12 discute la explicacion, no la cifra.
+ */
+export function adversarialCap(
+  robustness: RobustnessForConfidence | null | undefined,
+): { capped_level: string; reason: string } | null {
+  if (!robustness) return null;
+  if (robustness.survival_status === "invalidated") {
+    return {
+      capped_level: "insufficient_data",
+      reason: "La revision adversarial de D12 invalida este diagnostico: la explicacion no se sostiene frente a sus alternativas.",
+    };
+  }
+  if (robustness.revision_state === "budget_exhausted") {
+    return {
+      capped_level: "low",
+      reason: "D12 agoto el presupuesto de revision de este caso: queda como no concluyente y no se afirma nada por encima de bajo.",
+    };
+  }
+  if (
+    robustness.survival_status === "requires_revision" ||
+    robustness.revision_state === "proposed" ||
+    robustness.revision_state === "confirmed"
+  ) {
+    return {
+      capped_level: "low",
+      reason: "D12 pide revisar este diagnostico y la revision no ha terminado: hasta entonces no se afirma nada por encima de bajo.",
+    };
+  }
+  return null;
+}
+
+function applyAdversarialCap(claim: ClaimDraft, cap: { capped_level: string; reason: string }): ClaimDraft {
+  if (claim.claim_layer === "measurement") return claim;
+  const level = capTo(claim.confidence_level, cap.capped_level);
+  const cappedAt = claim.capped_at == null ? cap.capped_level : capTo(claim.capped_at, cap.capped_level);
+  return {
+    ...claim,
+    confidence_level: level,
+    // Guardrail 23: confirmado exige alta. Por debajo, vuelve a inferido.
+    epistemic_state: claim.epistemic_state === "confirmed" && level !== "high" ? "inferred" : claim.epistemic_state,
+    // Guardrail 30: sin datos suficientes no se afirma estabilidad ni ausencia.
+    negative_claim_state:
+      level === "insufficient_data" && claim.negative_claim_state && claim.negative_claim_state !== "no_evidence"
+        ? "no_evidence"
+        : claim.negative_claim_state,
+    capped_at: cappedAt,
+    cap_reason: cappedAt !== claim.capped_at ? cap.reason : (claim.cap_reason ?? cap.reason),
+    caps: [...claim.caps, { cap_source: "adversarial_review", capped_level: cap.capped_level, reason: cap.reason }],
+  };
+}
+
 export function assessConfidence(input: ConfidenceEngineInput): ConfidenceEngineOutput {
+  const output = assessConfidenceBeforeReview(input);
+  const cap = adversarialCap(input.robustness);
+  return cap ? { ...output, claims: output.claims.map((claim) => applyAdversarialCap(claim, cap)) } : output;
+}
+
+function assessConfidenceBeforeReview(input: ConfidenceEngineInput): ConfidenceEngineOutput {
   const { targetMetric, targetQuestion, scope, signal, symptom, severity } = input;
   const lecturaCausal = readCausalEvidence(input.causal);
 

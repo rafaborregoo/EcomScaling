@@ -30,6 +30,7 @@ import {
   EPISTEMIC_STATES,
   type ClaimConfidence,
   type ConfidenceCheckInput,
+  adversarialCap,
 } from "./confidence.js";
 
 function claim(over: Partial<ClaimConfidence> = {}): ClaimConfidence {
@@ -770,4 +771,22 @@ test("D11: ninguna afirmacion lleva un porcentaje", () => {
     assert.ok(!("probability" in c), "no cabe una probabilidad");
     assert.ok(!("score" in c), "no cabe una nota");
   }
+});
+
+test("D11: la revision adversarial de D12 pone techo a todo menos a la medicion", () => {
+  const base = assessConfidence(entradaConfianza());
+  const revisada = assessConfidence({ ...entradaConfianza(), robustness: { survival_status: "requires_revision", revision_state: "proposed" } });
+  const orden = { insufficient_data: 0, low: 1, medium: 2, high: 3 } as Record<string, number>;
+  for (const claim of revisada.claims) {
+    const antes = base.claims.find((c) => c.claim_layer === claim.claim_layer)!;
+    if (claim.claim_layer === "measurement") {
+      assert.equal(claim.confidence_level, antes.confidence_level);
+      continue;
+    }
+    assert.ok(orden[claim.confidence_level]! <= orden.low!);
+    assert.ok(claim.caps.some((cap) => cap.cap_source === "adversarial_review"));
+    assert.ok(orden[claim.confidence_level]! <= orden[claim.capped_at!]!);
+  }
+  assert.equal(adversarialCap({ survival_status: "invalidated", revision_state: "none" })?.capped_level, "insufficient_data");
+  assert.equal(adversarialCap({ survival_status: "survives", revision_state: "none" }), null);
 });

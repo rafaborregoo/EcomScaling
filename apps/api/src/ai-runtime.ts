@@ -1837,6 +1837,8 @@ function buildAgentTools(
           "shopify_customer_recurrence",
           "shopify_customer_value",
           "shopify_cohorts",
+          "shopify_customer_lifetime",
+          "shopify_customer_churn",
         ],
         purpose: "Herramienta shopify_customer_health de un agente IA",
         storeId,
@@ -1852,6 +1854,16 @@ function buildAgentTools(
           target_organization_id: organizationId,
           target_store_id: storeId,
           months_back: 12,
+        }),
+        ltv: client.rpc("shopify_customer_lifetime", {
+          target_organization_id: organizationId,
+          target_store_id: storeId,
+          as_of: window.period_end,
+        }),
+        churn: client.rpc("shopify_customer_churn", {
+          target_organization_id: organizationId,
+          target_store_id: storeId,
+          as_of: window.period_end,
         }),
       });
     },

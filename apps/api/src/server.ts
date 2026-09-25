@@ -13,6 +13,7 @@ import {
   causalEdgeInputSchema,
   healthReferenceInputSchema,
   maturityDeclarationSchema,
+  severityThresholdsSchema,
   healthResponseSchema,
   readinessResponseSchema,
 } from "@ecomscaling/contracts";
@@ -161,8 +162,13 @@ import {
   upsertConsultantAssignment,
   upsertOrganizationMember,
   updateOrganization,
+  getSeverityThresholds,
+  setSeverityThresholds,
+  decideDiagnosticRevision,
 } from "./consultant.js";
 import { runMaturityEngine } from "./maturity-engine.js";
+import { runSeverityEngine } from "./severity-engine.js";
+import { ingestPixelEvent, isPixelStoreId } from "./shopify-pixel.js";
 import {
   declareChangeEvent,
   declareContextFact,
@@ -2517,6 +2523,21 @@ export async function buildApp(): Promise<FastifyInstance> {
   // F3/D12. El consultor ve la contraexplicación, todos los confusores,
   // checks obligatorios y sensibilidad; no se presenta como dato accionable
   // al cliente sin una traducción posterior.
+  app.post("/v1/consultant/diagnostic-revisions/:requestId/decision", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const { requestId } = request.params as { requestId: string };
+    const { decision } = (request.body ?? {}) as { decision?: string };
+    if (decision !== "confirm" && decision !== "decline") {
+      return reply.code(400).send({ error: "invalid_revision_decision" });
+    }
+    const result = await decideDiagnosticRevision(env, authorization, auth.context, requestId, decision);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
   app.get("/v1/consultant/adversarial", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
     if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
@@ -3576,6 +3597,65 @@ export async function buildApp(): Promise<FastifyInstance> {
   // F3/D10. Cuanto dano hay, medido: cuanto se movio, sobre que base y con que
   // supuestos. **Ninguna severidad**: la fuente no define formula ni umbral.
   // Solo consultor -- una cifra de perdida sin causa es un susto sin salida.
+  // Pixel propio (extensions/ecomscaling-pixel). Publica: la llama el
+  // navegador del comprador. El cuerpo llega como text/plain para que el
+  // navegador no haga preflight; la respuesta no la lee nadie. El limite va por
+  // tienda y no por IP: detras de Caddy todas las IP son la del proxy.
+  app.post(
+    "/v1/pixel/events",
+    {
+      config: {
+        rateLimit: {
+          max: 1200,
+          timeWindow: "1 minute",
+          keyGenerator: (request) =>
+            `pixel:${String((request.query as { s?: string }).s ?? "")}`,
+        },
+      },
+      bodyLimit: 4096,
+    },
+    async (request, reply) => {
+      const { s: storeId } = request.query as { s?: string };
+      if (!isPixelStoreId(storeId)) return reply.code(400).send({ error: "invalid_store" });
+      const result = await ingestPixelEvent(env, storeId, request.body);
+      return reply.code(result.stored ? 202 : 204).send();
+    },
+  );
+
+  // F3/D10. Umbrales de gravedad de una tienda (por defecto o propios).
+  app.get("/v1/consultant/severity-thresholds", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const { organizationId } = request.query as { organizationId?: string };
+    if (!organizationId) return reply.code(400).send({ error: "organization_id_required" });
+    const result = await getSeverityThresholds(env, authorization, auth.context, organizationId);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    return result.data;
+  });
+
+  app.put("/v1/consultant/severity-thresholds", async (request, reply) => {
+    const auth = await resolveAuthContext(env, request.headers.authorization);
+    if (isAuthContextError(auth)) return sendAuthFailure(reply, auth.error);
+    const authorization = request.headers.authorization;
+    if (!authorization) return reply.code(401).send({ error: "missing_bearer_token" });
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    if (typeof body.organization_id !== "string") {
+      return reply.code(400).send({ error: "organization_id_required" });
+    }
+    // thresholds: null vuelve a los de por defecto.
+    const parsed = body.thresholds === null ? null : severityThresholdsSchema.safeParse(body.thresholds);
+    if (parsed && !parsed.success) {
+      return reply.code(400).send({ error: "invalid_severity_thresholds", detail: parsed.error.issues[0]?.message });
+    }
+    const result = await setSeverityThresholds(env, authorization, auth.context, body.organization_id, parsed ? parsed.data : null);
+    if (isServiceFailure(result)) return sendServiceFailure(reply, result);
+    // Se recalcula ya: el consultor cambia el umbral para ver el efecto.
+    void runSeverityEngine(env, body.organization_id).catch(() => undefined);
+    return result.data;
+  });
+
   app.get("/v1/consultant/severity", async (request, reply) => {
     const auth = await resolveAuthContext(env, request.headers.authorization);
 

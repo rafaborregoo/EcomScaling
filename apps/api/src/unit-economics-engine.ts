@@ -1,5 +1,8 @@
 import {
+  parseLifetimeRows,
+  paybackFromCurve,
   validateUnitEconomicsPlaybookTemplate,
+  type LifetimeMilestone,
   type PlaybookFrameworkInputLike,
   type PlaybookTemplate,
   type PlaybookTriState,
@@ -45,6 +48,8 @@ export type UnitEconomicsEvidence = {
     cac_blended?: number | null;
     breakeven_cac_per_order?: number | null;
   } | null;
+  /** Curva de `shopify_customer_lifetime`, con el CAC de cada cohorte. */
+  lifetime?: LifetimeMilestone[] | null;
 };
 
 function observed(value: number | null | undefined): PlaybookTriState {
@@ -118,10 +123,12 @@ export function applyUnitEconomicsEvidence(
     // recibia las dos columnas y las ignoraba.
     "unit_economics.contribution.observed": observed(financial?.contribution_per_order),
     "unit_economics.acquisition.cac_observed": observed(financial?.cac_blended),
-    // Payback sigue UNKNOWN a proposito: `breakeven_cac_per_order` es el umbral
-    // que no hay que superar, no el periodo de recuperacion. Calcularlo pide
-    // decidir horizonte y si va sobre margen o ingreso -- decision de producto.
-    "unit_economics.payback.observed": UNKNOWN,
+    // `breakeven_cac_per_order` es el umbral que no hay que superar, no el
+    // periodo de recuperacion. El payback sale de la curva de LTV sobre margen
+    // (decision 2026-09-24): primer hito que cubre el CAC de su cohorte, o
+    // "no recupera en un año". Sin coste, sin CAC o sin cohorte, no se sabe.
+    "unit_economics.payback.observed":
+      evidence.lifetime && paybackFromCurve(evidence.lifetime).status !== "UNKNOWN" ? "TRUE" : UNKNOWN,
     "unit_economics.cash.observed": UNKNOWN,
     "unit_economics.segmented.observed": UNKNOWN,
     "unit_economics.scenarios.observed": UNKNOWN,
@@ -148,10 +155,11 @@ async function enrichUnitEconomicsContext(
     period_end: periodEnd.toISOString(),
     target_store_id: null,
   };
-  const [salesResult, marginResult, financialResult] = await Promise.all([
+  const [salesResult, marginResult, financialResult, lifetimeResult] = await Promise.all([
     supabase.rpc("shopify_sales_summary", rpcArgs),
     supabase.rpc("shopify_margin_summary", rpcArgs),
     supabase.rpc("shopify_financial_summary", rpcArgs),
+    supabase.rpc("shopify_customer_lifetime", { target_organization_id: organizationId, target_store_id: null, as_of: context.as_of }),
   ]);
   const first = (result: any) => (Array.isArray(result.data) ? result.data[0] : null);
   return applyUnitEconomicsEvidence(
@@ -160,11 +168,13 @@ async function enrichUnitEconomicsContext(
       sales: salesResult.error ? null : first(salesResult),
       margin: marginResult.error ? null : first(marginResult),
       financial: financialResult.error ? null : first(financialResult),
+      lifetime: lifetimeResult.error ? null : parseLifetimeRows(lifetimeResult.data),
     },
     [
       !salesResult.error ? `shopify_sales_summary:${organizationId}:${context.as_of.slice(0, 10)}` : "",
       !marginResult.error ? `shopify_margin_summary:${organizationId}:${context.as_of.slice(0, 10)}` : "",
       !financialResult.error ? `shopify_financial_summary:${organizationId}:${context.as_of.slice(0, 10)}` : "",
+      !lifetimeResult.error ? `shopify_customer_lifetime:${organizationId}:${context.as_of.slice(0, 10)}` : "",
     ].filter(Boolean),
   );
 }

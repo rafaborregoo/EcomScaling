@@ -31,7 +31,7 @@ import {
   classifyAuthorizationAttempt,
   isPurgeableAuthorizationAttempt,
   observeMaturity,
-  type MaturityDeclaration,
+  type MaturityDeclaration, DEFAULT_SEVERITY_THRESHOLDS, type SeverityThresholds,
 } from "@ecomscaling/contracts";
 import { leerHechos } from "./maturity-engine.js";
 import { createLogger } from "@ecomscaling/observability";
@@ -3503,15 +3503,19 @@ export async function listOrganizationStores(
  * con `restoreOrganizationStore`. Ver R-008.
  */
 /**
- * Descartar un intento de autorizacion a medias no es borrar una tienda, y no
- * puede pedir la misma autoridad.
+ * Descartar un intento de autorizacion a medias, o una conexion que si se
+ * autorizo pero nunca trajo un dato, no es borrar una tienda, y no puede
+ * pedir la misma autoridad.
  *
  * Borrar una tienda de verdad es del consultor: hay historico detras y se hace
- * con periodo de gracia. Pero la fila `pending` que siembra el OAuth la crea el
- * propio owner al pulsar "Conectar" (shopify.ts exige owner/manager/admin), no
- * contiene nada, y ademas le esta comiendo cupo de tiendas de SU plan. Exigir
- * un consultor para tirar algo que el mismo acaba de crear por accidente deja
- * al cliente mirando un boton que le devuelve 403.
+ * con periodo de gracia. Pero ninguno de estos dos casos tiene historico -- la
+ * fila `pending` que siembra el OAuth, o la conexion en `error` que nunca
+ * sincronizo nada, las crea el propio owner al pulsar "Conectar"
+ * (shopify.ts exige owner/manager/admin) -- y ademas le esta comiendo cupo de
+ * tiendas de SU plan. Exigir un consultor para tirar algo que el mismo acaba
+ * de crear por accidente (o conecto a la cuenta equivocada) deja al cliente
+ * mirando un boton que le devuelve 403, o atrapado en un bucle de reintentos
+ * para siempre.
  */
 function canDiscardAuthorizationAttempt(
   context: AuthContext,
@@ -3546,7 +3550,7 @@ export async function deleteOrganizationStore(
   const { data: connection, error: loadError } = await supabase
     .from("integration_connections")
     .select(
-      "id, organization_id, provider, status, connected_at, created_at, updated_at",
+      "id, organization_id, provider, status, connected_at, last_sync_at, created_at, updated_at",
     )
     .eq("id", connectionId)
     .maybeSingle();
@@ -3631,8 +3635,65 @@ export async function deleteOrganizationStore(
     };
   }
 
-  // A partir de aqui ya no es un intento: es una tienda con datos, y eso sigue
-  // siendo del consultor aunque el owner pueda descartar un OAuth a medias.
+  // Una conexion que si termino el OAuth -- p.ej. contra la cuenta de Shopify
+  // equivocada -- pero nunca trajo un dato y esta en error no es "una tienda
+  // con historial": es tan basura como un intento abandonado, solo que el
+  // OAuth se completo con exito contra la cuenta que no era. Exigir consultor
+  // y 30 dias de gracia para borrar algo que jamas sincronizo nada deja al
+  // owner atrapado en un bucle de reintentos para siempre por un error que el
+  // mismo puede ver y resolver. Misma autoridad que descartar un intento a
+  // medias (owner, manager o platform admin).
+  const esConexionRotaSinDatos =
+    connection.status === "error" && !connection.last_sync_at;
+
+  if (esConexionRotaSinDatos) {
+    if (!puedeDescartar) {
+      return access.ok === false
+        ? access
+        : {
+            ok: false as const,
+            statusCode: 403,
+            error: "organization_manage_denied",
+            message:
+              "Solo owner, manager o platform admin pueden eliminar una conexión sin datos.",
+          };
+    }
+
+    const { error: discardError } = await supabase
+      .from("integration_connections")
+      .delete()
+      .eq("id", connectionId)
+      // Si llega un sync entre la lectura y el borrado y trae datos de verdad,
+      // esta condicion deja la fila viva y cae al camino normal de borrado.
+      .eq("status", "error")
+      .is("last_sync_at", null);
+
+    if (discardError) {
+      return {
+        ok: false as const,
+        statusCode: 500,
+        error: "broken_connection_discard_failed",
+        detail: discardError.message,
+      };
+    }
+
+    await recordAuditLog(supabase, {
+      organizationId,
+      actorUserId: context.user.id,
+      action: "integrations.discard_broken_connection",
+      entityType: "integration_connection",
+      entityId: connectionId,
+      oldData: connection,
+    });
+
+    return {
+      ok: true as const,
+      data: { discarded: true as const, connection_id: connectionId },
+    };
+  }
+
+  // A partir de aqui ya no es un intento ni una conexion rota sin datos: es
+  // una tienda con historial, y eso sigue siendo del consultor.
   if (access.ok === false) {
     return access;
   }
@@ -8327,7 +8388,7 @@ export async function listConsultantMaturity(
   const { data: declaraciones } = await supabase
     .from("capability_maturity_declarations")
     .select(
-      "organization_id, capability, influences_decisions, has_ownership, owner_role, note, declared_at",
+      "organization_id, capability, influences_decisions, has_ownership, owner_role, note, required_level, declared_at",
     )
     .in("organization_id", ids);
 
@@ -8417,6 +8478,7 @@ export async function declareConsultantCapabilityMaturity(
       has_ownership: input.has_ownership,
       owner_role: input.owner_role ?? null,
       note: input.note ?? null,
+      required_level: input.required_level ?? null,
       declared_by: context.user.id,
       declared_at: new Date().toISOString(),
     },
@@ -8904,7 +8966,7 @@ export async function listConsultantDiagnosticRobustness(
 
   const caseIds = [...new Set((robustness ?? []).map((row) => row.case_id as string))];
   const robustnessIds = (robustness ?? []).map((row) => row.id as string);
-  const [confoundersResult, gatesResult, checksResult, sensitivityResult] = await Promise.all([
+  const [confoundersResult, gatesResult, checksResult, sensitivityResult, revisionsResult] = await Promise.all([
     robustnessIds.length
       ? supabase.from("diagnostic_confounders").select("*").in("robustness_id", robustnessIds)
       : Promise.resolve({ data: [], error: null }),
@@ -8917,9 +8979,16 @@ export async function listConsultantDiagnosticRobustness(
     robustnessIds.length
       ? supabase.from("sensitivity_analyses").select("*").in("robustness_id", robustnessIds)
       : Promise.resolve({ data: [], error: null }),
+    caseIds.length
+      ? supabase
+          .from("diagnostic_revision_requests")
+          .select("id, case_id, status, attempt, reopened_blocks, decided_at, created_at")
+          .in("case_id", caseIds)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
-  for (const result of [confoundersResult, gatesResult, checksResult, sensitivityResult]) {
+  for (const result of [confoundersResult, gatesResult, checksResult, sensitivityResult, revisionsResult]) {
     if (result.error) {
       return { ok: false as const, statusCode: 500, error: "consultant_adversarial_children_load_failed", detail: result.error.message };
     }
@@ -8935,6 +9004,7 @@ export async function listConsultantDiagnosticRobustness(
         gates: (gatesResult.data ?? []).filter((row) => row.case_id === review.case_id),
         checks: (checksResult.data ?? []).filter((row) => row.case_id === review.case_id),
         sensitivity: (sensitivityResult.data ?? []).filter((row) => row.robustness_id === review.id),
+        revisions: (revisionsResult.data ?? []).filter((row) => row.case_id === review.case_id),
       })),
     },
   };
@@ -8990,4 +9060,132 @@ export async function listConsultantPrioritizationRuns(env: ApiEnv, authorizatio
   const traces = runIds.length ? await supabase.from("prioritization_rule_traces").select("*").in("prioritization_run_id", runIds).order("executed_at", { ascending: true }) : { data: [], error: null };
   if (traces.error) return { ok: false as const, statusCode: 500, error: "consultant_prioritization_traces_load_failed", detail: traces.error.message };
   return { ok: true as const, data: { runs: (runs ?? []).map((run) => ({ ...run, rule_traces: (traces.data ?? []).filter((trace) => trace.prioritization_run_id === run.id) })) } };
+}
+
+/**
+ * D10: los umbrales de gravedad de una tienda. Sin fila propia se usan los de
+ * por defecto del contrato, y la respuesta dice cuales rigen.
+ */
+async function assertInPortfolio(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const orgsResult = await listConsultantOrganizations(env, authorization, context);
+  if (orgsResult.ok === false) return orgsResult;
+  if (!orgsResult.data.organizations.some((o) => o.id === organizationId)) {
+    return {
+      ok: false as const,
+      statusCode: 403,
+      error: "organization_not_assigned",
+      message: "Esa tienda no esta en tu cartera.",
+    };
+  }
+  return null;
+}
+
+export async function getSeverityThresholds(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+) {
+  const denied = await assertInPortfolio(env, authorization, context, organizationId);
+  if (denied) return denied;
+  const supabase = createServiceClient(env);
+  const { data, error } = await supabase
+    .from("severity_thresholds")
+    .select("low, moderate, high, critical, declared_at")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "severity_thresholds_load_failed", detail: error.message };
+  }
+  const own = data
+    ? {
+        low: Number(data.low),
+        moderate: Number(data.moderate),
+        high: Number(data.high),
+        critical: Number(data.critical),
+        declared_at: data.declared_at as string,
+      }
+    : null;
+  return {
+    ok: true as const,
+    data: { defaults: DEFAULT_SEVERITY_THRESHOLDS, organization: own, source: own ? "organization" : "default" },
+  };
+}
+
+export async function setSeverityThresholds(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  organizationId: string,
+  thresholds: SeverityThresholds | null,
+) {
+  const denied = await assertInPortfolio(env, authorization, context, organizationId);
+  if (denied) return denied;
+  const supabase = createServiceClient(env);
+  // null = volver a los de por defecto: se borra la fila propia.
+  const { error } = thresholds
+    ? await supabase.from("severity_thresholds").upsert(
+        { organization_id: organizationId, ...thresholds, declared_by: context.user.id, declared_at: new Date().toISOString() },
+        { onConflict: "organization_id" },
+      )
+    : await supabase.from("severity_thresholds").delete().eq("organization_id", organizationId);
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "severity_thresholds_write_failed", detail: error.message };
+  }
+  return getSeverityThresholds(env, authorization, context, organizationId);
+}
+
+/**
+ * F3/D12: el consultor confirma o descarta una propuesta de reabrir D06-D09.
+ * Confirmar consume presupuesto (maximo 2 por caso) y devuelve el caso a
+ * investigacion; la revision se hace en la siguiente pasada de la cadena.
+ */
+export async function decideDiagnosticRevision(
+  env: ApiEnv,
+  authorization: string,
+  context: AuthContext,
+  requestId: string,
+  decision: "confirm" | "decline",
+) {
+  const supabase = createServiceClient(env);
+  const { data: peticion, error } = await supabase
+    .from("diagnostic_revision_requests")
+    .select("id, organization_id, case_id, status")
+    .eq("id", requestId)
+    .maybeSingle();
+  if (error) {
+    return { ok: false as const, statusCode: 500, error: "diagnostic_revision_load_failed", detail: error.message };
+  }
+  if (!peticion) return { ok: false as const, statusCode: 404, error: "diagnostic_revision_not_found" };
+  const denied = await assertInPortfolio(env, authorization, context, peticion.organization_id as string);
+  if (denied) return denied;
+  if (peticion.status !== "proposed") {
+    return { ok: false as const, statusCode: 409, error: "diagnostic_revision_already_decided" };
+  }
+
+  const { error: updateError } = await supabase
+    .from("diagnostic_revision_requests")
+    .update({
+      status: decision === "confirm" ? "confirmed" : "declined",
+      decided_by: context.user.id,
+      decided_at: new Date().toISOString(),
+    })
+    .eq("id", requestId)
+    .eq("status", "proposed");
+  if (updateError) {
+    return { ok: false as const, statusCode: 500, error: "diagnostic_revision_write_failed", detail: updateError.message };
+  }
+  if (decision === "confirm") {
+    await supabase
+      .from("diagnostic_cases")
+      .update({ status: "investigating" })
+      .eq("id", peticion.case_id as string)
+      .in("status", ["open", "investigating", "partially_confirmed"]);
+  }
+  return { ok: true as const, data: { id: requestId, status: decision === "confirm" ? "confirmed" : "declined" } };
 }

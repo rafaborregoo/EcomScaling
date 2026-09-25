@@ -186,6 +186,10 @@ Object.assign(PLAYBOOK_INSIGHT_META, {
   F8_02_HITL_APPROVAL: { slug: "hitl-approval", label: "Aprobación humana", location: "Diagnóstico" },
   F8_16_CLOSURE_HANDOFF: { slug: "closure-handoff", label: "Cierre y resultado", location: "Diagnóstico" },
   F9_CONTINUOUS_LEARNING: { slug: "continuous-learning", label: "Aprendizaje continuo", location: "Diagnóstico" },
+  F9_EVIDENCE: { slug: "f9-evidence", label: "Experiencia y evidencia", location: "Diagnóstico" },
+  F9_DOMAINS: { slug: "f9-domains", label: "Aprendizaje por dominio", location: "Diagnóstico" },
+  F9_KNOWLEDGE: { slug: "f9-knowledge", label: "Ciclo de vida del conocimiento", location: "Diagnóstico" },
+  F9_GOVERNANCE: { slug: "f9-governance", label: "Gobernanza del aprendizaje", location: "Diagnóstico" },
 });
 
 /**

@@ -1,3 +1,4 @@
+import { ensureShopifyWebPixel } from "./shopify-pixel.js";
 import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@ecomscaling/config";
@@ -130,6 +131,10 @@ export async function reconcileAllShopifyConnections(env: ApiEnv) {
         error: journeyError instanceof Error ? journeyError.message : String(journeyError),
       });
     }
+
+    // El pixel propio (vistas de producto). Idempotente: si ya esta activo con
+    // su configuracion no toca nada; sin permisos write_pixels lo registra y sigue.
+    await ensureShopifyWebPixel(env, connection.id);
 
     try {
       await runShopifyInitialSync(env, connection.id, "incremental");

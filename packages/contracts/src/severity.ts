@@ -619,11 +619,53 @@ export type DenominatorReading = {
   value: number;
 };
 
+/**
+ * Umbrales de cuota para la severidad aguda: que parte de la base elegida
+ * tiene que moverse para que el dano sea bajo, moderado, alto o critico.
+ *
+ * NO salen del artefacto --el apartado 29 se niega a darlos--: son una
+ * decision de producto del 2026-09-24. Hay unos por defecto para toda la
+ * cartera y el consultor los cambia por tienda, porque un 3 % no pesa igual en
+ * una tienda con un 60 % de margen que en una con un 15 %.
+ */
+export type SeverityThresholds = { low: number; moderate: number; high: number; critical: number };
+
+export const DEFAULT_SEVERITY_THRESHOLDS: SeverityThresholds = {
+  low: 0.01,
+  moderate: 0.03,
+  high: 0.07,
+  critical: 0.15,
+};
+
+export const severityThresholdsSchema = z
+  .object({
+    low: z.number().gt(0).lte(1),
+    moderate: z.number().gt(0).lte(1),
+    high: z.number().gt(0).lte(1),
+    critical: z.number().gt(0).lte(1),
+  })
+  .refine((t) => t.low < t.moderate && t.moderate < t.high && t.high < t.critical, {
+    message: "Los umbrales tienen que crecer: bajo < moderado < alto < critico.",
+  });
+
+/** De la cuota a la severidad. Por debajo del umbral bajo es informativo. */
+export function severityFromShare(share: number, t: SeverityThresholds): string {
+  if (share >= t.critical) return "critical";
+  if (share >= t.high) return "high";
+  if (share >= t.moderate) return "moderate";
+  if (share >= t.low) return "low";
+  return "info";
+}
+
+const pctText = (v: number) => `${Number((v * 100).toFixed(2))} %`;
+
 export type SeverityCaseInput = {
   diagnosticCase: CaseForSeverity;
   signal: SignalForSeverity | null;
   denominators: DenominatorReading[];
   currency: string;
+  /** Sin umbrales, las severidades se quedan en `unknown` como antes. */
+  thresholds?: { values: SeverityThresholds; source: "default" | "organization" } | null;
   /** De D01. Medir mal no es perder dinero, pero si compromete la cifra. */
   dataReliability?: string | null;
   /** De D06: cuantas veces ha pasado esto antes. */
@@ -632,7 +674,7 @@ export type SeverityCaseInput = {
 
 export type ImpactMeasurementDraft = {
   dimension: string;
-  dimension_severity: "unknown";
+  dimension_severity: string;
   nature: string;
   timing: string;
   evidence_type: string;
@@ -665,11 +707,11 @@ export type SeverityAssessmentDraft = {
   case_id: string;
   target: string;
   scope: string;
-  acute_severity: "unknown";
+  acute_severity: string;
   cumulative_severity: "unknown";
   forward_risk_severity: "unknown";
   structural_severity: "unknown";
-  overall_severity: "unknown";
+  overall_severity: string;
   cause_confidence: string;
   impact_confidence: string;
   severity_confidence: string;
@@ -810,9 +852,12 @@ export function recurrenceFrom(
  * frase se leeria como si alguien hubiera decidido que el dano es desconocido,
  * cuando lo que pasa es que nadie ha definido como medirlo.
  */
-export function limitationsFor(input: SeverityCaseInput): string {
+export function limitationsFor(input: SeverityCaseInput, acuteApplied = false): string {
+  const t = input.thresholds;
   const faltas: string[] = [
-    "Las cinco severidades quedan en `unknown` porque la fuente no define formula de severidad ni umbral de cuota (apartado 29, guardrail 17): decidir que un 3 % es moderado seria inventarse el umbral.",
+    acuteApplied && t
+      ? `La severidad aguda se juzga con umbrales de cuota ${t.source === "organization" ? "fijados para esta tienda" : "por defecto de la cartera"} (bajo desde ${pctText(t.values.low)}, moderado ${pctText(t.values.moderate)}, alto ${pctText(t.values.high)}, critico ${pctText(t.values.critical)} de la base elegida): son una politica, no una derivacion del artefacto. Acumulada, prospectiva y estructural siguen en \`unknown\`.`
+      : "Las cinco severidades quedan en `unknown`: la fuente no define formula de severidad (apartado 29) y sin umbrales de cuota o sin cuota sobre la base elegida no hay lectura que dar.",
     "No hay causa raiz ni constraint: D07 a D09 no tienen motor, asi que la confianza en la causa es insuficiente por construccion.",
     "Reversibilidad y recuperabilidad quedan sin evaluar: dependen de D09.",
   ];
@@ -861,8 +906,7 @@ export function assessSeverity(input: SeverityCaseInput): SeverityAssessmentDraf
     const esDinero = ["net_sales", "average_order_value"].includes(signal.metric);
     measurements.push({
       dimension: esDinero ? "revenue" : "operations",
-      // La severidad por dimension forma el vector, y tampoco hay formula para
-      // ella. Sale `unknown` como las otras cinco.
+      // La severidad de la dimension medida es la aguda: es el mismo dano.
       dimension_severity: "unknown",
       nature: "realized_loss",
       timing: "realized",
@@ -918,20 +962,34 @@ export function assessSeverity(input: SeverityCaseInput): SeverityAssessmentDraf
 
   const cuotaElegida = exposures.find((e) => e.is_chosen_denominator)?.exposure_share;
 
+  // Guardrail 17: la cuota sola no es la gravedad, pero con umbrales
+  // declarados si es la lectura aguda de un dano realizado y medido.
+  const aguda =
+    input.thresholds && typeof cuotaElegida === "number"
+      ? severityFromShare(cuotaElegida, input.thresholds.values)
+      : "unknown";
+  // Guardrail 14: un critico local no es un critico global sin exposicion
+  // material declarada; se queda en alto en la global.
+  const global =
+    aguda === "critical" && diagnosticCase.scope !== "business_global" ? "high" : aguda;
+  for (const medida of measurements) medida.dimension_severity = aguda;
+
   return {
     case_id: diagnosticCase.case_id,
     target: diagnosticCase.target_metric,
     scope: diagnosticCase.scope === "business_global" ? "business" : "capability",
-    acute_severity: "unknown",
+    acute_severity: aguda,
     cumulative_severity: "unknown",
     forward_risk_severity: "unknown",
     structural_severity: "unknown",
-    overall_severity: "unknown",
+    overall_severity: global,
     // Guardrail 13: se puede estar seguro del dano y no tener ni idea de por
     // que. Aqui la causa es insuficiente siempre, porque no hay motor causal.
     cause_confidence: "insufficient",
     impact_confidence: impactConfidence,
-    severity_confidence: "insufficient",
+    // Con umbral, la severidad es una lectura de politica sobre una perdida
+    // estimada: baja, nunca mas.
+    severity_confidence: aguda === "unknown" ? "insufficient" : "low",
     trajectory: signal?.trajectory ?? "unknown",
     velocity: velocityFrom(signal?.trajectory ?? null),
     recurrence: recurrenceFrom(input.symptomRecurrence),
@@ -953,9 +1011,9 @@ export function assessSeverity(input: SeverityCaseInput): SeverityAssessmentDraf
             typeof cuotaElegida === "number"
               ? `, lo que supone un ${(cuotaElegida * 100).toFixed(1)}% de la base elegida`
               : ""
-          }.`,
+          }${aguda === "unknown" ? "" : `; severidad aguda ${aguda} segun los umbrales ${input.thresholds?.source === "organization" ? "de la tienda" : "por defecto"}`}.`,
     assumptions: null,
-    limitations: limitationsFor(input),
+    limitations: limitationsFor(input, aguda !== "unknown"),
     measurements,
     exposures,
   };

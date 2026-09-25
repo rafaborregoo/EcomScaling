@@ -40,6 +40,9 @@ const functions = [
   ["public.admin_ai_failure_clusters", "timestamptz", "pg_catalog, public"],
   ["public.admin_data_quality_portfolio", "", "pg_catalog, public"],
   ["private.capture_inventory_snapshot", "", "pg_catalog, public"],
+  ["public.shopify_customer_lifetime", "uuid, uuid, timestamptz", "pg_catalog, public"],
+  ["public.shopify_customer_churn", "uuid, uuid, timestamptz", "pg_catalog, public"],
+  ["public.shopify_product_views", "uuid, timestamptz, timestamptz, uuid", "pg_catalog, public"],
 ];
 
 const normalize = (value) => value.replace(/\s+/g, " ").trim().toLowerCase();

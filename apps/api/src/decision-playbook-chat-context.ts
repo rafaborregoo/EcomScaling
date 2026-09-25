@@ -641,10 +641,11 @@ export function summarizeClosureHandoffRun(row: unknown): Row {
 export function summarizeContinuousLearningRun(row: unknown): Row {
   const item = record(row); const result = record(item.result);
   return {
-    block_code: text(item.block_code ?? result.block_code), experience_id: text(item.experience_id ?? result.experience_id),
+    block_code: text(item.block_code ?? result.block), title: text(result.title), block_decision: text(result.block_decision), why: text(result.why),
+    experience_id: text(item.experience_id),
     status: text(item.status ?? result.status), classification: text(item.classification ?? result.classification), confidence: text(item.confidence ?? result.confidence),
     gate: item.gate === true || result.gate === true, rationale: strings(item.rationale ?? result.rationale), learning: strings(item.learning ?? result.learning),
-    next_evidence_needed: strings(item.next_evidence_needed ?? result.next_evidence_needed), unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
+    next_evidence_needed: strings(item.next_evidence_needed ?? result.next_evidence), unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns),
     source_refs: strings(item.source_refs ?? result.source_refs), evaluated_at: text(item.evaluated_at ?? result.evaluated_at),
     selection: "F9 learning: experience trazable y outcome clasificado; no convertir evidencia insuficiente en recomendación ni autorización",
   };
@@ -663,6 +664,7 @@ export function summarizeReadinessRun(row: unknown): Row { const item = record(r
 
 export function summarizeActionEnvelopeRun(row: unknown): Row { const item = record(row); const result = record(item.result); return { context_id: text(item.context_id ?? result.context_id), zone: text(item.envelope_zone ?? result.zone), violations: strings(item.violations ?? result.violations), warnings: strings(item.warnings ?? result.warnings), covered_action_ids: strings(result.covered_action_ids), remaining_capacity: result.remaining_capacity ?? {}, envelope_fresh: result.envelope_fresh === true, scope_expansion_required: result.scope_expansion_required === true, alternatives: strings(result.alternatives), unresolved_unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), execution_authorized: false, selection: "F8.05 action envelope; el alcance efectivo limita el plan y no concede autoridad de ejecución" }; }
 /** Las filas llegan de la mas reciente a la mas antigua: una por etapa. */
+function latestPerBlock(rows: unknown[]): unknown[] { const seen = new Set<string>(); return rows.filter((row) => { const block = String(record(row).block_code ?? ""); if (seen.has(block)) return false; seen.add(block); return true; }); }
 function latestPerStage(rows: unknown[]): unknown[] { const seen = new Set<string>(); return rows.filter((row) => { const stage = String(record(row).stage ?? ""); if (seen.has(stage)) return false; seen.add(stage); return true; }); }
 
 export function summarizeExecutionSupervisionRun(row: unknown): Row { const item = record(row); const result = record(item.result); return { block: text(result.block), stage: text(item.stage ?? result.stage), decision: text(item.decision ?? result.decision), block_decision: text(result.block_decision), why: text(result.why), blockers: strings(item.blockers ?? result.blockers), warnings: strings(item.warnings ?? result.warnings), next_actions: strings(result.next_actions), unknowns: strings(item.unresolved_unknowns ?? result.unresolved_unknowns), execution_authorized: false, selection: "F8 supervisión por bloque: la decisión propia de cada bloque (block_decision) y su motivo; no autoriza ejecución ni afirma que algo se haya ejecutado" }; }
@@ -920,7 +922,7 @@ export function buildDecisionPlaybookContextBlocks(input: {
   const executionSupervisionRuns = input.executionSupervisionRuns ?? [];
   blocks.push({ label: "F8.06-F8.17 SUPERVISIÓN DE EJECUCIÓN (capabilities, guardrails, lifecycle y evidencia)", data: executionSupervisionRuns.length ? latestPerStage(executionSupervisionRuns).map(summarizeExecutionSupervisionRun) : "sin_evaluaciones_de_supervision; no inventar tools, estados, incidentes, recovery, verificación ni reporting" });
   const continuousLearningRuns = input.continuousLearningRuns ?? [];
-  blocks.push({ label: "F9 APRENDIZAJE CONTINUO (experiencia, evidencia, outcome y gates; no es autorización de ejecución)", data: continuousLearningRuns.length ? continuousLearningRuns.map(summarizeContinuousLearningRun) : "sin_evaluaciones_de_learning; no inventar outcome, causalidad, confianza ni conocimiento reutilizable" });
+  blocks.push({ label: "F9 APRENDIZAJE CONTINUO (experiencia, evidencia, outcome y gates; no es autorización de ejecución)", data: continuousLearningRuns.length ? latestPerBlock(continuousLearningRuns).map(summarizeContinuousLearningRun) : "sin_evaluaciones_de_learning; no inventar outcome, causalidad, confianza ni conocimiento reutilizable" });
   return blocks;
 }
 

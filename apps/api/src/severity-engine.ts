@@ -31,6 +31,8 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   assessSeverity,
+  DEFAULT_SEVERITY_THRESHOLDS,
+  severityThresholdsSchema,
   type CaseForSeverity,
   type DenominatorReading,
   type SignalForSeverity,
@@ -105,13 +107,34 @@ export async function runSeverityEngine(env: LoadedApiEnv, organizationId: strin
   if (errorCasos) throw new Error(`diagnostic_cases_load_failed: ${errorCasos.message}`);
   if ((casos ?? []).length === 0) return resumen;
 
+  // Umbrales de gravedad: los de la tienda si el consultor los cambio, y si no
+  // los de por defecto de la cartera (decision 2026-09-24).
+  const { data: umbralPropio } = await supabase
+    .from("severity_thresholds")
+    .select("low, moderate, high, critical")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  const propios = umbralPropio ? severityThresholdsSchema.safeParse({
+    low: Number(umbralPropio.low),
+    moderate: Number(umbralPropio.moderate),
+    high: Number(umbralPropio.high),
+    critical: Number(umbralPropio.critical),
+  }) : null;
+  const thresholds = propios?.success
+    ? { values: propios.data, source: "organization" as const }
+    : { values: DEFAULT_SEVERITY_THRESHOLDS, source: "default" as const };
+
   // D01, una vez por organizacion. Medir mal no es perder dinero (guardrail 49),
   // pero una resta exacta sobre un dato malo sigue siendo un dato malo.
   const { data: calidad } = await supabase
     .from("data_quality_assessments")
-    .select("reliability, role")
+    .select("reliability")
     .eq("organization_id", organizationId)
-    .eq("role", "primary")
+    // La fuente primaria de los diagnosticos son los pedidos de Shopify. Antes
+    // filtraba por `role`, que es columna de diagnostic_case_data_quality y no
+    // de esta tabla: la consulta fallaba y D01 no llegaba nunca a D10.
+    .eq("source", "shopify")
+    .eq("dataset", "orders")
     .order("assessed_at", { ascending: false })
     .limit(1);
 
@@ -202,6 +225,7 @@ export async function runSeverityEngine(env: LoadedApiEnv, organizationId: strin
       currency: (tienda?.currency_code as string | undefined) ?? "EUR",
       dataReliability,
       symptomRecurrence: recurrencia,
+      thresholds,
     });
 
     // Si la medida no ha cambiado, no se escribe otra fila. El historico sirve
@@ -209,7 +233,7 @@ export async function runSeverityEngine(env: LoadedApiEnv, organizationId: strin
     // convierte en ruido.
     const { data: vigente } = await supabase
       .from("severity_assessments")
-      .select("id, summary, impact_confidence, measurement_compromised")
+      .select("id, summary, impact_confidence, measurement_compromised, acute_severity, overall_severity")
       .eq("case_id", caso.id as string)
       .eq("assessment_status", "current")
       .maybeSingle();
@@ -218,7 +242,9 @@ export async function runSeverityEngine(env: LoadedApiEnv, organizationId: strin
       vigente &&
       vigente.summary === borrador.summary &&
       vigente.impact_confidence === borrador.impact_confidence &&
-      vigente.measurement_compromised === borrador.measurement_compromised
+      vigente.measurement_compromised === borrador.measurement_compromised &&
+      vigente.acute_severity === borrador.acute_severity &&
+      vigente.overall_severity === borrador.overall_severity
     ) {
       resumen.unchanged += 1;
       continue;

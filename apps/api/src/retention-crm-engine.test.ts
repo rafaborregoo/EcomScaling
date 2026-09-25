@@ -21,10 +21,10 @@ test("P05 distingue base/repeat observable de cohortes y LTV", () => {
   assert.equal(enriched.facts?.["retention.ltv.observed"], "UNKNOWN");
 });
 
-test("P05 conserva UNKNOWN para churn, suscripción, incrementalidad y calidad", () => {
+test("P05 conserva UNKNOWN para suscripción, incrementalidad y calidad; el umbral de churn ya está decidido", () => {
   const context = buildRetentionCrmPlaybookContext("org-1", [], null, "2026-09-17T10:00:00.000Z");
   const enriched = applyRetentionCrmEvidence(context, { customers: null, crm: null });
-  assert.equal(enriched.facts?.["retention.churn.threshold_defined"], "UNKNOWN");
+  assert.equal(enriched.facts?.["retention.churn.threshold_defined"], "TRUE");
   assert.equal(enriched.facts?.["retention.subscription.observed"], "UNKNOWN");
   assert.equal(enriched.facts?.["retention.incrementality.supported"], "UNKNOWN");
   assert.equal(enriched.facts?.["retention.customer_quality.available"], "UNKNOWN");
@@ -51,4 +51,12 @@ test("P05 lee Klaviyo: flujos activos, envios y medicion fiable solo con UTM y c
   const sinKlaviyo = applyRetentionCrmEvidence(context, { klaviyo: null });
   assert.equal(sinKlaviyo.facts?.["retention.crm.sending_observed"], "UNKNOWN");
   assert.equal(sinKlaviyo.facts?.["retention.crm.measurement_reliable"], "UNKNOWN");
+});
+
+test("P05 LTV observado solo con cohorte madura y margen calculable", () => {
+  const context = buildRetentionCrmPlaybookContext("org-1", [], null, "2026-09-17T10:00:00.000Z");
+  const hito = { milestone_days: 365, cohort_customers: 40, avg_revenue: 90, avg_contribution: 30, items_without_cost: 0, cohort_cac: 20 };
+  assert.equal(applyRetentionCrmEvidence(context, { lifetime: [hito] }).facts?.["retention.ltv.observed"], "TRUE");
+  assert.equal(applyRetentionCrmEvidence(context, { lifetime: [{ ...hito, avg_contribution: null, items_without_cost: 3 }] }).facts?.["retention.ltv.observed"], "UNKNOWN");
+  assert.equal(applyRetentionCrmEvidence(context, { lifetime: [{ ...hito, cohort_customers: 0 }] }).facts?.["retention.ltv.observed"], "UNKNOWN");
 });

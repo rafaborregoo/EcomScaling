@@ -143,7 +143,7 @@ async function enrichConversionCroBenchmarksContext(
   const periodEnd = new Date(context.as_of);
   const periodStart = new Date(periodEnd.getTime() - 90 * 24 * 60 * 60 * 1000);
   const timestampArgs = { target_organization_id: organizationId, period_start: periodStart.toISOString(), period_end: periodEnd.toISOString(), target_store_id: null };
-  const [funnelResult, salesResult, marginResult, financialResult, checkoutResult, returnsResult, attributionResult, stockResult, deliveryResult, discountResult, dailyResult] = await Promise.all([
+  const [funnelResult, salesResult, marginResult, financialResult, checkoutResult, returnsResult, attributionResult, stockResult, deliveryResult, discountResult, dailyResult, viewsResult] = await Promise.all([
     supabase.rpc("shopify_funnel_summary", timestampArgs),
     supabase.rpc("shopify_sales_summary", timestampArgs),
     supabase.rpc("shopify_margin_summary", timestampArgs),
@@ -155,7 +155,12 @@ async function enrichConversionCroBenchmarksContext(
     supabase.rpc("shopify_delivery_times", timestampArgs),
     supabase.rpc("shopify_discount_cost_by_code", { ...timestampArgs, result_limit: 20 }),
     supabase.rpc("shopify_sales_daily", timestampArgs),
+    // Vistas de producto del pixel propio. Sin pixel activo (first_event_at
+    // null) no hay dato: se queda null, no cero.
+    supabase.rpc("shopify_product_views", timestampArgs),
   ]);
+  const views = first(viewsResult);
+  const productViews = views?.first_event_at ? views.product_views : null;
   const funnel = first(funnelResult);
   const sales = first(salesResult);
   const margin = first(marginResult);
@@ -164,9 +169,9 @@ async function enrichConversionCroBenchmarksContext(
   const source = (name: string, result: any, requireRow = true) => !result?.error && (!requireRow || first(result) !== null) ? `${name}:${organizationId}:${day}` : "";
   const aov = present(sales?.orders_count) && Number(sales.orders_count) > 0 && present(sales?.net_sales) ? Number(sales.net_sales) / Number(sales.orders_count) : null;
   return applyConversionCroBenchmarksEvidence(context, {
-    funnel: available(funnelResult) ? { available: true, sessions: funnel?.sessions, cart_additions: funnel?.cart_additions, checkouts_reached: funnel?.checkouts_reached, purchases: funnel?.purchases, conversion_rate: funnel?.conversion_rate_shopify, funnel_data_since: funnel?.funnel_data_since } : { available: false },
+    funnel: available(funnelResult) ? { available: true, sessions: funnel?.sessions, product_views: productViews, cart_additions: funnel?.cart_additions, checkouts_reached: funnel?.checkouts_reached, purchases: funnel?.purchases, conversion_rate: funnel?.conversion_rate_shopify, funnel_data_since: funnel?.funnel_data_since } : { available: false },
     sales: available(salesResult) ? { available: true, orders_count: sales?.orders_count, revenue: sales?.net_sales } : { available: false },
-    economics: available(marginResult) || available(financialResult) ? { available: true, aov, margin: margin?.gross_margin, contribution: financial?.contribution_per_order, contribution_per_session: present(financial?.contribution_per_order) && present(funnel?.sessions) && Number(funnel.sessions) > 0 ? Number(margin.contribution) / Number(funnel.sessions) : null } : { available: false },
+    economics: available(marginResult) || available(financialResult) ? { available: true, aov, margin: margin?.gross_margin, contribution: financial?.contribution_per_order, contribution_per_session: present(financial?.contribution_per_order) && present(funnel?.sessions) && Number(funnel.sessions) > 0 ? Number(financial.contribution_per_order) / Number(funnel.sessions) : null } : { available: false },
     returns: !returnsResult?.error && Array.isArray(returnsResult?.data) && returnsResult.data.length > 0 ? { available: true, return_rate: returnsResult.data[0]?.return_rate, refunded_amount: returnsResult.data[0]?.refunded_amount } : { available: false },
     cancellations: { available: false },
     attribution: !attributionResult?.error && Array.isArray(attributionResult?.data) && attributionResult.data.length > 0 ? { available: true, channels: attributionResult.data.length, new_customers: attributionResult.data.reduce((sum: number, row: any) => sum + Number(row?.new_customers ?? 0), 0) } : { available: false },
@@ -182,7 +187,7 @@ async function enrichConversionCroBenchmarksContext(
     source("shopify_funnel_summary", funnelResult), source("shopify_sales_summary", salesResult), source("shopify_margin_summary", marginResult),
     source("shopify_financial_summary", financialResult), source("shopify_checkout_recovery", checkoutResult), source("shopify_return_rate_by_product", returnsResult),
     source("shopify_attribution_by_channel", attributionResult), source("shopify_stock_summary", stockResult), source("shopify_delivery_times", deliveryResult),
-    source("shopify_discount_cost_by_code", discountResult), source("shopify_sales_daily", dailyResult, false),
+    source("shopify_discount_cost_by_code", discountResult), source("shopify_sales_daily", dailyResult, false), productViews !== null ? source("shopify_product_views", viewsResult) : "",
   ].filter(Boolean));
 }
 

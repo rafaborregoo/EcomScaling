@@ -135,3 +135,23 @@ evidencia. Así el icono no depende de una métrica aislada como ROAS.
   causal; las filas y el cierre sembrados se borraron y el cleanup quedó a cero.
 - La ausencia de outcomes métricos en los tenants actuales queda visible como
   deuda de evidencia; no se inventan learnings para cerrar la pantalla.
+
+## Evaluadores propios por bloque — 2026-09-25
+
+El estado canónico del 2026-09-21 se reclasificó a `esqueleto` el 2026-09-22: los 40 bloques
+compartían un solo evaluador. Desde el 2026-09-25 cada bloque tiene el suyo, con su vocabulario
+de decisión (por ejemplo, 9.03 `YES/PARTIALLY/NO/UNKNOWN`, 9.05 `descriptiva…causal_plausible`,
+9.28 `VALIDAR/REDUCIR_CONFIANZA/CUARENTENA/RECHAZAR/ABSTENERSE`, 9.41 `DETENIDO_EN_<puerta>`).
+
+| Fichero | Bloques |
+|---|---|
+| `learning-snapshot.ts` | foto común, derivados (fidelidad, madurez, evidencia, confusores, nivel causal) |
+| `learning-blocks-evidence.ts` | 9.01, 9.03-9.09, 9.12 |
+| `learning-blocks-domain.ts` | 9.13-9.20 |
+| `learning-blocks-knowledge.ts` | 9.10, 9.11, 9.22-9.29, 9.33, 9.38 |
+| `learning-blocks-governance.ts` | 9.00, 9.30-9.32, 9.34-9.37, 9.39-9.41 |
+
+Motor: `apps/api/src/continuous-learning-engine.ts` (v2) con `learningSnapshotFromSources` puro. La
+pantalla agrupa los bloques en cuatro secciones con ancla (`insight-f9-evidence`, `-domains`,
+`-knowledge`, `-governance`). Lo que falta para que la mayoría pase de "espera evidencia" no es
+código: que F8 mida el efecto de negocio de cada intervención cerrada.

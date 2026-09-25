@@ -9,7 +9,7 @@ name = "EcomScaling - Custom"
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 # read_all_orders necesita "Access request" aprobada en el Partner Dashboard
 # (historico > 60 dias) antes de instalar en tiendas de merchants reales.
-scopes = "read_products,read_inventory,read_locations,read_orders,read_all_orders,read_returns,read_customers,read_reports"
+scopes = "read_products,read_inventory,read_locations,read_orders,read_all_orders,read_returns,read_customers,read_reports,write_pixels,read_customer_events"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 

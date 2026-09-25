@@ -30,6 +30,7 @@ import {
   ErrorBlock,
   Input,
   LoadingBlock,
+  Select,
   toast,
 } from "@/components/ui";
 
@@ -40,6 +41,7 @@ import {
   gapLabel,
   levelLabel,
   missingDimensions,
+  REQUIRED_LEVEL_OPTIONS,
   sortUnobserved,
   type CapabilityView,
   type MaturityDeclarationView,
@@ -65,6 +67,7 @@ function DeclarationForm({
   const [influences, setInfluences] = useState(declaration?.influences_decisions ?? false);
   const [ownership, setOwnership] = useState(declaration?.has_ownership ?? false);
   const [ownerRole, setOwnerRole] = useState(declaration?.owner_role ?? "");
+  const [requiredLevel, setRequiredLevel] = useState(declaration?.required_level ?? "");
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -79,6 +82,7 @@ function DeclarationForm({
           influences_decisions: influences,
           has_ownership: ownership,
           owner_role: ownership && ownerRole.trim() ? ownerRole.trim() : null,
+          required_level: requiredLevel || null,
         }),
       });
       if (!response.ok) {
@@ -94,6 +98,15 @@ function DeclarationForm({
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <Select
+        aria-label="Qué necesita este negocio"
+        className="w-60"
+        placeholder="Qué necesita este negocio"
+        value={requiredLevel}
+        onChange={setRequiredLevel}
+        options={REQUIRED_LEVEL_OPTIONS}
+        disabled={saving}
+      />
       <Checkbox checked={influences} onChange={setInfluences} disabled={saving}>
         La medida cambia decisiones
       </Checkbox>

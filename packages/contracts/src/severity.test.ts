@@ -31,6 +31,9 @@ import {
   type SeverityAssessment,
   type ImpactMeasurement,
   type SeverityCheckInput,
+  DEFAULT_SEVERITY_THRESHOLDS,
+  severityFromShare,
+  severityThresholdsSchema,
 } from "./severity.js";
 import { REVERSIBILITY } from "./root-cause.js";
 
@@ -678,4 +681,27 @@ test("D10: una perdida en dinero no tiene cuota sobre un recuento", () => {
   // Y la que si comparte unidad conserva su cuota.
   const revenue = e.exposures.find((x) => x.denominator === "revenue");
   assert.ok(Math.abs((revenue?.exposure_share ?? 0) - 2400 / 78000) < 1e-9);
+});
+
+test("D10: con umbrales, la cuota sobre la base elegida da la severidad aguda", () => {
+  const conUmbral = { values: DEFAULT_SEVERITY_THRESHOLDS, source: "default" as const };
+  const e = assessSeverity({ ...entrada(), thresholds: conUmbral });
+  const cuota = e.exposures.find((x) => x.is_chosen_denominator)?.exposure_share;
+  assert.equal(typeof cuota, "number");
+  assert.equal(e.acute_severity, severityFromShare(cuota as number, DEFAULT_SEVERITY_THRESHOLDS));
+  assert.equal(e.measurements[0]?.dimension_severity, e.acute_severity);
+  assert.equal(e.severity_confidence, "low");
+  // Las otras tres no tienen umbral: siguen sin puntuarse.
+  assert.deepEqual([e.cumulative_severity, e.forward_risk_severity, e.structural_severity], ["unknown", "unknown", "unknown"]);
+  assert.match(e.limitations, /umbrales de cuota por defecto/);
+});
+
+test("D10: la escalera de umbrales y su validacion", () => {
+  const t = DEFAULT_SEVERITY_THRESHOLDS;
+  assert.equal(severityFromShare(0.005, t), "info");
+  assert.equal(severityFromShare(0.01, t), "low");
+  assert.equal(severityFromShare(0.05, t), "moderate");
+  assert.equal(severityFromShare(0.1, t), "high");
+  assert.equal(severityFromShare(0.2, t), "critical");
+  assert.equal(severityThresholdsSchema.safeParse({ low: 0.05, moderate: 0.03, high: 0.07, critical: 0.15 }).success, false);
 });

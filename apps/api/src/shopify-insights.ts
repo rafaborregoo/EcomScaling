@@ -1,3 +1,10 @@
+import {
+  longestMaturedMilestone,
+  parseLifetimeRows,
+  paybackFromCurve,
+  type LifetimeMilestone,
+  type Payback,
+} from "@ecomscaling/contracts";
 import { createLogger } from "@ecomscaling/observability";
 import { type AuthContext, createUserScopedClient } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
@@ -98,6 +105,20 @@ export type ShopifyInsightsData = {
     orders_with_multiple_codes: number;
     discount_share: number | null;
   }>;
+  // LTV a 30/60/90/180/365 dias sobre cohortes maduras, con su payback, y
+  // churn a 180 dias. Sin ventana, como el valor por cliente: un LTV no se
+  // recorta al periodo seleccionado.
+  lifetime: {
+    curve: LifetimeMilestone[];
+    ltv: LifetimeMilestone | null;
+    payback: Payback;
+  } | null;
+  churn: {
+    churn_days: number;
+    base_customers: number;
+    churned_customers: number;
+    churn_rate: number | null;
+  } | null;
   unavailable: string[];
 };
 
@@ -224,8 +245,10 @@ export async function getShopifyInsights(
         "shopify_customer_recurrence",
         "shopify_customer_value",
         "shopify_cohorts",
+        "shopify_customer_lifetime",
+        "shopify_customer_churn",
       ],
-      purpose: "Panel de Shopify: recurrencia, valor por cliente y cohortes",
+      purpose: "Panel de Shopify: recurrencia, valor por cliente, cohortes, LTV y churn",
       storeId,
       detail: { period_days: periodDays },
     });
@@ -256,6 +279,8 @@ export async function getShopifyInsights(
       deliveryResult,
       recoveryResult,
       discountsResult,
+      lifetimeResult,
+      churnResult,
     ] = await Promise.all([
       supabase.rpc("shopify_customer_recurrence", window),
       // Sin ventana: el valor de vida es todo el historial del cliente.
@@ -278,6 +303,16 @@ export async function getShopifyInsights(
       supabase.rpc("shopify_discount_cost_by_code", {
         ...window,
         result_limit: LIST_LIMIT,
+      }),
+      supabase.rpc("shopify_customer_lifetime", {
+        target_organization_id: organizationId,
+        target_store_id: storeId,
+        as_of: periodEnd.toISOString(),
+      }),
+      supabase.rpc("shopify_customer_churn", {
+        target_organization_id: organizationId,
+        target_store_id: storeId,
+        as_of: periodEnd.toISOString(),
       }),
     ]);
 
@@ -308,6 +343,13 @@ export async function getShopifyInsights(
         unavailable,
       ),
       discounts: rows(discountsResult, "discounts", unavailable),
+      lifetime: lifetimeResult.error
+        ? (unavailable.push("lifetime"), null)
+        : (() => {
+            const curve = parseLifetimeRows(lifetimeResult.data);
+            return { curve, ltv: longestMaturedMilestone(curve), payback: paybackFromCurve(curve) };
+          })(),
+      churn: singleRow(churnResult, "churn", unavailable),
       unavailable,
     };
 
@@ -324,6 +366,8 @@ export async function getShopifyInsights(
             deliveryResult.error?.message,
             recoveryResult.error?.message,
             discountsResult.error?.message,
+            lifetimeResult.error?.message,
+            churnResult.error?.message,
           ]
             .filter(Boolean)
             .join(" | "),
